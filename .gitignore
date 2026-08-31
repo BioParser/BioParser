@@ -27,7 +27,7 @@ Session.vim
 # =========================
 
 # Byte-compiled / optimized
-**pycache**/
+__pycache__/
 *.py[codz]
 *$py.class
 
@@ -68,7 +68,7 @@ dmypy.json
 .pyre/
 .pytype/
 cython_debug/
-**pypackages**/
+__pypackages__/
 .pdm-python
 .pdm-build/
 
@@ -108,7 +108,7 @@ celerybeat.pid
 # Marimo
 marimo/_static/
 marimo/_lsp/
-**marimo**/
+__marimo__/
 
 # =========================
 # Jupyter / IPython
