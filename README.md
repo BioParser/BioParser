@@ -21,3 +21,17 @@ Download/update using `uv sync`
 
 - [Definition of Done](docs/dod.md)
 - [Collaboration practices](docs/collaboration.md)
+
+Lint and format with Ruff. Type-check with mypy.
+
+```bash
+uv run ruff check
+uv run ruff format
+uv run mypy
+```
+
+Safe auto-fixes for lint:
+
+```bash
+uv run ruff check --fix
+```
