@@ -1,2 +1,7 @@
+import uvicorn
+
+from bioparser.app import app
+
+
 def main() -> None:
-    print("Hello from bioparser!")
+    uvicorn.run(app, host="127.0.0.1", port=8000)
