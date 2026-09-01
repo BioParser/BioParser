@@ -16,6 +16,10 @@ Download/update using `uv sync`
 #### Dev
 - mypy (type checker)
 - ruff (linter and formatter)
+- Pytest (automated tests)
+
+### Server
+- A localhost (127.0.0.1) Uvicorn server can be started on port 8000 with `uv run bioparser`.
 
 ## Development
 
@@ -35,3 +39,7 @@ Safe auto-fixes for lint:
 ```bash
 uv run ruff check --fix
 ```
+
+Run tests with Pytest:
+
+`uv run pytest`
