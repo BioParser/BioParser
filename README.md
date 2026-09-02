@@ -23,6 +23,7 @@ Download/update using `uv sync`
 
 ## Development
 
+- [Architecture](docs/architecture.md)
 - [Definition of Done](docs/dod.md)
 - [Collaboration practices](docs/collaboration.md)
 
