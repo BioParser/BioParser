@@ -4,16 +4,18 @@ version = "0.1.0"
 description = "Parsing pdf's for biodata"
 readme = "README.md"
 authors = [
-	{ name = "Joona Pietarinen", email = "187025356+JoonaPietarinen@users.noreply.github.com" },
-	{ name = "Jonni Haapiainen", email = "104795321+DualRedd@users.noreply.github.com" },
-    { name = "Niklas Harju", email = "38046336+neoharju@users.noreply.github.com" },
-	{ name = "Roope", email = "145572041+Roope2003@users.noreply.github.com" },
-	{ name = "Kristjan Kaasik", email = "kristjan.kaasik@helsinki.fi" },
+  { name = "Joona Pietarinen", email = "187025356+JoonaPietarinen@users.noreply.github.com" },
+  { name = "Jonni Haapiainen", email = "104795321+DualRedd@users.noreply.github.com" },
+  { name = "Niklas Harju", email = "38046336+neoharju@users.noreply.github.com" },
+  { name = "Roope", email = "145572041+Roope2003@users.noreply.github.com" },
+  { name = "Kristjan Kaasik", email = "kristjan.kaasik@helsinki.fi" },
 ]
 requires-python = "==3.13.*"
 dependencies = [
-    "fastapi>=0.141.1",
-    "uvicorn[standard]>=0.52.4",
+  "fastapi>=0.141.1",
+  "httpx2>=2.12.0",
+  "pydantic>=2.13.5",
+  "uvicorn[standard]>=0.52.4",
 ]
 
 [project.scripts]
@@ -25,10 +27,11 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
-    "mypy>=2.3.1",
-    "pytest>=9.1.1",
-    "ruff>=0.16.5",
+  "httpx2>=2.12",
+  "mypy>=2.3.1",
+  "pre-commit>=4.6.2",
+  "pytest>=9.1.1",
+  "ruff>=0.16.5",
 ]
 
 [tool.ruff]
@@ -40,13 +43,13 @@ line-length = 100
 # ANN requires annotations on functions.
 extend-select = ["ANN"]
 ignore = [
-    "ANN002",  # *args
-    "ANN003",  # **kwargs
-    "ANN401",  # typing.Any
+  "ANN002", # *args
+  "ANN003", # **kwargs
+  "ANN401", # typing.Any
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["ANN"]  # fixtures and tests do not need full annotations
+"tests/**" = ["ANN"] # fixtures and tests do not need full annotations
 
 [tool.mypy]
 python_version = "3.13"
