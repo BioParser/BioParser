@@ -29,6 +29,22 @@ Download/update using `uv sync`
 
 Lint and format with Ruff. Type-check with mypy.
 
+### Pre-commit
+After cloning the repository, install the dependencies and pre-commit hooks:
+
+```sh
+uv sync
+uv run pre-commit install
+```
+Once installed, the pre-commit hooks will run automatically before each commit.
+
+To run all pre-commit hooks manually on the entire repository:
+```sh
+uv run pre-commit run --all-files
+```
+
+### Manual checks
+
 ```bash
 uv run ruff check
 uv run ruff format
