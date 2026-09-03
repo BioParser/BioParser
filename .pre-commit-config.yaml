@@ -1,0 +1,27 @@
+# In order to install this hook run `pre-commit install`
+default_install_hook_types:
+  - pre-commit
+  - post-checkout
+  - post-merge
+  - post-rewrite
+repos:
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    # uv version
+    rev: "d153933366256874470b9d8395de436c50714f41" # v0.12.9
+    hooks:
+      - id: uv-lock
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: "1f1e8bf348ff38fc88619a38d3ca4d9c56abea49" # v0.16.5
+    hooks:
+      # Run the linter.
+      - id: ruff-check
+      # Run the formatter.
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: "7ff8d35ae36a7d2b968f2f90b4c723e292e594ee" # v2.3.1
+    hooks:
+      - id: mypy
+
