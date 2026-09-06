@@ -11,5 +11,5 @@ def client() -> TestClient:
 
 
 @pytest.fixture(autouse=True)
-def isolated_job_store(monkeypatch):
+def isolated_job_store(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(jobs, "_jobs", {})

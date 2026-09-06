@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 
-def test_submit_and_retrieve_job(client: TestClient):
+def test_submit_and_retrieve_job(client: TestClient) -> None:
     response = client.post("/submit")
 
     assert response.status_code == 200
@@ -16,7 +16,7 @@ def test_submit_and_retrieve_job(client: TestClient):
     assert response.json() == record
 
 
-def test_unknown_job_returns_404(client):
+def test_unknown_job_returns_404(client: TestClient) -> None:
     response = client.get("/jobs/missing")
 
     assert response.status_code == 404
