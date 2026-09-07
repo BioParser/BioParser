@@ -1,4 +1,5 @@
 # BioParser
+[![Build](https://github.com/bioparser/bioparser/actions/workflows/ci.yml/badge.svg)](https://github.com/bioparser/bioparser/actions/workflows/ci.yml)
 
 ## Running
 
