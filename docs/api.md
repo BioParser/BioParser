@@ -40,7 +40,7 @@ above).
 
 ## HTTP contract
 
-### `POST /extractions`
+### `POST /submit`
 
 Submit a PDF.
 
@@ -113,7 +113,7 @@ make separate files worth navigating — not before.
 
 Holds the FastAPI app and all three route handlers:
 
-- `POST /extractions` — checks content type, calls `jobs.create_job()`, returns `202`.
+- `POST /submit` — checks content type, calls `jobs.create_job()`, returns `202`.
 - `GET /jobs/{job_id}` — calls `jobs.get_job(job_id)`, returns it or raises a 404
   `HTTPException`.
 - `GET /health` — returns `{"status": "ok"}` directly, no dependencies.
@@ -141,7 +141,7 @@ later revision of this document.
 ## Verification
 
 - `uv run bioparser` starts; `curl localhost:8000/health` -> `{"status":"ok"}`.
-- `curl -F file=@sample.pdf localhost:8000/extractions` -> `202` + `job_id`.
+- `curl -F file=@sample.pdf localhost:8000/submit` -> `202` + `job_id`.
 - `curl localhost:8000/jobs/<job_id>` -> `{"job_id": ..., "status": "queued"}`.
 - Submitting a non-PDF file -> `415`.
 - Polling an unknown `job_id` -> `404`.
