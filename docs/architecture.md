@@ -49,7 +49,7 @@ to evolve separately.
 
 FastAPI owns the public HTTP contract:
 
-- `POST /api/extractions` for PDF submission
+- `POST /api/submit` for PDF submission
 - `GET /api/jobs/{job_id}` for job status and results
 - `/health` for process liveness
 - a readiness endpoint for Redis and artifact storage availability
@@ -89,7 +89,7 @@ sequenceDiagram
     participant Parser as Parser worker
     participant Extractor as Extractor worker
 
-    Client->>API: POST /api/extractions (PDF)
+    Client->>API: POST /api/submit (PDF)
     API->>API: Validate and calculate checksum
     API->>Store: Store PDF artifact
     API->>Redis: Create state and enqueue artifact reference
