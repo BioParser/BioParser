@@ -183,6 +183,7 @@ activemq-data/
 .env
 .env.*
 .envrc
+!.env.example
 
 *.secret
 *.token
