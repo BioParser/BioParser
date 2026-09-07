@@ -13,7 +13,11 @@ authors = [
 ]
 requires-python = "==3.13.*"
 dependencies = [
+  "asyncio>=4.0.0",
   "fastapi>=0.141.1",
+  "openai>=3.8.0",
+  "pydantic>=2.13.5",
+  "pydantic-settings>=2.15.0",
   "uvicorn[standard]>=0.52.4",
 ]
 

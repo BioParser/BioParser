@@ -1,0 +1,257 @@
+# =========================
+# Editors / IDEs
+# =========================
+
+.vscode/
+.idea/
+
+# Vim / Neovim
+*.swp
+*.swo
+*~
+.#*
+Session.vim
+.netrwhist
+.viminfo
+.view/
+*.vim
+
+# Other editors / IDEs
+.spyderproject
+.spyproject
+.ropeproject
+.abstra/
+
+# =========================
+# Python
+# =========================
+
+# Byte-compiled / optimized
+__pycache__/
+*.py[codz]
+*$py.class
+
+# Python environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Python build / packaging
+.Python
+build/
+dist/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+*.egg
+.installed.cfg
+MANIFEST
+
+# Python tooling / caches
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.hypothesis/
+.pybuilder/
+.pyre/
+.pytype/
+cython_debug/
+__pypackages__/
+.pdm-python
+.pdm-build/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Cython / native extensions
+*.so
+
+# =========================
+# Python Frameworks
+# =========================
+
+# Django
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask
+instance/
+.webassets-cache
+
+# Scrapy
+.scrapy/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath
+*.sage.py
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Marimo
+marimo/_static/
+marimo/_lsp/
+__marimo__/
+
+# =========================
+# Jupyter / IPython
+# =========================
+
+.ipynb_checkpoints/
+profile_default/
+ipython_config.py
+
+# =========================
+# Testing / Coverage
+# =========================
+
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+nosetests.xml
+*.cover
+*.py.cover
+cover/
+
+# =========================
+# Documentation
+# =========================
+
+docs/_build/
+/site
+
+# =========================
+# Logs / Temporary Files
+# =========================
+
+*.log
+*.tmp
+*.bak
+*.orig
+
+tmp/
+temp/
+
+# =========================
+# Translations
+# =========================
+
+*.mo
+*.pot
+
+# =========================
+# Databases / Runtime Data
+# =========================
+
+*.rdb
+*.aof
+*.pid
+
+# =========================
+# Message Brokers / Services
+# =========================
+
+mnesia/
+rabbitmq/
+rabbitmq-data/
+activemq-data/
+
+# =========================
+# Environment / Secrets
+# =========================
+
+.env
+.env.*
+.envrc
+
+*.secret
+*.token
+*.credentials
+
+# SSH / private keys
+.ssh/
+*.pem
+*.key
+*.ppk
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+
+# Public SSH keys are generally safe to commit, so do not ignore *.pub.
+
+# Git credentials
+.git-credentials
+
+# Docker / registry credentials
+.docker/config.json
+
+# =========================
+# Python Package Manager State
+# =========================
+
+# Keep lock files under version control for reproducible applications.
+# Uncomment these only if this repository is specifically a library
+# and intentionally does not commit lock files.
+
+# Pipenv
+# Pipfile.lock
+# uv
+# uv.lock
+# Poetry
+# poetry.lock
+# poetry.toml
+# PDM
+# pdm.lock
+# Pixi
+# pixi.lock
+.pixi/
+
+# =========================
+# Python / Build Tools
+# =========================
+
+target/
+# PyPI configuration
+.pypirc
+
+# =========================
+# Project-Specific Tools
+# =========================
+
+# Streamlit secrets are handled above.
+# PyBuilder output is handled above.
+# Partial code execution
+tempCodeRunnerFile.py
+
+# =========================
+# Project files
+# =========================
+.git
+.github
+.gitignore
+.pre-commit-config.yaml
+.venv
+tests
+docs
+
