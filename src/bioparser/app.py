@@ -5,7 +5,7 @@ from bioparser.jobs import create_job, get_job
 app = FastAPI()
 
 
-@app.post("/submit")
+@app.post("/submit", status_code=202)
 def submit_job() -> dict[str, str]:
     record = create_job()
     return {"job_id": record["job_id"], "status": record["status"]}

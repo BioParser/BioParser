@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 def test_submit_and_retrieve_job(client: TestClient) -> None:
     response = client.post("/submit")
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     record = response.json()
 
     assert record["job_id"]
