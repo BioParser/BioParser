@@ -58,4 +58,4 @@ Override the URL if needed:
 BIOPARSER_VLLM_BASE_URL=http://localhost:8000/v1 uv run test_prompt "Hello"
 ```
 
-The command fails until vLLM has finished loading and is serving `/v1`.
+If vLLM is still loading, `test_prompt` exits with a short message instead of a connection traceback. Wait until `curl http://127.0.0.1:8000/health` succeeds, then retry.

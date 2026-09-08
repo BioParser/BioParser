@@ -1,7 +1,20 @@
 import argparse
 import asyncio
+import sys
+
+from openai import APIConnectionError, APITimeoutError
 
 from bioparser.services.vllm import VLLMService
+from bioparser.services.vllm.config import get_settings
+
+
+def vllm_unreachable_message(base_url: str) -> str:
+    return (
+        f"Could not connect to vLLM at {base_url}. "
+        "The server may still be loading the model (first start can take several minutes). "
+        "Wait until curl http://127.0.0.1:8000/health succeeds, then retry. "
+        "If the host port is not 8000, set BIOPARSER_VLLM_BASE_URL."
+    )
 
 
 async def run_prompt(
@@ -32,14 +45,19 @@ def main() -> None:
     parser.add_argument("--max-tokens", type=int, default=1024)
     args = parser.parse_args()
 
-    response = asyncio.run(
-        run_prompt(
-            args.prompt,
-            system_prompt=args.system_prompt,
-            temperature=args.temperature,
-            max_tokens=args.max_tokens,
+    try:
+        response = asyncio.run(
+            run_prompt(
+                args.prompt,
+                system_prompt=args.system_prompt,
+                temperature=args.temperature,
+                max_tokens=args.max_tokens,
+            )
         )
-    )
+    except (APIConnectionError, APITimeoutError):
+        print(vllm_unreachable_message(get_settings().vllm_base_url), file=sys.stderr)
+        raise SystemExit(1) from None
+
     print(response)
 
 
