@@ -1,5 +1,5 @@
 services:
-  vllm: 
+  vllm:
     image: vllm/vllm-openai-cpu:latest-x86_64
     command:
       - ${VLLM_MODEL}

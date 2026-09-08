@@ -47,7 +47,7 @@ Starts the FastAPI app only
 uv run bioparser
 ```
 
-Listens on `127.0.0.1:8080`. 
+Listens on `127.0.0.1:8080`.
 
 ## Development
 
