@@ -1,3 +1,8 @@
+import os
+import socket
+import tempfile
+from typing import Any
+
 from fastapi import FastAPI, HTTPException
 
 from .jobs import create_job, get_job
@@ -22,3 +27,48 @@ def job_status(job_id: str) -> dict[str, str]:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def _check_redis(host: str, port: int, timeout: float) -> bool:
+    try:
+        conn = socket.create_connection((host, port), timeout=timeout)
+        conn.close()
+        return True
+    except (TimeoutError, OSError):
+        return False
+
+
+def _check_storage(path: str, timeout: float) -> bool:
+    try:
+        if not os.path.isdir(path):
+            return False
+        with tempfile.NamedTemporaryFile(dir=path, delete=True) as tmp:
+            tmp.write(b"")
+            tmp.flush()
+        return True
+    except OSError:
+        return False
+
+
+@app.get("/ready")
+def readiness() -> dict[str, Any]:
+    unavailable: list[str] = []
+
+    timeout = float(os.getenv("DEPENDENCY_CHECK_TIMEOUT", "1.0"))
+
+    redis_host = os.getenv("REDIS_HOST")
+    if redis_host:
+        redis_port = int(os.getenv("REDIS_PORT", "6379"))
+        if not _check_redis(redis_host, redis_port, timeout):
+            unavailable.append("redis")
+
+    storage_path = os.getenv("ARTIFACT_STORAGE_PATH")
+    if storage_path and not _check_storage(storage_path, timeout):
+        unavailable.append("storage")
+
+    if unavailable:
+        raise HTTPException(
+            status_code=503, detail={"status": "not ready", "unavailable": unavailable}
+        )
+
+    return {"status": "ready"}
