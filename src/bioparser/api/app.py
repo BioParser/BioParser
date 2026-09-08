@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 
-from bioparser.jobs import create_job, get_job
+from .jobs import create_job, get_job
 
 app = FastAPI()
 

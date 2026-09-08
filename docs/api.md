@@ -140,8 +140,8 @@ later revision of this document.
 
 ## Verification
 
-- `uv run bioparser` starts; `curl localhost:8000/health` -> `{"status":"ok"}`.
-- `curl -F file=@sample.pdf localhost:8000/submit` -> `202` + `job_id`.
-- `curl localhost:8000/jobs/<job_id>` -> `{"job_id": ..., "status": "queued"}`.
+- `uv run bioparser` starts; `curl localhost:8080/health` -> `{"status":"ok"}`.
+- `curl -F file=@sample.pdf localhost:8080/submit` -> `202` + `job_id`.
+- `curl localhost:8080/jobs/<job_id>` -> `{"job_id": ..., "status": "queued"}`.
 - Submitting a non-PDF file -> `415`.
 - Polling an unknown `job_id` -> `404`.
