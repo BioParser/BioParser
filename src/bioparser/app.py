@@ -1,4 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from typing import Annotated
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
 
 from bioparser.jobs import create_job, get_job
 
@@ -6,7 +8,13 @@ app = FastAPI()
 
 
 @app.post("/submit", status_code=202)
-def submit_job() -> dict[str, str]:
+def submit_job(file: Annotated[UploadFile | None, File()] = None) -> dict[str, str]:
+
+    if file is None:
+        raise HTTPException(status_code=400, detail="Missing PDF file")
+    if file.content_type != "application/pdf":
+        raise HTTPException(status_code=415, detail="Expected application/pdf")
+
     record = create_job()
     return {"job_id": record["job_id"], "status": record["status"]}
 
