@@ -18,4 +18,4 @@ RUN uv sync --frozen --no-dev
 
 EXPOSE 8080
 
-CMD ["uv", "run", "--no-dev", "uvicorn", "bioparser.app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uv", "run", "--no-dev", "uvicorn", "bioparser.api.app:app", "--host", "0.0.0.0", "--port", "8080"]

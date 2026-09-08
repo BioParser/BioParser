@@ -1,4 +1,4 @@
-from bioparser.jobs import create_job, get_job
+from bioparser.api.jobs import create_job, get_job
 
 
 def test_create_job_is_queued_and_can_be_retrieved() -> None:

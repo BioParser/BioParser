@@ -1,8 +1,8 @@
 import pytest
-from bioparser.app import app
 from fastapi.testclient import TestClient
 
-from bioparser import jobs
+from bioparser.api import jobs
+from bioparser.api.app import app
 
 
 @pytest.fixture
