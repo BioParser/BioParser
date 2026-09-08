@@ -1,4 +1,3 @@
-
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -7,8 +6,9 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from bioparser.jobs import create_job, get_job
 from bioparser.services.vllm import VLLMService
+
+from .jobs import create_job, get_job
 
 # TODO: create logger class?
 logger = logging.getLogger(__name__)
@@ -78,11 +78,11 @@ async def generate(request: Request, body: GenerateRequest) -> dict[str, str]:
     service: VLLMService = request.app.state.vllm
     try:
         response = await service.generate(
-                body.prompt,
-                system_prompt=body.system_prompt,
-                temperature=body.temperature,
-                max_tokens=body.max_tokens,
-                )
+            body.prompt,
+            system_prompt=body.system_prompt,
+            temperature=body.temperature,
+            max_tokens=body.max_tokens,
+        )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"vLLM error: {exc}") from exc
 

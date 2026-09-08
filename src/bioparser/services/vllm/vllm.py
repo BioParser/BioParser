@@ -3,7 +3,7 @@ import asyncio
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
-from bioparser.config import get_settings
+from .config import get_settings
 
 
 # TODO: expand and add logger
