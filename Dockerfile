@@ -1,8 +1,10 @@
 # python 3.13.15-slim-trixie; index digest so amd64 and arm64 both resolve
 FROM python:3.13-slim@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285 AS builder
 
-# TODO: ENV UV compile bytecode etc
-ENV UV_PYTHON_DOWNLOADS=0
+ENV UV_PYTHON_DOWNLOADS=0 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_DEV=1
 
 WORKDIR /app
 
@@ -18,22 +20,28 @@ COPY . /app
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-editable
+
 #-------------------------------------------
+
 FROM python:3.13-slim@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285
 
-# Create an unprivileged user
-RUN groupadd --system --gid 10001 app \
-    && useradd --system --uid 10001 --gid 10001 \
-    --no-create-home
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
-ENV PATH="/app/.venv/bin:$PATH"
-# Copy the virtual environment and give ownership to the non-root user
+
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid 10001 \
+    --no-create-home app
+
+# Non-editable install: the project lives in the venv, so src is not copied
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 
-# Run as non-root
 USER app:app
 
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"
 
 CMD ["uvicorn", "bioparser.api.app:app", "--host", "0.0.0.0", "--port", "8080"]
