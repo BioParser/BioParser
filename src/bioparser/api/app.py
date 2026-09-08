@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
 
 from bioparser.services.vllm import VLLMService
 
@@ -62,28 +61,3 @@ async def ready(request: Request) -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"vLLM unavailable: {exc}") from exc
     return {"status": "ready", "model": service.model}
-
-
-# TODO: move this somewhere; bioparser/src/api/routes/schemas?
-class GenerateRequest(BaseModel):
-    prompt: str
-    system_prompt: str | None = None
-    temperature: float = 0.0
-    max_tokens: int = 1024
-
-
-# TODO: remove this later; just a temp test end-point
-@app.post("/testgenerate")
-async def generate(request: Request, body: GenerateRequest) -> dict[str, str]:
-    service: VLLMService = request.app.state.vllm
-    try:
-        response = await service.generate(
-            body.prompt,
-            system_prompt=body.system_prompt,
-            temperature=body.temperature,
-            max_tokens=body.max_tokens,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"vLLM error: {exc}") from exc
-
-    return {"response": response}

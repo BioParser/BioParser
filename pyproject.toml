@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 bioparser = "bioparser.api:main"
+test_prompt = "bioparser.scripts.test_prompt:main"
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]
