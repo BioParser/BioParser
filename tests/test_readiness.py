@@ -8,11 +8,11 @@ from fastapi.testclient import TestClient
 app_module = import_module("bioparser.api.app")
 
 
-def test_ready_no_deps(client: TestClient) -> None:
-    if "REDIS_HOST" in os.environ:
-        del os.environ["REDIS_HOST"]
-    if "ARTIFACT_STORAGE_PATH" in os.environ:
-        del os.environ["ARTIFACT_STORAGE_PATH"]
+def test_ready_no_deps(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    monkeypatch.delenv("REDIS_HOST", raising=False)
+    monkeypatch.delenv("ARTIFACT_STORAGE_PATH", raising=False)
     response = client.get("/ready")
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}

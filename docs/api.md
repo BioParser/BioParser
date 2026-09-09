@@ -17,7 +17,9 @@ particular:
   survive a restart and are not visible to any other process.
 - **No worker exists yet.** A job is created as `queued` and nothing
   currently advances it to `running` or `succeeded`.
-- **No artifact storage.** Uploaded PDF bytes are not persisted anywhere.
+- **No artifact storage.** Uploaded PDF bytes are not persisted anywhere by
+  default. The optional `ARTIFACT_STORAGE_PATH` setting only enables a local-path
+  readiness check; no S3-compatible backend is implemented yet.
 - **Readiness (`/ready`) is supported.** The readiness endpoint performs
   lightweight dependency checks only when corresponding environment variables are
   set (see *Readiness behaviour* below).
