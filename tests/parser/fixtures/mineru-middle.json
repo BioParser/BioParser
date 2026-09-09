@@ -1,0 +1,276 @@
+{
+  "_backend": "pipeline",
+  "_version_name": "3.4.5",
+  "pdf_info": [
+    {
+      "page_idx": 0,
+      "page_size": [
+        612,
+        792
+      ],
+      "para_blocks": [
+        {
+          "score": 0.8958,
+          "bbox": [
+            197,
+            92,
+            243,
+            104
+          ],
+          "index": 2,
+          "type": "text",
+          "lines": [
+            {
+              "bbox": [
+                199,
+                95,
+                241,
+                104
+              ],
+              "spans": [
+                {
+                  "bbox": [
+                    199,
+                    95,
+                    241,
+                    104
+                  ],
+                  "type": "text",
+                  "content": "EDITORIAL",
+                  "score": 1.0
+                }
+              ]
+            }
+          ],
+          "bbox_fs": [
+            199,
+            95,
+            241,
+            104
+          ]
+        },
+        {
+          "score": 0.9778,
+          "bbox": [
+            198,
+            106,
+            557,
+            150
+          ],
+          "index": 3,
+          "type": "title",
+          "lines": [
+            {
+              "bbox": [
+                199,
+                109,
+                556,
+                130
+              ],
+              "spans": [
+                {
+                  "bbox": [
+                    199,
+                    109,
+                    556,
+                    130
+                  ],
+                  "type": "text",
+                  "content": "Broadening the scope of PLOS Biology: Short",
+                  "score": 1.0
+                }
+              ]
+            },
+            {
+              "bbox": [
+                199,
+                130,
+                501,
+                152
+              ],
+              "spans": [
+                {
+                  "bbox": [
+                    199,
+                    130,
+                    501,
+                    152
+                  ],
+                  "type": "text",
+                  "content": "Reports and Methods and Resources",
+                  "score": 1.0
+                }
+              ]
+            }
+          ],
+          "level": 1
+        },
+        {
+          "type": "image",
+          "bbox": [
+            35,
+            302,
+            90,
+            357
+          ],
+          "blocks": [
+            {
+              "score": 0.8549,
+              "bbox": [
+                35,
+                302,
+                90,
+                357
+              ],
+              "index": 6,
+              "type": "image_body",
+              "lines": [
+                {
+                  "bbox": [
+                    35,
+                    302,
+                    90,
+                    357
+                  ],
+                  "spans": [
+                    {
+                      "bbox": [
+                        35,
+                        302,
+                        90,
+                        357
+                      ],
+                      "type": "image",
+                      "image_path": "f510485537f52cccfea627d8179d3ea6562dce3aed2bbf1351041be961c88554.jpg"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "index": 6,
+          "score": 0.8549
+        },
+        {
+          "score": 0.9075,
+          "bbox": [
+            33,
+            401,
+            106,
+            417
+          ],
+          "index": 8,
+          "type": "title",
+          "lines": [
+            {
+              "bbox": [
+                34,
+                402,
+                105,
+                418
+              ],
+              "spans": [
+                {
+                  "bbox": [
+                    34,
+                    402,
+                    105,
+                    418
+                  ],
+                  "type": "text",
+                  "content": "OPEN ACCESS",
+                  "score": 1.0
+                }
+              ]
+            }
+          ],
+          "level": 2
+        },
+        {
+          "score": 0.9026,
+          "bbox": [
+            33,
+            483,
+            113,
+            495
+          ],
+          "index": 10,
+          "type": "text",
+          "lines": [
+            {
+              "bbox": [
+                35,
+                486,
+                111,
+                493
+              ],
+              "spans": [
+                {
+                  "bbox": [
+                    35,
+                    486,
+                    111,
+                    493
+                  ],
+                  "type": "text",
+                  "content": "Published: April 26, 2019",
+                  "score": 1.0
+                }
+              ]
+            }
+          ],
+          "bbox_fs": [
+            35,
+            486,
+            111,
+            493
+          ]
+        }
+      ]
+    },
+    {
+      "page_idx": 1,
+      "page_size": [
+        612,
+        792
+      ],
+      "para_blocks": [
+        {
+          "score": 0.9476,
+          "bbox": [
+            197,
+            369,
+            338,
+            383
+          ],
+          "index": 5,
+          "type": "title",
+          "lines": [
+            {
+              "bbox": [
+                199,
+                370,
+                336,
+                383
+              ],
+              "spans": [
+                {
+                  "bbox": [
+                    199,
+                    370,
+                    336,
+                    383
+                  ],
+                  "type": "text",
+                  "content": "Methods and Resources",
+                  "score": 1.0
+                }
+              ]
+            }
+          ],
+          "level": 2
+        }
+      ]
+    }
+  ]
+}
