@@ -43,7 +43,7 @@ def _check_storage(path: str, timeout: float) -> bool:
         if not os.path.isdir(path):
             return False
         with tempfile.NamedTemporaryFile(dir=path, delete=True) as tmp:
-            tmp.write(b"")
+            tmp.write(b"readiness")
             tmp.flush()
         return True
     except OSError:
