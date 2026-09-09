@@ -78,6 +78,16 @@ model, validates canonical observations, rejects candidates without evidence, an
 the result. It may have separate memory and GPU requirements. Sprint 0 defines this
 boundary and evaluates runtimes. Production inference comes later.
 
+Health and readiness for workers
+
+- Liveness (/health): a lightweight process liveness probe that returns success when the
+  worker process is running.
+- Readiness (/ready): a dependency-aware probe. When configured via environment variables
+  (for example `REDIS_HOST`, `ARTIFACT_STORAGE_PATH`) the worker's readiness endpoint
+  checks the same minimal set of dependencies as the API: TCP-connect to Redis and a
+  writable artifact storage path. Readiness checks are bounded by
+  `DEPENDENCY_CHECK_TIMEOUT` and do not attempt authentication or expose secrets.
+
 ## Processing sequence
 
 ```mermaid
