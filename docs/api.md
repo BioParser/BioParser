@@ -174,7 +174,7 @@ directly in `app.py`; upload validation is in `uploads.py`.
 
 ### `app.py`
 
-Holds the FastAPI app and all three route handlers:
+Holds the FastAPI app and all four route handlers:
 
 - `POST /submit` — runs the [`uploads.py`](#uploadspy) helpers in order
   (`validate_content_length`, `require_file`, `validate_content_type`, `read_upload`,
