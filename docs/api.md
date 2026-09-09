@@ -17,8 +17,8 @@ particular:
 - **No worker exists yet.** A job is created as `queued` and nothing
   currently advances it to `running` or `succeeded`.
 - **No artifact storage.** Uploaded PDF bytes are not persisted anywhere by
-  default; when running in Compose/OpenShift set `ARTIFACT_STORAGE_PATH` or an
-  S3-compatible backend as appropriate.
+  default. The optional `ARTIFACT_STORAGE_PATH` setting only enables a local-path
+  readiness check; no S3-compatible backend is implemented yet.
 - **Readiness (`/ready`) is supported.** The readiness endpoint performs
   lightweight dependency checks only when corresponding environment variables are
   set (see *Readiness behaviour* below).
