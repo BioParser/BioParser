@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, UploadFile
 
-from bioparser.jobs import create_job, get_job
-from bioparser.uploads import read_upload, require_file, validate_content_type, validate_pdf_content
+from .jobs import create_job, get_job
+from .uploads import read_upload, require_file, validate_content_type, validate_pdf_content
 
 app = FastAPI()
 

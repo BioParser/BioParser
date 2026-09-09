@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from bioparser import config
+from bioparser.api import config
 
 # A minimal byte string that passes every /submit validation check.
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"

@@ -183,7 +183,6 @@ activemq-data/
 .env
 .env.*
 .envrc
-!.env.example
 
 *.secret
 *.token
@@ -233,7 +232,6 @@ id_ed25519
 # =========================
 
 target/
-
 # PyPI configuration
 .pypirc
 
@@ -246,3 +244,13 @@ target/
 # Partial code execution
 tempCodeRunnerFile.py
 
+# =========================
+# Project files
+# =========================
+.git
+.github
+.gitignore
+.pre-commit-config.yaml
+.venv
+tests
+docs

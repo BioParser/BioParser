@@ -1,0 +1,38 @@
+services:
+  vllm:
+    image: vllm/vllm-openai-cpu:latest-x86_64
+    command:
+      - ${VLLM_MODEL}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --dtype
+      - bfloat16
+      - --max-model-len
+      - "4096"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      VLLM_CPU_KVCACHE_SPACE: "4"
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+    ports:
+      - "127.0.0.1:${VLLM_PORT:-8000}:8000"
+    ipc: host
+    init: true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=3).status==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 600s
+
+  bioparser:
+    build: .
+    init: true
+    environment:
+      BIOPARSER_VLLM_BASE_URL: http://vllm:8000/v1
+    ports:
+      - "127.0.0.1:${BIOPARSER_PORT:-8080}:8080"

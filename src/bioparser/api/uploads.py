@@ -1,6 +1,6 @@
 from fastapi import HTTPException, UploadFile
 
-from bioparser import config
+from . import config
 
 _CHUNK_SIZE = 1024 * 1024  # 1 MiB
 _PDF_MAGIC = b"%PDF-"

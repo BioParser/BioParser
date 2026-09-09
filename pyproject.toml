@@ -14,12 +14,16 @@ authors = [
 requires-python = "==3.13.*"
 dependencies = [
   "fastapi>=0.141.1",
+  "openai>=3.8.0",
+  "pydantic>=2.13.5",
+  "pydantic-settings>=2.15.0",
   "python-multipart>=0.0.32",
   "uvicorn[standard]>=0.52.4",
 ]
 
 [project.scripts]
-bioparser = "bioparser:main"
+bioparser = "bioparser.api:main"
+test_prompt = "bioparser.scripts.test_prompt:main"
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]
