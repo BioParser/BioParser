@@ -1,0 +1,42 @@
+import os
+from importlib import import_module
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+app_module = import_module("bioparser.api.app")
+
+
+def test_ready_no_deps(client: TestClient) -> None:
+    if "REDIS_HOST" in os.environ:
+        del os.environ["REDIS_HOST"]
+    if "ARTIFACT_STORAGE_PATH" in os.environ:
+        del os.environ["ARTIFACT_STORAGE_PATH"]
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
+
+
+def test_ready_redis_unavailable(monkeypatch, client: TestClient) -> None:
+    monkeypatch.setenv("REDIS_HOST", "localhost")
+    monkeypatch.setenv("REDIS_PORT", "65000")
+
+    def fake_create_connection(addr, timeout=None):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(app_module.socket, "create_connection", fake_create_connection)
+
+    response = client.get("/ready")
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["status"] == "not ready"
+    assert "redis" in detail["unavailable"]
+
+
+def test_ready_storage_unavailable(monkeypatch, client: TestClient, tmp_path: Path) -> None:
+    bad = tmp_path / "nope"
+    monkeypatch.setenv("ARTIFACT_STORAGE_PATH", str(bad))
+    response = client.get("/ready")
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "storage" in detail["unavailable"]
