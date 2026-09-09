@@ -107,8 +107,8 @@ Readiness behaviour:
 
 - If `REDIS_HOST` is set, the endpoint attempts a TCP connection to `REDIS_HOST:REDIS_PORT`
   (default port `6379`) with a per-check timeout controlled by `DEPENDENCY_CHECK_TIMEOUT`
-  (seconds, default `1.0`). On failure the endpoint returns `503` and a small JSON object
-  listing unavailable dependency types, e.g. `{"status": "not ready", "unavailable": ["redis"]}`.
+  (seconds, default `1.0`). On failure the endpoint returns `503`; FastAPI places the
+  readiness payload under `detail`, e.g. `{"detail": {"status": "not ready", "unavailable": ["redis"]}}`.
 - If `ARTIFACT_STORAGE_PATH` is set, the endpoint attempts to create and remove a temporary
   file in that directory to confirm writability. On failure `503` is returned with
   `"storage"` in the `unavailable` list.
