@@ -1,4 +1,3 @@
-import os
 from importlib import import_module
 from pathlib import Path
 
@@ -8,9 +7,7 @@ from fastapi.testclient import TestClient
 app_module = import_module("bioparser.api.app")
 
 
-def test_ready_no_deps(
-    monkeypatch: pytest.MonkeyPatch, client: TestClient
-) -> None:
+def test_ready_no_deps(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
     monkeypatch.delenv("REDIS_HOST", raising=False)
     monkeypatch.delenv("ARTIFACT_STORAGE_PATH", raising=False)
     response = client.get("/ready")
