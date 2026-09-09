@@ -1,6 +1,7 @@
 import os
 import socket
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -34,19 +35,27 @@ def _check_redis(host: str, port: int, timeout: float) -> bool:
         conn = socket.create_connection((host, port), timeout=timeout)
         conn.close()
         return True
-    except (TimeoutError, OSError):
+    except OSError:
         return False
 
 
 def _check_storage(path: str, timeout: float) -> bool:
-    try:
-        if not os.path.isdir(path):
+    def _attempt_write() -> bool:
+        try:
+            if not os.path.isdir(path):
+                return False
+            with tempfile.NamedTemporaryFile(dir=path, delete=True) as tmp:
+                tmp.write(b"readiness")
+                tmp.flush()
+            return True
+        except OSError:
             return False
-        with tempfile.NamedTemporaryFile(dir=path, delete=True) as tmp:
-            tmp.write(b"readiness")
-            tmp.flush()
-        return True
-    except OSError:
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_attempt_write)
+            return future.result(timeout=timeout)
+    except TimeoutError:
         return False
 
 
@@ -54,11 +63,28 @@ def _check_storage(path: str, timeout: float) -> bool:
 def readiness() -> dict[str, Any]:
     unavailable: list[str] = []
 
-    timeout = float(os.getenv("DEPENDENCY_CHECK_TIMEOUT", "1.0"))
+    try:
+        timeout = float(os.getenv("DEPENDENCY_CHECK_TIMEOUT", "1.0"))
+        if timeout <= 0:
+            raise ValueError("timeout must be positive")
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "not ready", "unavailable": ["config"]},
+        )
 
     redis_host = os.getenv("REDIS_HOST")
     if redis_host:
-        redis_port = int(os.getenv("REDIS_PORT", "6379"))
+        try:
+            redis_port = int(os.getenv("REDIS_PORT", "6379"))
+            if not (0 < redis_port < 65536):
+                raise ValueError("port must be 1-65535")
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=503,
+                detail={"status": "not ready", "unavailable": ["config"]},
+            )
+
         if not _check_redis(redis_host, redis_port, timeout):
             unavailable.append("redis")
 
@@ -68,7 +94,8 @@ def readiness() -> dict[str, Any]:
 
     if unavailable:
         raise HTTPException(
-            status_code=503, detail={"status": "not ready", "unavailable": unavailable}
+            status_code=503,
+            detail={"status": "not ready", "unavailable": unavailable},
         )
 
     return {"status": "ready"}
