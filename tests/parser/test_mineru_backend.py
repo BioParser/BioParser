@@ -97,7 +97,7 @@ def test_image_leaves_are_skipped() -> None:
     assert [block.content.text for block in page.blocks if block.content.type == "text"] == ["keep"]
 
 
-def test_lines_join_with_space_and_keep_span_offsets() -> None:
+def test_hyphenated_line_wrap_joins_into_one_word() -> None:
     middle = _two_page_middle(
         [
             {
@@ -113,9 +113,9 @@ def test_lines_join_with_space_and_keep_span_offsets() -> None:
     )
     body = _from_middle(middle).pages[0].blocks[0]
     assert body.content.type == "text"
-    assert body.content.text == "signifi- cant result"
+    assert body.content.text == "significant result"
     assert body.continuation_of is None
-    assert body.content.text[body.content.spans[0].start : body.content.spans[0].end] == "signifi-"
+    assert body.content.text[body.content.spans[0].start : body.content.spans[0].end] == "signifi"
     assert body.content.text[body.content.spans[1].start : body.content.spans[1].end] == (
         "cant result"
     )

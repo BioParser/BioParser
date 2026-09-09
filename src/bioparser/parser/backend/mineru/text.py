@@ -80,12 +80,28 @@ def role_and_heading(block: MiddleBlock) -> tuple[BlockRole, int | None]:
     return BlockRole.BODY, None
 
 
+def _is_hyphen_wrap(existing: str, piece: str) -> bool:
+    return bool(existing.endswith("-") and piece[:1].islower())
+
+
 def _append_span_text(existing: str, piece: str) -> str:
     if not existing:
         return piece
+    if _is_hyphen_wrap(existing, piece):
+        return existing[:-1] + piece
     if existing[-1].isspace() or piece[:1].isspace():
         return existing + piece
     return existing + " " + piece
+
+
+def _trim_trailing_hyphen_span(spans: list[TextSpan]) -> None:
+    if not spans:
+        return
+    last = spans[-1]
+    if last.end - 1 > last.start:
+        spans[-1] = last.model_copy(update={"end": last.end - 1})
+    else:
+        spans.pop()
 
 
 def join_lines_to_text(
@@ -100,8 +116,11 @@ def join_lines_to_text(
         for raw_span in line.spans:
             if raw_span.type not in TEXT_SPAN_TYPES or not raw_span.content:
                 continue
-            text = _append_span_text(text, raw_span.content)
-            start = len(text) - len(raw_span.content)
+            piece = raw_span.content
+            if _is_hyphen_wrap(text, piece):
+                _trim_trailing_hyphen_span(spans)
+            text = _append_span_text(text, piece)
+            start = len(text) - len(piece)
             bbox = bbox_from_points(raw_span.bbox, width, height)
             if bbox is None:
                 continue
