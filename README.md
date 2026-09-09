@@ -49,9 +49,37 @@ uv run bioparser
 
 Listens on `127.0.0.1:8080`.
 
+Parse a PDF to artifact JSON:
+
+```sh
+uv run pdf-parse tests/parser/fixtures/plos-biology-3000248.pdf -o artifact.json
+```
+
+Overlay parser boxes on the PDF (localhost only):
+
+```sh
+uv run pdf-view tests/parser/fixtures/plos-biology-1002000.pdf
+```
+
+Opens `http://127.0.0.1:8765/`. You can also start `uv run pdf-view` with no file and upload a PDF in the browser.
+
+Optional CPU MinerU backend (an isolated UV tool, not `uv sync`):
+
+```sh
+uv tool install --python 3.13 'mineru[pipeline]==3.4.5' --with six
+# If `mineru` is not found afterwards: uv tool update-shell
+uv run pdf-parse tests/parser/fixtures/plos-biology-3000248.pdf --backend mineru -o artifact.json
+uv run pdf-view tests/parser/fixtures/plos-biology-1002000.pdf --backend mineru
+```
+
+Uninstall it with `uv tool uninstall mineru`.
+
+Details: [Local PDF parser](docs/parser.md).
+
 ## Development
 
 - [Architecture](docs/architecture.md)
+- [Local PDF parser](docs/parser.md)
 - [Definition of Done](docs/dod.md)
 - [Collaboration practices](docs/collaboration.md)
 - [Docker Compose](docs/docker-compose.md)

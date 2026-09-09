@@ -23,6 +23,8 @@ dependencies = [
 
 [project.scripts]
 bioparser = "bioparser.api:main"
+pdf-parse = "bioparser.scripts.pdfparse:main"
+pdf-view = "bioparser.scripts.pdfviewer.cli:main"
 test_prompt = "bioparser.scripts.test_prompt:main"
 
 [build-system]
