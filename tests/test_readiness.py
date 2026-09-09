@@ -40,3 +40,48 @@ def test_ready_storage_unavailable(
     assert response.status_code == 503
     detail = response.json()["detail"]
     assert "storage" in detail["unavailable"]
+
+
+def test_ready_invalid_timeout(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
+    monkeypatch.setenv("DEPENDENCY_CHECK_TIMEOUT", "not-a-number")
+    response = client.get("/ready")
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "config" in detail["unavailable"]
+
+
+def test_ready_negative_timeout(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
+    monkeypatch.setenv("DEPENDENCY_CHECK_TIMEOUT", "-1.0")
+    response = client.get("/ready")
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "config" in detail["unavailable"]
+
+
+def test_ready_invalid_redis_port(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
+    monkeypatch.setenv("REDIS_HOST", "localhost")
+    monkeypatch.setenv("REDIS_PORT", "not-a-port")
+    response = client.get("/ready")
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "config" in detail["unavailable"]
+
+
+def test_ready_redis_port_out_of_range(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
+    monkeypatch.setenv("REDIS_HOST", "localhost")
+    monkeypatch.setenv("REDIS_PORT", "99999")
+    response = client.get("/ready")
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "config" in detail["unavailable"]
+
+
+def test_ready_storage_available(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient, tmp_path: Path
+) -> None:
+    writable_dir = tmp_path / "writable"
+    writable_dir.mkdir()
+    monkeypatch.setenv("ARTIFACT_STORAGE_PATH", str(writable_dir))
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
