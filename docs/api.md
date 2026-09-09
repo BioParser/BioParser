@@ -136,7 +136,7 @@ make separate files worth navigating — not before.
 
 ### `app.py`
 
-Holds the FastAPI app and all three route handlers:
+Holds the FastAPI app and all four route handlers:
 
 - `POST /submit` — checks content type, calls `jobs.create_job()`, returns `202`.
 - `GET /jobs/{job_id}` — calls `jobs.get_job(job_id)`, returns it or raises a 404
