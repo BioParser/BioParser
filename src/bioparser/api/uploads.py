@@ -16,7 +16,8 @@ def require_file(file: UploadFile | None) -> UploadFile:
 
 
 def validate_content_type(file: UploadFile) -> None:
-    if file.content_type != "application/pdf":
+    content_type = (file.content_type or "").split(";", 1)[0].strip().lower()
+    if content_type != "application/pdf":
         raise HTTPException(
             status_code=415,
             detail={

@@ -62,6 +62,26 @@ def test_submit_unsupported_content_type(client: TestClient) -> None:
     assert detail["message"]
 
 
+def test_submit_content_type_with_parameters(client: TestClient) -> None:
+    response = client.post(
+        "/submit",
+        files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf;charset=binary")},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "queued"
+
+
+def test_submit_content_type_case_insensitive(client: TestClient) -> None:
+    response = client.post(
+        "/submit",
+        files={"file": ("sample.pdf", MINIMAL_PDF, "APPLICATION/PDF")},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "queued"
+
+
 def test_submit_empty_file(client: TestClient) -> None:
     response = client.post(
         "/submit",
@@ -87,7 +107,7 @@ def test_submit_non_pdf_bytes(client: TestClient) -> None:
 
 
 def test_submit_file_too_large(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(config, "MAX_UPLOAD_BYTES", 10)
+    monkeypatch.setattr(config, "get_api_settings", lambda: config.ApiSettings(max_upload_bytes=10))
 
     response = client.post(
         "/submit",
