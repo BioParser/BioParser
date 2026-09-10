@@ -31,12 +31,12 @@ async def read_upload(file: UploadFile) -> bytes:
     total = 0
     while chunk := await file.read(_CHUNK_SIZE):
         total += len(chunk)
-        if total > config.MAX_UPLOAD_BYTES:
+        if total > config.get_api_settings().max_upload_bytes:
             raise HTTPException(
                 status_code=413,
                 detail={
                     "code": "file_too_large",
-                    "message": f"File exceeds the {config.MAX_UPLOAD_BYTES} byte limit",
+                    "message": f"File exceeds the {config.get_api_settings().max_upload_bytes} byte limit",
                 },
             )
         chunks.append(chunk)
