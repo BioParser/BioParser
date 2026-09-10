@@ -144,7 +144,7 @@ All stored structured artifacts have an explicit schema version.
 
 ### Parser artifact
 
-A parser artifact contains the document ID and checksum, parser and schema versions,
+A parser artifact contains the checksum, parser and schema versions,
 and ordered content blocks. Each block has a stable ID, type, page number, text, and
 source coordinates.
 

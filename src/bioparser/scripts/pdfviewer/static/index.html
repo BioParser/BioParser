@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BioParser PDF viewer</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #111;
+        --panel: #1c1c1c;
+        --fg: #eee;
+        --muted: #9a9a9a;
+        --accent: #3d9cf0;
+        --box: rgba(61, 156, 240, 0.22);
+        --box-border: rgba(61, 156, 240, 0.85);
+        --selected: rgba(255, 214, 0, 0.4);
+        --selected-border: #b8860b;
+        --hit: rgba(46, 180, 80, 0.22);
+        --hit-border: rgba(30, 120, 55, 0.55);
+        --hit-current: rgba(46, 180, 80, 0.48);
+        --hit-current-border: #1a7a38;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--fg);
+      }
+      body {
+        display: grid;
+        grid-template-rows: auto 1fr;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        padding: 0.6rem 0.9rem;
+        background: var(--panel);
+        border-bottom: 1px solid #333;
+      }
+      header h1 {
+        font-size: 0.95rem;
+        font-weight: 600;
+        margin: 0 0.5rem 0 0;
+      }
+      button,
+      select,
+      input[type="file"],
+      input[type="search"] {
+        font: inherit;
+      }
+      select {
+        background: #2a2a2a;
+        color: var(--fg);
+        border: 1px solid #555;
+        border-radius: 4px;
+        padding: 0.25rem 0.5rem;
+      }
+      input[type="search"] {
+        min-width: 12rem;
+        background: #2a2a2a;
+        color: var(--fg);
+        border: 1px solid #555;
+        border-radius: 4px;
+        padding: 0.25rem 0.5rem;
+      }
+      button {
+        background: #2a2a2a;
+        color: var(--fg);
+        border: 1px solid #555;
+        border-radius: 4px;
+        padding: 0.25rem 0.6rem;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      label.toggle {
+        display: flex;
+        gap: 0.35rem;
+        align-items: center;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      #status {
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin-left: auto;
+      }
+      main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        min-height: 0;
+      }
+      #stage {
+        overflow: auto;
+        padding: 1rem;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+      }
+      #page-wrap {
+        position: relative;
+        line-height: 0;
+        box-shadow: 0 0 0 1px #333;
+      }
+      canvas {
+        display: block;
+        max-width: 100%;
+        height: auto;
+      }
+      #overlay,
+      #hits {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      #hits {
+        z-index: 3;
+      }
+      #overlay .box {
+        position: absolute;
+        background: var(--box);
+        border: 1px solid var(--box-border);
+        pointer-events: auto;
+        cursor: pointer;
+      }
+      #overlay .box.selected {
+        background: var(--selected);
+        border: 1px solid var(--selected-border);
+        z-index: 1;
+      }
+      #hits .hit {
+        position: absolute;
+        background: var(--hit);
+        border: 1px solid var(--hit-border);
+      }
+      #hits .hit.current {
+        background: var(--hit-current);
+        border: 1px solid var(--hit-current-border);
+      }
+      #overlay.hidden .box {
+        display: none;
+      }
+      aside {
+        overflow: auto;
+        border-left: 1px solid #333;
+        background: var(--panel);
+        padding: 0.75rem;
+        font-size: 0.82rem;
+      }
+      aside h2 {
+        font-size: 0.8rem;
+        margin: 0 0 0.5rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      #block-list {
+        list-style: none;
+        margin: 0 0 1rem;
+        padding: 0;
+        max-height: 40%;
+        overflow: auto;
+      }
+      #block-list li {
+        padding: 0.3rem 0.4rem;
+        border-radius: 4px;
+        cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #block-list li:hover,
+      #block-list li.selected {
+        background: #2e2e2e;
+      }
+      #detail {
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: var(--fg);
+      }
+      #detail .meta {
+        color: var(--muted);
+        margin-bottom: 0.6rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>PDF viewer</h1>
+      <label class="toggle">
+        Backend
+        <select id="backend">
+          <option value="default">default</option>
+          <option value="mineru">mineru (CPU)</option>
+        </select>
+      </label>
+      <input id="file" type="file" accept="application/pdf,.pdf" />
+      <button id="reparse" type="button" disabled>Re-parse</button>
+      <button id="prev" type="button" disabled>Page prev</button>
+      <span id="page-label">Page —</span>
+      <button id="next" type="button" disabled>Page next</button>
+      <label class="toggle">
+        <input id="show-boxes" type="checkbox" checked />
+        Show boxes
+      </label>
+      <input id="search" type="search" placeholder="Search substring" />
+      <button id="search-go" type="button">Search</button>
+      <button id="search-prev" type="button" disabled>Previous hit</button>
+      <span id="search-label">—</span>
+      <button id="search-next" type="button" disabled>Next hit</button>
+      <span id="status">No document</span>
+    </header>
+    <main>
+      <div id="stage">
+        <div id="page-wrap">
+          <canvas id="pdf-canvas"></canvas>
+          <div id="overlay"></div>
+          <div id="hits"></div>
+        </div>
+      </div>
+      <aside>
+        <h2>Blocks on this page</h2>
+        <ul id="block-list"></ul>
+        <h2>Selected</h2>
+        <div id="detail">Click a box or a row.</div>
+      </aside>
+    </main>
+    <script type="module">
+      import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs";
+
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+
+      const backendSelect = document.getElementById("backend");
+      const fileInput = document.getElementById("file");
+      const reparseBtn = document.getElementById("reparse");
+      const prevBtn = document.getElementById("prev");
+      const nextBtn = document.getElementById("next");
+      const pageLabel = document.getElementById("page-label");
+      const statusEl = document.getElementById("status");
+      const showBoxes = document.getElementById("show-boxes");
+      const searchInput = document.getElementById("search");
+      const searchGoBtn = document.getElementById("search-go");
+      const searchPrevBtn = document.getElementById("search-prev");
+      const searchNextBtn = document.getElementById("search-next");
+      const searchLabel = document.getElementById("search-label");
+      const canvas = document.getElementById("pdf-canvas");
+      const overlay = document.getElementById("overlay");
+      const hitsLayer = document.getElementById("hits");
+      const blockList = document.getElementById("block-list");
+      const detail = document.getElementById("detail");
+
+      let pdfDoc = null;
+      let artifact = null;
+      let pageNumber = 1;
+      let selectedId = null;
+      let rendering = false;
+      let searchMatches = [];
+      let searchIndex = -1;
+
+      function setStatus(text) {
+        statusEl.textContent = text;
+      }
+
+      function selectedBackend() {
+        return backendSelect.value || "default";
+      }
+
+      function parsingMessage() {
+        return selectedBackend() === "mineru"
+          ? "Parsing with MinerU (CPU)… this can take minutes"
+          : "Parsing…";
+      }
+
+      function setBusy(busy) {
+        backendSelect.disabled = busy;
+        fileInput.disabled = busy;
+        reparseBtn.disabled = busy || !pdfDoc;
+        searchGoBtn.disabled = busy;
+      }
+
+      function backendLabel(value) {
+        return value === "mineru" ? "mineru (CPU)" : value;
+      }
+
+      async function refreshCacheMarks() {
+        const res = await fetch("/cache.json");
+        if (!res.ok) return;
+        const data = await res.json();
+        const cached = data.cached ?? [];
+        for (const opt of backendSelect.options) {
+          opt.textContent = cached.includes(opt.value)
+            ? `${backendLabel(opt.value)} · cached`
+            : backendLabel(opt.value);
+        }
+      }
+
+      function applyArtifact(next, { draw = true } = {}) {
+        artifact = next;
+        if (artifact.parser?.name) {
+          backendSelect.value = artifact.parser.name;
+        }
+        selectedId = null;
+        setStatus(
+          `${artifact.pages.length} page(s) · ${artifact.parser?.name ?? "parser"} ${artifact.parser?.version ?? ""}`.trim(),
+        );
+        if (!draw) return;
+        if (searchInput.value) {
+          runSearch();
+        } else {
+          drawBoxes();
+        }
+      }
+
+      function currentPageArtifact() {
+        if (!artifact) return null;
+        return artifact.pages.find((p) => p.page_number === pageNumber) ?? null;
+      }
+
+      function contentText(block) {
+        if (!block.content) return "";
+        if (block.content.type === "text") return block.content.text ?? "";
+        if (block.content.type === "table") {
+          const cells = block.content.cells ?? [];
+          return cells.map((cell) => cell.text ?? "").join(" | ");
+        }
+        return JSON.stringify(block.content);
+      }
+
+      function applySelection() {
+        overlay.querySelectorAll(".box").forEach((el) => {
+          el.classList.toggle("selected", el.dataset.blockId === selectedId);
+        });
+        blockList.querySelectorAll("li").forEach((el) => {
+          el.classList.toggle("selected", el.dataset.blockId === selectedId);
+        });
+        const page = currentPageArtifact();
+        const block = selectedId
+          ? page?.blocks.find((b) => b.block_id === selectedId)
+          : null;
+        if (!block) {
+          detail.textContent = "Click a box or a row.";
+          return;
+        }
+        const bbox = block.bbox
+          ? `bbox [${block.bbox.x0.toFixed(3)}, ${block.bbox.y0.toFixed(3)}]–[${block.bbox.x1.toFixed(3)}, ${block.bbox.y1.toFixed(3)}]`
+          : "bbox none";
+        detail.innerHTML = "";
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        const continuation = block.continuation_of
+          ? `continuation_of ${block.continuation_of}`
+          : "continuation_of none";
+        meta.textContent = `${block.block_id}\norder ${block.order} · ${block.kind} / ${block.role}\n${continuation}\n${bbox}`;
+        const body = document.createElement("div");
+        body.textContent = contentText(block);
+        detail.append(meta, body);
+      }
+
+      function selectBlock(blockId) {
+        selectedId = selectedId === blockId ? null : blockId;
+        applySelection();
+      }
+
+      function drawBoxes() {
+        overlay.replaceChildren();
+        overlay.classList.toggle("hidden", !showBoxes.checked);
+        const page = currentPageArtifact();
+        if (page) {
+          for (const block of page.blocks) {
+            if (!block.bbox) continue;
+            const el = document.createElement("div");
+            el.className = "box";
+            el.dataset.blockId = block.block_id;
+            el.dataset.kind = block.kind;
+            const { x0, y0, x1, y1 } = block.bbox;
+            el.style.left = `${x0 * 100}%`;
+            el.style.top = `${y0 * 100}%`;
+            el.style.width = `${(x1 - x0) * 100}%`;
+            el.style.height = `${(y1 - y0) * 100}%`;
+            el.title = contentText(block).slice(0, 120);
+            el.addEventListener("click", (event) => {
+              event.stopPropagation();
+              selectBlock(block.block_id);
+            });
+            overlay.appendChild(el);
+          }
+          fillList();
+          applySelection();
+        }
+        drawHits();
+      }
+
+      function collectMatches(query) {
+        const matches = [];
+        const needle = query.trim();
+        if (!artifact || !needle) return matches;
+        const needleLower = needle.toLowerCase();
+        for (const page of artifact.pages) {
+          for (const block of page.blocks) {
+            if (block.content?.type !== "text") continue;
+            const text = block.content.text ?? "";
+            const haystack = text.toLowerCase();
+            const spans = block.content.spans ?? [];
+            let from = 0;
+            while (true) {
+              const at = haystack.indexOf(needleLower, from);
+              if (at < 0) break;
+              matches.push({
+                page: page.page_number,
+                blockId: block.block_id,
+                start: at,
+                end: at + needle.length,
+                spans,
+              });
+              from = at + 1;
+            }
+          }
+        }
+        return matches;
+      }
+
+      function lineBoxesForRange(spans, start, end) {
+        const byLine = new Map();
+        for (const span of spans) {
+          if (!(span.start < end && span.end > start) || !span.bbox) continue;
+          const box = span.bbox;
+          const prev = byLine.get(span.line);
+          byLine.set(
+            span.line,
+            prev
+              ? {
+                  x0: Math.min(prev.x0, box.x0),
+                  y0: Math.min(prev.y0, box.y0),
+                  x1: Math.max(prev.x1, box.x1),
+                  y1: Math.max(prev.y1, box.y1),
+                }
+              : { x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1 },
+          );
+        }
+        return [...byLine.values()];
+      }
+
+      function updateSearchLabel() {
+        const hasHits = searchMatches.length > 0 && searchIndex >= 0;
+        searchPrevBtn.disabled = !hasHits;
+        searchNextBtn.disabled = !hasHits;
+        searchLabel.textContent = hasHits
+          ? `${searchIndex + 1} / ${searchMatches.length}`
+          : searchInput.value
+            ? "0 hits"
+            : "—";
+      }
+
+      function drawHits() {
+        hitsLayer.replaceChildren();
+        if (searchIndex < 0) return;
+        searchMatches.forEach((match, index) => {
+          if (match.page !== pageNumber) return;
+          const current = index === searchIndex;
+          for (const box of lineBoxesForRange(match.spans, match.start, match.end)) {
+            const el = document.createElement("div");
+            el.className = current ? "hit current" : "hit";
+            el.style.left = `${box.x0 * 100}%`;
+            el.style.top = `${box.y0 * 100}%`;
+            el.style.width = `${(box.x1 - box.x0) * 100}%`;
+            el.style.height = `${(box.y1 - box.y0) * 100}%`;
+            hitsLayer.appendChild(el);
+          }
+        });
+      }
+
+      async function goToMatch(index) {
+        if (!searchMatches.length) return;
+        searchIndex = (index + searchMatches.length) % searchMatches.length;
+        updateSearchLabel();
+        const match = searchMatches[searchIndex];
+        if (pageNumber !== match.page) {
+          pageNumber = match.page;
+          await renderPage();
+          return;
+        }
+        drawBoxes();
+      }
+
+      async function runSearch() {
+        searchMatches = collectMatches(searchInput.value);
+        if (!searchMatches.length) {
+          searchIndex = -1;
+          updateSearchLabel();
+          drawBoxes();
+          return;
+        }
+        let start = searchMatches.findIndex((match) => match.page >= pageNumber);
+        if (start < 0) {
+          start = 0;
+        }
+        await goToMatch(start);
+      }
+
+      function fillList() {
+        blockList.replaceChildren();
+        const page = currentPageArtifact();
+        if (!page) return;
+        for (const block of page.blocks) {
+          const li = document.createElement("li");
+          li.dataset.blockId = block.block_id;
+          const mark = block.continuation_of ? "↳ " : "";
+          li.textContent = `${block.order}  ${mark}${contentText(block)}`;
+          li.addEventListener("click", () => selectBlock(block.block_id));
+          blockList.appendChild(li);
+        }
+      }
+
+      async function renderPage() {
+        if (!pdfDoc || rendering) return;
+        rendering = true;
+        try {
+          const page = await pdfDoc.getPage(pageNumber);
+          const base = page.getViewport({ scale: 1 });
+          const maxWidth = Math.max(320, document.getElementById("stage").clientWidth - 32);
+          const scale = Math.min(1.6, maxWidth / base.width);
+          const viewport = page.getViewport({ scale });
+          const dpr = window.devicePixelRatio || 1;
+          canvas.width = Math.floor(viewport.width * dpr);
+          canvas.height = Math.floor(viewport.height * dpr);
+          canvas.style.width = `${viewport.width}px`;
+          canvas.style.height = `${viewport.height}px`;
+          const ctx = canvas.getContext("2d");
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          pageLabel.textContent = `Page ${pageNumber} / ${pdfDoc.numPages}`;
+          prevBtn.disabled = pageNumber <= 1;
+          nextBtn.disabled = pageNumber >= pdfDoc.numPages;
+          drawBoxes();
+        } finally {
+          rendering = false;
+        }
+      }
+
+      async function loadFromServer() {
+        const artifactRes = await fetch("/artifact.json");
+        if (artifactRes.status === 404) {
+          pdfDoc = null;
+          artifact = null;
+          reparseBtn.disabled = true;
+          setStatus("No document — choose a PDF");
+          pageLabel.textContent = "Page —";
+          overlay.replaceChildren();
+          blockList.replaceChildren();
+          return;
+        }
+        if (!artifactRes.ok) {
+          setStatus(`Failed to load artifact (${artifactRes.status})`);
+          return;
+        }
+        artifact = await artifactRes.json();
+        applyArtifact(artifact, { draw: false });
+        const pdfRes = await fetch("/document.pdf");
+        if (!pdfRes.ok) {
+          setStatus("Failed to load PDF bytes");
+          return;
+        }
+        const data = new Uint8Array(await pdfRes.arrayBuffer());
+        pdfDoc = await pdfjsLib.getDocument({ data }).promise;
+        pageNumber = 1;
+        selectedId = null;
+        reparseBtn.disabled = false;
+        await refreshCacheMarks();
+        await renderPage();
+      }
+
+      async function reparseCurrent() {
+        if (reparseBtn.disabled) return;
+        setBusy(true);
+        setStatus(parsingMessage());
+        const res = await fetch(`/reparse?backend=${encodeURIComponent(selectedBackend())}`, {
+          method: "POST",
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: res.statusText }));
+          setStatus(err.detail ?? "Parse failed");
+          setBusy(false);
+          return;
+        }
+        artifact = await res.json();
+        applyArtifact(artifact);
+        await refreshCacheMarks();
+        setBusy(false);
+      }
+
+      async function switchBackend() {
+        if (!pdfDoc) return;
+        const name = selectedBackend();
+        const res = await fetch(`/artifact.json?backend=${encodeURIComponent(name)}`);
+        if (res.ok) {
+          applyArtifact(await res.json());
+          await refreshCacheMarks();
+          return;
+        }
+        artifact = null;
+        selectedId = null;
+        overlay.replaceChildren();
+        hitsLayer.replaceChildren();
+        blockList.replaceChildren();
+        detail.textContent = "Click a box or a row.";
+        setStatus(`No ${backendLabel(name)} result yet — Re-parse to cache it`);
+        await refreshCacheMarks();
+      }
+
+      async function uploadPdf(file) {
+        setBusy(true);
+        setStatus(parsingMessage());
+        const body = await file.arrayBuffer();
+        const res = await fetch(`/parse?backend=${encodeURIComponent(selectedBackend())}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/pdf" },
+          body,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: res.statusText }));
+          setStatus(err.detail ?? "Parse failed");
+          setBusy(false);
+          return;
+        }
+        await loadFromServer();
+        setBusy(false);
+      }
+
+      fileInput.addEventListener("change", () => {
+        const file = fileInput.files?.[0];
+        if (file) uploadPdf(file);
+      });
+      backendSelect.addEventListener("change", () => switchBackend());
+      reparseBtn.addEventListener("click", () => reparseCurrent());
+      searchGoBtn.addEventListener("click", () => runSearch());
+      searchInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") runSearch();
+      });
+      searchPrevBtn.addEventListener("click", () => goToMatch(searchIndex - 1));
+      searchNextBtn.addEventListener("click", () => goToMatch(searchIndex + 1));
+      prevBtn.addEventListener("click", async () => {
+        if (pageNumber > 1) {
+          pageNumber -= 1;
+          selectedId = null;
+          await renderPage();
+        }
+      });
+      nextBtn.addEventListener("click", async () => {
+        if (pdfDoc && pageNumber < pdfDoc.numPages) {
+          pageNumber += 1;
+          selectedId = null;
+          await renderPage();
+        }
+      });
+      showBoxes.addEventListener("change", drawBoxes);
+      window.addEventListener("resize", () => {
+        if (pdfDoc) renderPage();
+      });
+
+      await loadFromServer();
+    </script>
+  </body>
+</html>
