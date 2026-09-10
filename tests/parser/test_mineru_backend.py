@@ -2,9 +2,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from bioparser.parser.backend.mineru.mapper import artifact_from_middle_json
 from bioparser.parser.backend.mineru.parser import MINERU_PARSER_NAME, MINERU_PARSER_VERSION
 from bioparser.parser.backend.mineru.schema import MINERU_PIPELINE_VERSION
+from bioparser.parser.backend.mineru.tables import HTML_CELL_MAX_SPAN, _cells_from_html
 from bioparser.parser.models import (
     BlockKind,
     BlockRole,
@@ -269,3 +272,11 @@ def test_column_jump_splits_into_two_boxes() -> None:
     assert left.bbox is not None and right.bbox is not None
     assert left.bbox.x1 < right.bbox.x0
     assert right.bbox.y1 < left.bbox.y0
+
+
+@pytest.mark.parametrize("raw", ["1001", "100000", "999999999"])
+def test_oversized_spans_are_capped(raw: str) -> None:
+    cells = _cells_from_html(f'<table><tr><td rowspan="{raw}" colspan="{raw}">x</td></tr></table>')
+
+    assert cells[0].rowspan == HTML_CELL_MAX_SPAN
+    assert cells[0].colspan == HTML_CELL_MAX_SPAN
