@@ -61,9 +61,16 @@ class _Line:
         return max(self.bottom - self.top, 1.0)
 
 
+@dataclass(frozen=True, slots=True)
+class _EmittedBlock:
+    block: TextBlock
+    spanning: bool = False
+
+
 @dataclass(slots=True)
 class _OpenBlock:
     lines: list[_Line] = field(default_factory=list)
+    spanning: bool = False
 
     def add(self, line: _Line) -> None:
         self.lines.append(line)
@@ -110,6 +117,9 @@ def group_words_into_text_blocks(
     overlaps more than one open last-line is treated as spanning and flushes
     those columns. A gap larger than `paragraph_gap_factor` times that
     column's previous line height starts a new block in the same column.
+    Blocks are returned in column reading order (left column top to bottom,
+    then the next column). A spanning line is a barrier: columns above it
+    are finished before it, then columns below resume.
     """
     words = [WordBox(_strip_soft_hyphens(w.text), w.x0, w.x1, w.top, w.bottom) for w in words]
     words = [w for w in words if w.text]
@@ -140,7 +150,7 @@ def _word_height(word: WordBox) -> float:
     return max(word.bottom - word.top, 1.0)
 
 
-def _split_band_by_gutter(band: list[WordBox], *, column_gutter_factor: float) -> list[_Line]:
+def _split_line_by_gutter(band: list[WordBox], *, column_gutter_factor: float) -> list[_Line]:
     ordered = sorted(band, key=lambda word: word.x0)
     segments: list[list[WordBox]] = [[ordered[0]]]
     for word in ordered[1:]:
@@ -170,11 +180,11 @@ def _words_to_lines(
             if current_top is None:
                 current_top = word.top
             continue
-        lines.extend(_split_band_by_gutter(current, column_gutter_factor=column_gutter_factor))
+        lines.extend(_split_line_by_gutter(current, column_gutter_factor=column_gutter_factor))
         current = [word]
         current_top = word.top
     if current:
-        lines.extend(_split_band_by_gutter(current, column_gutter_factor=column_gutter_factor))
+        lines.extend(_split_line_by_gutter(current, column_gutter_factor=column_gutter_factor))
     return lines
 
 
@@ -183,14 +193,37 @@ def _vertical_paragraph_break(previous: _Line, current: _Line, *, factor: float)
     return gap > factor * previous.height
 
 
+def _column_reading_order(items: list[_EmittedBlock]) -> list[TextBlock]:
+    """Sort column blocks by (x0, top) between spanning barriers."""
+    ordered: list[TextBlock] = []
+    run: list[TextBlock] = []
+
+    def flush_run() -> None:
+        run.sort(key=lambda block: (block.x0, block.top))
+        ordered.extend(run)
+        run.clear()
+
+    for item in items:
+        if item.spanning:
+            flush_run()
+            ordered.append(item.block)
+        else:
+            run.append(item.block)
+    flush_run()
+    return ordered
+
+
+def _emit(open_block: _OpenBlock) -> _EmittedBlock:
+    return _EmittedBlock(open_block.to_text_block(), spanning=open_block.spanning)
+
+
 def _lines_to_blocks(
     lines: list[_Line],
     *,
     paragraph_gap_factor: float,
     min_x_overlap: float,
 ) -> list[TextBlock]:
-
-    emitted: list[TextBlock] = []
+    emitted: list[_EmittedBlock] = []
     open_blocks: list[_OpenBlock] = []
     for line in lines:
         matches = [
@@ -201,8 +234,8 @@ def _lines_to_blocks(
         if len(matches) > 1:
             for block in sorted(matches, key=lambda item: (item.last.x0, item.lines[0].top)):
                 open_blocks.remove(block)
-                emitted.append(block.to_text_block())
-            started = _OpenBlock()
+                emitted.append(_emit(block))
+            started = _OpenBlock(spanning=True)
             started.add(line)
             open_blocks.append(started)
             continue
@@ -214,15 +247,14 @@ def _lines_to_blocks(
         target = matches[0]
         if _vertical_paragraph_break(target.last, line, factor=paragraph_gap_factor):
             open_blocks.remove(target)
-            emitted.append(target.to_text_block())
+            emitted.append(_emit(target))
             started = _OpenBlock()
             started.add(line)
             open_blocks.append(started)
             continue
         target.add(line)
-    emitted.extend(block.to_text_block() for block in open_blocks)
-    emitted.sort(key=lambda block: (block.top, block.x0))
-    return emitted
+    emitted.extend(_emit(block) for block in open_blocks)
+    return _column_reading_order(emitted)
 
 
 def _lines_to_text_and_spans(lines: list[_Line]) -> tuple[str, tuple[WordSpan, ...]]:

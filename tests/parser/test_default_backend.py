@@ -131,6 +131,112 @@ def test_interleaved_columns_merge_independently() -> None:
     assert [block.text for block in blocks] == ["L1 L2", "R1 R2 R3"]
 
 
+def _column_paragraph(
+    tokens: list[str],
+    *,
+    x0: float,
+    x1: float,
+    top: float,
+    line_height: float = 10.0,
+    line_gap: float = 4.0,
+) -> tuple[list[WordBox], float]:
+    """Build one column paragraph; return boxes and the last line's bottom."""
+    boxes: list[WordBox] = []
+    y = top
+    bottom = top
+    for token in tokens:
+        bottom = y + line_height
+        boxes.append(WordBox(token, x0, x1, y, bottom))
+        y = bottom + line_gap
+    return boxes, bottom
+
+
+def test_two_column_multi_paragraph_reading_order() -> None:
+    """Several paragraphs per column, plus a mid-page banner.
+
+    Visual (top, x0) order would interleave left/right paragraphs. Reading
+    order is left column, then right, with the spanning banner as a barrier.
+    """
+    left_x0, left_x1 = 10.0, 90.0
+    right_x0, right_x1 = 220.0, 400.0
+    para_gap = 20.0
+
+    words: list[WordBox] = []
+    left1, left1_bottom = _column_paragraph(
+        ["Mice", "were", "housed"],
+        x0=left_x0,
+        x1=left_x1,
+        top=20.0,
+    )
+    right1, right1_bottom = _column_paragraph(
+        ["Samples", "were", "collected", "daily"],
+        x0=right_x0,
+        x1=right_x1,
+        top=22.0,
+    )
+    left2, left2_bottom = _column_paragraph(
+        ["Body", "mass", "increased"],
+        x0=left_x0,
+        x1=left_x1,
+        top=left1_bottom + para_gap,
+    )
+    right2, right2_bottom = _column_paragraph(
+        ["Controls", "remained", "stable"],
+        x0=right_x0,
+        x1=right_x1,
+        top=right1_bottom + para_gap,
+    )
+    left3, left3_bottom = _column_paragraph(
+        ["Survival", "did", "not", "differ"],
+        x0=left_x0,
+        x1=left_x1,
+        top=left2_bottom + para_gap,
+    )
+    right3, right3_bottom = _column_paragraph(
+        ["Variance", "was", "low"],
+        x0=right_x0,
+        x1=right_x1,
+        top=right2_bottom + para_gap,
+    )
+    banner_top = max(left3_bottom, right3_bottom) + para_gap
+    banner = WordBox("Abstract", 10.0, 400.0, banner_top, banner_top + 12.0)
+    below_top = banner.bottom + para_gap
+    left4, _ = _column_paragraph(
+        ["Methods", "follow"],
+        x0=left_x0,
+        x1=left_x1,
+        top=below_top,
+    )
+    right4, _ = _column_paragraph(
+        ["Results", "are", "shown"],
+        x0=right_x0,
+        x1=right_x1,
+        top=below_top + 2.0,
+    )
+    words.extend(left1)
+    words.extend(right1)
+    words.extend(left2)
+    words.extend(right2)
+    words.extend(left3)
+    words.extend(right3)
+    words.append(banner)
+    words.extend(left4)
+    words.extend(right4)
+
+    blocks = group_words_into_text_blocks(words, line_tolerance=3.0, paragraph_gap_factor=0.6)
+    assert [block.text for block in blocks] == [
+        "Mice were housed",
+        "Body mass increased",
+        "Survival did not differ",
+        "Samples were collected daily",
+        "Controls remained stable",
+        "Variance was low",
+        "Abstract",
+        "Methods follow",
+        "Results are shown",
+    ]
+
+
 def test_narrow_x_overlap_is_a_separate_column() -> None:
     words = [
         WordBox("left", 10, 104, 20, 30),
