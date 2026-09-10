@@ -154,7 +154,7 @@ def artifact_from_middle_json(
                     page_sizes=page_sizes,
                     page_index=page_index,
                 )
-                root_id: str | None = None
+                prev_id: str | None = None
                 for prepared in prepared_blocks:
                     ident = _append_prepared(
                         blocks_by_page,
@@ -162,11 +162,10 @@ def artifact_from_middle_json(
                         page_numbers=page_numbers,
                         source_index=page_index,
                         prepared=prepared,
-                        continuation_of=root_id,
+                        continuation_of=prev_id,
                     )
                     extracted_any = True
-                    if root_id is None:
-                        root_id = ident
+                    prev_id = ident
 
     if not extracted_any:
         raise ValueError("middle.json contained no mappable text blocks")

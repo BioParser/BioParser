@@ -274,6 +274,34 @@ def test_column_jump_splits_into_two_boxes() -> None:
     assert right.bbox.y1 < left.bbox.y0
 
 
+def test_column_then_page_continuations_form_a_chain() -> None:
+    middle = _two_page_middle(
+        [
+            {
+                "type": "text",
+                "bbox": [50, 80, 550, 740],
+                "lines": [
+                    _text_line("left column tail", [50, 700, 250, 720]),
+                    _text_line("right column head", [320, 80, 550, 100]),
+                    _text_line("next page", [50, 80, 250, 100], cross_page=True),
+                ],
+            }
+        ],
+        [],
+    )
+    artifact = _from_middle(middle)
+    first, second = artifact.pages[0].blocks
+    third = artifact.pages[1].blocks[0]
+    assert [_text(block).text for block in (first, second, third)] == [
+        "left column tail",
+        "right column head",
+        "next page",
+    ]
+    assert first.continuation_of is None
+    assert second.continuation_of == first.block_id
+    assert third.continuation_of == second.block_id
+
+
 @pytest.mark.parametrize("raw", ["1001", "100000", "999999999"])
 def test_oversized_spans_are_capped(raw: str) -> None:
     cells = _cells_from_html(f'<table><tr><td rowspan="{raw}" colspan="{raw}">x</td></tr></table>')
