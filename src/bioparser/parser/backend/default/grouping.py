@@ -94,6 +94,7 @@ class _OpenBlock:
 
 
 SOFT_HYPHEN = "\u00ad"
+SPAN_WIDTH_FACTOR = 0.7  # line width / page width; at or above this, close columns (band break)
 
 
 def _strip_soft_hyphens(text: str) -> str:
@@ -108,6 +109,7 @@ def group_words_into_text_blocks(
     paragraph_gap_factor: float,
     column_gutter_factor: float = 1.0,
     min_x_overlap: float = 8.0,
+    page_width: float | None = None,
 ) -> list[TextBlock]:
     """Join words into lines, then lines into column-aware blocks.
 
@@ -115,16 +117,19 @@ def group_words_into_text_blocks(
     split if an x-gap exceeds `column_gutter_factor` times the adjacent
     word height. Several blocks may stay open:
     a line joins the open block whose last line overlaps it in x by more
-    than `min_x_overlap`. Other columns are ignored for the gap test. A line that
-    overlaps more than one open last-line is treated as spanning and flushes
-    those columns. A gap larger than `paragraph_gap_factor` times that
-    column's previous line height starts a new paragraph in the same open
-    column. Remaining columns are emitted left to right, each top to bottom.
+    than `min_x_overlap`. Other columns are ignored for the gap test. A line
+    covering at least `SPAN_WIDTH_FACTOR` of the page width closes every
+    open column (left to right) before it, then starts a new band. A gap
+    larger than `paragraph_gap_factor` times that column's previous line
+    height starts a new paragraph in the same open column. Remaining columns
+    are emitted left to right, each top to bottom.
     """
     words = [WordBox(_strip_soft_hyphens(w.text), w.x0, w.x1, w.top, w.bottom) for w in words]
     words = [w for w in words if w.text]
     if not words:
         return []
+    if page_width is None:
+        page_width = max(word.x1 for word in words) - min(word.x0 for word in words)
 
     lines = _words_to_lines(
         words,
@@ -135,6 +140,7 @@ def group_words_into_text_blocks(
         lines,
         paragraph_gap_factor=paragraph_gap_factor,
         min_x_overlap=min_x_overlap,
+        page_width=page_width,
     )
 
 
@@ -193,29 +199,49 @@ def _vertical_paragraph_break(previous: _Line, current: _Line, *, factor: float)
     return gap > factor * previous.height
 
 
+def _take_columns(open_blocks: list[_OpenBlock]) -> list[TextBlock]:
+    open_blocks.sort(key=lambda block: block.column_x)
+    taken: list[TextBlock] = []
+    for column in open_blocks:
+        column.close_paragraph()
+        taken.extend(column.paragraphs)
+    open_blocks.clear()
+    return taken
+
+
 def _lines_to_blocks(
     lines: list[_Line],
     *,
     paragraph_gap_factor: float,
     min_x_overlap: float,
+    page_width: float,
 ) -> list[TextBlock]:
     emitted: list[TextBlock] = []
     open_blocks: list[_OpenBlock] = []
+    span_width = SPAN_WIDTH_FACTOR * page_width
     for line in lines:
+        if page_width > 0 and (line.x1 - line.x0) >= span_width:
+            matches = [
+                block
+                for block in open_blocks
+                if _x_ranges_overlap(block.last, line, min_overlap=min_x_overlap)
+            ]
+            if len(open_blocks) == 1 and matches:
+                target = matches[0]
+                if _vertical_paragraph_break(target.last, line, factor=paragraph_gap_factor):
+                    target.close_paragraph()
+                target.add(line)
+                continue
+            emitted.extend(_take_columns(open_blocks))
+            started = _OpenBlock()
+            started.add(line)
+            open_blocks.append(started)
+            continue
         matches = [
             block
             for block in open_blocks
             if _x_ranges_overlap(block.last, line, min_overlap=min_x_overlap)
         ]
-        if len(matches) > 1:
-            for block in sorted(matches, key=lambda item: item.column_x):
-                open_blocks.remove(block)
-                block.close_paragraph()
-                emitted.extend(block.paragraphs)
-            started = _OpenBlock()
-            started.add(line)
-            open_blocks.append(started)
-            continue
         if not matches:
             started = _OpenBlock()
             started.add(line)
@@ -225,10 +251,7 @@ def _lines_to_blocks(
         if _vertical_paragraph_break(target.last, line, factor=paragraph_gap_factor):
             target.close_paragraph()
         target.add(line)
-    open_blocks.sort(key=lambda block: block.column_x)
-    for block in open_blocks:
-        block.close_paragraph()
-        emitted.extend(block.paragraphs)
+    emitted.extend(_take_columns(open_blocks))
     return emitted
 
 

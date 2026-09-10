@@ -6,7 +6,11 @@ from pathlib import Path
 import pdfplumber
 from pdfplumber.page import Page as PdfPlumberPage
 
-from bioparser.parser.backend.default.grouping import WordBox, group_words_into_text_blocks
+from bioparser.parser.backend.default.grouping import (
+    SPAN_WIDTH_FACTOR,
+    WordBox,
+    group_words_into_text_blocks,
+)
 from bioparser.parser.checksum import block_id, sha256_file
 from bioparser.parser.errors import UnsupportedDocumentError
 from bioparser.parser.models import (
@@ -101,6 +105,7 @@ class DefaultParser:
                         paragraph_gap_factor=PARAGRAPH_GAP_FACTOR,
                         column_gutter_factor=COLUMN_GUTTER_FACTOR,
                         min_x_overlap=MIN_X_OVERLAP,
+                        page_width=width,
                     )
                     if grouped:
                         extracted_any = True
@@ -171,6 +176,7 @@ class DefaultParser:
                     "paragraph_gap_factor": PARAGRAPH_GAP_FACTOR,
                     "column_gutter_factor": COLUMN_GUTTER_FACTOR,
                     "min_x_overlap": MIN_X_OVERLAP,
+                    "span_width_factor": SPAN_WIDTH_FACTOR,
                     "dedupe_chars": DEDUPE_CHARS,
                 },
             ),
