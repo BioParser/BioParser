@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Self
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,26 +37,24 @@ class TextBlock:
 @dataclass(frozen=True, slots=True)
 class _Line:
     words: tuple[WordBox, ...]
+    x0: float
+    x1: float
+    top: float
+    bottom: float
+
+    @classmethod
+    def of(cls, words: tuple[WordBox, ...]) -> Self:
+        return cls(
+            words=words,
+            x0=min(w.x0 for w in words),
+            x1=max(w.x1 for w in words),
+            top=min(w.top for w in words),
+            bottom=max(w.bottom for w in words),
+        )
 
     @property
     def text(self) -> str:
         return " ".join(word.text for word in self.words)
-
-    @property
-    def top(self) -> float:
-        return min(word.top for word in self.words)
-
-    @property
-    def bottom(self) -> float:
-        return max(word.bottom for word in self.words)
-
-    @property
-    def x0(self) -> float:
-        return min(word.x0 for word in self.words)
-
-    @property
-    def x1(self) -> float:
-        return max(word.x1 for word in self.words)
 
     @property
     def height(self) -> float:
@@ -152,7 +151,7 @@ def _split_band_by_gutter(band: list[WordBox], *, column_gutter_factor: float) -
             segments.append([word])
         else:
             segments[-1].append(word)
-    return [_Line(tuple(segment)) for segment in segments]
+    return [_Line.of(tuple(segment)) for segment in segments]
 
 
 def _words_to_lines(
@@ -190,6 +189,7 @@ def _lines_to_blocks(
     paragraph_gap_factor: float,
     min_x_overlap: float,
 ) -> list[TextBlock]:
+
     emitted: list[TextBlock] = []
     open_blocks: list[_OpenBlock] = []
     for line in lines:
@@ -220,8 +220,8 @@ def _lines_to_blocks(
             open_blocks.append(started)
             continue
         target.add(line)
-    open_blocks.sort(key=lambda block: (block.lines[0].top, block.lines[0].x0))
     emitted.extend(block.to_text_block() for block in open_blocks)
+    emitted.sort(key=lambda block: (block.top, block.x0))
     return emitted
 
 
