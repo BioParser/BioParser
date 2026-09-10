@@ -82,7 +82,9 @@ fail is the one reported.
 
 **Validation error body:**
 
-- Every failure above responds with the same shape, using FastAPI's standard `detail` wrapper:
+- Size-limit failures (`413`) use Starlette's plain-text body `Content Too Large`
+  (same as `RequestBodyLimitMiddleware`).
+- Every other validation failure responds with FastAPI's `detail` wrapper:
 
 ```json
 {
@@ -99,7 +101,6 @@ fail is the one reported.
 | `missing_file` | 400 | no `file` part in the request |
 | `empty_file` | 400 | the `file` part is present but its body is empty |
 | `invalid_pdf` | 400 | the body does not start with the `%PDF-` magic bytes |
-| `file_too_large` | 413 | file exceeds `config.MAX_UPLOAD_BYTES` |
 | `unsupported_content_type` | 415 | content type is not `application/pdf` |
 
 
@@ -136,7 +137,7 @@ dependencies to check yet.
 ## Module layout
 
 ```
-src/bioparser/
+src/bioparser/api/
   __init__.py       # main() -> starts the app
   app.py            # creates the FastAPI app, defines all three routes directly
   uploads.py        # upload-validation helpers used by POST /submit
@@ -145,26 +146,27 @@ src/bioparser/
                      #   to create/read jobs
 ```
 
-No `api/`, `schemas/`, `ports/`, `adapters/`, `services/`, or `ets/` folders yet. Routes
-live directly in `app.py`; only the `POST /submit` input validation has been pulled out
-into `uploads.py`. That fuller split is a good next step once there's enough code to
-make separate files worth navigating — not before.
+No `schemas/`, `ports/`, `adapters/`, `services/`, or `ets/` folders yet. Routes live
+directly in `app.py`; upload validation is in `uploads.py`.
 
 ### `app.py`
 
 Holds the FastAPI app and all three route handlers:
 
 - `POST /submit` — runs the [`uploads.py`](#uploadspy) helpers in order
-  (`require_file`, `validate_content_type`, `read_upload`, `validate_pdf_content`),
-  then calls `jobs.create_job()` and returns `202`. The read body is only used for
-  validation and is then discarded — nothing is persisted.
+  (`validate_content_length`, `require_file`, `validate_content_type`, `read_upload`,
+  `validate_pdf_content`), then calls `jobs.create_job()` and returns `202`. The
+  read body is only used for validation and is then discarded — nothing is
+  persisted. Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it
+  is still being received. A missing or understated `Content-Length` is still capped
+  while reading the file in chunks.
 - `GET /jobs/{job_id}` — calls `jobs.get_job(job_id)`, returns it or raises a 404
   `HTTPException`.
 - `GET /health` — returns `{"status": "ok"}` directly, no dependencies.
 
 Errors use `fastapi.HTTPException` directly — raised from the `uploads.py` helpers
-for `POST /submit` and inline in the route for the 404 — with no custom exception
-classes, no shared error envelope, and no registered exception handlers.
+for `POST /submit` and inline in the route for the 404. A `413` handler maps
+oversize errors to Starlette's plain-text `Content Too Large` body.
 
 ### `uploads.py`
 
@@ -175,20 +177,24 @@ failure, and returns normally on success.
 - `require_file(file) -> UploadFile` — raises `400 missing_file` when no `file`
   part was sent; otherwise returns it.
 - `validate_content_type(file) -> None` — raises `415 unsupported_content_type`
-  unless `file.content_type` is exactly `application/pdf`.
+  unless the MIME type (case-insensitive, parameters stripped) is `application/pdf`.
+- `validate_content_length(header) -> None` — no-op when the header is absent;
+  raises `400 invalid_content_length` when it is not a non-negative integer;
+  raises `413` (`Content Too Large`) when it exceeds `max_upload_bytes`.
 - `read_upload(file) -> bytes` — reads the upload in 1 MiB chunks, raising
-  `413 file_too_large` as soon as the running total exceeds
-  `config.MAX_UPLOAD_BYTES`; returns the full body otherwise.
+  `413` (`Content Too Large`) as soon as the running total exceeds
+  `get_api_settings().max_upload_bytes`; returns the full body otherwise.
 - `validate_pdf_content(content) -> None` — raises `400 empty_file` for an empty
   body, and `400 invalid_pdf` if the body does not start with the `%PDF-` magic
   bytes.
 
 ### `config.py`
 
-Process configuration, read from the environment once at import time.
+Process configuration via pydantic `BaseSettings`, loaded once through
+`get_api_settings()` (cached).
 
 - `DEFAULT_MAX_UPLOAD_BYTES` — 20 MiB, the built-in default.
-- `MAX_UPLOAD_BYTES` — the effective upload ceiling: the
+- `ApiSettings.max_upload_bytes` — the effective upload ceiling: the
   `BIOPARSER_MAX_UPLOAD_BYTES` environment variable (interpreted as an integer
   number of bytes) when set, otherwise `DEFAULT_MAX_UPLOAD_BYTES`.
 
@@ -259,10 +265,12 @@ curl -s localhost:8080/jobs/does-not-exist
 ```
 
 The size limit is read from the environment at startup (see [`config.py`](#configpy)),
-so exercise it by restarting the server with a small ceiling:
+so exercise it by restarting the server with a small ceiling. The ceiling applies to
+the whole HTTP request body (multipart wrapping included), not only the PDF bytes,
+so a 10-byte limit rejects even a tiny file:
 
 ```
 BIOPARSER_MAX_UPLOAD_BYTES=10 uv run bioparser
 curl -s -F file=@sample.pdf localhost:8080/submit
-# -> 413  file_too_large
+# -> 413  Content Too Large
 ```

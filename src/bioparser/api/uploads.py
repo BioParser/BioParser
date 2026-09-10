@@ -4,6 +4,7 @@ from . import config
 
 _CHUNK_SIZE = 1024 * 1024  # 1 MiB
 _PDF_MAGIC = b"%PDF-"
+CONTENT_TOO_LARGE = "Content Too Large"
 
 
 def require_file(file: UploadFile | None) -> UploadFile:
@@ -27,19 +28,38 @@ def validate_content_type(file: UploadFile) -> None:
         )
 
 
+def validate_content_length(header: str | None) -> None:
+    if header is None:
+        return
+    try:
+        length = int(header)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_content_length",
+                "message": "Content-Length header must be a non-negative integer",
+            },
+        ) from None
+    if length < 0:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_content_length",
+                "message": "Content-Length header must be a non-negative integer",
+            },
+        )
+    if length > config.get_api_settings().max_upload_bytes:
+        raise HTTPException(status_code=413, detail=CONTENT_TOO_LARGE)
+
+
 async def read_upload(file: UploadFile) -> bytes:
     chunks: list[bytes] = []
     total = 0
     while chunk := await file.read(_CHUNK_SIZE):
         total += len(chunk)
         if total > config.get_api_settings().max_upload_bytes:
-            raise HTTPException(
-                status_code=413,
-                detail={
-                    "code": "file_too_large",
-                    "message": f"File exceeds the {config.get_api_settings().max_upload_bytes} byte limit",
-                },
-            )
+            raise HTTPException(status_code=413, detail=CONTENT_TOO_LARGE)
         chunks.append(chunk)
     return b"".join(chunks)
 
