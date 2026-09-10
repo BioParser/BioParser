@@ -60,7 +60,7 @@ def _check_storage(path: str, timeout: float) -> bool:
 
 
 @app.get("/ready")
-def readiness() -> dict[str, Any]:
+async def readiness() -> dict[str, Any]:
     unavailable: list[str] = []
 
     try:
