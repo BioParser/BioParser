@@ -39,8 +39,7 @@ class _HTMLTableParser(HTMLParser):
         while (self._row, self._col) in self._occupied:
             self._col += 1
         attr = {key: value for key, value in attrs if value is not None}
-        self._rowspan = _parse_cell_span(attr.get("rowspan"), default=1)
-        self._colspan = _parse_cell_span(attr.get("colspan"), default=1)
+        self._rowspan, self._colspan = _parse_cell_spans(attr.get("rowspan"), attr.get("colspan"))
         self._in_cell = True
         self._text = []
 
@@ -73,18 +72,27 @@ class _HTMLTableParser(HTMLParser):
 
 
 HTML_CELL_MAX_SPAN = 1000
+HTML_CELL_MAX_OCCUPIED = 1000
 
 
-def _parse_cell_span(raw: str | None, *, default: int) -> int:
-    if raw is None:
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        return default
-    if value < 1:
-        return default
-    return min(value, HTML_CELL_MAX_SPAN)
+def _parse_cell_spans(rowspan: str | None, colspan: str | None) -> tuple[int, int]:
+    def parse_axis(raw: str | None) -> int:
+        if raw is None:
+            return 1
+        try:
+            value = int(raw)
+        except ValueError:
+            return 1
+        if value < 1:
+            return 1
+        return min(value, HTML_CELL_MAX_SPAN)
+
+    rows, cols = parse_axis(rowspan), parse_axis(colspan)
+    if rows * cols <= HTML_CELL_MAX_OCCUPIED:
+        return rows, cols
+    if rows >= cols:
+        return max(1, HTML_CELL_MAX_OCCUPIED // cols), cols
+    return rows, max(1, HTML_CELL_MAX_OCCUPIED // rows)
 
 
 def _cells_from_html(html: str) -> list[TableCell]:

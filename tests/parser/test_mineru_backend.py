@@ -7,7 +7,11 @@ import pytest
 from bioparser.parser.backend.mineru.mapper import artifact_from_middle_json
 from bioparser.parser.backend.mineru.parser import MINERU_PARSER_NAME, MINERU_PARSER_VERSION
 from bioparser.parser.backend.mineru.schema import MINERU_PIPELINE_VERSION
-from bioparser.parser.backend.mineru.tables import HTML_CELL_MAX_SPAN, _cells_from_html
+from bioparser.parser.backend.mineru.tables import (
+    HTML_CELL_MAX_OCCUPIED,
+    HTML_CELL_MAX_SPAN,
+    _cells_from_html,
+)
 from bioparser.parser.models import (
     BlockKind,
     BlockRole,
@@ -303,8 +307,26 @@ def test_column_then_page_continuations_form_a_chain() -> None:
 
 
 @pytest.mark.parametrize("raw", ["1001", "100000", "999999999"])
-def test_oversized_spans_are_capped(raw: str) -> None:
-    cells = _cells_from_html(f'<table><tr><td rowspan="{raw}" colspan="{raw}">x</td></tr></table>')
-
+def test_oversized_single_axis_spans_are_capped(raw: str) -> None:
+    cells = _cells_from_html(f'<table><tr><td rowspan="{raw}">x</td></tr></table>')
     assert cells[0].rowspan == HTML_CELL_MAX_SPAN
+    assert cells[0].colspan == 1
+
+    cells = _cells_from_html(f'<table><tr><td colspan="{raw}">x</td></tr></table>')
+    assert cells[0].rowspan == 1
     assert cells[0].colspan == HTML_CELL_MAX_SPAN
+
+
+@pytest.mark.parametrize("raw", ["1001", "100000", "999999999"])
+def test_oversized_span_product_is_capped(raw: str) -> None:
+    cells = _cells_from_html(f'<table><tr><td rowspan="{raw}" colspan="{raw}">x</td></tr></table>')
+    assert cells[0].rowspan * cells[0].colspan == HTML_CELL_MAX_OCCUPIED
+    assert cells[0].rowspan == 1
+    assert cells[0].colspan == HTML_CELL_MAX_SPAN
+
+
+def test_balanced_span_product_is_capped() -> None:
+    cells = _cells_from_html('<table><tr><td rowspan="50" colspan="50">x</td></tr></table>')
+    assert cells[0].rowspan * cells[0].colspan == HTML_CELL_MAX_OCCUPIED
+    assert cells[0].rowspan == 20
+    assert cells[0].colspan == 50
