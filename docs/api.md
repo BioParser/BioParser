@@ -4,7 +4,8 @@ This document defines the public HTTP contract of the API container and the inte
 module layout that implements it. The system context for these endpoints is in
 [architecture.md](architecture.md).
 
-Status: **draft** — nothing here is implemented yet beyond `GET /health`.
+Status: **draft** — liveness (`/health`) and readiness (`/ready`)
+behaviour is documented below.
 
 **Sprint 0 scope:** this is a deliberately reduced first pass, matching
 [architecture.md](architecture.md)'s core idea (accept a PDF, return
@@ -15,9 +16,12 @@ particular:
   survive a restart and are not visible to any other process.
 - **No worker exists yet.** A job is created as `queued` and nothing
   currently advances it to `running` or `succeeded`.
-- **No artifact storage.** Uploaded PDF bytes are not persisted anywhere.
-- **`/ready` is not implemented.** Only `/health` exists, since there
-  are no external dependencies yet to check readiness against.
+- **No artifact storage.** Uploaded PDF bytes are not persisted anywhere by
+  default. The optional `ARTIFACT_STORAGE_PATH` setting only enables a local-path
+  readiness check; no S3-compatible backend is implemented yet.
+- **Readiness (`/ready`) is supported.** The readiness endpoint performs
+  lightweight dependency checks only when corresponding environment variables are
+  set (see *Readiness behaviour* below).
 - **No `/api/v1` prefix, no checksum-based idempotency, no error
   envelope** — routes use plain `HTTPException` for now.
 
@@ -91,7 +95,28 @@ Poll a job.
 ### `GET /health`
 
 Liveness. Returns `200 {"status": "ok"}` whenever the process is running. No
-dependencies to check yet.
+dependencies are touched.
+
+### `GET /ready`
+
+Readiness. Performs optional, bounded dependency checks and returns `200 {"status": "ready"}`
+when the process can accept work. Behaviour is opt-in via environment variables so the
+default developer experience remains simple.
+
+Readiness behaviour:
+
+- If `REDIS_HOST` is set, the endpoint attempts a TCP connection to `REDIS_HOST:REDIS_PORT`
+  (default port `6379`) with a per-check timeout controlled by `DEPENDENCY_CHECK_TIMEOUT`
+  (seconds, default `1.0`). On failure the endpoint returns `503`; FastAPI places the
+  readiness payload under `detail`, e.g. `{"detail": {"status": "not ready", "unavailable": ["redis"]}}`.
+- If `ARTIFACT_STORAGE_PATH` is set, the endpoint attempts to create and remove a temporary
+  file in that directory to confirm writability. On failure `503` is returned with
+  `"storage"` in the `unavailable` list.
+- If neither environment variable is set the endpoint returns `200`.
+
+Checks are intentionally minimal: they use a raw TCP connect for Redis and a local
+file operation for storage so that checks are fast, require no credentials, and do not
+expose secrets in error messages.
 
 ---
 
@@ -111,12 +136,13 @@ make separate files worth navigating — not before.
 
 ### `app.py`
 
-Holds the FastAPI app and all three route handlers:
+Holds the FastAPI app and all four route handlers:
 
 - `POST /submit` — checks content type, calls `jobs.create_job()`, returns `202`.
 - `GET /jobs/{job_id}` — calls `jobs.get_job(job_id)`, returns it or raises a 404
   `HTTPException`.
 - `GET /health` — returns `{"status": "ok"}` directly, no dependencies.
+- `GET /ready` — optional dependency checks controlled by environment variables.
 
 Errors use `fastapi.HTTPException` directly in each route — no custom exception
 classes, no shared error envelope, no registered exception handlers.
@@ -133,7 +159,7 @@ A plain Python dict mapping `job_id -> {"status": "queued"}`, plus two small fun
 
 ## Out of scope for this draft
 
-No PDF storage. No Redis. No worker. No `/ready`. No `/api/v1` prefix. No checksum or
+No PDF storage. No Redis. No worker. No `/api/v1` prefix. No checksum or
 idempotency. No structured error envelope. No request-ID middleware or structured
 logging. These are the gaps named in the Sprint 0 scope note above, deferred until a
 later revision of this document.
