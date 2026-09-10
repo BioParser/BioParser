@@ -278,6 +278,27 @@ def test_column_jump_splits_into_two_boxes() -> None:
     assert right.bbox.y1 < left.bbox.y0
 
 
+def test_tight_column_gutter_stays_on_the_same_page() -> None:
+    middle = _two_page_middle(
+        [
+            {
+                "type": "text",
+                "bbox": [50, 80, 450, 720],
+                "lines": [
+                    _text_line("left column tail", [50, 700, 250, 720]),
+                    _text_line("right column head", [252, 80, 450, 100]),
+                ],
+            }
+        ],
+        [],
+    )
+    page = _from_middle(middle).pages[0]
+    left, right = page.blocks
+    assert [_text(left).text, _text(right).text] == ["left column tail", "right column head"]
+    assert right.continuation_of == left.block_id
+    assert len(_from_middle(middle).pages[1].blocks) == 0
+
+
 def test_column_then_page_continuations_form_a_chain() -> None:
     middle = _two_page_middle(
         [

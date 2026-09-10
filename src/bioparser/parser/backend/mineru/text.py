@@ -135,28 +135,15 @@ def join_lines_to_text(
     return text, spans, block_bbox
 
 
-def _geometry_kind(
-    previous: MiddleLine,
-    current: MiddleLine,
-    *,
-    page_height: float,
-) -> Continuation | None:
-    prev_box = previous.bbox
-    curr_box = current.bbox
-    if page_height > 0 and curr_box[1] >= page_height:
-        return "page"
-    prev_height = max(prev_box[3] - prev_box[1], 1.0)
-    jumped_up = curr_box[1] < prev_box[1] - prev_height
-    if not jumped_up:
-        return None
-    gutter = 0.5 * prev_height
-    if curr_box[0] > prev_box[2] + gutter:
-        return "column"
-    return "page"
-
-
 def _line_cross_page(line: MiddleLine) -> bool:
     return any(span.cross_page for span in line.spans)
+
+
+def _jumped_up(previous: MiddleLine, current: MiddleLine) -> bool:
+    prev_box = previous.bbox
+    curr_box = current.bbox
+    prev_height = max(prev_box[3] - prev_box[1], 1.0)
+    return curr_box[1] < prev_box[1] - prev_height
 
 
 def _continuation_kind(
@@ -167,16 +154,24 @@ def _continuation_kind(
 ) -> Continuation | None:
     """Split a merged MinerU para into one box per column/page fragment.
 
-    MinerU sets ``cross_page`` on every line absorbed from a later page, not
-    only the first. Those lines stay in the current fragment unless geometry
-    shows a column wrap or another page break. The flag only starts a run.
+    Page breaks use MinerU's own signals first: a line whose top is past the
+    source page, or the rising edge of ``cross_page`` (the flag stays set on
+    every later-page line, so only the first such line starts a run). Any other
+    jump to the top that starts at or to the right of the previous right edge
+    is a same-page column wrap. A jump that stays to the left is treated as a
+    same-column page wrap when MinerU omitted the flag.
     """
-    geom = _geometry_kind(previous, current, page_height=page_height)
-    if geom is not None:
-        return geom
+    prev_box = previous.bbox
+    curr_box = current.bbox
+    if page_height > 0 and curr_box[1] >= page_height:
+        return "page"
     if _line_cross_page(current) and not _line_cross_page(previous):
         return "page"
-    return None
+    if not _jumped_up(previous, current):
+        return None
+    if curr_box[0] >= prev_box[2]:
+        return "column"
+    return "page"
 
 
 def split_lines_by_continuation(
