@@ -224,13 +224,13 @@ the happy path:
 # a minimal valid PDF: only the %PDF- magic and a non-empty body are checked
 printf '%%PDF-1.4\n%%%%EOF\n' > sample.pdf
 
-curl -s localhost:8000/health
+curl -s localhost:8080/health
 # -> {"status":"ok"}
 
-curl -s -F file=@sample.pdf localhost:8000/submit
+curl -s -F file=@sample.pdf localhost:8080/submit
 # -> 202  {"job_id":"...","status":"queued"}
 
-curl -s localhost:8000/jobs/<job_id>
+curl -s localhost:8080/jobs/<job_id>
 # -> 200  {"job_id":"...","status":"queued"}
 ```
 
@@ -238,23 +238,23 @@ Each validation path responds with `{"detail": {"code": ..., "message": ...}}`:
 
 ```
 # no file part
-curl -s -X POST localhost:8000/submit
+curl -s -X POST localhost:8080/submit
 # -> 400  missing_file
 
 # content type is not application/pdf
-curl -s -F 'file=@sample.pdf;type=text/plain' localhost:8000/submit
+curl -s -F 'file=@sample.pdf;type=text/plain' localhost:8080/submit
 # -> 415  unsupported_content_type
 
 # empty body
-: > empty.pdf && curl -s -F file=@empty.pdf localhost:8000/submit
+: > empty.pdf && curl -s -F file=@empty.pdf localhost:8080/submit
 # -> 400  empty_file
 
 # bytes that are not a PDF (curl still sends type=application/pdf for a .pdf name)
-printf 'not a pdf\n' > notpdf.pdf && curl -s -F file=@notpdf.pdf localhost:8000/submit
+printf 'not a pdf\n' > notpdf.pdf && curl -s -F file=@notpdf.pdf localhost:8080/submit
 # -> 400  invalid_pdf
 
 # unknown job id
-curl -s localhost:8000/jobs/does-not-exist
+curl -s localhost:8080/jobs/does-not-exist
 # -> 404  {"detail":"Job not found"}
 ```
 
@@ -263,6 +263,6 @@ so exercise it by restarting the server with a small ceiling:
 
 ```
 BIOPARSER_MAX_UPLOAD_BYTES=10 uv run bioparser
-curl -s -F file=@sample.pdf localhost:8000/submit
+curl -s -F file=@sample.pdf localhost:8080/submit
 # -> 413  file_too_large
 ```
