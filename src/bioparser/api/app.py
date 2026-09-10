@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 
+from . import config
 from .jobs import create_job, get_job
 from .uploads import read_upload, require_file, validate_content_type, validate_pdf_content
 
@@ -7,9 +8,21 @@ app = FastAPI()
 
 
 @app.post("/submit", status_code=202)
-async def submit_job(file: UploadFile | None = None) -> dict[str, str]:
+async def submit_job(request: Request, file: UploadFile | None = None) -> dict[str, str]:
     file = require_file(file)
     validate_content_type(file)
+    content_length = request.headers.get("content-length")
+    if (
+        content_length is not None
+        and int(content_length) > config.get_api_settings().max_upload_bytes
+    ):
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "code": "file_too_large",
+                "message": f"File exceeds the {config.get_api_settings().max_upload_bytes} byte limit",
+            },
+        )
     content = await read_upload(file)
     validate_pdf_content(content)
     record = create_job()
