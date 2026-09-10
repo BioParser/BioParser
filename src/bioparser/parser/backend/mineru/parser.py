@@ -5,16 +5,13 @@ import tempfile
 from pathlib import Path
 
 from bioparser.parser.backend.mineru.mapper import artifact_from_middle_json
-from bioparser.parser.backend.mineru.runtime import run_cli_pipeline
+from bioparser.parser.backend.mineru.runtime import cli_configuration, run_cli_pipeline
 from bioparser.parser.checksum import sha256_file
 from bioparser.parser.errors import ParserBackendUnavailableError, UnsupportedDocumentError
 from bioparser.parser.models import ParserArtifact
 
 MINERU_PARSER_NAME = "mineru"
 MINERU_PARSER_VERSION = "1"
-PIPELINE_BACKEND = "pipeline"
-PARSE_METHOD = "auto"
-LANG = "en"
 
 
 def _find_middle_json(output_dir: Path, stem: str) -> Path:
@@ -38,11 +35,7 @@ def artifact_from_cli_output(
             checksum=checksum,
             parser_name=MINERU_PARSER_NAME,
             parser_version=parser_version,
-            configuration={
-                "backend": PIPELINE_BACKEND,
-                "parse_method": PARSE_METHOD,
-                "lang": LANG,
-            },
+            configuration=cli_configuration(),
         )
     except ValueError as exc:
         raise UnsupportedDocumentError(str(exc)) from exc
