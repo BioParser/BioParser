@@ -155,7 +155,9 @@ def test_two_column_multi_paragraph_reading_order() -> None:
     """Several paragraphs per column, plus a mid-page banner.
 
     Visual (top, x0) order would interleave left/right paragraphs. Reading
-    order is left column, then right, with the spanning banner as a barrier.
+    order follows the open-column tracks from paragraph formation, so a
+    tiny left-edge jitter (as in real PDFs) must not reshuffle the column.
+    A spanning banner is a barrier.
     """
     left_x0, left_x1 = 10.0, 90.0
     right_x0, right_x1 = 220.0, 400.0
@@ -176,25 +178,25 @@ def test_two_column_multi_paragraph_reading_order() -> None:
     )
     left2, left2_bottom = _column_paragraph(
         ["Body", "mass", "increased"],
-        x0=left_x0,
+        x0=left_x0 + 0.0004,
         x1=left_x1,
         top=left1_bottom + para_gap,
     )
     right2, right2_bottom = _column_paragraph(
         ["Controls", "remained", "stable"],
-        x0=right_x0,
+        x0=right_x0 + 0.0003,
         x1=right_x1,
         top=right1_bottom + para_gap,
     )
     left3, left3_bottom = _column_paragraph(
         ["Survival", "did", "not", "differ"],
-        x0=left_x0,
+        x0=left_x0 - 0.0002,
         x1=left_x1,
         top=left2_bottom + para_gap,
     )
     right3, right3_bottom = _column_paragraph(
         ["Variance", "was", "low"],
-        x0=right_x0,
+        x0=right_x0 - 0.0001,
         x1=right_x1,
         top=right2_bottom + para_gap,
     )
