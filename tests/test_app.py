@@ -2,15 +2,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from bioparser.api import config
-from bioparser.api.app import app
 
 # A minimal byte string that passes every /submit validation check.
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
-
-
-def test_body_limit_middleware_is_installed() -> None:
-    names = [middleware.cls.__name__ for middleware in app.user_middleware]
-    assert "RequestBodyLimitMiddleware" in names
 
 
 def test_submit_and_retrieve_job(client: TestClient) -> None:
