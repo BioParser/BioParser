@@ -1,23 +1,33 @@
 import json
 from pathlib import Path
+from typing import Any
 
 from bioparser.parser.backend.mineru.mapper import artifact_from_middle_json
 from bioparser.parser.backend.mineru.parser import MINERU_PARSER_NAME, MINERU_PARSER_VERSION
 from bioparser.parser.backend.mineru.schema import MINERU_PIPELINE_VERSION
-from bioparser.parser.models import BlockKind, BlockRole
+from bioparser.parser.models import (
+    BlockKind,
+    BlockRole,
+    ContentBlock,
+    ParserArtifact,
+    TableContent,
+    TextContent,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mineru-middle.json"
 CHECKSUM = "a" * 64
 
 
-def _text_line(text: str, bbox: list[float], *, cross_page: bool = False) -> dict:
-    span: dict = {"bbox": bbox, "content": text, "type": "text"}
+def _text_line(text: str, bbox: list[float], *, cross_page: bool = False) -> dict[str, Any]:
+    span: dict[str, Any] = {"bbox": bbox, "content": text, "type": "text"}
     if cross_page:
         span["cross_page"] = True
     return {"bbox": bbox, "spans": [span]}
 
 
-def _two_page_middle(para_blocks_p0: list, para_blocks_p1: list) -> dict:
+def _two_page_middle(
+    para_blocks_p0: list[dict[str, Any]], para_blocks_p1: list[dict[str, Any]]
+) -> dict[str, Any]:
     return {
         "_backend": "pipeline",
         "_version_name": MINERU_PIPELINE_VERSION,
@@ -38,7 +48,7 @@ def _two_page_middle(para_blocks_p0: list, para_blocks_p1: list) -> dict:
     }
 
 
-def _from_middle(middle: dict):
+def _from_middle(middle: dict[str, Any]) -> ParserArtifact:
     return artifact_from_middle_json(
         middle,
         checksum=CHECKSUM,
@@ -48,17 +58,27 @@ def _from_middle(middle: dict):
     )
 
 
+def _text(block: ContentBlock) -> TextContent:
+    assert isinstance(block.content, TextContent)
+    return block.content
+
+
+def _table(block: ContentBlock) -> TableContent:
+    assert isinstance(block.content, TableContent)
+    return block.content
+
+
 def test_real_dump_maps_title_levels() -> None:
     middle = json.loads(FIXTURE.read_text(encoding="utf-8"))
     artifact = _from_middle(middle)
     assert [page.page_number for page in artifact.pages] == [1, 2]
     title = next(block for block in artifact.pages[0].blocks if block.role == BlockRole.TITLE)
-    assert title.content.heading_level == 1
-    assert "Broadening the scope of PLOS Biology" in title.content.text
+    assert _text(title).heading_level == 1
+    assert "Broadening the scope of PLOS Biology" in _text(title).text
     headings = [
         block for page in artifact.pages for block in page.blocks if block.role == BlockRole.HEADING
     ]
-    assert [block.content.heading_level for block in headings] == [2, 2]
+    assert [_text(block).heading_level for block in headings] == [2, 2]
 
 
 def test_image_leaves_are_skipped() -> None:
@@ -94,7 +114,7 @@ def test_image_leaves_are_skipped() -> None:
         [],
     )
     page = _from_middle(middle).pages[0]
-    assert [block.content.text for block in page.blocks if block.content.type == "text"] == ["keep"]
+    assert [_text(block).text for block in page.blocks if block.content.type == "text"] == ["keep"]
 
 
 def test_hyphenated_line_wrap_joins_into_one_word() -> None:
@@ -112,13 +132,11 @@ def test_hyphenated_line_wrap_joins_into_one_word() -> None:
         [],
     )
     body = _from_middle(middle).pages[0].blocks[0]
-    assert body.content.type == "text"
-    assert body.content.text == "significant result"
+    content = _text(body)
+    assert content.text == "significant result"
     assert body.continuation_of is None
-    assert body.content.text[body.content.spans[0].start : body.content.spans[0].end] == "signifi"
-    assert body.content.text[body.content.spans[1].start : body.content.spans[1].end] == (
-        "cant result"
-    )
+    assert content.text[content.spans[0].start : content.spans[0].end] == "signifi"
+    assert content.text[content.spans[1].start : content.spans[1].end] == "cant result"
 
 
 def test_ref_text_maps_to_reference() -> None:
@@ -134,7 +152,7 @@ def test_ref_text_maps_to_reference() -> None:
     )
     block = _from_middle(middle).pages[0].blocks[0]
     assert block.role == BlockRole.REFERENCE
-    assert block.content.text == "1. Kang et al."
+    assert _text(block).text == "1. Kang et al."
 
 
 def test_table_body_html_maps_to_table_content() -> None:
@@ -177,7 +195,7 @@ def test_table_body_html_maps_to_table_content() -> None:
     assert page.blocks[0].role == BlockRole.CAPTION
     table = page.blocks[1]
     assert table.kind == BlockKind.TABLE
-    cells = {(cell.row, cell.column): cell for cell in table.content.cells}
+    cells = {(cell.row, cell.column): cell for cell in _table(table).cells}
     assert cells[(0, 0)].text == "alpha"
     assert cells[(0, 1)].text == "beta"
     assert cells[(1, 0)].text == "gamma"
@@ -201,8 +219,8 @@ def test_cross_page_lines_become_next_page_block() -> None:
     artifact = _from_middle(middle)
     first = artifact.pages[0].blocks[0]
     second = artifact.pages[1].blocks[0]
-    assert first.content.text == "end of page one"
-    assert second.content.text == "start of page two"
+    assert _text(first).text == "end of page one"
+    assert _text(second).text == "start of page two"
     assert first.continuation_of is None
     assert second.continuation_of == first.block_id
 
@@ -223,9 +241,9 @@ def test_consecutive_cross_page_lines_stay_on_one_next_page() -> None:
         [],
     )
     artifact = _from_middle(middle)
-    assert artifact.pages[0].blocks[0].content.text == "end of page one"
+    assert _text(artifact.pages[0].blocks[0]).text == "end of page one"
     cont = artifact.pages[1].blocks[0]
-    assert cont.content.text == "first next-page line second next-page line"
+    assert _text(cont).text == "first next-page line second next-page line"
     assert cont.continuation_of == artifact.pages[0].blocks[0].block_id
     assert len(artifact.pages[1].blocks) == 1
 
@@ -245,7 +263,7 @@ def test_column_jump_splits_into_two_boxes() -> None:
         [],
     )
     left, right = _from_middle(middle).pages[0].blocks
-    assert [left.content.text, right.content.text] == ["left column tail", "right column head"]
+    assert [_text(left).text, _text(right).text] == ["left column tail", "right column head"]
     assert left.continuation_of is None
     assert right.continuation_of == left.block_id
     assert left.bbox is not None and right.bbox is not None
