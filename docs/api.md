@@ -4,7 +4,10 @@ This document defines the public HTTP contract of the API container and the inte
 module layout that implements it. The system context for these endpoints is in
 [architecture.md](architecture.md).
 
-Status: **draft** — nothing here is implemented yet beyond `GET /health`.
+Status: **draft** — all three routes (`POST /submit`, `GET /jobs/{job_id}`,
+`GET /health`) are implemented, along with upload validation and a configurable
+size limit. The larger infrastructure below (Redis, a worker, artifact storage,
+`/ready`) is not.
 
 **Sprint 0 scope:** this is a deliberately reduced first pass, matching
 [architecture.md](architecture.md)'s core idea (accept a PDF, return
@@ -18,8 +21,8 @@ particular:
 - **No artifact storage.** Uploaded PDF bytes are not persisted anywhere.
 - **`/ready` is not implemented.** Only `/health` exists, since there
   are no external dependencies yet to check readiness against.
-- **No `/api/v1` prefix, no checksum-based idempotency, no error
-  envelope** — routes use plain `HTTPException` for now.
+- **No `/api/v1` prefix, no checksum-based idempotency, no global error envelope or exception handlers** 
+- routes still raise plain `fastapi.HTTPException` directly, with no registered `@app.exception_handler`. `POST /submit`'s validation failures do pass a structured `{"code", "message"}` object as `detail` (see above), but that's local to this one route, not a repo-wide convention.
 
 These are the pieces `architecture.md` calls for that this draft does
 not yet satisfy. They are the intended next steps, not omissions to be
@@ -45,9 +48,17 @@ above).
 Submit a PDF.
 
 - **Request:** `multipart/form-data` with a single `file` part.
-- **Accepted content type:** `application/pdf` only, checked via the request's
-  content type. (No magic-byte sniff, no streamed size cap yet.)
+- **Accepted content type:** `application/pdf` only, checked against the `file`
+  part's own `content_type`.
+- **Body checks:** the upload must be non-empty and must begin with the `%PDF-`
+  magic bytes.
+- **Size limit:** the upload is read in 1 MiB chunks and rejected once it exceeds
+  `config.MAX_UPLOAD_BYTES` (20 MiB by default — see [`config.py`](#configpy)).
 - No idempotency — submitting the same file twice creates two separate jobs.
+
+The checks run in a fixed order: `file` part present → content type → size limit
+(enforced while streaming) → non-empty body → `%PDF-` magic. The first one to
+fail is the one reported.
 
 **Success — `202 Accepted`:**
 
@@ -63,7 +74,35 @@ Submit a PDF.
 | Status | When |
 |--------|------|
 | 400 | no `file` part in the request |
+| 400 | the file body is empty |
+| 400 | the file body does not start with `%PDF-` |
+| 413 | the file exceeds `config.MAX_UPLOAD_BYTES` |
 | 415 | content type is not `application/pdf` |
+
+
+**Validation error body:**
+
+- Size-limit failures (`413`) use Starlette's plain-text body `Content Too Large`
+  (same as `RequestBodyLimitMiddleware`).
+- Every other validation failure responds with FastAPI's `detail` wrapper:
+
+```json
+{
+  "detail": {
+    "code": "invalid_pdf",
+    "message": "File does not look like a PDF"
+  }
+}
+```
+`code` is one of a fixed set of values:
+
+| Code | Status | Meaning |
+|------|--------|---------|
+| `missing_file` | 400 | no `file` part in the request |
+| `empty_file` | 400 | the `file` part is present but its body is empty |
+| `invalid_pdf` | 400 | the body does not start with the `%PDF-` magic bytes |
+| `unsupported_content_type` | 415 | content type is not `application/pdf` |
+
 
 ### `GET /jobs/{job_id}`
 
@@ -98,28 +137,66 @@ dependencies to check yet.
 ## Module layout
 
 ```
-src/bioparser/
+src/bioparser/api/
   __init__.py       # main() -> starts the app
   app.py            # creates the FastAPI app, defines all three routes directly
+  uploads.py        # upload-validation helpers used by POST /submit
+  config.py         # process configuration read from the environment
   jobs.py           # an in-process dict acting as the job store, plus a helper
                      #   to create/read jobs
 ```
 
-No `api/`, `schemas/`, `ports/`, `adapters/`, `services/`, or `ets/` folders yet. Routes
-live directly in `app.py`. That split is a good next step once there's enough code to
-make separate files worth navigating — not before.
+No `schemas/`, `ports/`, `adapters/`, `services/`, or `ets/` folders yet. Routes live
+directly in `app.py`; upload validation is in `uploads.py`.
 
 ### `app.py`
 
 Holds the FastAPI app and all three route handlers:
 
-- `POST /submit` — checks content type, calls `jobs.create_job()`, returns `202`.
+- `POST /submit` — runs the [`uploads.py`](#uploadspy) helpers in order
+  (`validate_content_length`, `require_file`, `validate_content_type`, `read_upload`,
+  `validate_pdf_content`), then calls `jobs.create_job()` and returns `202`. The
+  read body is only used for validation and is then discarded — nothing is
+  persisted. Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it
+  is still being received. A missing or understated `Content-Length` is still capped
+  while reading the file in chunks.
 - `GET /jobs/{job_id}` — calls `jobs.get_job(job_id)`, returns it or raises a 404
   `HTTPException`.
 - `GET /health` — returns `{"status": "ok"}` directly, no dependencies.
 
-Errors use `fastapi.HTTPException` directly in each route — no custom exception
-classes, no shared error envelope, no registered exception handlers.
+Errors use `fastapi.HTTPException` directly — raised from the `uploads.py` helpers
+for `POST /submit` and inline in the route for the 404. A `413` handler maps
+oversize errors to Starlette's plain-text `Content Too Large` body.
+
+### `uploads.py`
+
+Stateless helpers that validate a `POST /submit` upload. Each raises
+`fastapi.HTTPException` with a `{"code", "message"}` object as its `detail` on
+failure, and returns normally on success.
+
+- `require_file(file) -> UploadFile` — raises `400 missing_file` when no `file`
+  part was sent; otherwise returns it.
+- `validate_content_type(file) -> None` — raises `415 unsupported_content_type`
+  unless the MIME type (case-insensitive, parameters stripped) is `application/pdf`.
+- `validate_content_length(header) -> None` — no-op when the header is absent;
+  raises `400 invalid_content_length` when it is not a non-negative integer;
+  raises `413` (`Content Too Large`) when it exceeds `max_upload_bytes`.
+- `read_upload(file) -> bytes` — reads the upload in 1 MiB chunks, raising
+  `413` (`Content Too Large`) as soon as the running total exceeds
+  `get_api_settings().max_upload_bytes`; returns the full body otherwise.
+- `validate_pdf_content(content) -> None` — raises `400 empty_file` for an empty
+  body, and `400 invalid_pdf` if the body does not start with the `%PDF-` magic
+  bytes.
+
+### `config.py`
+
+Process configuration via pydantic `BaseSettings`, loaded once through
+`get_api_settings()` (cached).
+
+- `DEFAULT_MAX_UPLOAD_BYTES` — 20 MiB, the built-in default.
+- `ApiSettings.max_upload_bytes` — the effective upload ceiling: the
+  `BIOPARSER_MAX_UPLOAD_BYTES` environment variable (interpreted as an integer
+  number of bytes) when set, otherwise `DEFAULT_MAX_UPLOAD_BYTES`.
 
 ### `jobs.py`
 
@@ -140,8 +217,60 @@ later revision of this document.
 
 ## Verification
 
-- `uv run bioparser` starts; `curl localhost:8080/health` -> `{"status":"ok"}`.
-- `curl -F file=@sample.pdf localhost:8080/submit` -> `202` + `job_id`.
-- `curl localhost:8080/jobs/<job_id>` -> `{"job_id": ..., "status": "queued"}`.
-- Submitting a non-PDF file -> `415`.
-- Polling an unknown `job_id` -> `404`.
+Start the API in one terminal (this blocks):
+
+```
+uv run bioparser
+```
+
+Then, from another terminal in the repo root, create a minimal fixture and walk
+the happy path:
+
+```
+# a minimal valid PDF: only the %PDF- magic and a non-empty body are checked
+printf '%%PDF-1.4\n%%%%EOF\n' > sample.pdf
+
+curl -s localhost:8080/health
+# -> {"status":"ok"}
+
+curl -s -F file=@sample.pdf localhost:8080/submit
+# -> 202  {"job_id":"...","status":"queued"}
+
+curl -s localhost:8080/jobs/<job_id>
+# -> 200  {"job_id":"...","status":"queued"}
+```
+
+Each validation path responds with `{"detail": {"code": ..., "message": ...}}`:
+
+```
+# no file part
+curl -s -X POST localhost:8080/submit
+# -> 400  missing_file
+
+# content type is not application/pdf
+curl -s -F 'file=@sample.pdf;type=text/plain' localhost:8080/submit
+# -> 415  unsupported_content_type
+
+# empty body
+: > empty.pdf && curl -s -F file=@empty.pdf localhost:8080/submit
+# -> 400  empty_file
+
+# bytes that are not a PDF (curl still sends type=application/pdf for a .pdf name)
+printf 'not a pdf\n' > notpdf.pdf && curl -s -F file=@notpdf.pdf localhost:8080/submit
+# -> 400  invalid_pdf
+
+# unknown job id
+curl -s localhost:8080/jobs/does-not-exist
+# -> 404  {"detail":"Job not found"}
+```
+
+The size limit is read from the environment at startup (see [`config.py`](#configpy)),
+so exercise it by restarting the server with a small ceiling. The ceiling applies to
+the whole HTTP request body (multipart wrapping included), not only the PDF bytes,
+so a 10-byte limit rejects even a tiny file:
+
+```
+BIOPARSER_MAX_UPLOAD_BYTES=10 uv run bioparser
+curl -s -F file=@sample.pdf localhost:8080/submit
+# -> 413  Content Too Large
+```
