@@ -7,6 +7,7 @@ from tempfile import NamedTemporaryFile
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from bioparser.parser import (
     DEFAULT_PARSER_NAME,
@@ -49,9 +50,9 @@ def _parse_pdf_bytes(pdf_bytes: bytes, backend: str) -> ParserArtifact:
         return get_parser(backend).parse(Path(tmp.name))
 
 
-def _parse_or_http_error(pdf_bytes: bytes, backend: str) -> ParserArtifact:
+async def _parse_or_http_error(pdf_bytes: bytes, backend: str) -> ParserArtifact:
     try:
-        return _parse_pdf_bytes(pdf_bytes, backend)
+        return await run_in_threadpool(_parse_pdf_bytes, pdf_bytes, backend)
     except ParserBackendUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except UnsupportedDocumentError as exc:
@@ -109,19 +110,20 @@ def create_app(initial_pdf: Path | None = None, *, backend: str = DEFAULT_PARSER
         pdf_bytes = await request.body()
         if not pdf_bytes:
             raise HTTPException(status_code=400, detail="Empty request body")
-        artifact = _parse_or_http_error(pdf_bytes, backend_name)
+        artifact = await _parse_or_http_error(pdf_bytes, backend_name)
         store.backend = backend_name
         store.document = _Document(pdf_bytes=pdf_bytes, artifacts={backend_name: artifact})
         return Response(content=artifact.model_dump_json(), media_type="application/json")
 
     @app.post("/reparse")
-    def reparse_current(request: Request) -> Response:
-        if store.document is None:
+    async def reparse_current(request: Request) -> Response:
+        document = store.document
+        if document is None:
             raise HTTPException(status_code=404, detail="No document loaded")
         backend_name = _normalize_backend(request.query_params.get("backend"), store.backend)
-        artifact = _parse_or_http_error(store.document.pdf_bytes, backend_name)
+        artifact = await _parse_or_http_error(document.pdf_bytes, backend_name)
         store.backend = backend_name
-        store.document.artifacts[backend_name] = artifact
+        document.artifacts[backend_name] = artifact
         return Response(content=artifact.model_dump_json(), media_type="application/json")
 
     @app.get("/")
