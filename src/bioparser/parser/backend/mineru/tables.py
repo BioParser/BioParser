@@ -39,8 +39,8 @@ class _HTMLTableParser(HTMLParser):
         while (self._row, self._col) in self._occupied:
             self._col += 1
         attr = {key: value for key, value in attrs if value is not None}
-        self._rowspan = _positive_int(attr.get("rowspan"), default=1)
-        self._colspan = _positive_int(attr.get("colspan"), default=1)
+        self._rowspan = _parse_cell_span(attr.get("rowspan"), default=1)
+        self._colspan = _parse_cell_span(attr.get("colspan"), default=1)
         self._in_cell = True
         self._text = []
 
@@ -72,14 +72,19 @@ class _HTMLTableParser(HTMLParser):
             self._text.append(data)
 
 
-def _positive_int(raw: str | None, *, default: int) -> int:
+HTML_CELL_MAX_SPAN = 1000
+
+
+def _parse_cell_span(raw: str | None, *, default: int) -> int:
     if raw is None:
         return default
     try:
         value = int(raw)
     except ValueError:
         return default
-    return value if value > 0 else default
+    if value < 1:
+        return default
+    return min(value, HTML_CELL_MAX_SPAN)
 
 
 def _cells_from_html(html: str) -> list[TableCell]:
