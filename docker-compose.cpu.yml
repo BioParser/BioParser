@@ -1,0 +1,35 @@
+services:
+  mineru:
+    build:
+      dockerfile: docker/mineru.Dockerfile
+      args:
+        TORCH_BACKEND: cpu
+    # CPU version
+    image: bioparser-mineru:cpu
+    environment:
+      OMP_NUM_THREADS: "4"
+      MINERU_PDF_RENDER_THREADS: "2"
+      # parse pipeline
+      MINERU_API_MAX_CONCURRENT_REQUESTS: "1"
+    mem_limit: 12g
+    memswap_limit: 12g # needed for OOM ?
+  vllm:
+    image: vllm/vllm-openai-cpu:latest-x86_64
+    command:
+      - ${VLLM_MODEL}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --dtype
+      - float32
+      - --max-model-len
+      - "4096"
+    environment:
+      OMP_NUM_THREADS: "8"
+      VLLM_CPU_KVCACHE_SPACE: "4"
+      # linux specific
+      LD_PRELOAD: /usr/lib/x86_64-linux-gnu/libtcmalloc_minimal.so.4
+    mem_limit: 8g
+    healthcheck:
+      start_period: 600s

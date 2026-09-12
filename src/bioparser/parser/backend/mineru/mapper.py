@@ -19,7 +19,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from bioparser.parser.backend.mineru.schema import MiddleBlock, MiddleDump
+from bioparser.parser.backend.mineru.schema import (
+    MINERU_PIPELINE_VERSION,
+    MiddleBlock,
+    MiddleDump,
+)
 from bioparser.parser.backend.mineru.tables import table_from_leaf
 from bioparser.parser.backend.mineru.text import fragments_from_leaf
 from bioparser.parser.checksum import block_id
@@ -140,6 +144,13 @@ def artifact_from_middle_json(
         dump = MiddleDump.model_validate(middle)
     except ValidationError as exc:
         raise ValueError("middle.json is invalid") from exc
+
+    if dump.version_name != MINERU_PIPELINE_VERSION:
+        raise ValueError(
+            f"middle.json came from MinerU {dump.version_name!r}; this mapper is "
+            f"written against {MINERU_PIPELINE_VERSION!r}. Rebuild the mineru image, "
+            f"or update schema.py, the mapper and the fixtures together."
+        )
 
     page_sizes = [page.page_size for page in dump.pdf_info]
     page_numbers = [page.page_idx + 1 for page in dump.pdf_info]

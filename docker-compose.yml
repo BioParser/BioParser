@@ -1,19 +1,27 @@
+name: bioparser
+
+networks:
+  edge:
+  backend:
+    internal: true
+
 services:
+  mineru:
+    build:
+      context: .
+      # dockerfile comes from the overlay; cpu/gpu.yml
+    init: true
+    environment:
+      MINERU_MODEL_SOURCE: local
+    #ports:
+    #  - "127.0.0.1:${MINERU_PORT:-8001}:8000"
+    volumes:
+      - mineru-output:/home/mineru/output
+    networks: [backend]
+
   vllm:
-    image: vllm/vllm-openai-cpu:latest-x86_64
-    command:
-      - ${VLLM_MODEL}
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8000"
-      - --dtype
-      - bfloat16
-      - --max-model-len
-      - "4096"
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
-      VLLM_CPU_KVCACHE_SPACE: "4"
     volumes:
       - ${HOME}/.cache/huggingface:/root/.cache/huggingface
     ports:
@@ -27,12 +35,29 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 600s
+    # edge is required: vLLM pulls model weights from HuggingFace.
+    # Drop to [backend] only once ~/.cache/huggingface has them saved
+    # Might need HF_HUB_OFFLINE=1 otherwise it hangs on connect 
+    networks: [backend, edge]
 
   bioparser:
     build: .
     init: true
+    depends_on:
+      mineru:
+        condition: service_healthy
+      vllm:
+        condition: service_healthy
     environment:
       BIOPARSER_VLLM_BASE_URL: http://vllm:8000/v1
+      BIOPARSER_MINERU_BASE_URL: http://mineru:8000
     ports:
       - "127.0.0.1:${BIOPARSER_PORT:-8080}:8080"
+    # mineru and vllm get a ceiling from the cpu/gpu overlay; this service had
+    # none, so it was the one that could take the host down.
+    mem_limit: 4g
+    memswap_limit: 4g
+    networks: [backend, edge]
+
+volumes:
+  mineru-output:

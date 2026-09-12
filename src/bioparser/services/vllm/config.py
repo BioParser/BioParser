@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     )
 
     vllm_base_url: str = "http://localhost:8000/v1"
+    vllm_api_key: str = "EMPTY"
+
+    model_discovery_timeout_seconds: float = Field(default=10.0, gt=0)
 
     request_timeout_seconds: float = Field(
         default=300.0,
@@ -24,15 +27,13 @@ class Settings(BaseSettings):
         ge=1,
     )
 
-    max_chunk_tokens: int = Field(
-        default=4000,
-        ge=256,
-    )
-
-    chunk_overlap_tokens: int = Field(
-        default=300,
-        ge=0,
-    )
+    # --max-model-len is server-side cap e.g. 4096
+    # from that we use tokens to system_prompt ~100
+    #               CHAR_BUDGET (extract.py)  ~2400 ?
+    #               and client side cap 1024  ~1024
+    #
+    # So if this is raised, --max-model-len should be changed in docker-compose
+    max_tokens: int = Field(default=1024, ge=1)
 
 
 @lru_cache(maxsize=1)
