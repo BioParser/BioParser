@@ -6,13 +6,19 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from bioparser.parser.backend.mineru.schema import MINERU_PIPELINE_VERSION
-from bioparser.parser.errors import ParserBackendUnavailableError, UnsupportedDocumentError
+from bioparser.parser.backend.mineru.schema import (
+    MINERU_PIPELINE_VERSION,
+    PARSE_METHOD,
+    PIPELINE_BACKEND,
+)
+from bioparser.parser.errors import (
+    ParserBackendUnavailableError,
+    UnsupportedDocumentError,
+)
 
-# Isolated uv tool. Pin matches the pipeline ``middle.json`` this backend maps.
+# Isolated uv tool
+# Pin is matching the pipeline middle.json that this backend maps
 MINERU_TOOL_SPEC = f"mineru[pipeline]=={MINERU_PIPELINE_VERSION}"
-PIPELINE_BACKEND = "pipeline"
-PARSE_METHOD = "auto"
 
 
 def cli_configuration() -> dict[str, str | int | float | bool]:

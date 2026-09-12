@@ -1,0 +1,57 @@
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            device_ids: ["0"]      # ["0","1"] for two cards
+            capabilities: [gpu]
+
+services:
+  mineru:
+    <<: *gpu
+    build:
+      dockerfile: docker/mineru.Dockerfile
+      args:
+        TORCH_BACKEND: cu129 # cuda 12.9 based
+    image: bioparser-mineru:gpu
+    environment:
+      # Rasterization is still in CPU (pypdfium2)
+      MINERU_PDF_RENDER_THREADS: "4"
+      MINERU_DEVICE_MODE: cuda # nvidia gpus
+      # VRAM for mineru; leave space for vllm
+      MINERU_VIRTUAL_VRAM_SIZE: "${MINERU_VIRTUAL_VRAM_SIZE:-2}"
+      MINERU_API_MAX_CONCURRENT_REQUESTS: "2"
+    # Host RAM, not VRAM. (models are using VRAM)
+    mem_limit: 6g
+
+  vllm:
+    <<: *gpu
+    # TODO: get sha
+    # NOTE: mineru was using 0.21.0
+    image: vllm/vllm-openai:v0.21.0
+    command:
+      - ${VLLM_MODEL}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --dtype
+      - float16 # on nvidia ampere+ use bfloat16
+      - --max-model-len
+      - "4096"
+      # Fraction of TOTAL VRAM, pre-allocated at startup. Mineru needs some too
+      # default 0.9
+      - --gpu-memory-utilization
+      - "${VLLM_GPU_FRACTION:-0.45}"i
+      # NOTE: saves vram -- slower decode
+      - --enforce-eager
+      - --max-num-seqs
+      - "4"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    mem_limit: 6g
+    healthcheck:
+      # Weights load disk -> VRAM in seconds now.
+      start_period: 180s
