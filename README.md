@@ -10,6 +10,8 @@ cp .env.example .env
 
 `.env` is gitignored.
 
+Requires Docker with the Compose V2 plugin (docker compose, not the standalone docker-compose
+
 ### Host (`uv`)
 
 Needs **Python 3.13** and [uv](https://docs.astral.sh/uv/). For the local API, checks, and dev scripts:
