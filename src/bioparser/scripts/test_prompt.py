@@ -26,7 +26,7 @@ async def run_prompt(
 ) -> str:
     service = VLLMService()
     try:
-        await service.initialize()
+        await service.get_model()
         return await service.generate(
             prompt,
             system_prompt=system_prompt,
