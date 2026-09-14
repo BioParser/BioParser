@@ -4,6 +4,7 @@ from starlette.responses import PlainTextResponse
 
 from . import config
 from .jobs import create_job, get_job
+from .schema import SubmitResponse
 from .uploads import (
     CONTENT_TOO_LARGE,
     read_upload,
@@ -26,14 +27,14 @@ async def content_too_large_handler(_request: Request, _exc: Exception) -> Plain
 
 
 @app.post("/submit", status_code=202)
-async def submit_job(request: Request, file: UploadFile | None = None) -> dict[str, str]:
+async def submit_job(request: Request, file: UploadFile | None = None) -> SubmitResponse:
     validate_content_length(request.headers.get("content-length"))
     file = require_file(file)
     validate_content_type(file)
     content = await read_upload(file)
     validate_pdf_content(content)
     record = create_job()
-    return {"job_id": record["job_id"], "status": record["status"]}
+    return SubmitResponse(job_id=record["job_id"], status="queued")
 
 
 @app.get("/jobs/{job_id}")
