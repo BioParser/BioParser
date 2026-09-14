@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
+from pydantic import ValidationError
 from starlette.middleware.body_limit import RequestBodyLimitMiddleware
 from starlette.responses import PlainTextResponse
 
@@ -163,12 +164,14 @@ def _check_storage(path: str, timeout: float) -> bool:
         except OSError:
             return False
 
+    executor = ThreadPoolExecutor(max_workers=1)
     try:
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_attempt_write)
-            return future.result(timeout=timeout)
+        future = executor.submit(_attempt_write)
+        return future.result(timeout=timeout)
     except TimeoutError:
         return False
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 @app.get("/ready")
@@ -176,32 +179,21 @@ async def readiness() -> dict[str, Any]:
     unavailable: list[str] = []
 
     try:
-        timeout = float(os.getenv("DEPENDENCY_CHECK_TIMEOUT", "1.0"))
-        if timeout <= 0:
-            raise ValueError("timeout must be positive")
-    except (ValueError, TypeError):
+        settings = config.get_api_settings()
+    except ValidationError as exc:
         raise HTTPException(
             status_code=503,
             detail={"status": "not ready", "unavailable": ["config"]},
-        )
+        ) from exc
 
-    redis_host = os.getenv("REDIS_HOST")
-    if redis_host:
-        try:
-            redis_port = int(os.getenv("REDIS_PORT", "6379"))
-            if not (0 < redis_port < 65536):
-                raise ValueError("port must be 1-65535")
-        except (ValueError, TypeError):
-            raise HTTPException(
-                status_code=503,
-                detail={"status": "not ready", "unavailable": ["config"]},
-            )
+    timeout = settings.dependency_check_timeout_seconds
 
-        if not _check_redis(redis_host, redis_port, timeout):
-            unavailable.append("redis")
+    if settings.redis_host and not _check_redis(settings.redis_host, settings.redis_port, timeout):
+        unavailable.append("redis")
 
-    storage_path = os.getenv("ARTIFACT_STORAGE_PATH")
-    if storage_path and not _check_storage(storage_path, timeout):
+    if settings.artifact_storage_path and not _check_storage(
+        settings.artifact_storage_path, timeout
+    ):
         unavailable.append("storage")
 
     if unavailable:

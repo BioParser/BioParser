@@ -19,6 +19,10 @@ class ApiSettings(BaseSettings):
     mineru_connect_timeout_seconds: float = Field(default=5.0, gt=0)
     extract_concurrency: int = Field(default=2, ge=1)
     extract_queue_timeout_seconds: float = Field(default=5.0, gt=0)
+    dependency_check_timeout_seconds: float = Field(default=1.0, gt=0)
+    redis_host: str | None = None
+    redis_port: int = Field(default=6379, ge=1, le=65535)
+    artifact_storage_path: str | None = None
     # NOTE: char budget not token budget
     # --max-model-len is cap for all tokens
     extraction_char_budget: int = Field(default=8000, ge=50)
