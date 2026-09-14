@@ -5,7 +5,8 @@ import tempfile
 from pathlib import Path
 
 from bioparser.parser.backend.mineru.mapper import artifact_from_middle_json
-from bioparser.parser.backend.mineru.runtime import cli_configuration, run_cli_pipeline
+from bioparser.parser.backend.mineru.runtime import run_cli_pipeline
+from bioparser.parser.backend.mineru.schema import pipeline_configuration
 from bioparser.parser.checksum import sha256_file
 from bioparser.parser.errors import ParserBackendUnavailableError, UnsupportedDocumentError
 from bioparser.parser.models import ParserArtifact
@@ -35,7 +36,7 @@ def artifact_from_cli_output(
             checksum=checksum,
             parser_name=MINERU_PARSER_NAME,
             parser_version=parser_version,
-            configuration=cli_configuration(),
+            configuration=pipeline_configuration(),
         )
     except ValueError as exc:
         raise UnsupportedDocumentError(str(exc)) from exc
