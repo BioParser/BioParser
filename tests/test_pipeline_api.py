@@ -10,6 +10,8 @@ from httpx2 import ASGITransport
 from stubs import STUB_JSON, StubMinerUClient, StubVLLMService
 
 from bioparser.api.app import app
+from bioparser.api.pipeline import PipelineError, run_pipeline
+from bioparser.services.vllm.vllm import VLLMError
 
 PDF = b"%PDF-1.4\n%%EOF\n"
 
@@ -308,3 +310,24 @@ def test_a_unit_outside_the_closed_set_fails_the_extraction(
 
     assert response.status_code == 502
     assert response.json()["detail"] == "Extraction did not match the schema"
+
+
+class _UnreachableVLLM:
+    async def generate_json(
+        self, prompt: str, *, schema: Any, system_prompt: str, max_tokens: int
+    ) -> str:
+        raise VLLMError("vLLM request failed: APIConnectionError")
+
+
+@pytest.mark.anyio
+async def test_an_unreachable_vllm_becomes_a_pipeline_error() -> None:
+    # vLLM is a separate container with a long startup
+    with pytest.raises(PipelineError, match="Extraction backend unavailable"):
+        await run_pipeline(
+            mineru=StubMinerUClient(),
+            vllm=_UnreachableVLLM(),
+            checksum="0" * 64,
+            content=PDF,
+            char_budget=4000,
+            max_tokens=256,
+        )
