@@ -25,7 +25,7 @@ async def content_too_large_handler(_request: Request, _exc: Exception) -> Plain
     return PlainTextResponse(CONTENT_TOO_LARGE, status_code=413)
 
 
-@app.post("/submit", status_code=202)
+@app.post("/api/extractions", status_code=202)
 async def submit_job(request: Request, file: UploadFile | None = None) -> dict[str, str]:
     validate_content_length(request.headers.get("content-length"))
     file = require_file(file)
@@ -36,7 +36,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> dict[s
     return {"job_id": record["job_id"], "status": record["status"]}
 
 
-@app.get("/jobs/{job_id}")
+@app.get("/api/jobs/{job_id}")
 def job_status(job_id: str) -> dict[str, str]:
     record = get_job(job_id)
     if record is None:
