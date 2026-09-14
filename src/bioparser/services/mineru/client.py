@@ -5,12 +5,9 @@ from typing import Any
 
 import httpx2
 
+# Invocation knobs only. Provenance is not this module's job: the caller that
+# builds the artifact reads pipeline_configuration() from schema directly.
 from bioparser.parser.backend.mineru.schema import PARSE_METHOD, PIPELINE_BACKEND
-
-
-def http_configuration() -> dict[str, str | int | float | bool]:
-    return {"backend": PIPELINE_BACKEND, "parse_method": PARSE_METHOD}
-
 
 # A 20 MiB PDF can yield a middle_json far larger than itself
 # Refuse the body rather than discover the ceiling as an OOMKill.
@@ -77,14 +74,24 @@ class MinerUClient:
         except ValueError as exc:
             raise MinerUError("mineru-api returned a non-JSON body") from exc
 
-        results = body.get("results") or {}
+        return self._middle_json_from_body(body)
 
-        if not results:
-            raise MinerUError("mineru-api returned no results")
+    @staticmethod
+    def _middle_json_from_body(body: Any) -> dict[str, Any]:
+        if not isinstance(body, dict):
+            raise MinerUError("mineru-api returned a non-object body")
+
+        results = body.get("results")
+
+        if not isinstance(results, dict) or not results:
+            raise MinerUError("mineru-api returned no usable results object")
 
         payload = next(iter(results.values()))
+        if not isinstance(payload, dict):
+            raise MinerUError("mineru-api returned a non-object result entry")
+
         middle_json = payload.get("middle_json")
-        if not middle_json:
+        if not middle_json or not isinstance(middle_json, str):
             raise MinerUError("mineru-api returned no middle_json")
 
         try:

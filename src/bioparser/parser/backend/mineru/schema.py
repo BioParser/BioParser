@@ -18,6 +18,11 @@ MINERU_PIPELINE_VERSION = "3.4.5"
 PIPELINE_BACKEND = "pipeline"
 PARSE_METHOD = "auto"
 
+
+def pipeline_configuration() -> dict[str, str | int | float | bool]:
+    return {"backend": PIPELINE_BACKEND, "parse_method": PARSE_METHOD}
+
+
 BBox = tuple[float, float, float, float]
 PageSize = tuple[float, float]
 

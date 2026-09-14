@@ -6,8 +6,9 @@ from bioparser.parser.backend.mineru.parser import (
     MINERU_PARSER_NAME,
     MINERU_PARSER_VERSION,
 )
-from bioparser.services.mineru import MinerUError, http_configuration
-from bioparser.services.vllm.vllm import VLLMTruncatedError
+from bioparser.parser.backend.mineru.schema import pipeline_configuration
+from bioparser.services.mineru import MinerUError
+from bioparser.services.vllm.vllm import VLLMError, VLLMTruncatedError
 
 # TODO: add logger
 # TODO: REDIS
@@ -38,7 +39,7 @@ async def run_pipeline(
             checksum=checksum,
             parser_name=MINERU_PARSER_NAME,
             parser_version=MINERU_PARSER_VERSION,
-            configuration=http_configuration(),
+            configuration=pipeline_configuration(),
         )
     except ValueError as exc:
         # The mapper converts its own ValidationError to ValueError
@@ -52,6 +53,8 @@ async def run_pipeline(
         raise PipelineError("Extraction truncated") from exc
     except ExtractionFailedError as exc:
         raise PipelineError("Extraction did not match the schema") from exc
+    except VLLMError as exc:
+        raise PipelineError("Extraction backend unavailable") from exc
 
     return {
         "checksum": checksum,

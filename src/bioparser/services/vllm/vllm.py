@@ -1,13 +1,17 @@
 import asyncio
 from typing import Any
 
-from openai import AsyncOpenAI
+from openai import APIError, AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
 from .config import get_settings
 
 
-class VLLMTruncatedError(RuntimeError):
+class VLLMError(RuntimeError):
+    """vLLM was unreachable, timed out, or returned an error status"""
+
+
+class VLLMTruncatedError(VLLMError):
     """Generation hit max_tokens before the model closed the JSON."""
 
 
@@ -34,9 +38,12 @@ class VLLMService:
 
         async with self._lock:
             if self.model is None:
-                response = await self.client.models.list(timeout=self._discovery_timeout)
+                try:
+                    response = await self.client.models.list(timeout=self._discovery_timeout)
+                except APIError as exc:
+                    raise VLLMError(f"vLLM unreachable: {type(exc).__name__}") from exc
                 if not response.data:
-                    raise RuntimeError("vLLM exposes no models")
+                    raise VLLMError("vLLM exposes no models")
                 self.model = response.data[0].id
             return self.model
 
@@ -91,22 +98,25 @@ class VLLMService:
         system_prompt: str,
         max_tokens: int,
     ) -> str:
-
-        response = await self.client.chat.completions.create(
-            model=await self.get_model(),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.0,
-            max_tokens=max_tokens,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {"name": "extraction", "schema": schema},
-            },
-            # Qwen3 emits <think> blocks; disable it
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-        )
+        try:
+            response = await self.client.chat.completions.create(
+                model=await self.get_model(),
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.0,
+                max_tokens=max_tokens,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {"name": "extraction", "schema": schema},
+                },
+                # Qwen3 emits <think> blocks; disable it
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            )
+        except APIError as exc:
+            # Connection refused, read timeout, 5xx
+            raise VLLMError(f"vLLM request failed: {type(exc).__name__}") from exc
 
         choice = response.choices[0]
 
@@ -119,5 +129,5 @@ class VLLMService:
 
         content = choice.message.content
         if content is None:
-            raise RuntimeError("vLLM returned an empty response")
+            raise VLLMError("vLLM returned an empty response")
         return content

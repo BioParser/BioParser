@@ -1,3 +1,3 @@
-from .client import MinerUClient, MinerUError, http_configuration
+from .client import MinerUClient, MinerUError
 
-__all__ = ["MinerUClient", "MinerUError", "http_configuration"]
+__all__ = ["MinerUClient", "MinerUError"]

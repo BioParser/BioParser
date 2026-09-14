@@ -21,11 +21,6 @@ from bioparser.parser.errors import (
 MINERU_TOOL_SPEC = f"mineru[pipeline]=={MINERU_PIPELINE_VERSION}"
 
 
-def cli_configuration() -> dict[str, str | int | float | bool]:
-    """Knobs actually passed to the MinerU CLI (recorded on the artifact)."""
-    return {"backend": PIPELINE_BACKEND, "parse_method": PARSE_METHOD}
-
-
 def _unavailable_message() -> str:
     return (
         "MinerU CLI not found. Install it with "

@@ -1,6 +1,7 @@
 """MinerUClient against a misbehaving mineru-api."""
 
 import json
+from typing import Any
 
 import httpx2
 import pytest
@@ -58,3 +59,38 @@ async def test_a_non_200_never_reads_the_body() -> None:
         await client.parse(filename="a.pdf", content=PDF)
 
     await client.aclose()
+
+
+@pytest.mark.parametrize(
+    "results",
+    [["this", "is", "a list"], "a string", 1337, None, {}],
+    ids=["list", "str", "int", "null", "empty"],
+)
+def test_non_dict_results_raise_mineru_error(results: Any) -> None:
+    with pytest.raises(MinerUError):
+        MinerUClient._middle_json_from_body({"results": results})
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "not an object",
+        ["not", "an", "object"],
+        {"results": {"doc": "not an object"}},
+        {"results": {"doc": {}}},
+        {"results": {"doc": {"middle_json": 12345}}},
+        {"results": {"doc": {"middle_json": "{not json"}}},
+    ],
+    ids=["body-str", "body-list", "entry-str", "no-middle-json", "middle-json-int", "bad-json"],
+)
+def test_malformed_bodies_all_raise_mineru_error(body: Any) -> None:
+    with pytest.raises(MinerUError):
+        MinerUClient._middle_json_from_body(body)
+
+
+def test_well_formed_body_is_returned() -> None:
+    parsed = MinerUClient._middle_json_from_body(
+        {"results": {"doc": {"middle_json": '{"pdf_info": []}'}}}
+    )
+
+    assert parsed == {"pdf_info": []}
