@@ -29,12 +29,22 @@ def stub_pipeline(
 
 
 @pytest.fixture(autouse=True)
+def reset_api_settings_cache() -> None:
+    config.get_api_settings.cache_clear()
+    yield
+    config.get_api_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def isolated_job_store(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(jobs, "_jobs", {})
 
 
 @pytest.fixture(autouse=True)
-def extract_semaphore(monkeypatch: pytest.MonkeyPatch) -> None:
+def extract_semaphore(
+    reset_api_settings_cache: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     settings = config.get_api_settings()
     monkeypatch.setattr(
         app.state,
