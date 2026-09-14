@@ -43,7 +43,7 @@ services:
       # Fraction of TOTAL VRAM, pre-allocated at startup. Mineru needs some too
       # default 0.9
       - --gpu-memory-utilization
-      - "${VLLM_GPU_FRACTION:-0.45}"i
+      - "${VLLM_GPU_FRACTION:-0.45}"
       # NOTE: saves vram -- slower decode
       - --enforce-eager
       - --max-num-seqs
