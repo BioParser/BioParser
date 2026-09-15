@@ -58,5 +58,6 @@ services:
 
   redis:
     image: redis:8.10
-    ports:
-      - "${REDIS_PORT}:6379"
+    # Redis can be connected to with redis:6379
+    expose:
+      - "6379"
