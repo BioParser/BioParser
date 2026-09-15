@@ -55,3 +55,8 @@ services:
     healthcheck:
       # Weights load disk -> VRAM in seconds now.
       start_period: 180s
+
+  redis:
+    image: redis:8.10
+    ports:
+      - "${REDIS_PORT}:6379"
