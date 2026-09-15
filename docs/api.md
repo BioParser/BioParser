@@ -76,6 +76,7 @@ fail is the one reported.
 | 400 | no `file` part in the request |
 | 400 | the file body is empty |
 | 400 | the file body does not start with `%PDF-` |
+| 400 | the Content-Length header is not a valid non-negative integer |
 | 413 | the file exceeds `config.MAX_UPLOAD_BYTES` |
 | 415 | content type is not `application/pdf` |
 
@@ -101,6 +102,7 @@ fail is the one reported.
 | `missing_file` | 400 | no `file` part in the request |
 | `empty_file` | 400 | the `file` part is present but its body is empty |
 | `invalid_pdf` | 400 | the body does not start with the `%PDF-` magic bytes |
+| `invalid_content_length`| 400 | Content-Length header is not a valid non-negative integer |
 | `unsupported_content_type` | 415 | content type is not `application/pdf` |
 
 
@@ -126,6 +128,16 @@ Poll a job.
 | Status | When |
 |--------|------|
 | 404 | no job with that id |
+
+**Error body:**
+
+```json
+{
+  "detail": {
+    "code": "job_not_found",
+    "message": "Job not found"
+  }
+}
 
 ### `GET /health`
 
