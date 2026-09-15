@@ -3,9 +3,13 @@ from typing import Literal
 from pydantic import BaseModel
 
 
-class SubmitResponse(BaseModel):
+class JobStatusResponse(BaseModel):
     job_id: str
     status: Literal["queued"]
+
+
+class HealthResponse(BaseModel):
+    status: Literal["ok"]
 
 
 ErrorCode = Literal[
