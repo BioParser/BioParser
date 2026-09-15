@@ -28,7 +28,7 @@ def test_unknown_job_returns_404(client: TestClient) -> None:
     response = client.get("/jobs/missing")
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "Job not found"}
+    assert response.json() == {"detail": {"code": "job_not_found", "message": "Job not found"}}
 
 
 def test_submit_pdf(client: TestClient) -> None:

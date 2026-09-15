@@ -1,6 +1,7 @@
 from fastapi import HTTPException, UploadFile
 
 from . import config
+from .schema import ErrorDetail
 
 _CHUNK_SIZE = 1024 * 1024  # 1 MiB
 _PDF_MAGIC = b"%PDF-"
@@ -11,7 +12,9 @@ def require_file(file: UploadFile | None) -> UploadFile:
     if file is None:
         raise HTTPException(
             status_code=400,
-            detail={"code": "missing_file", "message": "No file part in the request"},
+            detail=ErrorDetail(
+                code="missing_file", message="No file part in the request"
+            ).model_dump(),
         )
     return file
 
@@ -21,10 +24,9 @@ def validate_content_type(file: UploadFile) -> None:
     if content_type != "application/pdf":
         raise HTTPException(
             status_code=415,
-            detail={
-                "code": "unsupported_content_type",
-                "message": "Only application/pdf uploads are accepted",
-            },
+            detail=ErrorDetail(
+                code="unsupported_content_type", message="Only application/pdf uploads are accepted"
+            ).model_dump(),
         )
 
 
@@ -36,18 +38,18 @@ def validate_content_length(header: str | None) -> None:
     except ValueError:
         raise HTTPException(
             status_code=400,
-            detail={
-                "code": "invalid_content_length",
-                "message": "Content-Length header must be a non-negative integer",
-            },
+            detail=ErrorDetail(
+                code="invalid_content_length",
+                message="Content-Length header must be a non-negative integer",
+            ).model_dump(),
         ) from None
     if length < 0:
         raise HTTPException(
             status_code=400,
-            detail={
-                "code": "invalid_content_length",
-                "message": "Content-Length header must be a non-negative integer",
-            },
+            detail=ErrorDetail(
+                code="invalid_content_length",
+                message="Content-Length header must be a non-negative integer",
+            ).model_dump(),
         )
     if length > config.get_api_settings().max_upload_bytes:
         raise HTTPException(status_code=413, detail=CONTENT_TOO_LARGE)
@@ -68,10 +70,12 @@ def validate_pdf_content(content: bytes) -> None:
     if not content:
         raise HTTPException(
             status_code=400,
-            detail={"code": "empty_file", "message": "Uploaded file is empty"},
+            detail=ErrorDetail(code="empty_file", message="Uploaded file is empty").model_dump(),
         )
     if not content.startswith(_PDF_MAGIC):
         raise HTTPException(
             status_code=400,
-            detail={"code": "invalid_pdf", "message": "File does not look like a PDF"},
+            detail=ErrorDetail(
+                code="invalid_pdf", message="File does not look like a PDF"
+            ).model_dump(),
         )
