@@ -13,6 +13,7 @@ services:
       MINERU_API_MAX_CONCURRENT_REQUESTS: "1"
     mem_limit: 12g
     memswap_limit: 12g # needed for OOM ?
+
   vllm:
     image: vllm/vllm-openai-cpu:latest-x86_64
     command:
@@ -33,3 +34,8 @@ services:
     mem_limit: 8g
     healthcheck:
       start_period: 600s
+  redis:
+    image: redis:8.10
+    # Redis can be connected to with redis:6379
+    expose:
+      - "6379"

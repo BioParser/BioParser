@@ -59,5 +59,11 @@ services:
     memswap_limit: 4g
     networks: [backend, edge]
 
+  redis:
+    image: redis:8.10
+    # Redis can be connected to with redis:6379
+    expose:
+      - "6379"
+
 volumes:
   mineru-output:
