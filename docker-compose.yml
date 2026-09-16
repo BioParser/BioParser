@@ -63,9 +63,10 @@ services:
 
   redis:
     image: redis:8.10.1@sha256:298e5b3bc566bade82f46ad5511777a4a07a294097ce16ada2f6a42be5239df5
+    user: "999:999"
     command:
       - redis-server
-      - --appendonly "yes"
+      - --appendonly yes
       - --appendfsync everysec
       - --save ""
       - --maxmemory ${REDIS_MAXMEMORY:-512mb}
@@ -84,8 +85,8 @@ services:
       start_period: 10s
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    ports:
-      - "127.0.0.1${REDIS_PORT:-6379}:6379"
+    expose:
+      - "6379"
 
 volumes:
   mineru-output:
