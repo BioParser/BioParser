@@ -80,7 +80,7 @@ async def _validated_upload(request: Request, file: UploadFile | None) -> tuple[
 async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
     """Used for /extract sync runs
 
-    /submit should use async runs when redis implemented
+    /api/extractions should use async runs when redis implemented
     """
     timeout = config.get_api_settings().extract_queue_timeout_seconds
     try:
@@ -99,7 +99,7 @@ async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
 
 
 @app.post(
-    "/submit",
+    "/api/extractions",
     status_code=202,
     responses={
         400: {
@@ -170,7 +170,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> JobSta
 
 
 @app.get(
-    "/jobs/{job_id}",
+    "/api/jobs/{job_id}",
     responses={
         404: {
             "model": ErrorResponse,

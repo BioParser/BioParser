@@ -4,11 +4,11 @@ This document defines the public HTTP contract of the API container and the inte
 module layout that implements it. The system context for these endpoints is in
 [architecture.md](architecture.md).
 
-Status: **draft** — all four routes (`POST /submit`, `GET /jobs/{job_id}`,
+Status: **draft** — all four routes (`POST api/extractions`, `GET /api/jobs/{job_id}`,
 `POST /extract`, `GET /health`) are implemented, along with upload validation and a
 configurable size limit. `POST /extract` runs the real MinerU → vLLM pipeline
 synchronously for manual testing; it is not wired to the job store. The larger
-infrastructure below (Redis, a worker that advances `/submit` jobs, artifact
+infrastructure below (Redis, a worker that advances `api/extractions` jobs, artifact
 storage, `/ready`) is not implemented.
 
 **Sprint 1 scope:** this is a deliberately reduced first pass, matching
@@ -18,17 +18,17 @@ particular:
 
 - **Job store** is an in-process Python dict, not Redis. Jobs do not
   survive a restart and are not visible to any other process.
-- **No worker exists yet.** A job created via `POST /submit` is created as
+- **No worker exists yet.** A job created via `POST /api/extractions` is created as
   `queued` and nothing currently advances it to `running` or `succeeded`.
 - **`POST /extract` is a separate, synchronous test path**, not the worker above.
   It runs the real MinerU → mapper → vLLM pipeline end-to-end and returns the
   result inline, bounded by a concurrency semaphore, but it does not read or
-  write the job store, and `POST /submit` never calls it.
+  write the job store, and `POST /api/extractions` never calls it.
 - **No artifact storage.** Uploaded PDF bytes are not persisted anywhere.
 - **`/ready` is not implemented.** Only `/health` exists, since there
   are no external dependencies yet to check readiness against.
 - **No `/api/v1` prefix, no checksum-based idempotency, no global error envelope or exception handlers** 
-- routes still raise plain `fastapi.HTTPException` directly, with no registered `@app.exception_handler`. `POST /submit`'s validation failures do pass a structured `{"code", "message"}` object as `detail` (see above), but that's local to this one route, not a repo-wide convention.
+- routes still raise plain `fastapi.HTTPException` directly, with no registered `@app.exception_handler`. `POST /api/extractions`'s validation failures do pass a structured `{"code", "message"}` object as `detail` (see above), but that's local to this one route, not a repo-wide convention.
 
 These are the pieces `architecture.md` calls for that this draft does
 not yet satisfy. They are the intended next steps, not omissions to be
@@ -43,7 +43,7 @@ described here. This note should be replaced or removed once those exist.
 ## Scope
 
 The API container accepts a born-digital PDF, creates a job, and lets the client poll
-for the job's status. `POST /submit` never parses in the request process — it only
+for the job's status. `POST /api/extractions` never parses in the request process — it only
 records that a job exists; nothing currently advances that job (see Sprint 1 scope
 above). Separately, `POST /extract` runs the same kind of upload through the real
 MinerU → vLLM pipeline synchronously, for manually testing the pipeline itself outside
@@ -53,7 +53,7 @@ the job lifecycle.
 
 ## HTTP contract
 
-### `POST /submit`
+### `POST /api/extractions`
 
 Submit a PDF.
 
@@ -66,7 +66,7 @@ Submit a PDF.
   `config.MAX_UPLOAD_BYTES` (20 MiB by default — see [`config.py`](#configpy)).
 - No idempotency — submitting the same file twice creates two separate jobs. A
   sha256 checksum is computed from the upload for `POST /extract`'s use, but
-  `POST /submit` discards it without checking for an existing job.
+  `POST /api/extractions` discards it without checking for an existing job.
 
 The checks run in a fixed order: `Content-Length` header format and size →
 `file` part present → content type → body size while streaming → non-empty body →
@@ -118,7 +118,7 @@ The checks run in a fixed order: `Content-Length` header format and size →
 | `unsupported_content_type` | 415 | content type is not `application/pdf` |
 
 
-### `GET /jobs/{job_id}`
+### `GET /api/jobs/{job_id}`
 
 Poll a job.
 
@@ -157,7 +157,7 @@ Poll a job.
 Runs the full parse-and-extract pipeline synchronously, for manual testing of the
 pipeline outside the job lifecycle. Does not read or write the job store.
 
-- **Request:** identical to `POST /submit` — `multipart/form-data` with a single
+- **Request:** identical to `POST /api/extractions` — `multipart/form-data` with a single
   `file` part, subject to the same `Content-Length`, content-type, size, and
   `%PDF-` checks described above.
 - Runs, in order: MinerU parse (`bioparser.services.mineru.MinerUClient`) →
@@ -187,12 +187,12 @@ pipeline outside the job lifecycle. Does not read or write the job store.
 
 | Status | When |
 |--------|------|
-| 400 / 415 | same upload validation failures as `POST /submit` |
+| 400 / 415 | same upload validation failures as `POST /api/extractions` |
 | 502 | MinerU parsing failed, the parser output could not be mapped, or vLLM extraction failed, was truncated, or didn't match the schema — see [`pipeline.py`](#pipelinepy) |
 | 503 | the extraction semaphore is saturated and the queue timeout elapsed |
 
 `502` and `503` bodies use FastAPI's default `{"detail": "<message>"}` shape (a
-plain string), not `POST /submit`'s `{"code", "message"}` object.
+plain string), not `POST /api/extractions`'s `{"code", "message"}` object.
 
 ### `GET /health`
 
@@ -213,7 +213,7 @@ dependencies to check yet.
 src/bioparser/api/
   __init__.py       # main() -> starts the app
   app.py            # FastAPI app, lifespan startup, all four routes
-  uploads.py        # upload-validation helpers shared by POST /submit and POST /extract
+  uploads.py        # upload-validation helpers shared by POST /api/extractions and POST /extract
   schema.py         # pydantic response/error models used across routes
   pipeline.py       # run_pipeline(): MinerU -> mapper -> vLLM, used by POST /extract
   config.py         # process configuration read from the environment
@@ -239,17 +239,17 @@ logger yet). It also creates an `asyncio.Semaphore` sized `config.extract_concur
 on `app.state.extract_sem`, used only by `POST /extract`. On shutdown, both clients
 are closed.
 
-- `POST /submit` — runs `_validated_upload()` (the [`uploads.py`](#uploadspy) helpers,
+- `POST /api/extractions` — runs `_validated_upload()` (the [`uploads.py`](#uploadspy) helpers,
   in order: `validate_content_length`, `require_file`, `validate_content_type`,
   `read_upload`, `validate_pdf_content`), then calls `jobs.create_job()` and returns
   `202`. `_validated_upload()` also computes a sha256 checksum of the body, but
-  `POST /submit` discards both the checksum and the bytes — nothing is persisted.
+  `POST /api/extractions` discards both the checksum and the bytes — nothing is persisted.
   Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it is still
   being received. A missing or understated `Content-Length` is still capped while
   reading the file in chunks.
-- `GET /jobs/{job_id}` — calls `jobs.get_job(job_id)`, returns it or raises a 404
+- `GET /api/jobs/{job_id}` — calls `jobs.get_job(job_id)`, returns it or raises a 404
   `HTTPException`.
-- `POST /extract` — runs the same `_validated_upload()` as `POST /submit`, then, inside
+- `POST /extract` — runs the same `_validated_upload()` as `POST /api/extractions`, then, inside
   an `_extract_slot()` (the concurrency semaphore), calls
   [`pipeline.run_pipeline()`](#pipelinepy) and returns its result as-is. A
   `PipelineError` is re-raised as a `502 HTTPException`. Not wired to the job store.
@@ -262,7 +262,7 @@ Starlette's plain-text `Content Too Large` body.
 
 ### `uploads.py`
 
-Stateless helpers that validate an upload, shared by `POST /submit` and
+Stateless helpers that validate an upload, shared by `POST /api/extractions` and
 `POST /extract`. Each raises `fastapi.HTTPException` with a `{"code", "message"}`
 object as its `detail` on failure, and returns normally on success.
 
@@ -286,9 +286,9 @@ Pydantic models shared by the routes above, used both for response validation an
 for the OpenAPI docs' `responses=` examples:
 
 - `JobStatusResponse` — `{job_id: str, status: Literal["queued"]}`, returned by
-  `POST /submit` and `GET /jobs/{job_id}`.
+  `POST /api/extractions` and `GET /api/jobs/{job_id}`.
 - `HealthResponse` — `{status: Literal["ok"]}`, returned by `GET /health`.
-- `ErrorCode` — the fixed set of error codes from the `POST /submit` table above,
+- `ErrorCode` — the fixed set of error codes from the `POST /api/extractions` table above,
   plus `job_not_found`.
 - `ErrorDetail` — `{code: ErrorCode, message: str}`, the shape every `uploads.py`
   helper and the 404 handler raise as `HTTPException.detail`.
@@ -344,11 +344,11 @@ A plain Python dict mapping `job_id -> JobRecord` (a `@dataclass` with `job_id` 
 
 ## Out of scope for this draft
 
-No PDF storage. No Redis-backed queue for `POST /submit`. No worker that advances a
-job past `queued`. No `/ready`. No `/api/v1` prefix. No idempotency — `POST /submit`
+No PDF storage. No Redis-backed queue for `POST /api/extractions`. No worker that advances a
+job past `queued`. No `/ready`. No `/api/v1` prefix. No idempotency — `POST /api/extractions`
 computes a checksum but doesn't use it to detect duplicate uploads. No structured
 error envelope for `POST /extract`'s `502`/`503` (they use FastAPI's plain
-`{"detail": "<message>"}`, unlike `POST /submit`'s `{"code", "message"}` object). No
+`{"detail": "<message>"}`, unlike `POST /api/extractions`'s `{"code", "message"}` object). No
 request-ID middleware or structured logging (see the `# TODO: logger` markers in
 `app.py` and `pipeline.py`). These are the gaps named in the Sprint 0 scope note
 above, deferred until a later revision of this document.
@@ -371,10 +371,10 @@ printf '%%PDF-1.4\n%%%%EOF\n' > sample.pdf
 curl -s localhost:8080/health
 # -> {"status":"ok"}
 
-curl -s -F file=@sample.pdf localhost:8080/submit
+curl -s -F file=@sample.pdf localhost:8080/api/extractions
 # -> 202  {"job_id":"...","status":"queued"}
 
-curl -s localhost:8080/jobs/<job_id>
+curl -s localhost:8080/api/jobs/<job_id>
 # -> 200  {"job_id":"...","status":"queued"}
 ```
 
@@ -382,23 +382,23 @@ Each validation path responds with `{"detail": {"code": ..., "message": ...}}`:
 
 ```
 # no file part
-curl -s -X POST localhost:8080/submit
+curl -s -X POST localhost:8080/api/extractions
 # -> 400  missing_file
 
 # content type is not application/pdf
-curl -s -F 'file=@sample.pdf;type=text/plain' localhost:8080/submit
+curl -s -F 'file=@sample.pdf;type=text/plain' localhost:8080/api/extractions
 # -> 415  unsupported_content_type
 
 # empty body
-: > empty.pdf && curl -s -F file=@empty.pdf localhost:8080/submit
+: > empty.pdf && curl -s -F file=@empty.pdf localhost:8080/api/extractions
 # -> 400  empty_file
 
 # bytes that are not a PDF (curl still sends type=application/pdf for a .pdf name)
-printf 'not a pdf\n' > notpdf.pdf && curl -s -F file=@notpdf.pdf localhost:8080/submit
+printf 'not a pdf\n' > notpdf.pdf && curl -s -F file=@notpdf.pdf localhost:8080/api/extractions
 # -> 400  invalid_pdf
 
 # unknown job id
-curl -s localhost:8080/jobs/does-not-exist
+curl -s localhost:8080/api/jobs/does-not-exist
 # -> 404  {"detail":{"code":"job_not_found","message":"Job not found"}}
 ```
 
@@ -409,7 +409,7 @@ so a 10-byte limit rejects even a tiny file:
 
 ```
 BIOPARSER_MAX_UPLOAD_BYTES=10 uv run bioparser
-curl -s -F file=@sample.pdf localhost:8080/submit
+curl -s -F file=@sample.pdf localhost:8080/api/extractions
 # -> 413  Content Too Large
 ```
 
