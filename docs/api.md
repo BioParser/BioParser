@@ -4,7 +4,7 @@ This document defines the public HTTP contract of the API container and the inte
 module layout that implements it. The system context for these endpoints is in
 [architecture.md](architecture.md).
 
-Status: **draft** — all three routes (`POST /submit`, `GET /jobs/{job_id}`,
+Status: **draft** — all three routes (`POST /api/extractions`, `GET /api/jobs/{job_id}`,
 `GET /health`) are implemented, along with upload validation and a configurable
 size limit. The larger infrastructure below (Redis, a worker, artifact storage,
 `/ready`) is not.
@@ -22,7 +22,7 @@ particular:
 - **`/ready` is not implemented.** Only `/health` exists, since there
   are no external dependencies yet to check readiness against.
 - **No `/api/v1` prefix, no checksum-based idempotency, no global error envelope or exception handlers** 
-- routes still raise plain `fastapi.HTTPException` directly, with no registered `@app.exception_handler`. `POST /submit`'s validation failures do pass a structured `{"code", "message"}` object as `detail` (see above), but that's local to this one route, not a repo-wide convention.
+- routes still raise plain `fastapi.HTTPException` directly, with no registered `@app.exception_handler`. `POST /api/extractions`'s validation failures do pass a structured `{"code", "message"}` object as `detail` (see above), but that's local to this one route, not a repo-wide convention.
 
 These are the pieces `architecture.md` calls for that this draft does
 not yet satisfy. They are the intended next steps, not omissions to be
@@ -43,7 +43,7 @@ above).
 
 ## HTTP contract
 
-### `POST /submit`
+### `POST /api/extractions`
 
 Submit a PDF.
 
@@ -104,7 +104,7 @@ fail is the one reported.
 | `unsupported_content_type` | 415 | content type is not `application/pdf` |
 
 
-### `GET /jobs/{job_id}`
+### `GET /api/jobs/{job_id}`
 
 Poll a job.
 
@@ -140,7 +140,7 @@ dependencies to check yet.
 src/bioparser/api/
   __init__.py       # main() -> starts the app
   app.py            # creates the FastAPI app, defines all three routes directly
-  uploads.py        # upload-validation helpers used by POST /submit
+  uploads.py        # upload-validation helpers used by POST /api/extractions
   config.py         # process configuration read from the environment
   jobs.py           # an in-process dict acting as the job store, plus a helper
                      #   to create/read jobs
@@ -153,24 +153,24 @@ directly in `app.py`; upload validation is in `uploads.py`.
 
 Holds the FastAPI app and all three route handlers:
 
-- `POST /submit` — runs the [`uploads.py`](#uploadspy) helpers in order
+- `POST /api/extractions` — runs the [`uploads.py`](#uploadspy) helpers in order
   (`validate_content_length`, `require_file`, `validate_content_type`, `read_upload`,
   `validate_pdf_content`), then calls `jobs.create_job()` and returns `202`. The
   read body is only used for validation and is then discarded — nothing is
   persisted. Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it
   is still being received. A missing or understated `Content-Length` is still capped
   while reading the file in chunks.
-- `GET /jobs/{job_id}` — calls `jobs.get_job(job_id)`, returns it or raises a 404
+- `GET /api/jobs/{job_id}` — calls `jobs.get_job(job_id)`, returns it or raises a 404
   `HTTPException`.
 - `GET /health` — returns `{"status": "ok"}` directly, no dependencies.
 
 Errors use `fastapi.HTTPException` directly — raised from the `uploads.py` helpers
-for `POST /submit` and inline in the route for the 404. A `413` handler maps
+for `POST /api/extractions` and inline in the route for the 404. A `413` handler maps
 oversize errors to Starlette's plain-text `Content Too Large` body.
 
 ### `uploads.py`
 
-Stateless helpers that validate a `POST /submit` upload. Each raises
+Stateless helpers that validate a `POST /api/extractions` upload. Each raises
 `fastapi.HTTPException` with a `{"code", "message"}` object as its `detail` on
 failure, and returns normally on success.
 
@@ -233,10 +233,10 @@ printf '%%PDF-1.4\n%%%%EOF\n' > sample.pdf
 curl -s localhost:8080/health
 # -> {"status":"ok"}
 
-curl -s -F file=@sample.pdf localhost:8080/submit
+curl -s -F file=@sample.pdf localhost:8080/api/extractions
 # -> 202  {"job_id":"...","status":"queued"}
 
-curl -s localhost:8080/jobs/<job_id>
+curl -s localhost:8080/api/jobs/<job_id>
 # -> 200  {"job_id":"...","status":"queued"}
 ```
 
@@ -244,23 +244,23 @@ Each validation path responds with `{"detail": {"code": ..., "message": ...}}`:
 
 ```
 # no file part
-curl -s -X POST localhost:8080/submit
+curl -s -X POST localhost:8080/api/extractions
 # -> 400  missing_file
 
 # content type is not application/pdf
-curl -s -F 'file=@sample.pdf;type=text/plain' localhost:8080/submit
+curl -s -F 'file=@sample.pdf;type=text/plain' localhost:8080/api/extractions
 # -> 415  unsupported_content_type
 
 # empty body
-: > empty.pdf && curl -s -F file=@empty.pdf localhost:8080/submit
+: > empty.pdf && curl -s -F file=@empty.pdf localhost:8080/api/extractions
 # -> 400  empty_file
 
 # bytes that are not a PDF (curl still sends type=application/pdf for a .pdf name)
-printf 'not a pdf\n' > notpdf.pdf && curl -s -F file=@notpdf.pdf localhost:8080/submit
+printf 'not a pdf\n' > notpdf.pdf && curl -s -F file=@notpdf.pdf localhost:8080/api/extractions
 # -> 400  invalid_pdf
 
 # unknown job id
-curl -s localhost:8080/jobs/does-not-exist
+curl -s localhost:8080/api/jobs/does-not-exist
 # -> 404  {"detail":"Job not found"}
 ```
 
@@ -271,6 +271,6 @@ so a 10-byte limit rejects even a tiny file:
 
 ```
 BIOPARSER_MAX_UPLOAD_BYTES=10 uv run bioparser
-curl -s -F file=@sample.pdf localhost:8080/submit
+curl -s -F file=@sample.pdf localhost:8080/api/extractions
 # -> 413  Content Too Large
 ```

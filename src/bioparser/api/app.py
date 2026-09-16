@@ -79,7 +79,7 @@ async def _validated_upload(request: Request, file: UploadFile | None) -> tuple[
 async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
     """Used for /extract sync runs
 
-    /submit should use async runs when redis implemented
+    /api/extractions should use async runs when redis implemented
     """
     timeout = config.get_api_settings().extract_queue_timeout_seconds
     try:
@@ -97,7 +97,7 @@ async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
         app.state.extract_sem.release()
 
 
-@app.post("/submit", status_code=202)
+@app.post("/api/extractions", status_code=202)
 async def submit_job(request: Request, file: UploadFile | None = None) -> dict[str, str]:
     # Redis is not implemented so does nothing yet except validation
     await _validated_upload(request, file)
@@ -105,7 +105,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> dict[s
     return {"job_id": record["job_id"], "status": record["status"]}
 
 
-@app.get("/jobs/{job_id}")
+@app.get("/api/jobs/{job_id}")
 def job_status(job_id: str) -> dict[str, str]:
     record = get_job(job_id)
     if record is None:
