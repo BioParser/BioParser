@@ -63,6 +63,7 @@ app.add_middleware(
 async def content_too_large_handler(_request: Request, _exc: Exception) -> PlainTextResponse:
     return PlainTextResponse(CONTENT_TOO_LARGE, status_code=413)
 
+
 async def _validated_upload(request: Request, file: UploadFile | None) -> tuple[str, bytes]:
     validate_content_length(request.headers.get("content-length"))
     file = require_file(file)
