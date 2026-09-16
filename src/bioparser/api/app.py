@@ -101,7 +101,66 @@ async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
 @app.post(
     "/submit",
     status_code=202,
-    responses={400: {"model": ErrorResponse}, 415: {"model": ErrorResponse}},
+    responses={
+        400: {
+            "model": ErrorResponse,
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "missing_file": {
+                            "summary": "No file part in the request",
+                            "value": {
+                                "detail": {
+                                    "code": "missing_file",
+                                    "message": "No file part in the request",
+                                }
+                            },
+                        },
+                        "empty_file": {
+                            "summary": "Uploaded file is empty",
+                            "value": {
+                                "detail": {
+                                    "code": "empty_file",
+                                    "message": "Uploaded file is empty",
+                                }
+                            },
+                        },
+                        "invalid_pdf": {
+                            "summary": "File does not look like a PDF",
+                            "value": {
+                                "detail": {
+                                    "code": "invalid_pdf",
+                                    "message": "File does not look like a PDF",
+                                }
+                            },
+                        },
+                        "invalid_content_length": {
+                            "summary": "Content-Length header must be a non-negative integer",
+                            "value": {
+                                "detail": {
+                                    "code": "invalid_content_length",
+                                    "message": "Content-Length header must be a non-negative integer",
+                                }
+                            },
+                        },
+                    }
+                }
+            },
+        },
+        415: {
+            "model": ErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "unsupported_content_type",
+                            "message": "Only application/pdf uploads are accepted",
+                        }
+                    }
+                }
+            },
+        },
+    },
 )
 async def submit_job(request: Request, file: UploadFile | None = None) -> JobStatusResponse:
     # Redis is not implemented so does nothing yet except validation
@@ -110,7 +169,19 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> JobSta
     return JobStatusResponse(job_id=record.job_id, status="queued")
 
 
-@app.get("/jobs/{job_id}", responses={404: {"model": ErrorResponse}})
+@app.get(
+    "/jobs/{job_id}",
+    responses={
+        404: {
+            "model": ErrorResponse,
+            "content": {
+                "application/json": {
+                    "example": {"detail": {"code": "job_not_found", "message": "Job not found"}}
+                }
+            },
+        }
+    },
+)
 def job_status(job_id: str) -> JobStatusResponse:
     record = get_job(job_id)
     if record is None:

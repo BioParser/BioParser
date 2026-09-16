@@ -1,11 +1,17 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class JobStatusResponse(BaseModel):
     job_id: str
     status: Literal["queued"]
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [{"job_id": "b3f1c2a4-5678-90ab-cdef-1234567890ab", "status": "queued"}]
+        }
+    )
 
 
 class HealthResponse(BaseModel):
