@@ -13,9 +13,19 @@ from bioparser.services.mineru import MinerUClient
 from bioparser.services.vllm import VLLMService
 
 from . import config
+from .errors import (
+    EMPTY_FILE,
+    INVALID_CONTENT_LENGTH,
+    INVALID_PDF,
+    JOB_NOT_FOUND,
+    MISSING_FILE,
+    UNSUPPORTED_CONTENT_TYPE,
+    error_response,
+    http_error,
+)
 from .jobs import create_job, get_job
 from .pipeline import PipelineError, run_pipeline
-from .schema import ErrorDetail, ErrorResponse, HealthResponse, JobStatusResponse
+from .schema import HealthResponse, JobStatusResponse
 from .uploads import (
     CONTENT_TOO_LARGE,
     read_upload,
@@ -102,64 +112,8 @@ async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
     "/api/extractions",
     status_code=202,
     responses={
-        400: {
-            "model": ErrorResponse,
-            "content": {
-                "application/json": {
-                    "examples": {
-                        "missing_file": {
-                            "summary": "No file part in the request",
-                            "value": {
-                                "detail": {
-                                    "code": "missing_file",
-                                    "message": "No file part in the request",
-                                }
-                            },
-                        },
-                        "empty_file": {
-                            "summary": "Uploaded file is empty",
-                            "value": {
-                                "detail": {
-                                    "code": "empty_file",
-                                    "message": "Uploaded file is empty",
-                                }
-                            },
-                        },
-                        "invalid_pdf": {
-                            "summary": "File does not look like a PDF",
-                            "value": {
-                                "detail": {
-                                    "code": "invalid_pdf",
-                                    "message": "File does not look like a PDF",
-                                }
-                            },
-                        },
-                        "invalid_content_length": {
-                            "summary": "Content-Length header must be a non-negative integer",
-                            "value": {
-                                "detail": {
-                                    "code": "invalid_content_length",
-                                    "message": "Content-Length header must be a non-negative integer",
-                                }
-                            },
-                        },
-                    }
-                }
-            },
-        },
-        415: {
-            "model": ErrorResponse,
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": {
-                            "code": "unsupported_content_type",
-                            "message": "Only application/pdf uploads are accepted",
-                        }
-                    }
-                }
-            },
-        },
+        400: error_response(MISSING_FILE, EMPTY_FILE, INVALID_PDF, INVALID_CONTENT_LENGTH),
+        415: error_response(UNSUPPORTED_CONTENT_TYPE),
     },
 )
 async def submit_job(request: Request, file: UploadFile | None = None) -> JobStatusResponse:
@@ -169,26 +123,11 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> JobSta
     return JobStatusResponse(job_id=record.job_id, status="queued")
 
 
-@app.get(
-    "/api/jobs/{job_id}",
-    responses={
-        404: {
-            "model": ErrorResponse,
-            "content": {
-                "application/json": {
-                    "example": {"detail": {"code": "job_not_found", "message": "Job not found"}}
-                }
-            },
-        }
-    },
-)
+@app.get("/api/jobs/{job_id}", responses={404: error_response(JOB_NOT_FOUND)})
 def job_status(job_id: str) -> JobStatusResponse:
     record = get_job(job_id)
     if record is None:
-        raise HTTPException(
-            status_code=404,
-            detail=ErrorDetail(code="job_not_found", message="Job not found").model_dump(),
-        )
+        raise http_error(404, JOB_NOT_FOUND)
     return JobStatusResponse(job_id=job_id, status=record.status)
 
 
