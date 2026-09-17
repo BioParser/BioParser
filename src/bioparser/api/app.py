@@ -120,7 +120,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> JobSta
     # Redis is not implemented so does nothing yet except validation
     await _validated_upload(request, file)
     record = create_job()
-    return JobStatusResponse(job_id=record.job_id, status="queued")
+    return JobStatusResponse(job_id=record.job_id, status=record.status)
 
 
 @app.get("/api/jobs/{job_id}", responses={404: error_response(JOB_NOT_FOUND)})
