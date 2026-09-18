@@ -52,7 +52,7 @@ FastAPI owns the public HTTP contract:
 - `POST /api/extractions` for PDF submission
 - `GET /api/jobs/{job_id}` for job status and results
 - `/health` for process liveness
-- a readiness endpoint for Redis and artifact storage availability
+- `/ready` a readiness endpoint for Redis and artifact storage availability
 
 It validates and stores uploads before enqueueing work. Parsing and inference never run
 in the request process. A separate, versioned API module maps canonical observations to
@@ -77,6 +77,17 @@ The independently deployable extractor worker consumes parser artifacts, runs th
 model, validates canonical observations, rejects candidates without evidence, and stores
 the result. It may have separate memory and GPU requirements. Sprint 0 defines this
 boundary and evaluates runtimes. Production inference comes later.
+
+Health and readiness for workers
+
+- Liveness (/health): a lightweight process liveness probe that returns success when the
+  worker process is running.
+- Readiness (/ready): a dependency-aware probe. When configured via environment variables
+  (for example `BIOPARSER_REDIS_URL`, `BIOPARSER_ARTIFACT_STORAGE_PATH`) the worker's
+  readiness endpoint checks the same minimal set of dependencies as the API:
+  TCP-connect to Redis and a writable artifact storage path. Readiness checks are
+  bounded by `BIOPARSER_DEPENDENCY_CHECK_TIMEOUT_SECONDS` and do not attempt
+  authentication or expose secrets.
 
 ## Processing sequence
 
