@@ -48,6 +48,8 @@ services:
         condition: service_healthy
       vllm:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       BIOPARSER_VLLM_BASE_URL: http://vllm:8000/v1
       BIOPARSER_MINERU_BASE_URL: http://mineru:8000
@@ -59,5 +61,32 @@ services:
     memswap_limit: 4g
     networks: [backend, edge]
 
+  redis:
+    image: redis:8.10.1@sha256:298e5b3bc566bade82f46ad5511777a4a07a294097ce16ada2f6a42be5239df5
+    user: "999:999"
+    command:
+      - redis-server
+      - --appendonly yes
+      - --appendfsync everysec
+      - --save ""
+      - --maxmemory ${REDIS_MAXMEMORY:-512mb}
+      - --maxmemory-policy noeviction
+      - --requirepass "${REDIS_PASSWORD}"
+    volumes:
+      - redis-data:/data
+    networks: [backend]
+    restart: unless-stopped
+    mem_limit: 768m
+    memswap_limit: 768m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
 volumes:
   mineru-output:
+  redis-data:

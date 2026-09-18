@@ -24,6 +24,10 @@ class ApiSettings(BaseSettings):
     extraction_char_budget: int = Field(default=8000, ge=50)
     extraction_max_tokens: int = Field(default=1024, ge=64)
 
+    # redis
+    redis_url: str = "redis://redis:6379/0"
+    redis_timeout_seconds: float = Field(default=5.0, gt=0)
+
 
 @lru_cache(maxsize=1)
 def get_api_settings() -> ApiSettings:
