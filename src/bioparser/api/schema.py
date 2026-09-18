@@ -17,21 +17,4 @@ class JobStatusResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: Literal["ok"]
 
-
-ErrorCode = Literal[
-    "missing_file",
-    "empty_file",
-    "invalid_pdf",
-    "unsupported_content_type",
-    "invalid_content_length",
-    "job_not_found",
-]
-
-
-class ErrorDetail(BaseModel):
-    code: ErrorCode
-    message: str
-
-
-class ErrorResponse(BaseModel):
-    detail: ErrorDetail
+    model_config = ConfigDict(json_schema_extra={"examples": [{"status": "ok"}]})

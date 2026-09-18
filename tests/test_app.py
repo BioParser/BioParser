@@ -2,7 +2,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from bioparser.api import config
-from bioparser.api.schema import ErrorResponse, JobStatusResponse
+from bioparser.api.errors import ErrorResponse
+from bioparser.api.schema import JobStatusResponse
 
 # A minimal byte string that passes every /api/extractions validation check.
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"

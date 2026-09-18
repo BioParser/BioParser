@@ -1,6 +1,26 @@
-from fastapi import HTTPException
+from typing import Literal
 
-from .schema import ErrorDetail, ErrorResponse
+from fastapi import HTTPException
+from pydantic import BaseModel
+
+ErrorCode = Literal[
+    "missing_file",
+    "empty_file",
+    "invalid_pdf",
+    "unsupported_content_type",
+    "invalid_content_length",
+    "job_not_found",
+]
+
+
+class ErrorDetail(BaseModel):
+    code: ErrorCode
+    message: str
+
+
+class ErrorResponse(BaseModel):
+    detail: ErrorDetail
+
 
 MISSING_FILE = ErrorDetail(code="missing_file", message="No file part in the request")
 EMPTY_FILE = ErrorDetail(code="empty_file", message="Uploaded file is empty")

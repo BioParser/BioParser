@@ -288,12 +288,24 @@ for the OpenAPI docs' `responses=` examples:
 - `JobStatusResponse` — `{job_id: str, status: Literal["queued"]}`, returned by
   `POST /api/extractions` and `GET /api/jobs/{job_id}`.
 - `HealthResponse` — `{status: Literal["ok"]}`, returned by `GET /health`.
+
+### `errors.py`
+
+Error types and the named `ErrorDetail` instances used across `uploads.py` and `app.py`.
+
 - `ErrorCode` — the fixed set of error codes from the `POST /api/extractions` table above,
   plus `job_not_found`.
 - `ErrorDetail` — `{code: ErrorCode, message: str}`, the shape every `uploads.py`
   helper and the 404 handler raise as `HTTPException.detail`.
 - `ErrorResponse` — `{detail: ErrorDetail}`, used only in `responses=` schemas for
   OpenAPI documentation; it is never constructed at runtime.
+- `MISSING_FILE`, `EMPTY_FILE`, `INVALID_PDF`, `INVALID_CONTENT_LENGTH`,
+  `UNSUPPORTED_CONTENT_TYPE`, `JOB_NOT_FOUND` — one named `ErrorDetail` per cause,
+  the single source of truth for each error's `code`/`message` pair.
+- `http_error(status_code, detail)` — builds the `HTTPException` raised at each
+  failure site from one of the constants above.
+- `error_response(*details)` — builds the `responses=` OpenAPI entry (schema +
+  named examples) for a route decorator from the same constants.
 
 ### `pipeline.py`
 
