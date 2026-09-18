@@ -2,7 +2,7 @@
 
 ## Branching
 
-- **`main` is protected.** Do not push to it directly. It stays production-ready.
+- `main` **is protected.** Do not push to it directly. It stays production-ready.
 - All work happens on feature branches created from up-to-date `main`.
 - Branch names should be short and descriptive, for example:
   - `feature/fasta-parser`
@@ -13,7 +13,7 @@
 ## Pull requests
 
 1. Open a PR from the feature branch into `main`.
-2. Describe what changed and why. Link the issue if there is one.
+2. Describe what changed and why. Link the issue if there is one. Use `Closes #n` / `Fixes #n` (bugs) when this PR finishes the issue. Use `Related to #n` or `#n` in prose to link without auto-closing.
 3. **One review is required** before merge. The author cannot approve their own PR.
 4. Address review comments or discuss them; then get approval.
 5. Merge only when the [Definition of Done](dod.md) checklist is satisfied.
@@ -38,5 +38,5 @@ On `main`, enable branch protection:
 
 - Require a pull request before merging
 - Require 1 approving review
-- Do not allow bypassing (except in a true emergency, then fix `main` immediately)
-- Require status checks to pass once CI exists
+- Require status checks to pass before merging
+- Do not allow bypassing
