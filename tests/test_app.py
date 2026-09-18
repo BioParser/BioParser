@@ -2,6 +2,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from bioparser.api import config
+from bioparser.api.errors import ErrorResponse
+from bioparser.api.schema import JobStatusResponse
 
 # A minimal byte string that passes every /api/extractions validation check.
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
@@ -13,6 +15,7 @@ def test_submit_and_retrieve_job(client: TestClient) -> None:
         files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
     )
     assert response.status_code == 202
+    JobStatusResponse.model_validate(response.json())
     record = response.json()
 
     assert record["job_id"]
@@ -21,6 +24,7 @@ def test_submit_and_retrieve_job(client: TestClient) -> None:
     response = client.get(f"/api/jobs/{record['job_id']}")
 
     assert response.status_code == 200
+    JobStatusResponse.model_validate(response.json())
     assert response.json() == record
 
 
@@ -28,7 +32,8 @@ def test_unknown_job_returns_404(client: TestClient) -> None:
     response = client.get("/api/jobs/missing")
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "Job not found"}
+    ErrorResponse.model_validate(response.json())
+    assert response.json() == {"detail": {"code": "job_not_found", "message": "Job not found"}}
 
 
 def test_submit_pdf(client: TestClient) -> None:
@@ -44,6 +49,7 @@ def test_submit_missing_file_part(client: TestClient) -> None:
     response = client.post("/api/extractions")
 
     assert response.status_code == 400
+    ErrorResponse.model_validate(response.json())
     detail = response.json()["detail"]
     assert detail["code"] == "missing_file"
     assert detail["message"]

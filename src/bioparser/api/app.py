@@ -13,8 +13,19 @@ from bioparser.services.mineru import MinerUClient
 from bioparser.services.vllm import VLLMService
 
 from . import config
+from .errors import (
+    EMPTY_FILE,
+    INVALID_CONTENT_LENGTH,
+    INVALID_PDF,
+    JOB_NOT_FOUND,
+    MISSING_FILE,
+    UNSUPPORTED_CONTENT_TYPE,
+    error_response,
+    http_error,
+)
 from .jobs import create_job, get_job
 from .pipeline import PipelineError, run_pipeline
+from .schema import HealthResponse, JobStatusResponse
 from .uploads import (
     CONTENT_TOO_LARGE,
     read_upload,
@@ -97,20 +108,27 @@ async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
         app.state.extract_sem.release()
 
 
-@app.post("/api/extractions", status_code=202)
-async def submit_job(request: Request, file: UploadFile | None = None) -> dict[str, str]:
+@app.post(
+    "/api/extractions",
+    status_code=202,
+    responses={
+        400: error_response(MISSING_FILE, EMPTY_FILE, INVALID_PDF, INVALID_CONTENT_LENGTH),
+        415: error_response(UNSUPPORTED_CONTENT_TYPE),
+    },
+)
+async def submit_job(request: Request, file: UploadFile | None = None) -> JobStatusResponse:
     # Redis is not implemented so does nothing yet except validation
     await _validated_upload(request, file)
     record = create_job()
-    return {"job_id": record["job_id"], "status": record["status"]}
+    return JobStatusResponse(job_id=record.job_id, status=record.status)
 
 
-@app.get("/api/jobs/{job_id}")
-def job_status(job_id: str) -> dict[str, str]:
+@app.get("/api/jobs/{job_id}", responses={404: error_response(JOB_NOT_FOUND)})
+def job_status(job_id: str) -> JobStatusResponse:
     record = get_job(job_id)
     if record is None:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return {"job_id": job_id, "status": record["status"]}
+        raise http_error(404, JOB_NOT_FOUND)
+    return JobStatusResponse(job_id=job_id, status=record.status)
 
 
 @app.post("/extract")
@@ -134,5 +152,5 @@ async def extract(request: Request, file: UploadFile | None = None) -> dict[str,
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> HealthResponse:
+    return HealthResponse(status="ok")
