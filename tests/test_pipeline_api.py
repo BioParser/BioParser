@@ -13,6 +13,8 @@ from bioparser.api.app import app
 from bioparser.api.pipeline import PipelineError, run_pipeline
 from bioparser.services.vllm.vllm import VLLMError
 
+pytestmark = pytest.mark.usefixtures("extract_semaphore")
+
 PDF = b"%PDF-1.4\n%%EOF\n"
 
 

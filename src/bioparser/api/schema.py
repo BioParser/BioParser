@@ -18,3 +18,31 @@ class HealthResponse(BaseModel):
     status: Literal["ok"]
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"status": "ok"}]})
+
+
+class ReadinessResponse(BaseModel):
+    status: Literal["ready"]
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"status": "ready"}]})
+
+
+class ReadinessUnavailableDetail(BaseModel):
+    status: Literal["not ready"]
+    unavailable: list[str]
+
+
+class ReadinessUnavailableResponse(BaseModel):
+    detail: ReadinessUnavailableDetail
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "detail": {
+                        "status": "not ready",
+                        "unavailable": ["redis"],
+                    }
+                }
+            ]
+        }
+    )

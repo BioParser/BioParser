@@ -1,11 +1,16 @@
 import asyncio
 import contextlib
 import hashlib
+import os
+import socket
+import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
+from pydantic import ValidationError
 from starlette.middleware.body_limit import RequestBodyLimitMiddleware
 from starlette.responses import PlainTextResponse
 
@@ -25,7 +30,12 @@ from .errors import (
 )
 from .jobs import create_job, get_job
 from .pipeline import PipelineError, run_pipeline
-from .schema import HealthResponse, JobStatusResponse
+from .schema import (
+    HealthResponse,
+    JobStatusResponse,
+    ReadinessResponse,
+    ReadinessUnavailableResponse,
+)
 from .uploads import (
     CONTENT_TOO_LARGE,
     read_upload,
@@ -154,3 +164,85 @@ async def extract(request: Request, file: UploadFile | None = None) -> dict[str,
 @app.get("/health")
 def health() -> HealthResponse:
     return HealthResponse(status="ok")
+
+
+async def _check_redis(redis_url: str, timeout: float) -> bool:
+    def _connect_to_redis() -> bool:
+        parsed = urlparse(redis_url)
+        host = parsed.hostname
+        port = parsed.port or 6379
+        if not host:
+            return False
+        try:
+            conn = socket.create_connection((host, port), timeout=timeout)
+            conn.close()
+            return True
+        except OSError:
+            return False
+
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(_connect_to_redis), timeout=timeout)
+    except TimeoutError:
+        return False
+
+
+async def _check_storage(path: str, timeout: float) -> bool:
+    def _attempt_storage_write() -> bool:
+        try:
+            if not os.path.isdir(path):
+                return False
+            with tempfile.NamedTemporaryFile(dir=path, delete=True) as tmp:
+                tmp.write(b"readiness")
+                tmp.flush()
+            return True
+        except OSError:
+            return False
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_attempt_storage_write),
+            timeout=timeout,
+        )
+    except TimeoutError:
+        return False
+
+
+@app.get(
+    "/ready",
+    response_model=ReadinessResponse,
+    responses={
+        503: {
+            "model": ReadinessUnavailableResponse,
+            "description": "One or more dependencies are unavailable or misconfigured",
+        }
+    },
+)
+async def readiness() -> ReadinessResponse:
+    unavailable: list[str] = []
+
+    try:
+        settings = config.get_api_settings()
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "not ready", "unavailable": ["config"]},
+        ) from exc
+
+    timeout = settings.dependency_check_timeout_seconds
+
+    if settings.redis_url and not await _check_redis(str(settings.redis_url), timeout):
+        unavailable.append("redis")
+
+    if settings.artifact_storage_path and not await _check_storage(
+        settings.artifact_storage_path,
+        timeout,
+    ):
+        unavailable.append("storage")
+
+    if unavailable:
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "not ready", "unavailable": unavailable},
+        )
+
+    return ReadinessResponse(status="ready")

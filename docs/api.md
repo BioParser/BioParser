@@ -4,12 +4,12 @@ This document defines the public HTTP contract of the API container and the inte
 module layout that implements it. The system context for these endpoints is in
 [architecture.md](architecture.md).
 
-Status: **draft** — all four routes (`POST api/extractions`, `GET /api/jobs/{job_id}`,
-`POST /extract`, `GET /health`) are implemented, along with upload validation and a
+Status: **draft** — all five routes (`POST api/extractions`, `GET /api/jobs/{job_id}`,
+`POST /extract`, `GET /health`, `GET /ready`) are implemented, along with upload validation and a
 configurable size limit. `POST /extract` runs the real MinerU → vLLM pipeline
 synchronously for manual testing; it is not wired to the job store. The larger
 infrastructure below (Redis, a worker that advances `api/extractions` jobs, artifact
-storage, `/ready`) is not implemented.
+storage) is not implemented.
 
 **Sprint 1 scope:** this is a deliberately reduced first pass, matching
 [architecture.md](architecture.md)'s core idea (accept a PDF, return
@@ -25,8 +25,9 @@ particular:
   result inline, bounded by a concurrency semaphore, but it does not read or
   write the job store, and `POST /api/extractions` never calls it.
 - **No artifact storage.** Uploaded PDF bytes are not persisted anywhere.
-- **`/ready` is not implemented.** Only `/health` exists, since there
-  are no external dependencies yet to check readiness against.
+- **Readiness (`/ready`) is supported.** The readiness endpoint performs
+  lightweight dependency checks only when corresponding environment variables are
+  set (see *Readiness behaviour* below).
 - **No `/api/v1` prefix, no checksum-based idempotency, no global error envelope or exception handlers** 
 - routes still raise plain `fastapi.HTTPException` directly, with no registered `@app.exception_handler`. `POST /api/extractions`'s validation failures do pass a structured `{"code", "message"}` object as `detail` (see above), but that's local to this one route, not a repo-wide convention.
 
@@ -197,13 +198,56 @@ plain string), not `POST /api/extractions`'s `{"code", "message"}` object.
 ### `GET /health`
 
 Liveness. Returns `200 {"status": "ok"}` whenever the process is running. No
-dependencies to check yet.
+dependencies are touched.
+
+**Success — `200 OK`:**
 
 ```json
 {
   "status": "ok"
 }
 ```
+
+### `GET /ready`
+
+Readiness. Performs optional, bounded dependency checks and returns `200 {"status": "ready"}`
+when the process can accept work. Behaviour is opt-in via environment variables so the
+default developer experience remains simple.
+
+**Success — `200 OK`:**
+
+```json
+{
+  "status": "ready"
+}
+```
+
+**Failure — `503 Service Unavailable`:**
+
+```json
+{
+  "detail": {
+    "status": "not ready",
+    "unavailable": ["redis"]
+  }
+}
+```
+
+Readiness behaviour:
+
+- If `BIOPARSER_REDIS_URL` is set, the endpoint parses the Redis URL and attempts a TCP
+  connection to the host/port from that URL with a per-check timeout controlled by
+  `BIOPARSER_DEPENDENCY_CHECK_TIMEOUT_SECONDS` (seconds, default `1.0`). On failure the
+  endpoint returns `503`; FastAPI places the readiness payload under `detail`, e.g.
+  `{"detail": {"status": "not ready", "unavailable": ["redis"]}}`.
+- If `BIOPARSER_ARTIFACT_STORAGE_PATH` is set, the endpoint attempts to create and remove
+  a temporary file in that directory to confirm writability. On failure `503` is returned
+  with `"storage"` in the `unavailable` list.
+- If neither environment variable is set the endpoint returns `200`.
+
+Checks are intentionally minimal: they use a raw TCP connect for Redis and a local
+file operation for storage so that checks are fast, require no credentials, and do not
+expose secrets in error messages.
 
 ---
 
@@ -254,6 +298,7 @@ are closed.
   [`pipeline.run_pipeline()`](#pipelinepy) and returns its result as-is. A
   `PipelineError` is re-raised as a `502 HTTPException`. Not wired to the job store.
 - `GET /health` — returns `HealthResponse(status="ok")` directly, no dependencies.
+- `GET /ready` — optional dependency checks controlled by environment variables.
 
 Errors use `fastapi.HTTPException` directly — raised from the `uploads.py` helpers for
 upload validation, inline in `job_status` for the 404, inline in `extract` for the 502,
@@ -357,7 +402,7 @@ A plain Python dict mapping `job_id -> JobRecord` (a `@dataclass` with `job_id` 
 ## Out of scope for this draft
 
 No PDF storage. No Redis-backed queue for `POST /api/extractions`. No worker that advances a
-job past `queued`. No `/ready`. No `/api/v1` prefix. No idempotency — `POST /api/extractions`
+job past `queued`. No `/api/v1` prefix. No idempotency — `POST /api/extractions`
 computes a checksum but doesn't use it to detect duplicate uploads. No structured
 error envelope for `POST /extract`'s `502`/`503` (they use FastAPI's plain
 `{"detail": "<message>"}`, unlike `POST /api/extractions`'s `{"code", "message"}` object). No

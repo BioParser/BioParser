@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -29,12 +30,24 @@ def stub_pipeline(
 
 
 @pytest.fixture(autouse=True)
+def reset_api_settings_cache() -> Generator[None]:
+    if hasattr(config.get_api_settings, "cache_clear"):
+        config.get_api_settings.cache_clear()
+    yield
+    if hasattr(config.get_api_settings, "cache_clear"):
+        config.get_api_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def isolated_job_store(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(jobs, "_jobs", {})
 
 
-@pytest.fixture(autouse=True)
-def extract_semaphore(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.fixture
+def extract_semaphore(
+    reset_api_settings_cache: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     settings = config.get_api_settings()
     monkeypatch.setattr(
         app.state,
