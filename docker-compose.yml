@@ -71,6 +71,7 @@ services:
       - --save ""
       - --maxmemory ${REDIS_MAXMEMORY:-512mb}
       - --maxmemory-policy noeviction
+      - --requirepass "${REDIS_PASSWORD}"
     volumes:
       - redis-data:/data
     networks: [backend]
@@ -85,8 +86,6 @@ services:
       start_period: 10s
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    expose:
-      - "6379"
 
 volumes:
   mineru-output:
