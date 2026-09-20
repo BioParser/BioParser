@@ -2,38 +2,43 @@ import pytest
 from fastapi.testclient import TestClient
 
 from bioparser.api import config
+from bioparser.api.errors import ErrorResponse
+from bioparser.api.schema import JobStatusResponse
 
-# A minimal byte string that passes every /submit validation check.
+# A minimal byte string that passes every /api/extractions validation check.
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
 
 
 def test_submit_and_retrieve_job(client: TestClient) -> None:
     response = client.post(
-        "/submit",
+        "/api/extractions",
         files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
     )
     assert response.status_code == 202
+    JobStatusResponse.model_validate(response.json())
     record = response.json()
 
     assert record["job_id"]
     assert record["status"] == "queued"
 
-    response = client.get(f"/jobs/{record['job_id']}")
+    response = client.get(f"/api/jobs/{record['job_id']}")
 
     assert response.status_code == 200
+    JobStatusResponse.model_validate(response.json())
     assert response.json() == record
 
 
 def test_unknown_job_returns_404(client: TestClient) -> None:
-    response = client.get("/jobs/missing")
+    response = client.get("/api/jobs/missing")
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "Job not found"}
+    ErrorResponse.model_validate(response.json())
+    assert response.json() == {"detail": {"code": "job_not_found", "message": "Job not found"}}
 
 
 def test_submit_pdf(client: TestClient) -> None:
     response = client.post(
-        "/submit",
+        "/api/extractions",
         files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
     )
     assert response.status_code == 202
@@ -41,9 +46,10 @@ def test_submit_pdf(client: TestClient) -> None:
 
 
 def test_submit_missing_file_part(client: TestClient) -> None:
-    response = client.post("/submit")
+    response = client.post("/api/extractions")
 
     assert response.status_code == 400
+    ErrorResponse.model_validate(response.json())
     detail = response.json()["detail"]
     assert detail["code"] == "missing_file"
     assert detail["message"]
@@ -51,7 +57,7 @@ def test_submit_missing_file_part(client: TestClient) -> None:
 
 def test_submit_unsupported_content_type(client: TestClient) -> None:
     response = client.post(
-        "/submit",
+        "/api/extractions",
         files={"file": ("notes.txt", b"just some text", "text/plain")},
     )
 
@@ -63,7 +69,7 @@ def test_submit_unsupported_content_type(client: TestClient) -> None:
 
 def test_submit_content_type_with_parameters(client: TestClient) -> None:
     response = client.post(
-        "/submit",
+        "/api/extractions",
         files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf;charset=binary")},
     )
 
@@ -73,7 +79,7 @@ def test_submit_content_type_with_parameters(client: TestClient) -> None:
 
 def test_submit_content_type_case_insensitive(client: TestClient) -> None:
     response = client.post(
-        "/submit",
+        "/api/extractions",
         files={"file": ("sample.pdf", MINIMAL_PDF, "APPLICATION/PDF")},
     )
 
@@ -83,7 +89,7 @@ def test_submit_content_type_case_insensitive(client: TestClient) -> None:
 
 def test_submit_empty_file(client: TestClient) -> None:
     response = client.post(
-        "/submit",
+        "/api/extractions",
         files={"file": ("empty.pdf", b"", "application/pdf")},
     )
 
@@ -95,7 +101,7 @@ def test_submit_empty_file(client: TestClient) -> None:
 
 def test_submit_non_pdf_bytes(client: TestClient) -> None:
     response = client.post(
-        "/submit",
+        "/api/extractions",
         files={"file": ("sample.pdf", b"not a pdf at all", "application/pdf")},
     )
 
@@ -109,7 +115,7 @@ def test_submit_file_too_large(client: TestClient, monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(config, "get_api_settings", lambda: config.ApiSettings(max_upload_bytes=10))
 
     response = client.post(
-        "/submit",
+        "/api/extractions",
         files={"file": ("big.pdf", MINIMAL_PDF, "application/pdf")},
     )
 
@@ -121,7 +127,7 @@ def test_submit_file_too_large(client: TestClient, monkeypatch: pytest.MonkeyPat
 def test_submit_declared_content_length_too_large(client: TestClient) -> None:
     over_limit = config.DEFAULT_MAX_UPLOAD_BYTES + 1
     response = client.post(
-        "/submit",
+        "/api/extractions",
         files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
         headers={"content-length": str(over_limit)},
     )
@@ -133,7 +139,7 @@ def test_submit_declared_content_length_too_large(client: TestClient) -> None:
 
 def test_submit_invalid_content_length(client: TestClient) -> None:
     response = client.post(
-        "/submit",
+        "/api/extractions",
         files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
         headers={"content-length": "abc"},
     )
@@ -146,7 +152,7 @@ def test_submit_invalid_content_length(client: TestClient) -> None:
 
 def test_submit_negative_content_length(client: TestClient) -> None:
     response = client.post(
-        "/submit",
+        "/api/extractions",
         files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
         headers={"content-length": "-1"},
     )

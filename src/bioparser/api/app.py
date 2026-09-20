@@ -1,11 +1,16 @@
 import asyncio
 import contextlib
 import hashlib
+import os
+import socket
+import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
+from pydantic import ValidationError
 from starlette.middleware.body_limit import RequestBodyLimitMiddleware
 from starlette.responses import PlainTextResponse
 
@@ -13,8 +18,24 @@ from bioparser.services.mineru import MinerUClient
 from bioparser.services.vllm import VLLMService
 
 from . import config
+from .errors import (
+    EMPTY_FILE,
+    INVALID_CONTENT_LENGTH,
+    INVALID_PDF,
+    JOB_NOT_FOUND,
+    MISSING_FILE,
+    UNSUPPORTED_CONTENT_TYPE,
+    error_response,
+    http_error,
+)
 from .jobs import create_job, get_job
 from .pipeline import PipelineError, run_pipeline
+from .schema import (
+    HealthResponse,
+    JobStatusResponse,
+    ReadinessResponse,
+    ReadinessUnavailableResponse,
+)
 from .uploads import (
     CONTENT_TOO_LARGE,
     read_upload,
@@ -79,7 +100,7 @@ async def _validated_upload(request: Request, file: UploadFile | None) -> tuple[
 async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
     """Used for /extract sync runs
 
-    /submit should use async runs when redis implemented
+    /api/extractions should use async runs when redis implemented
     """
     timeout = config.get_api_settings().extract_queue_timeout_seconds
     try:
@@ -97,20 +118,27 @@ async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
         app.state.extract_sem.release()
 
 
-@app.post("/submit", status_code=202)
-async def submit_job(request: Request, file: UploadFile | None = None) -> dict[str, str]:
+@app.post(
+    "/api/extractions",
+    status_code=202,
+    responses={
+        400: error_response(MISSING_FILE, EMPTY_FILE, INVALID_PDF, INVALID_CONTENT_LENGTH),
+        415: error_response(UNSUPPORTED_CONTENT_TYPE),
+    },
+)
+async def submit_job(request: Request, file: UploadFile | None = None) -> JobStatusResponse:
     # Redis is not implemented so does nothing yet except validation
     await _validated_upload(request, file)
     record = create_job()
-    return {"job_id": record["job_id"], "status": record["status"]}
+    return JobStatusResponse(job_id=record.job_id, status=record.status)
 
 
-@app.get("/jobs/{job_id}")
-def job_status(job_id: str) -> dict[str, str]:
+@app.get("/api/jobs/{job_id}", responses={404: error_response(JOB_NOT_FOUND)})
+def job_status(job_id: str) -> JobStatusResponse:
     record = get_job(job_id)
     if record is None:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return {"job_id": job_id, "status": record["status"]}
+        raise http_error(404, JOB_NOT_FOUND)
+    return JobStatusResponse(job_id=job_id, status=record.status)
 
 
 @app.post("/extract")
@@ -134,5 +162,87 @@ async def extract(request: Request, file: UploadFile | None = None) -> dict[str,
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
+async def _check_redis(redis_url: str, timeout: float) -> bool:
+    def _connect_to_redis() -> bool:
+        parsed = urlparse(redis_url)
+        host = parsed.hostname
+        port = parsed.port or 6379
+        if not host:
+            return False
+        try:
+            conn = socket.create_connection((host, port), timeout=timeout)
+            conn.close()
+            return True
+        except OSError:
+            return False
+
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(_connect_to_redis), timeout=timeout)
+    except TimeoutError:
+        return False
+
+
+async def _check_storage(path: str, timeout: float) -> bool:
+    def _attempt_storage_write() -> bool:
+        try:
+            if not os.path.isdir(path):
+                return False
+            with tempfile.NamedTemporaryFile(dir=path, delete=True) as tmp:
+                tmp.write(b"readiness")
+                tmp.flush()
+            return True
+        except OSError:
+            return False
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_attempt_storage_write),
+            timeout=timeout,
+        )
+    except TimeoutError:
+        return False
+
+
+@app.get(
+    "/ready",
+    response_model=ReadinessResponse,
+    responses={
+        503: {
+            "model": ReadinessUnavailableResponse,
+            "description": "One or more dependencies are unavailable or misconfigured",
+        }
+    },
+)
+async def readiness() -> ReadinessResponse:
+    unavailable: list[str] = []
+
+    try:
+        settings = config.get_api_settings()
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "not ready", "unavailable": ["config"]},
+        ) from exc
+
+    timeout = settings.dependency_check_timeout_seconds
+
+    if settings.redis_url and not await _check_redis(str(settings.redis_url), timeout):
+        unavailable.append("redis")
+
+    if settings.artifact_storage_path and not await _check_storage(
+        settings.artifact_storage_path,
+        timeout,
+    ):
+        unavailable.append("storage")
+
+    if unavailable:
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "not ready", "unavailable": unavailable},
+        )
+
+    return ReadinessResponse(status="ready")
