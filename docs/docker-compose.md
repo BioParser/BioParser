@@ -1,9 +1,10 @@
 # Docker Compose
 
-Compose runs two services.
+Compose runs three services.
 
-`vllm` is a local OpenAI compatible model server on host port `VLLM_PORT` (default 8000).
-`bioparser` is FastAPI on host port `BIOPARSER_PORT` (default 8080).
+`vllm` is a local OpenAI compatible model server on host port `VLLM_PORT` (default 8000).  
+`bioparser` is FastAPI on host port `BIOPARSER_PORT` (default 8080).  
+`redis` on port 6379 (accessed inside of the Docker network using redis:6379).
 
 The README has the default install and start commands. This page covers env vars, networking, and `test_prompt`.
 
@@ -17,9 +18,9 @@ cp .env.example .env
 
 Required:
 
-`VLLM_MODEL`: Hugging Face repo id, for example `Qwen/Qwen3-0.6B` (already set in `.env.example`).
-`VLLM_PORT`: host port for vLLM (default `8000`).
-`BIOPARSER_PORT`: host port for the API (default `8080`).
+`VLLM_MODEL`: Hugging Face repo id, for example `Qwen/Qwen3-0.6B` (already set in `.env.example`).  
+`VLLM_PORT`: host port for vLLM (default `8000`).  
+`BIOPARSER_PORT`: host port for the API (default `8080`).  
 
 Optional:
 
@@ -31,7 +32,7 @@ Weights cache on the host at `~/.cache/huggingface`.
 
 ## Start
 
-Both services start together; the API does not wait for vLLM. The first model download can take several minutes (`start_period` 600s). `/health` on the API can succeed while the model is still loading.
+All three services start together; the API does not wait for vLLM. The first model download can take several minutes (`start_period` 600s). `/health` on the API can succeed while the model is still loading.
 
 ```sh
 docker compose up --build

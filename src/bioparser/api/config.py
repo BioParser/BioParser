@@ -20,12 +20,15 @@ class ApiSettings(BaseSettings):
     extract_concurrency: int = Field(default=2, ge=1)
     extract_queue_timeout_seconds: float = Field(default=5.0, gt=0)
     dependency_check_timeout_seconds: float = Field(default=1.0, gt=0)
-    redis_url: AnyUrl | None = None
     artifact_storage_path: str | None = None
     # NOTE: char budget not token budget
     # --max-model-len is cap for all tokens
     extraction_char_budget: int = Field(default=8000, ge=50)
     extraction_max_tokens: int = Field(default=1024, ge=64)
+
+    # redis
+    redis_url: AnyUrl | None = None
+    redis_timeout_seconds: float = Field(default=5.0, gt=0)
 
     @field_validator("redis_url", mode="before")
     @classmethod
