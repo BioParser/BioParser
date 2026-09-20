@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import AnyUrl, Field, field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MiB
@@ -20,7 +20,6 @@ class ApiSettings(BaseSettings):
     extract_concurrency: int = Field(default=2, ge=1)
     extract_queue_timeout_seconds: float = Field(default=5.0, gt=0)
     dependency_check_timeout_seconds: float = Field(default=1.0, gt=0)
-    redis_url: AnyUrl | None = None
     artifact_storage_path: str | None = None
     # NOTE: char budget not token budget
     # --max-model-len is cap for all tokens
@@ -30,6 +29,7 @@ class ApiSettings(BaseSettings):
     # redis
     redis_url: str | None = "redis://redis:6379/0"
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
+
     @field_validator("redis_url", mode="before")
     @classmethod
     def empty_redis_url_becomes_none(cls, value: object) -> object:
