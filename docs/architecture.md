@@ -151,7 +151,41 @@ timeouts are bounded, and API errors do not expose secrets or stack traces.
 
 ## Data contracts and provenance
 
-All stored structured artifacts have an explicit schema version.
+All stored structured artifacts have an explicit schema version. Artifacts are identified
+and transferred across workers using typed references and metadata rather than transport paths.
+
+### Artifact reference and metadata
+
+Artifacts across the pipeline (raw PDF uploads, parser outputs, and extractor observations)
+are addressed by stable artifact IDs using typed Pydantic models:
+
+- `ArtifactRef` (`schema_version = "1"`): lightweight handle (`artifact_id`, `schema_version`)
+  passed in job queue messages, avoiding sending large payloads over the queue.
+- `ArtifactMetadata` (`schema_version = "1"`): stores artifact identity and provenance:
+  - `artifact_id`: stable identifier for the artifact.
+  - `document_id`: identifier of the source document (e.g. upload checksum).
+  - `media_type`: MIME media type (`application/pdf`, `application/json`, etc.).
+  - `checksum`: payload checksum value (optional, stored and retrieved as metadata).
+  - `creation_info`: timestamp (`created_at` in UTC) and creator identifier (`created_by`).
+  - `content_schema_version`: explicit schema version of structured content where applicable
+    (e.g., `"1"` for parser artifacts; omitted for raw PDFs).
+  - `size_bytes`: payload size in bytes.
+
+### Artifact storage interface
+
+The `ArtifactStorage` protocol abstracts storage operations so components remain completely
+independent of local paths or cloud storage SDKs:
+
+- `store(content, metadata, *, overwrite=False) -> ArtifactRef`
+- `retrieve(artifact_id) -> bytes`
+- `retrieve_metadata(artifact_id) -> ArtifactMetadata`
+- `retrieve_artifact(artifact_id) -> StoredArtifact`
+- `exists(artifact_id) -> bool`
+
+The `FileSystemArtifactStorage` implementation stores artifacts inside a configurable root
+directory, guarantees atomic writes, and strictly validates artifact IDs to prevent path
+traversal outside the storage root. Future S3-compatible backends implement
+the same interface without changing pipeline contracts.
 
 ### Parser artifact
 
