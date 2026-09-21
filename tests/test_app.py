@@ -1,8 +1,10 @@
 import pytest
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from bioparser.api import config
 from bioparser.api.errors import ErrorResponse
+from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
 
 # A minimal byte string that passes every /api/extractions validation check.
@@ -120,8 +122,13 @@ def test_submit_file_too_large(client: TestClient, monkeypatch: pytest.MonkeyPat
     )
 
     assert response.status_code == 413
-    assert response.headers["content-type"].startswith("text/plain")
-    assert response.text == "Content Too Large"
+    ErrorResponse.model_validate(response.json())
+    assert response.json() == {
+        "detail": {
+            "code": "content_too_large",
+            "message": "Content Too Large",
+        }
+    }
 
 
 def test_submit_declared_content_length_too_large(client: TestClient) -> None:
@@ -133,8 +140,13 @@ def test_submit_declared_content_length_too_large(client: TestClient) -> None:
     )
 
     assert response.status_code == 413
-    assert response.headers["content-type"].startswith("text/plain")
-    assert response.text == "Content Too Large"
+    ErrorResponse.model_validate(response.json())
+    assert response.json() == {
+        "detail": {
+            "code": "content_too_large",
+            "message": "Content Too Large",
+        }
+    }
 
 
 def test_submit_invalid_content_length(client: TestClient) -> None:
@@ -161,3 +173,30 @@ def test_submit_negative_content_length(client: TestClient) -> None:
     detail = response.json()["detail"]
     assert detail["code"] == "invalid_content_length"
     assert detail["message"]
+
+
+def test_streamed_body_too_large_with_understated_content_length() -> None:
+    app = FastAPI()
+    app.add_middleware(TypedRequestBodyLimitMiddleware, max_body_size=5)
+
+    @app.post("/")
+    async def endpoint(request: Request) -> dict[str, bool]:
+        await request.body()
+        return {"ok": True}
+
+    client = TestClient(app)
+
+    response = client.post(
+        "/",
+        content=b"123456789",
+        headers={"content-length": "1"},
+    )
+
+    assert response.status_code == 413
+    ErrorResponse.model_validate(response.json())
+    assert response.json() == {
+        "detail": {
+            "code": "content_too_large",
+            "message": "Content Too Large",
+        }
+    }
