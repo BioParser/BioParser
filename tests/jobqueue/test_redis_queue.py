@@ -4,9 +4,11 @@ from threading import Event
 import pytest
 from dramatiq.brokers.stub import StubBroker
 from dramatiq.middleware.time_limit import TimeLimitExceeded
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from bioparser.jobqueue import (
     JobQueueConfigError,
+    JobQueueError,
     ParseJobMessage,
     RedisJobQueue,
     create_redis_broker,
@@ -74,6 +76,18 @@ def test_submit_and_consume_round_trip(stub_broker: StubBroker) -> None:
     queue.submit(expected)
     queue.consume(received.append, until_empty=True)
     assert received == [expected]
+
+
+def test_submit_wraps_redis_errors(stub_broker: StubBroker) -> None:
+    queue = RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker)
+
+    def fail(_payload: object) -> None:
+        raise RedisConnectionError("refused")
+
+    queue._actor.send = fail  # type: ignore[assignment]
+    with pytest.raises(JobQueueError, match="enqueue") as exc_info:
+        queue.submit(_message())
+    assert isinstance(exc_info.value.__cause__, RedisConnectionError)
 
 
 def test_consume_returns_when_stop_is_already_set(stub_broker: StubBroker) -> None:

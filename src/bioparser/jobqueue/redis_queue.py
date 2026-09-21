@@ -89,7 +89,10 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
 
     def submit(self, message: T) -> None:
         payload = message.model_dump(mode="json")
-        self._actor.send(payload)
+        try:
+            self._actor.send(payload)
+        except redis.RedisError as exc:
+            raise JobQueueError(f"could not enqueue on queue {self._name!r}") from exc
 
     def consume(
         self,
