@@ -1,0 +1,140 @@
+from collections.abc import Generator
+
+import pytest
+from dramatiq.brokers.stub import StubBroker
+
+from bioparser.jobqueue import JobQueueConfigError, ParseJobMessage, RedisJobQueue
+
+
+@pytest.fixture
+def stub_broker() -> Generator[StubBroker]:
+    broker = StubBroker(fail_fast_default=False)
+    broker.emit_after("process_boot")
+    yield broker
+    broker.flush_all()
+    broker.close()
+
+
+def _message(job_id: str = "job-1") -> ParseJobMessage:
+    return ParseJobMessage(job_id=job_id, document_id="doc-1", input_pdf_ref="pdf-1")
+
+
+def test_rejects_empty_queue_name(stub_broker: StubBroker) -> None:
+    with pytest.raises(JobQueueConfigError, match="name"):
+        RedisJobQueue(name="", model=ParseJobMessage, broker=stub_broker)
+
+
+def test_rejects_whitespace_queue_name(stub_broker: StubBroker) -> None:
+    with pytest.raises(JobQueueConfigError, match="name"):
+        RedisJobQueue(name="  \t", model=ParseJobMessage, broker=stub_broker)
+
+
+def test_rejects_negative_max_retries(stub_broker: StubBroker) -> None:
+    with pytest.raises(JobQueueConfigError, match="max_retries"):
+        RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker, max_retries=-1)
+
+
+def test_rejects_non_positive_time_limit(stub_broker: StubBroker) -> None:
+    with pytest.raises(JobQueueConfigError, match="time_limit_ms"):
+        RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker, time_limit_ms=0)
+
+
+def test_rejects_duplicate_queue_name_on_same_broker(stub_broker: StubBroker) -> None:
+    RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker)
+    with pytest.raises(JobQueueConfigError, match="already registered"):
+        RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker)
+
+
+def test_submit_and_consume_round_trip(stub_broker: StubBroker) -> None:
+    received: list[ParseJobMessage] = []
+    queue = RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker)
+    expected = _message()
+    queue.submit(expected)
+    queue.consume(received.append, until_empty=True)
+    assert received == [expected]
+
+
+def test_named_queues_are_independent(stub_broker: StubBroker) -> None:
+    parse_received: list[ParseJobMessage] = []
+    extract_received: list[ParseJobMessage] = []
+    parse = RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker)
+    extract = RedisJobQueue(name="extract", model=ParseJobMessage, broker=stub_broker)
+    parse.submit(_message("parse-job"))
+    extract.consume(extract_received.append, until_empty=True)
+    parse.consume(parse_received.append, until_empty=True)
+    assert extract_received == []
+    assert parse_received == [_message("parse-job")]
+
+
+def test_malformed_payload_is_poisoned(stub_broker: StubBroker) -> None:
+    received: list[ParseJobMessage] = []
+    malformed: list[dict[str, object]] = []
+    queue = RedisJobQueue(
+        name="parse",
+        model=ParseJobMessage,
+        broker=stub_broker,
+        on_malformed=malformed.append,
+    )
+    queue._actor.send({"job_id": "only-id"})
+    queue.submit(_message("good"))
+    queue.consume(received.append, until_empty=True)
+    assert received == [_message("good")]
+    assert malformed == [{"job_id": "only-id"}]
+
+
+def test_wrong_schema_version_is_poisoned(stub_broker: StubBroker) -> None:
+    received: list[ParseJobMessage] = []
+    malformed: list[dict[str, object]] = []
+    queue = RedisJobQueue(
+        name="parse",
+        model=ParseJobMessage,
+        broker=stub_broker,
+        on_malformed=malformed.append,
+    )
+    bad = {
+        "schema_version": 99,
+        "job_id": "job-1",
+        "document_id": "doc-1",
+        "input_pdf_ref": "pdf-1",
+    }
+    queue._actor.send(bad)
+    queue.consume(received.append, until_empty=True)
+    assert received == []
+    assert malformed == [bad]
+
+
+def test_malformed_hook_error_still_acks(stub_broker: StubBroker) -> None:
+    received: list[ParseJobMessage] = []
+
+    def boom(payload: dict[str, object]) -> None:
+        raise RuntimeError("hook failed")
+
+    queue = RedisJobQueue(
+        name="parse",
+        model=ParseJobMessage,
+        broker=stub_broker,
+        on_malformed=boom,
+    )
+    queue._actor.send({"job_id": "only-id"})
+    queue.submit(_message("good"))
+    queue.consume(received.append, until_empty=True)
+    assert received == [_message("good")]
+
+
+def test_handler_failure_calls_on_failed_after_retries(stub_broker: StubBroker) -> None:
+    failed: list[ParseJobMessage] = []
+
+    def fail(message: ParseJobMessage) -> None:
+        raise RuntimeError("parse failed")
+
+    queue = RedisJobQueue(
+        name="parse",
+        model=ParseJobMessage,
+        broker=stub_broker,
+        max_retries=0,
+        on_failed=failed.append,
+    )
+    expected = _message()
+    queue.submit(expected)
+    queue.consume(fail, until_empty=True)
+    assert failed == [expected]
