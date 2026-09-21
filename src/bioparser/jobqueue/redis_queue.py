@@ -19,6 +19,7 @@ import dramatiq
 from dramatiq import Actor, Broker, Worker
 from dramatiq.brokers.redis import RedisBroker
 from dramatiq.middleware import CurrentMessage
+from dramatiq.middleware.time_limit import TimeLimitExceeded
 from pydantic import BaseModel, ValidationError
 
 from .errors import JobQueueConfigError
@@ -111,7 +112,7 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         def dispatch(payload: object) -> None:
             try:
                 queue._dispatch(payload)
-            except Exception:
+            except (Exception, TimeLimitExceeded):
                 if queue._is_last_retry():
                     queue._notify_failed_from_payload(payload)
                 raise

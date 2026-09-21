@@ -2,6 +2,7 @@ from collections.abc import Generator
 
 import pytest
 from dramatiq.brokers.stub import StubBroker
+from dramatiq.middleware.time_limit import TimeLimitExceeded
 
 from bioparser.jobqueue import JobQueueConfigError, ParseJobMessage, RedisJobQueue
 
@@ -137,4 +138,23 @@ def test_handler_failure_calls_on_failed_after_retries(stub_broker: StubBroker) 
     expected = _message()
     queue.submit(expected)
     queue.consume(fail, until_empty=True)
+    assert failed == [expected]
+
+
+def test_time_limit_calls_on_failed_after_retries(stub_broker: StubBroker) -> None:
+    failed: list[ParseJobMessage] = []
+
+    def timeout(message: ParseJobMessage) -> None:
+        raise TimeLimitExceeded()
+
+    queue = RedisJobQueue(
+        name="parse",
+        model=ParseJobMessage,
+        broker=stub_broker,
+        max_retries=0,
+        on_failed=failed.append,
+    )
+    expected = _message()
+    queue.submit(expected)
+    queue.consume(timeout, until_empty=True)
     assert failed == [expected]
