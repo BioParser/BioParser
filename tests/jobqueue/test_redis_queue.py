@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from threading import Event
 
 import pytest
 from dramatiq.brokers.stub import StubBroker
@@ -52,6 +53,28 @@ def test_submit_and_consume_round_trip(stub_broker: StubBroker) -> None:
     expected = _message()
     queue.submit(expected)
     queue.consume(received.append, until_empty=True)
+    assert received == [expected]
+
+
+def test_consume_returns_when_stop_is_already_set(stub_broker: StubBroker) -> None:
+    stop = Event()
+    stop.set()
+    queue = RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker)
+    queue.consume(lambda message: None, stop=stop)
+
+
+def test_consume_returns_when_handler_sets_stop(stub_broker: StubBroker) -> None:
+    received: list[ParseJobMessage] = []
+    stop = Event()
+    queue = RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker)
+    expected = _message()
+    queue.submit(expected)
+
+    def handler(message: ParseJobMessage) -> None:
+        received.append(message)
+        stop.set()
+
+    queue.consume(handler, stop=stop)
     assert received == [expected]
 
 

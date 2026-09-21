@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from threading import Event
 from typing import Protocol, TypeVar
 
 from pydantic import BaseModel
@@ -13,10 +14,17 @@ class JobQueue(Protocol[T]):
         """Enqueue a message."""
         ...
 
-    def consume(self, handler: Callable[[T], None], *, until_empty: bool = False) -> None:
+    def consume(
+        self,
+        handler: Callable[[T], None],
+        *,
+        until_empty: bool = False,
+        stop: Event | None = None,
+    ) -> None:
         """Deliver each message to handler.
 
-        Blocks until interrupted. If until_empty is True, process queued
+        Blocks until ``stop`` is set. If stop is omitted, waits until the
+        process is interrupted. If until_empty is True, process queued
         messages and return when the queue is empty.
         """
         ...

@@ -12,8 +12,8 @@ Messages that leave the queue without a successful handler run are poisoned.
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import Callable
+from threading import Event
 
 import dramatiq
 from dramatiq import Actor, Broker, Worker
@@ -77,7 +77,13 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         payload = message.model_dump(mode="json")
         self._actor.send(payload)
 
-    def consume(self, handler: Callable[[T], None], *, until_empty: bool = False) -> None:
+    def consume(
+        self,
+        handler: Callable[[T], None],
+        *,
+        until_empty: bool = False,
+        stop: Event | None = None,
+    ) -> None:
         self._handler = handler
         worker = Worker(
             self._broker,
@@ -90,11 +96,7 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
             if until_empty:
                 self._broker.join(self._name)
             else:
-                try:
-                    while True:
-                        time.sleep(1.0)
-                except KeyboardInterrupt:
-                    return
+                (stop if stop is not None else Event()).wait()
         finally:
             worker.stop()
             self._handler = None
