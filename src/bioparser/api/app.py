@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from starlette.middleware.body_limit import RequestBodyLimitMiddleware
 from starlette.responses import PlainTextResponse
 
+from bioparser.logging_config import setup_logging
 from bioparser.services.mineru import MinerUClient
 from bioparser.services.vllm import VLLMService
 
@@ -45,12 +46,11 @@ from .uploads import (
     validate_pdf_content,
 )
 
-# TODO: logger
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = config.get_api_settings()
+    setup_logging(settings.log_level)
     app.state.mineru = MinerUClient(
         settings.mineru_base_url,
         settings.mineru_timeout_seconds,
