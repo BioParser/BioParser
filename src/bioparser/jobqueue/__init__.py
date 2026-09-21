@@ -1,4 +1,4 @@
-from .errors import JobQueueConfigError, JobQueueError
+from .errors import JobQueueConfigError, JobQueueError, MalformedJob
 from .messages import PARSE_JOB_SCHEMA_VERSION, ParseJobMessage
 from .protocol import JobQueue
 from .redis_queue import (
@@ -15,6 +15,7 @@ __all__ = [
     "JobQueue",
     "JobQueueConfigError",
     "JobQueueError",
+    "MalformedJob",
     "ParseJobMessage",
     "RedisJobQueue",
     "create_redis_broker",

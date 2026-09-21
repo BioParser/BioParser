@@ -23,7 +23,7 @@ from dramatiq.middleware import CurrentMessage
 from dramatiq.middleware.time_limit import TimeLimitExceeded
 from pydantic import BaseModel, ValidationError
 
-from .errors import JobQueueConfigError, JobQueueError
+from .errors import JobQueueConfigError, JobQueueError, MalformedJob
 from .protocol import JobQueue
 
 LOGGER = logging.getLogger(__name__)
@@ -133,10 +133,13 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
             queue_name=self._name,
             max_retries=max_retries,
             time_limit=time_limit_ms,
+            throws=(MalformedJob,),
         )
         def dispatch(payload: object) -> None:
             try:
                 queue._dispatch(payload)
+            except MalformedJob:
+                raise
             except (Exception, TimeLimitExceeded) as exc:
                 if queue._is_last_retry():
                     queue._notify_failed_from_payload(payload, exc)
@@ -147,18 +150,17 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
     def _dispatch(self, payload: object) -> None:
         if not isinstance(payload, dict):
             LOGGER.warning("malformed message on queue %s: payload is not an object", self._name)
-            return
+            raise MalformedJob(f"payload on queue {self._name} is not an object")
         try:
             message = self._model.model_validate(payload)
-        except ValidationError:
+        except ValidationError as exc:
             LOGGER.warning("malformed message on queue %s", self._name, exc_info=True)
             self._notify_malformed(payload)
-            return
+            raise MalformedJob(f"payload on queue {self._name} failed validation") from exc
         handler = self._handler
         if handler is None:
-            LOGGER.error("failed message on queue %s: no handler set", self._name)
-            self._notify_failed(message, JobQueueError(f"no handler set on queue {self._name}"))
-            return
+            LOGGER.error("no handler set on queue %s; requeueing", self._name)
+            raise JobQueueError(f"no handler set on queue {self._name}")
         handler(message)
 
     def _is_last_retry(self) -> bool:

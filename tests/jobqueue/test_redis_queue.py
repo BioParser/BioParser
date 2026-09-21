@@ -157,6 +157,20 @@ def test_malformed_payload_is_poisoned(stub_broker: StubBroker) -> None:
     assert malformed == [{"job_id": "only-id"}]
 
 
+def test_malformed_does_not_call_on_failed(stub_broker: StubBroker) -> None:
+    failed: list[tuple[ParseJobMessage, BaseException]] = []
+    queue = RedisJobQueue(
+        name="parse",
+        model=ParseJobMessage,
+        broker=stub_broker,
+        max_retries=0,
+        on_failed=lambda message, exc: failed.append((message, exc)),
+    )
+    queue._actor.send({"job_id": "only-id"})
+    queue.consume(lambda message: None, until_empty=True)
+    assert failed == []
+
+
 def test_wrong_schema_version_is_poisoned(stub_broker: StubBroker) -> None:
     received: list[ParseJobMessage] = []
     malformed: list[dict[str, object]] = []
@@ -194,6 +208,12 @@ def test_malformed_hook_error_still_acks(stub_broker: StubBroker) -> None:
     queue.submit(_message("good"))
     queue.consume(received.append, until_empty=True)
     assert received == [_message("good")]
+
+
+def test_dispatch_without_handler_raises(stub_broker: StubBroker) -> None:
+    queue = RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker)
+    with pytest.raises(JobQueueError, match="no handler"):
+        queue._dispatch(_message().model_dump(mode="json"))
 
 
 def test_handler_failure_calls_on_failed_after_retries(stub_broker: StubBroker) -> None:
