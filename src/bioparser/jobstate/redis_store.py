@@ -1,5 +1,14 @@
+from pydantic import ValidationError
 from redis.asyncio import Redis
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
+from .errors import (
+    CorruptJobStateError,
+    JobAlreadyExistsError,
+    JobNotFoundError,
+    JobStateConnectionError,
+)
 from .models import JobState
 
 DEFAULT_KEY_PREFIX = "bioparser:job:"
@@ -8,8 +17,7 @@ DEFAULT_KEY_PREFIX = "bioparser:job:"
 class RedisJobStateStore:
     """Redis-backed job state.
 
-    Each job's state lives under its own key, `{key_prefix}{job_id}`, so
-    distinct job IDs never share storage and can't interfere with each other.
+    Each job's state lives under its own key, `{key_prefix}{job_id}`.
     """
 
     def __init__(self, redis_url: str, *, key_prefix: str = DEFAULT_KEY_PREFIX) -> None:
@@ -23,13 +31,33 @@ class RedisJobStateStore:
         await self._redis.aclose()
 
     async def create(self, state: JobState) -> None:
-        await self._redis.set(self._key(state.job_id), state.model_dump_json())
+        try:
+            created = await self._redis.set(
+                self._key(state.job_id), state.model_dump_json(), nx=True
+            )
+        except (RedisConnectionError, RedisTimeoutError) as exc:
+            raise JobStateConnectionError(f"could not reach Redis: {type(exc).__name__}") from exc
+        if not created:
+            raise JobAlreadyExistsError(f"job {state.job_id!r} already has stored state")
 
     async def get(self, job_id: str) -> JobState | None:
-        raw = await self._redis.get(self._key(job_id))
+        try:
+            raw = await self._redis.get(self._key(job_id))
+        except (RedisConnectionError, RedisTimeoutError) as exc:
+            raise JobStateConnectionError(f"could not reach Redis: {type(exc).__name__}") from exc
         if raw is None:
             return None
-        return JobState.model_validate_json(raw)
+        try:
+            return JobState.model_validate_json(raw)
+        except ValidationError as exc:
+            raise CorruptJobStateError(f"stored state for job {job_id!r} is invalid") from exc
 
     async def update(self, state: JobState) -> None:
-        await self._redis.set(self._key(state.job_id), state.model_dump_json())
+        try:
+            updated = await self._redis.set(
+                self._key(state.job_id), state.model_dump_json(), xx=True
+            )
+        except (RedisConnectionError, RedisTimeoutError) as exc:
+            raise JobStateConnectionError(f"could not reach Redis: {type(exc).__name__}") from exc
+        if not updated:
+            raise JobNotFoundError(f"no stored state for job {state.job_id!r}")
