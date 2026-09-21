@@ -83,9 +83,12 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         self._on_malformed = on_malformed
         self._on_failed = on_failed
         self._actor_name = name
-        self._actor: Actor[[object], None] = self._register_actor(
-            time_limit_ms=time_limit_ms, max_retries=max_retries
-        )
+        try:
+            self._actor: Actor[[object], None] = self._register_actor(
+                time_limit_ms=time_limit_ms, max_retries=max_retries
+            )
+        except ValueError as exc:
+            raise JobQueueConfigError(str(exc)) from exc
 
     def submit(self, message: T) -> None:
         payload = message.model_dump(mode="json")

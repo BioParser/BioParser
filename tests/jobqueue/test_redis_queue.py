@@ -63,6 +63,11 @@ def test_rejects_non_positive_time_limit(stub_broker: StubBroker) -> None:
         RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker, time_limit_ms=0)
 
 
+def test_rejects_queue_name_starting_with_digit(stub_broker: StubBroker) -> None:
+    with pytest.raises(JobQueueConfigError, match="letter"):
+        RedisJobQueue(name="123name", model=ParseJobMessage, broker=stub_broker)
+
+
 def test_rejects_duplicate_queue_name_on_same_broker(stub_broker: StubBroker) -> None:
     RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker)
     with pytest.raises(JobQueueConfigError, match="already registered"):
