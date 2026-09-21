@@ -9,8 +9,6 @@ Defaults:
 Messages that leave the queue without a successful handler run are poisoned.
 """
 
-from __future__ import annotations
-
 import logging
 from collections.abc import Callable
 from threading import Event
@@ -82,7 +80,6 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         self._handler: Callable[[T], None] | None = None
         self._on_malformed = on_malformed
         self._on_failed = on_failed
-        self._actor_name = name
         try:
             self._actor: Actor[[object], None] = self._register_actor(
                 time_limit_ms=time_limit_ms, max_retries=max_retries
@@ -129,7 +126,7 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
 
         @dramatiq.actor(
             broker=self._broker,
-            actor_name=self._actor_name,
+            actor_name=self._name,
             queue_name=self._name,
             max_retries=max_retries,
             time_limit=time_limit_ms,

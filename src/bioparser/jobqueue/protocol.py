@@ -1,13 +1,11 @@
 from collections.abc import Callable
 from threading import Event
-from typing import Protocol, TypeVar
+from typing import Protocol
 
 from pydantic import BaseModel
 
-T = TypeVar("T", bound=BaseModel)
 
-
-class JobQueue(Protocol[T]):
+class JobQueue[T: BaseModel](Protocol):
     """Replaceable queue for submitting and consuming typed messages."""
 
     def submit(self, message: T) -> None:
