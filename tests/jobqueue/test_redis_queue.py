@@ -5,7 +5,12 @@ import pytest
 from dramatiq.brokers.stub import StubBroker
 from dramatiq.middleware.time_limit import TimeLimitExceeded
 
-from bioparser.jobqueue import JobQueueConfigError, ParseJobMessage, RedisJobQueue
+from bioparser.jobqueue import (
+    JobQueueConfigError,
+    ParseJobMessage,
+    RedisJobQueue,
+    create_redis_broker,
+)
 
 
 @pytest.fixture
@@ -19,6 +24,21 @@ def stub_broker() -> Generator[StubBroker]:
 
 def _message(job_id: str = "job-1") -> ParseJobMessage:
     return ParseJobMessage(job_id=job_id, document_id="doc-1", input_pdf_ref="pdf-1")
+
+
+def test_create_redis_broker_sets_socket_timeouts() -> None:
+    broker = create_redis_broker("redis://localhost:6379/0", timeout_s=2.5)
+    try:
+        kwargs = broker.client.connection_pool.connection_kwargs
+        assert kwargs["socket_timeout"] == 2.5
+        assert kwargs["socket_connect_timeout"] == 2.5
+    finally:
+        broker.close()
+
+
+def test_create_redis_broker_rejects_non_positive_timeout() -> None:
+    with pytest.raises(JobQueueConfigError, match="timeout_s"):
+        create_redis_broker("redis://localhost:6379/0", timeout_s=0)
 
 
 def test_rejects_empty_queue_name(stub_broker: StubBroker) -> None:

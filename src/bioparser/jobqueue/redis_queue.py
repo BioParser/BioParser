@@ -16,6 +16,7 @@ from collections.abc import Callable
 from threading import Event
 
 import dramatiq
+import redis
 from dramatiq import Actor, Broker, Worker
 from dramatiq.brokers.redis import RedisBroker
 from dramatiq.middleware import CurrentMessage
@@ -31,11 +32,24 @@ DEFAULT_TIME_LIMIT_MS = 600_000
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_BROKER_NAMESPACE = "bioparser"
 DEFAULT_WORKER_TIMEOUT_MS = 1000
+DEFAULT_REDIS_TIMEOUT_S = 5.0
 
 
-def create_redis_broker(url: str, *, namespace: str = DEFAULT_BROKER_NAMESPACE) -> Broker:
+def create_redis_broker(
+    url: str,
+    *,
+    timeout_s: float = DEFAULT_REDIS_TIMEOUT_S,
+    namespace: str = DEFAULT_BROKER_NAMESPACE,
+) -> RedisBroker:
     """Redis broker shared by named queues in this process."""
-    return RedisBroker(url=url, namespace=namespace)  # type: ignore[no-untyped-call]
+    if timeout_s <= 0:
+        raise JobQueueConfigError("timeout_s must be > 0")
+    client = redis.Redis.from_url(
+        url,
+        socket_timeout=timeout_s,
+        socket_connect_timeout=timeout_s,
+    )
+    return RedisBroker(client=client, namespace=namespace)  # type: ignore[no-untyped-call]
 
 
 class RedisJobQueue[T: BaseModel](JobQueue[T]):
