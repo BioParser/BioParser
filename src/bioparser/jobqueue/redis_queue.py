@@ -114,7 +114,10 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         worker.start()
         try:
             if until_empty:
-                self._broker.join(self._name)
+                try:
+                    self._broker.join(self._name)
+                except redis.RedisError as exc:
+                    raise JobQueueError(f"could not drain queue {self._name!r}") from exc
             else:
                 (stop if stop is not None else Event()).wait()
         finally:

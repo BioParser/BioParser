@@ -95,6 +95,18 @@ def test_submit_wraps_redis_errors(stub_broker: StubBroker) -> None:
     assert isinstance(exc_info.value.__cause__, RedisConnectionError)
 
 
+def test_consume_join_wraps_redis_errors(stub_broker: StubBroker) -> None:
+    queue = RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker)
+
+    def fail_join(_name: str) -> None:
+        raise RedisConnectionError("refused")
+
+    stub_broker.join = fail_join  # type: ignore[assignment]
+    with pytest.raises(JobQueueError, match="drain") as exc_info:
+        queue.consume(lambda message: None, until_empty=True)
+    assert isinstance(exc_info.value.__cause__, RedisConnectionError)
+
+
 def test_consume_returns_when_stop_is_already_set(stub_broker: StubBroker) -> None:
     stop = Event()
     stop.set()
