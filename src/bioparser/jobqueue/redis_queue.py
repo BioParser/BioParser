@@ -22,7 +22,7 @@ from dramatiq.middleware import CurrentMessage
 from dramatiq.middleware.time_limit import TimeLimitExceeded
 from pydantic import BaseModel, ValidationError
 
-from .errors import JobQueueConfigError
+from .errors import JobQueueConfigError, JobQueueError
 from .protocol import JobQueue
 
 LOGGER = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         time_limit_ms: int = DEFAULT_TIME_LIMIT_MS,
         max_retries: int = DEFAULT_MAX_RETRIES,
         on_malformed: Callable[[dict[str, object]], None] | None = None,
-        on_failed: Callable[[T], None] | None = None,
+        on_failed: Callable[[T, BaseException], None] | None = None,
     ) -> None:
         if not name.strip():
             raise JobQueueConfigError("queue name must be non-empty")
@@ -112,9 +112,9 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         def dispatch(payload: object) -> None:
             try:
                 queue._dispatch(payload)
-            except (Exception, TimeLimitExceeded):
+            except (Exception, TimeLimitExceeded) as exc:
                 if queue._is_last_retry():
-                    queue._notify_failed_from_payload(payload)
+                    queue._notify_failed_from_payload(payload, exc)
                 raise
 
         return dispatch
@@ -132,7 +132,7 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         handler = self._handler
         if handler is None:
             LOGGER.error("failed message on queue %s: no handler set", self._name)
-            self._notify_failed(message)
+            self._notify_failed(message, JobQueueError(f"no handler set on queue {self._name}"))
             return
         handler(message)
 
@@ -143,14 +143,14 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         retries = int(current.options.get("retries", 0))
         return retries >= self._max_retries
 
-    def _notify_failed_from_payload(self, payload: object) -> None:
+    def _notify_failed_from_payload(self, payload: object, exc: BaseException) -> None:
         try:
             message = self._model.model_validate(payload)
         except ValidationError:
             if isinstance(payload, dict):
                 self._notify_malformed(payload)
             return
-        self._notify_failed(message)
+        self._notify_failed(message, exc)
 
     def _notify_malformed(self, payload: dict[str, object]) -> None:
         if self._on_malformed is None:
@@ -160,11 +160,11 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         except Exception:
             LOGGER.exception("on_malformed hook failed on queue %s", self._name)
 
-    def _notify_failed(self, message: T) -> None:
+    def _notify_failed(self, message: T, exc: BaseException) -> None:
         if self._on_failed is None:
             return
         try:
-            self._on_failed(message)
+            self._on_failed(message, exc)
         except Exception:
             LOGGER.exception("on_failed hook failed on queue %s", self._name)
 

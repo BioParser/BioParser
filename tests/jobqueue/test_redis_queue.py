@@ -123,7 +123,7 @@ def test_malformed_hook_error_still_acks(stub_broker: StubBroker) -> None:
 
 
 def test_handler_failure_calls_on_failed_after_retries(stub_broker: StubBroker) -> None:
-    failed: list[ParseJobMessage] = []
+    failed: list[tuple[ParseJobMessage, BaseException]] = []
 
     def fail(message: ParseJobMessage) -> None:
         raise RuntimeError("parse failed")
@@ -133,16 +133,18 @@ def test_handler_failure_calls_on_failed_after_retries(stub_broker: StubBroker) 
         model=ParseJobMessage,
         broker=stub_broker,
         max_retries=0,
-        on_failed=failed.append,
+        on_failed=lambda message, exc: failed.append((message, exc)),
     )
     expected = _message()
     queue.submit(expected)
     queue.consume(fail, until_empty=True)
-    assert failed == [expected]
+    assert len(failed) == 1
+    assert failed[0][0] == expected
+    assert isinstance(failed[0][1], RuntimeError)
 
 
 def test_time_limit_calls_on_failed_after_retries(stub_broker: StubBroker) -> None:
-    failed: list[ParseJobMessage] = []
+    failed: list[tuple[ParseJobMessage, BaseException]] = []
 
     def timeout(message: ParseJobMessage) -> None:
         raise TimeLimitExceeded()
@@ -152,9 +154,11 @@ def test_time_limit_calls_on_failed_after_retries(stub_broker: StubBroker) -> No
         model=ParseJobMessage,
         broker=stub_broker,
         max_retries=0,
-        on_failed=failed.append,
+        on_failed=lambda message, exc: failed.append((message, exc)),
     )
     expected = _message()
     queue.submit(expected)
     queue.consume(timeout, until_empty=True)
-    assert failed == [expected]
+    assert len(failed) == 1
+    assert failed[0][0] == expected
+    assert isinstance(failed[0][1], TimeLimitExceeded)
