@@ -87,6 +87,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await client.aclose()
 
 
+setup_logging(config.get_api_settings().log_level)
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     RequestBodyLimitMiddleware,
