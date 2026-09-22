@@ -1,5 +1,6 @@
 import asyncio
-from collections.abc import Generator
+import logging
+from collections.abc import Generator, Iterator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,6 +8,7 @@ from stubs import StubMinerUClient, StubVLLMService
 
 from bioparser.api import config, jobs
 from bioparser.api.app import app
+from bioparser.logging_config import HANDLER_NAME
 
 
 @pytest.fixture
@@ -55,3 +57,29 @@ def extract_semaphore(
         asyncio.Semaphore(settings.extract_concurrency),
         raising=False,
     )
+
+
+TOUCHED_LOGGERS = ("bioparser", "uvicorn", "uvicorn.error", "uvicorn.access")
+
+
+@pytest.fixture(autouse=True)
+def restore_logging() -> Iterator[None]:
+    """setup_logging (run by every lifespan) changes process-global state; undo it.
+
+    Root handlers are not restored wholesale: pytest swaps its own capture
+    handlers on the root logger between test phases, so only ours is removed.
+    """
+    root = logging.getLogger()
+    root_level = root.level
+    saved = [
+        (logger, logger.level, logger.handlers[:], logger.propagate)
+        for logger in map(logging.getLogger, TOUCHED_LOGGERS)
+    ]
+    yield
+    for handler in [h for h in root.handlers if h.name == HANDLER_NAME]:
+        root.removeHandler(handler)
+    root.setLevel(root_level)
+    for logger, level, handlers, propagate in saved:
+        logger.setLevel(level)
+        logger.handlers[:] = handlers
+        logger.propagate = propagate

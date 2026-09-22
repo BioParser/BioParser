@@ -4,13 +4,20 @@ Produces one JSON object per line on stderr.
 setup_logging runs on API startup (lifespan), and it puts a handler on the
 root logger, so records from e.g. BioParser, uvicorn, httpx2 reach it and share the
 same format.
+
+log_context() adds fields, such as the upload checksum, to every record logged
+inside it, whichever logger created the record.
 """
 
 import json
 import logging
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Literal, TextIO
+from urllib.parse import urlsplit, urlunsplit
 
 type LogLevel = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
 
@@ -26,11 +33,15 @@ THIRD_PARTY_MIN_LEVEL = logging.WARNING
 #
 # uvicorn: Parent logger (rarely used directly)
 # uvicorn.access: Per-request access log lines
-# NOTE: Do we need uvicorn.error: server-level messages (startup, shutdown,errors) ?
+# uvicorn.error (startup, shutdown, errors) needs no entry: it has no handler of
+# its own and propagates through "uvicorn".
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.access")
 
 # Every LogRecord's standard attribute, everything else goes to  extra={...}
 _NOT_EXTRAS = frozenset(vars(logging.makeLogRecord({}))) | {"message", "asctime", "color_message"}
+
+# Fields that log_context() adds to every record logged inside it
+_context: ContextVar[dict[str, object] | None] = ContextVar("bioparser_log_context", default=None)
 
 
 class JsonFormatter(logging.Formatter):
@@ -43,9 +54,11 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
         }
 
-        # TODO: make sure we didnt miss anything important from uvicorn.access
-        if record.name == "uvicorn.access":
-            payload.update(self._format_uvicorn_access(record))
+        # uvicorn's h11, httptools and zttp protocols all log the same five args.
+        # Any other shape keeps its message rather than becoming an empty line.
+        access = self._format_uvicorn_access(record) if record.name == "uvicorn.access" else {}
+        if access:
+            payload.update(access)
         else:
             payload["msg"] = record.getMessage()
 
@@ -92,6 +105,20 @@ def _json_default(value: object) -> str:
     return str(value)
 
 
+class _ContextFilter(logging.Filter):
+    """Copies the log_context() fields onto each record.
+
+    On the handler, not a logger: a logger's filters do not run for records
+    created by its child loggers, so uvicorn, httpx2 and openai records would
+    miss the fields.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        for key, value in (_context.get() or {}).items():
+            record.__dict__.setdefault(key, value)  # an explicit extra= wins
+        return True
+
+
 class _StderrHandler(logging.StreamHandler[TextIO]):
     """
     StreamHandler writes to what sys.stderr is pointed at
@@ -120,6 +147,7 @@ def setup_logging(level: LogLevel) -> None:
         stderr_handler = _StderrHandler()
         stderr_handler.name = HANDLER_NAME
         stderr_handler.setFormatter(JsonFormatter())
+        stderr_handler.addFilter(_ContextFilter())
         root_logger.addHandler(stderr_handler)
 
     numeric_level = logging.getLevelNamesMapping()[level]
@@ -130,8 +158,50 @@ def setup_logging(level: LogLevel) -> None:
     # remove uvicorns own handles and propagate the logs
     for name in _UVICORN_LOGGERS:
         uvicorn_logger = logging.getLogger(name)
+        # No handlers: uvicorn never configured this logger (it already
+        # propagates), or --no-access-log turned it off (handlers=[] and
+        # propagate=False). uvicorn checks hasHandlers() per connection, so
+        # propagating would switch the access log back on.
+        if not uvicorn_logger.handlers:
+            continue
 
         for uvicorn_handler in uvicorn_logger.handlers[:]:
             uvicorn_logger.removeHandler(uvicorn_handler)
 
         uvicorn_logger.propagate = True
+
+
+@contextmanager
+def log_context(**fields: object) -> Iterator[None]:
+    """Add ``fields`` to every record logged inside the block, from any logger.
+
+    Nested blocks add to the outer fields. ContextVar values are per asyncio
+    task, so concurrent requests never see each other's fields.
+    """
+    token = _context.set({**(_context.get() or {}), **fields})
+    try:
+        yield
+    finally:
+        _context.reset(token)
+
+
+def error_fields(exc: BaseException) -> dict[str, str]:
+    """``extra=`` fields naming an exception and its direct cause, by type only.
+
+    Messages are left out on purpose: a third-party message can quote its input
+    (pydantic does) or carry credentials.
+    """
+    fields = {"error": type(exc).__name__}
+    if exc.__cause__ is not None:
+        fields["cause"] = type(exc.__cause__).__name__
+    return fields
+
+
+def redact_url(url: str) -> str:
+    """``url`` with any ``user:password@`` replaced by ``***@``, for logging endpoints."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:  # e.g. a malformed IPv6 host: hide it rather than risk leaking
+        return "***"
+    _userinfo, at, hostport = parts.netloc.rpartition("@")
+    return urlunsplit(parts._replace(netloc=f"***@{hostport}")) if at else url

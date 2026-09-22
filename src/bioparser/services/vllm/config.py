@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     )
 
     vllm_base_url: str = "http://localhost:8000/v1"
-    vllm_api_key: str = "EMPTY"
+    vllm_api_key: SecretStr = SecretStr("EMPTY")
 
     model_discovery_timeout_seconds: float = Field(default=10.0, gt=0)
 

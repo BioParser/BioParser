@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+from time import perf_counter
 from typing import Any
 
 import httpx2
@@ -13,8 +15,9 @@ from bioparser.parser.backend.mineru.schema import PARSE_METHOD, PIPELINE_BACKEN
 # Refuse the body rather than discover the ceiling as an OOMKill.
 # TODO: We should probably make these bigger?
 # TODO: implement in config?
-# TODO: add logger
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+
+logger = logging.getLogger(__name__)
 
 
 class MinerUError(RuntimeError):
@@ -36,29 +39,53 @@ class MinerUClient:
 
         Streamed so that an body > MAX_RESPONSE_BYTES is abandoned early, instead of
         being fully read and only then rejected
+
+        Logs one record per request: status_code (None if
+        no response arrived), bytes_read (decoded body bytes) and latency_ms.
+        Only sizes are logged.
         """
         chunks: list[bytes] = []
         total = 0
-        async with self._http.stream(
-            "POST",
-            "/file_parse",
-            files={"files": (filename, content, "application/pdf")},
-            data={
-                "backend": PIPELINE_BACKEND,
-                "parse_method": PARSE_METHOD,
-                "return_md": "false",
-                "return_middle_json": "true",
-                "return_content_list": "false",
-                "return_images": "false",
-            },
-        ) as response:
-            if response.status_code != 200:
-                raise MinerUError(f"mineru-api returned {response.status_code}")
-            async for chunk in response.aiter_bytes():
-                total += len(chunk)
-                if total > MAX_RESPONSE_BYTES:
-                    raise MinerUError(f"mineru-api response exceeded {MAX_RESPONSE_BYTES} bytes")
-                chunks.append(chunk)
+        status_code: int | None = None
+        error: str | None = None
+        started = perf_counter()
+        try:
+            async with self._http.stream(
+                "POST",
+                "/file_parse",
+                files={"files": (filename, content, "application/pdf")},
+                data={
+                    "backend": PIPELINE_BACKEND,
+                    "parse_method": PARSE_METHOD,
+                    "return_md": "false",
+                    "return_middle_json": "true",
+                    "return_content_list": "false",
+                    "return_images": "false",
+                },
+            ) as response:
+                status_code = response.status_code
+                if response.status_code != 200:
+                    raise MinerUError(f"mineru-api returned {response.status_code}")
+                async for chunk in response.aiter_bytes():
+                    total += len(chunk)
+                    if total > MAX_RESPONSE_BYTES:
+                        raise MinerUError(
+                            f"mineru-api response exceeded {MAX_RESPONSE_BYTES} bytes"
+                        )
+                    chunks.append(chunk)
+        except BaseException as exc:
+            error = type(exc).__name__
+            raise
+        finally:
+            fields: dict[str, object] = {
+                "status_code": status_code,
+                "bytes_read": total,
+                "latency_ms": round((perf_counter() - started) * 1000, 1),
+            }
+            if error is None:
+                logger.info("mineru-api request completed", extra=fields)
+            else:
+                logger.warning("mineru-api request failed", extra=fields | {"error": error})
         return b"".join(chunks)
 
     async def parse(self, *, filename: str, content: bytes) -> dict[str, Any]:
