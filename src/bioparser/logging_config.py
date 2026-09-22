@@ -24,7 +24,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 type LogLevel = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
 
-_CAUSE = "\nThis exception was the direct cause of the following exception:\n\n"
+_CAUSE = "\nThe above exception was the direct cause of the following exception:\n\n"
 _CONTEXT = "\nDuring handling of the above exception, another exception occurred:\n\n"
 
 HANDLER_NAME = "bioparser"
