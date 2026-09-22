@@ -32,6 +32,8 @@ def to_canonical(value: float, unit: Unit) -> float:
     return value * _CANONICAL_FACTOR[unit]
 
 
+# hide_input_in_errors: a ValidationError must not quote its input (paper text or
+# model output); pipeline failures log their traceback.
 class Observation(BaseModel):
     """One measurement as the model reports it.
 
@@ -41,7 +43,7 @@ class Observation(BaseModel):
     the offending observation.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     taxon: str = Field(min_length=1, max_length=120)
     trait: Trait
@@ -53,7 +55,7 @@ class Observation(BaseModel):
 
 
 class Extraction(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
     # 8 * ~70 tokens = ~560 tokens; raise --max-model-len before raising this.
     # Guided-decoding support for maxItems is uneven, so treat this as a
     # post-parse cap rather than a generation constraint.

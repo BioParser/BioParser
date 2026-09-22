@@ -30,7 +30,8 @@ class ApiSettings(BaseSettings):
     extraction_max_tokens: int = Field(default=1024, ge=64)
 
     # redis
-    redis_url: AnyUrl | None = None
+    # repr=False: the URL can hold the password; keep it out of repr(settings)
+    redis_url: AnyUrl | None = Field(default=None, repr=False)
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
 
     @field_validator("log_level", mode="before")
