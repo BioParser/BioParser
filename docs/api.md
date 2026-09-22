@@ -417,10 +417,12 @@ stderr as one line of JSON:
   Third-party loggers (httpx2, httpcore2, openai) stay at `WARNING` or stricter,
   because httpx2 logs full URLs at `INFO`.
 - uvicorn's loggers keep the level from its `--log-level` and go through the same
-  handler, on stderr rather than stdout. Access lines carry `client_addr`,
-  `method`, `path` (including the query string), `http_version` and `status_code`
-  instead of `msg`. `--no-access-log` is respected. The lines uvicorn prints before
-  the app starts keep uvicorn's format.
+  handler, on stderr rather than stdout, from uvicorn's first line: `app.py` sets up
+  logging at import too. Only the supervisor process of `--reload` or `--workers`,
+  which never imports the app, keeps uvicorn's format. Access lines carry
+  `client_addr`, `method`, `path` (without the query string, where clients put
+  tokens), `http_version` and `status_code` instead of `msg`. `--no-access-log` is
+  respected.
 - `log_context(**fields)` adds fields to every record logged inside it, from any
   logger. `run_pipeline()` uses it for `checksum` (the upload's sha256), so the
   MinerU, vLLM and stage records of one run share it. Access lines do not carry it.
@@ -429,15 +431,19 @@ What is logged:
 
 | Logger | Message | Level | Fields |
 |---|---|---|---|
-| `bioparser.api.app` | `vllm model discovered` / `vllm model discovery failed` | INFO / WARNING | `vllm_base_url` (credentials redacted), then `model`, or `error` and `cause` |
-| `bioparser.api.pipeline` | `pipeline stage completed` / `pipeline stage failed` | INFO / ERROR | `stage` (`parse`, `map`, `extract`), `duration_ms`, then results (`pages`; `observations`, `blocks_sent`, `truncated`, ...), or `error`, `cause` and the traceback |
+| `bioparser.api.app` | `vllm model discovered` / `vllm model discovery failed` | INFO / WARNING | `vllm_base_url` (credentials, query and fragment removed), then `model`, or `error` and `cause` |
+| `bioparser.api.pipeline` | `pipeline stage completed` / `pipeline stage failed` | INFO / ERROR | `stage` (`parse`, `map`, `extract`), `outcome` (`ok` or `error`), `duration_ms`, then results (`pages`; `observations`, `blocks_sent`, `truncated`, ...), or `error`, `cause` and the traceback |
 | `bioparser.services.mineru.client` | `mineru-api request completed` / `mineru-api request failed` | INFO / WARNING | `status_code`, `bytes_read`, `latency_ms`, then `error` on failure |
 | `bioparser.services.vllm.vllm` | `vllm completion finished` / `vllm request failed` | INFO if `finish_reason` is `stop`, else WARNING | `model`, `latency_ms`, `finish_reason`, `prompt_tokens`, `completion_tokens`, or `latency_ms` and `error` |
 
 Never logged: PDF bytes, prompt text, generated text, quotations, the vLLM API
 key, or credentials in configured URLs. Exceptions are named by type (`error`,
-`cause`), and the pydantic models that validate paper text or model output set
-`hide_input_in_errors=True`, so a logged traceback does not quote them.
+`cause`). A logged traceback keeps every frame and exception type, but only
+exceptions defined in `bioparser` keep their message; any other message becomes
+`[message redacted]`, because it can quote its input (a vLLM 400 echoing the
+prompt) or a credential (a gateway quoting the rejected API key). So never put
+input data in a `bioparser` exception message. The pydantic models, including
+`ApiSettings`, also set `hide_input_in_errors=True`.
 
 Reading the logs locally:
 
