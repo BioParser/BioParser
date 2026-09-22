@@ -113,7 +113,7 @@ def test_safe_error_accepts_message_at_500_chars() -> None:
 def test_job_state_is_frozen() -> None:
     state = _queued()
     with pytest.raises(ValidationError):
-        state.status = "running"  # type: ignore[misc]
+        state.status = "running"
 
 
 def test_job_state_rejects_unknown_schema_version() -> None:
