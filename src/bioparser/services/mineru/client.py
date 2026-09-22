@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
-from time import perf_counter
 from typing import Any
 
 import httpx2
 
 # Invocation knobs only. Provenance is not this module's job: the caller that
 # builds the artifact reads pipeline_configuration() from schema directly.
+from bioparser.logging_config import stopwatch
 from bioparser.parser.backend.mineru.schema import PARSE_METHOD, PIPELINE_BACKEND
 
 # A 20 MiB PDF can yield a middle_json far larger than itself
@@ -48,7 +48,7 @@ class MinerUClient:
         total = 0
         status_code: int | None = None
         error: str | None = None
-        started = perf_counter()
+        elapsed_ms = stopwatch()
         try:
             async with self._http.stream(
                 "POST",
@@ -80,7 +80,7 @@ class MinerUClient:
             fields: dict[str, object] = {
                 "status_code": status_code,
                 "bytes_read": total,
-                "latency_ms": round((perf_counter() - started) * 1000, 1),
+                "latency_ms": elapsed_ms(),
             }
             if error is None:
                 logger.info("mineru-api request completed", extra=fields)

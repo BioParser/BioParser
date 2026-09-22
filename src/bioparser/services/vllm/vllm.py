@@ -1,11 +1,12 @@
 import asyncio
 import logging
 from collections.abc import Awaitable
-from time import perf_counter
 from typing import Any
 
 from openai import APIError, AsyncOpenAI
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
+
+from bioparser.logging_config import stopwatch
 
 from .config import get_settings
 
@@ -60,29 +61,31 @@ class VLLMService:
         Numbers only: latency, finish_reason and token usage. Never the prompt or
         the generated text.
         """
-        started = perf_counter()
+        elapsed_ms = stopwatch()
         try:
             response = await request
         except BaseException as exc:  # observed, never handled: CancelledError included
             logger.warning(
                 "vllm request failed",
-                extra={"latency_ms": _elapsed_ms(started), "error": type(exc).__name__},
+                extra={"latency_ms": elapsed_ms(), "error": type(exc).__name__},
             )
             raise
-        choice = response.choices[0]
+        finish_reason = response.choices[0].finish_reason if response.choices else None
         usage = response.usage
         logger.log(
             # "length" means max_tokens cut the answer off; generate_json raises on it
-            logging.INFO if choice.finish_reason == "stop" else logging.WARNING,
+            logging.INFO if finish_reason == "stop" else logging.WARNING,
             "vllm completion finished",
             extra={
                 "model": response.model,
-                "latency_ms": _elapsed_ms(started),
-                "finish_reason": choice.finish_reason,
+                "latency_ms": elapsed_ms(),
+                "finish_reason": finish_reason,
                 "prompt_tokens": usage.prompt_tokens if usage else None,
                 "completion_tokens": usage.completion_tokens if usage else None,
             },
         )
+        if not response.choices:  # indexing it later would be an IndexError: HTTP 500, not 502
+            raise VLLMError("vLLM returned no choices")
         return response
 
     async def generate(
@@ -170,7 +173,3 @@ class VLLMService:
         if content is None:
             raise VLLMError("vLLM returned an empty response")
         return content
-
-
-def _elapsed_ms(started: float) -> float:
-    return round((perf_counter() - started) * 1000, 1)

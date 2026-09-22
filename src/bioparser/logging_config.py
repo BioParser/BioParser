@@ -12,14 +12,20 @@ inside it, whichever logger created the record.
 import json
 import logging
 import sys
-from collections.abc import Iterator
+import traceback
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
+from time import perf_counter
+from types import TracebackType
 from typing import Literal, TextIO
 from urllib.parse import urlsplit, urlunsplit
 
 type LogLevel = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
+
+_CAUSE = "\nThis exception was the direct cause of the following exception:\n\n"
+_CONTEXT = "\nDuring handling of the above exception, another exception occurred:\n\n"
 
 HANDLER_NAME = "bioparser"
 APP_LOGGER_NAME = "bioparser"
@@ -67,12 +73,10 @@ class JsonFormatter(logging.Formatter):
             if key not in _NOT_EXTRAS:
                 payload.setdefault(key, value)
 
-        # If we call logger.exception() outside an except block
-        if record.exc_info and record.exc_info[0] is not None:
-            payload["exc_type"] = record.exc_info[0].__name__
-            # Cache so a second handler does not format the traceback again
-            if not record.exc_text:
-                record.exc_text = self.formatException(record.exc_info)
+        # exc is None when logger.exception() runs outside an except block
+        if record.exc_info and (exc := record.exc_info[1]) is not None:
+            payload["exc_type"] = type(exc).__name__
+            record.exc_text = _redacted_traceback(exc, record.exc_info[2])
             payload["exc_info"] = record.exc_text
 
         if record.stack_info:
@@ -92,10 +96,36 @@ class JsonFormatter(logging.Formatter):
         return {
             "client_addr": client_addr,
             "method": method,
-            "path": path,
+            "path": str(path).partition("?")[0],
             "http_version": http_version,
             "status_code": status_code,
         }
+
+
+def _redacted_traceback(exc: BaseException, tb: TracebackType | None) -> str:
+    blocks: list[str] = []
+
+    link: traceback.TracebackException | None = traceback.TracebackException(type(exc), exc, tb)
+    while link is not None:
+        block = ""
+        if link.stack:
+            block = "Traceback (most recent call last):\n" + "".join(link.stack.format())
+        name = link.exc_type_str
+        only = "".join(link.format_exception_only())
+        if name.startswith("bioparser.") or only == f"{name}\n":
+            block += only
+        else:
+            block += f"{name}: [message redacted]\n"
+        if link.__cause__ is not None:
+            blocks.append(_CAUSE + block)
+            link = link.__cause__
+        elif link.__context__ is not None and not link.__suppress_context__:
+            blocks.append(_CONTEXT + block)
+            link = link.__context__
+        else:
+            blocks.append(block)
+            link = None
+    return "".join(reversed(blocks)).removesuffix("\n")
 
 
 def _json_default(value: object) -> str:
@@ -173,11 +203,6 @@ def setup_logging(level: LogLevel) -> None:
 
 @contextmanager
 def log_context(**fields: object) -> Iterator[None]:
-    """Add ``fields`` to every record logged inside the block, from any logger.
-
-    Nested blocks add to the outer fields. ContextVar values are per asyncio
-    task, so concurrent requests never see each other's fields.
-    """
     token = _context.set({**(_context.get() or {}), **fields})
     try:
         yield
@@ -186,11 +211,6 @@ def log_context(**fields: object) -> Iterator[None]:
 
 
 def error_fields(exc: BaseException) -> dict[str, str]:
-    """``extra=`` fields naming an exception and its direct cause, by type only.
-
-    Messages are left out on purpose: a third-party message can quote its input
-    (pydantic does) or carry credentials.
-    """
     fields = {"error": type(exc).__name__}
     if exc.__cause__ is not None:
         fields["cause"] = type(exc.__cause__).__name__
@@ -198,10 +218,19 @@ def error_fields(exc: BaseException) -> dict[str, str]:
 
 
 def redact_url(url: str) -> str:
-    """``url`` with any ``user:password@`` replaced by ``***@``, for logging endpoints."""
+    """url for a log: user:password@ becomes `***@`, query and fragment go."""
+    if "://" not in url and not url.startswith("//"):
+        url = f"//{url}"
     try:
         parts = urlsplit(url)
-    except ValueError:  # e.g. a malformed IPv6 host: hide it rather than risk leaking
+    except ValueError:
         return "***"
     _userinfo, at, hostport = parts.netloc.rpartition("@")
-    return urlunsplit(parts._replace(netloc=f"***@{hostport}")) if at else url
+    netloc = f"***@{hostport}" if at else hostport
+    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+
+
+def stopwatch() -> Callable[[], float]:
+    """Start timing; the returned function gives the milliseconds since, for log fields."""
+    started = perf_counter()
+    return lambda: round((perf_counter() - started) * 1000, 1)

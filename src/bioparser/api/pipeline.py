@@ -1,11 +1,10 @@
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
-from time import perf_counter
 from typing import Any
 
 from bioparser.extract.extract import ExtractionFailedError, extract_observations
-from bioparser.logging_config import error_fields, log_context
+from bioparser.logging_config import error_fields, log_context, stopwatch
 from bioparser.parser.backend.mineru.mapper import artifact_from_middle_json
 from bioparser.parser.backend.mineru.parser import (
     MINERU_PARSER_NAME,
@@ -28,19 +27,15 @@ class PipelineError(RuntimeError):
 def _stage(name: str) -> Iterator[dict[str, object]]:
     """Log pipeline stage: duration and outcome."""
     fields: dict[str, object] = {"stage": name}
-    started = perf_counter()
+    elapsed_ms = stopwatch()
     try:
         yield fields
     except Exception as exc:
-        fields["duration_ms"] = _elapsed_ms(started)
+        fields |= {"outcome": "error", "duration_ms": elapsed_ms()}
         logger.exception("pipeline stage failed", extra=fields | error_fields(exc))
         raise
-    fields["duration_ms"] = _elapsed_ms(started)
+    fields |= {"outcome": "ok", "duration_ms": elapsed_ms()}
     logger.info("pipeline stage completed", extra=fields)
-
-
-def _elapsed_ms(started: float) -> float:
-    return round((perf_counter() - started) * 1000, 1)
 
 
 # REDIS queue worker calls
