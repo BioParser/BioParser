@@ -1,14 +1,19 @@
 import asyncio
 import logging
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
+from typing import Any
 
+import httpx2
 import pytest
 from fastapi.testclient import TestClient
-from stubs import StubMinerUClient, StubVLLMService
+from openai import AsyncOpenAI
+from stubs import Handler, StubMinerUClient, StubVLLMService
 
 from bioparser.api import config, jobs
 from bioparser.api.app import app
 from bioparser.logging_config import HANDLER_NAME
+from bioparser.services.vllm import config as vllm_config
+from bioparser.services.vllm import vllm as vllm_module
 
 
 @pytest.fixture
@@ -38,6 +43,35 @@ def reset_api_settings_cache() -> Generator[None]:
     yield
     if hasattr(config.get_api_settings, "cache_clear"):
         config.get_api_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def reset_vllm_settings_cache() -> Generator[None]:
+    """vLLM Settings are cached per process: a test that sets BIOPARSER_VLLM_* must
+    not hand its values (e.g. a canary API key) to the tests after it."""
+    if hasattr(vllm_config.get_settings, "cache_clear"):
+        vllm_config.get_settings.cache_clear()
+    yield
+    if hasattr(vllm_config.get_settings, "cache_clear"):
+        vllm_config.get_settings.cache_clear()
+
+
+@pytest.fixture
+def vllm_transport(monkeypatch: pytest.MonkeyPatch) -> Callable[[Handler], None]:
+    """Answer every VLLMService built afterwards with [handler] instead of the network.
+
+    Only the transport is swapped. Base URL, API key and timeouts still come from
+    the configured Settings, so a test sees what production would send and log.
+    """
+
+    def install(handler: Handler) -> None:
+        def client(**kwargs: Any) -> AsyncOpenAI:
+            transport = httpx2.MockTransport(handler)
+            return AsyncOpenAI(**kwargs, http_client=httpx2.AsyncClient(transport=transport))
+
+        monkeypatch.setattr(vllm_module, "AsyncOpenAI", client)
+
+    return install
 
 
 @pytest.fixture(autouse=True)

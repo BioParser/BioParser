@@ -7,6 +7,8 @@ import importlib
 import io
 import json
 import logging
+import subprocess
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -18,12 +20,14 @@ from bioparser.api import config
 from bioparser.api.app import app
 from bioparser.logging_config import (
     HANDLER_NAME,
+    JsonFormatter,
     LogLevel,
     error_fields,
     log_context,
     redact_url,
     setup_logging,
 )
+from bioparser.services.mineru import MinerUError
 
 # bioparser.api re-exports the FastAPI instance as `app`, which shadows the
 # submodule of the same name; import_module returns the module itself.
@@ -97,21 +101,50 @@ def test_a_line_break_in_a_message_cannot_forge_a_second_entry(
     assert json.loads(line)["msg"] == f"rejected {forged}"
 
 
-def test_an_exception_is_rendered_inline_with_its_type(
+def test_a_traceback_names_every_type_but_quotes_only_our_own_messages(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     setup_logging("INFO")
+    # Off the raise line: a traceback prints each frame's source line
+    quoted = "canary: quotes what it was sent"
 
     try:
-        raise ValueError("boom")
-    except ValueError:
+        try:
+            try:
+                raise TimeoutError()  # no message: nothing to hide
+            except TimeoutError as exc:
+                raise ConnectionError(quoted) from exc
+        except ConnectionError as exc:
+            raise MinerUError("mineru-api unreachable: ConnectionError") from exc
+    except MinerUError:
         LOGGER.exception("stage failed")
 
     [line] = capsys.readouterr().err.splitlines()
     record = json.loads(line)
-    assert record["exc_type"] == "ValueError"
-    assert record["exc_info"].startswith("Traceback (most recent call last):")
-    assert record["exc_info"].endswith("ValueError: boom")
+    rendered = record["exc_info"]
+    assert record["exc_type"] == "MinerUError"
+    assert rendered.startswith("Traceback (most recent call last):")
+    assert "\nTimeoutError\n" in rendered
+    assert "\nConnectionError: [message redacted]\n" in rendered
+    assert rendered.count("The above exception was the direct cause") == 2
+    assert rendered.endswith("MinerUError: mineru-api unreachable: ConnectionError")
+    assert "canary" not in rendered
+
+
+def test_a_traceback_cached_by_another_formatter_is_not_reused() -> None:
+    """Another handler (pytest's caplog, Sentry) may format the record first."""
+    secret = "canary-secret"
+    try:
+        raise ValueError(secret)
+    except ValueError:
+        record = LOGGER.makeRecord(
+            LOGGER.name, logging.ERROR, __file__, 0, "failed", (), sys.exc_info()
+        )
+
+    logging.Formatter().format(record)  # caches the full traceback in record.exc_text
+    assert "canary-secret" in (record.exc_text or "")
+
+    assert "canary-secret" not in JsonFormatter().format(record)
 
 
 def test_a_bytes_extra_is_rendered_as_its_size_only(
@@ -150,7 +183,7 @@ def test_uvicorn_records_are_rerouted_through_the_json_handler(
         "Uvicorn running", extra={"color_message": "\x1b[1mUvicorn running\x1b[0m"}
     )
     logging.getLogger("uvicorn.access").info(
-        '%s - "%s %s HTTP/%s" %d', "127.0.0.1:5000", "GET", "/health", "1.1", 200
+        '%s - "%s %s HTTP/%s" %d', "127.0.0.1:5000", "GET", "/health?token=hunter2", "1.1", 200
     )
 
     running, access = map(json.loads, capsys.readouterr().err.splitlines())
@@ -236,8 +269,10 @@ def test_error_fields_name_types_never_messages() -> None:
         ("http://user:hunter2@vllm:8000/v1", "http://***@vllm:8000/v1"),
         ("redis://:hunter2@redis:6379/0", "redis://***@redis:6379/0"),
         ("http://[::1", "***"),  # unparseable: hidden, not echoed
+        ("user:hunter2@vllm:8000/v1", "//***@vllm:8000/v1"),
+        ("http://vllm:8000/v1?api_key=hunter2#top", "http://vllm:8000/v1"),
     ],
-    ids=["no-userinfo", "user-password", "password-only", "malformed"],
+    ids=["no-userinfo", "user-password", "password-only", "malformed", "no-scheme", "query"],
 )
 def test_redact_url_hides_credentials(url: str, expected: str) -> None:
     assert redact_url(url) == expected
@@ -303,3 +338,12 @@ def test_lifespan_sets_up_logging_once_across_restarts(monkeypatch: pytest.Monke
 
     assert len(_our_handlers()) == 1
     assert logging.getLogger("bioparser").level == logging.DEBUG
+
+
+def test_importing_the_app_sets_up_logging() -> None:
+    """uvicorn's CLI imports the app before its first line, so that line is JSON too."""
+    code = "import logging, bioparser.api.app; print([h.name for h in logging.root.handlers])"
+    result = subprocess.run(
+        [sys.executable, "-c", code], check=True, capture_output=True, text=True
+    )
+    assert HANDLER_NAME in result.stdout

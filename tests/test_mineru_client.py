@@ -10,6 +10,7 @@ from typing import Any
 import httpx2
 import pytest
 
+from bioparser import logging_config
 from bioparser.logging_config import JsonFormatter
 from bioparser.services.mineru import client as client_module
 from bioparser.services.mineru.client import (
@@ -114,7 +115,7 @@ def mineru_log(
 ) -> pytest.LogCaptureFixture:
     """Capture the client's records, with a clock that makes every request take 250 ms."""
     caplog.set_level(logging.INFO, logger=client_module.__name__)
-    monkeypatch.setattr(client_module, "perf_counter", itertools.count(100.0, 0.25).__next__)
+    monkeypatch.setattr(logging_config, "perf_counter", itertools.count(100.0, 0.25).__next__)
     return caplog
 
 

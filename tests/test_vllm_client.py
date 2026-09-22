@@ -2,11 +2,13 @@
 
 import itertools
 import logging
+from collections.abc import Callable
 
 import httpx2
 import pytest
-from openai import AsyncOpenAI
+from stubs import Handler
 
+from bioparser import logging_config
 from bioparser.logging_config import JsonFormatter
 from bioparser.services.vllm import config as vllm_config
 from bioparser.services.vllm import vllm as vllm_module
@@ -30,7 +32,7 @@ def vllm_log(
 ) -> pytest.LogCaptureFixture:
     """Capture the client's records, with a clock that makes every request take 250 ms."""
     caplog.set_level(logging.INFO, logger=vllm_module.__name__)
-    monkeypatch.setattr(vllm_module, "perf_counter", itertools.count(100.0, 0.25).__next__)
+    monkeypatch.setattr(logging_config, "perf_counter", itertools.count(100.0, 0.25).__next__)
     return caplog
 
 
@@ -51,16 +53,19 @@ def _completion(finish_reason: str = "stop") -> dict[str, object]:
     }
 
 
-def _service(handler: object) -> VLLMService:
-    service = VLLMService()
-    service.client = AsyncOpenAI(
-        base_url="http://vllm:8000/v1",
-        api_key=API_KEY,
-        max_retries=0,
-        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)),  # type: ignore[arg-type]
-    )
-    service.model = "stub-model"  # skip model discovery
-    return service
+@pytest.fixture
+def make_service(
+    vllm_transport: Callable[[Handler], None],
+) -> Callable[[Handler], VLLMService]:
+    """A real VLLMService built from Settings, answered by [handler]."""
+
+    def make(handler: Handler) -> VLLMService:
+        vllm_transport(handler)
+        service = VLLMService()
+        service.model = "stub-model"  # skip model discovery
+        return service
+
+    return make
 
 
 async def _generate_json(service: VLLMService) -> str:
@@ -81,9 +86,9 @@ def _completions(caplog: pytest.LogCaptureFixture) -> list[tuple[int, dict[str, 
 
 @pytest.mark.anyio
 async def test_a_completion_logs_latency_finish_reason_and_usage(
-    vllm_log: pytest.LogCaptureFixture,
+    vllm_log: pytest.LogCaptureFixture, make_service: Callable[[Handler], VLLMService]
 ) -> None:
-    service = _service(lambda _request: httpx2.Response(200, json=_completion()))
+    service = make_service(lambda _request: httpx2.Response(200, json=_completion()))
 
     await _generate_json(service)
 
@@ -103,15 +108,29 @@ async def test_a_completion_logs_latency_finish_reason_and_usage(
 
 @pytest.mark.anyio
 async def test_a_completion_cut_off_by_max_tokens_logs_a_warning(
-    vllm_log: pytest.LogCaptureFixture,
+    vllm_log: pytest.LogCaptureFixture, make_service: Callable[[Handler], VLLMService]
 ) -> None:
-    service = _service(lambda _request: httpx2.Response(200, json=_completion("length")))
+    service = make_service(lambda _request: httpx2.Response(200, json=_completion("length")))
 
     with pytest.raises(VLLMTruncatedError):
         await _generate_json(service)
 
     [(level, fields)] = _completions(vllm_log)
     assert (level, fields["finish_reason"]) == (logging.WARNING, "length")
+
+
+@pytest.mark.anyio
+async def test_a_completion_without_choices_is_a_vllm_error(
+    vllm_log: pytest.LogCaptureFixture, make_service: Callable[[Handler], VLLMService]
+) -> None:
+    body = _completion() | {"choices": []}
+    service = make_service(lambda _request: httpx2.Response(200, json=body))
+
+    with pytest.raises(VLLMError, match="no choices"):  # the pipeline maps it to 502
+        await _generate_json(service)
+
+    [(level, fields)] = _completions(vllm_log)
+    assert (level, fields["finish_reason"]) == (logging.WARNING, None)
 
 
 def _refused(request: httpx2.Request) -> httpx2.Response:
@@ -131,9 +150,12 @@ def _refused(request: httpx2.Request) -> httpx2.Response:
     ids=["503", "unreachable"],
 )
 async def test_a_failed_request_logs_a_warning_with_the_error_type(
-    vllm_log: pytest.LogCaptureFixture, handler: object, error: str
+    vllm_log: pytest.LogCaptureFixture,
+    make_service: Callable[[Handler], VLLMService],
+    handler: Handler,
+    error: str,
 ) -> None:
-    service = _service(handler)
+    service = make_service(handler)
 
     with pytest.raises(VLLMError):
         await _generate_json(service)
@@ -143,23 +165,33 @@ async def test_a_failed_request_logs_a_warning_with_the_error_type(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("status", [200, 401], ids=["ok", "rejected-key"])
-async def test_neither_the_api_key_nor_the_prompt_is_logged(
-    caplog: pytest.LogCaptureFixture, status: int
+async def test_neither_the_configured_api_key_nor_the_prompt_is_logged(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    vllm_transport: Callable[[Handler], None],
+    status: int,
 ) -> None:
-    caplog.set_level(logging.DEBUG)  # every logger, openai/httpx2/httpcore2 included
+    # Configured the way production is: env -> Settings -> VLLMService -> AsyncOpenAI
+    monkeypatch.setenv("BIOPARSER_VLLM_API_KEY", API_KEY)
+    caplog.set_level(logging.DEBUG)  # every logger: bioparser, openai and httpx2 included
     sent_headers: list[str] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         sent_headers.append(request.headers["authorization"])
+        if request.url.path.endswith("/models"):
+            return httpx2.Response(200, json={"object": "list", "data": [{"id": "stub-model"}]})
         body = _completion() if status == 200 else {"error": {"message": "invalid api key"}}
         return httpx2.Response(status, json=body)
 
+    vllm_transport(handler)
+    service = VLLMService()  # no preset model: discovery sends the key too
     try:
-        await _generate_json(_service(handler))
+        await _generate_json(service)
     except VLLMError:
         pass  # the 401 case: only the logs matter here
 
-    assert sent_headers == [f"Bearer {API_KEY}"]  # the key really was in play
+    # The key really was in play, on discovery and on the completion
+    assert sent_headers == [f"Bearer {API_KEY}"] * 2
     rendered = "\n".join(JsonFormatter().format(record) for record in caplog.records)
     assert "vllm completion finished" in rendered or "vllm request failed" in rendered
     assert API_KEY not in rendered
