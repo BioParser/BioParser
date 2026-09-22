@@ -67,3 +67,4 @@ files = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = ["integration: requires a real Redis instance (see BIOPARSER_TEST_REDIS_URL)"]
