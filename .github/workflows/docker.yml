@@ -1,0 +1,29 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read # fetch code
+  packages: write # write the image
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Build and push with docker compose
+        run: |
+          docker compose -f docker-compose.staging.yml build
+          docker compose -f docker-compose.staging.yml push

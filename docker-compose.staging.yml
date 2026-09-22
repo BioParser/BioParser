@@ -1,0 +1,93 @@
+name: bioparser
+
+networks:
+  edge:
+  backend:
+    internal: true
+
+services:
+  # mineru:
+  #   build:
+  #     context: .
+  #     # dockerfile comes from the overlay; cpu/gpu.yml
+  #   init: true
+  #   environment:
+  #     MINERU_MODEL_SOURCE: local
+  #   #ports:
+  #   #  - "127.0.0.1:${MINERU_PORT:-8001}:8000"
+  #   volumes:
+  #     - mineru-output:/home/mineru/output
+  #   networks: [backend]
+
+  # vllm:
+  #   environment:
+  #     HF_TOKEN: ${HF_TOKEN:-}
+  #   volumes:
+  #     - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+  #   ports:
+  #     - "127.0.0.1:${VLLM_PORT:-8000}:8000"
+  #   ipc: host
+  #   init: true
+  #   healthcheck:
+  #     test:
+  #       - CMD-SHELL
+  #       - python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=3).status==200 else 1)"
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   # edge is required: vLLM pulls model weights from HuggingFace.
+  #   # Drop to [backend] only once ~/.cache/huggingface has them saved
+  #   # Might need HF_HUB_OFFLINE=1 otherwise it hangs on connect 
+  #   networks: [backend, edge]
+
+  bioparser:
+    build: .
+    image: ghcr.io/bioparser/bioparser-api:latest
+    init: true
+    # depends_on:
+      # mineru:
+        # condition: service_healthy
+      # vllm:
+        # condition: service_healthy
+      # redis:
+        # condition: service_healthy
+    # environment:
+      # BIOPARSER_VLLM_BASE_URL: http://vllm:8000/v1
+      # BIOPARSER_MINERU_BASE_URL: http://mineru:8000
+    ports:
+      - "127.0.0.1:${BIOPARSER_PORT:-8080}:8080"
+    # mineru and vllm get a ceiling from the cpu/gpu overlay; this service had
+    # none, so it was the one that could take the host down.
+    mem_limit: 4g
+    memswap_limit: 4g
+    networks: [backend, edge]
+
+  # redis:
+  #   image: redis:8.10.1@sha256:298e5b3bc566bade82f46ad5511777a4a07a294097ce16ada2f6a42be5239df5
+  #   user: "999:999"
+  #   command:
+  #     - redis-server
+  #     - --appendonly yes
+  #     - --appendfsync everysec
+  #     - --save ""
+  #     - --maxmemory ${REDIS_MAXMEMORY:-512mb}
+  #     - --maxmemory-policy noeviction
+  #     - --requirepass "${REDIS_PASSWORD}"
+  #   volumes:
+  #     - redis-data:/data
+  #   networks: [backend]
+  #   restart: unless-stopped
+  #   mem_limit: 768m
+  #   memswap_limit: 768m
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 3s
+  #     retries: 5
+  #     start_period: 10s
+  #   cap_drop: [ALL]
+  #   security_opt: [no-new-privileges:true]
+
+# volumes:
+  # mineru-output:
+  # redis-data:
