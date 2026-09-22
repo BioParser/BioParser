@@ -13,6 +13,7 @@ class ApiSettings(BaseSettings):
         env_file=".env",
         env_prefix="BIOPARSER_",
         extra="ignore",
+        hide_input_in_errors=True,
     )
     log_level: LogLevel = "INFO"
 
