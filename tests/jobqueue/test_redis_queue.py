@@ -143,7 +143,7 @@ def test_named_queues_are_independent(stub_broker: StubBroker) -> None:
 
 def test_malformed_payload_is_poisoned(stub_broker: StubBroker) -> None:
     received: list[ParseJobMessage] = []
-    malformed: list[dict[str, object]] = []
+    malformed: list[object] = []
     queue = RedisJobQueue(
         name="parse",
         model=ParseJobMessage,
@@ -155,6 +155,19 @@ def test_malformed_payload_is_poisoned(stub_broker: StubBroker) -> None:
     queue.consume(received.append, until_empty=True)
     assert received == [_message("good")]
     assert malformed == [{"job_id": "only-id"}]
+
+
+def test_non_object_payload_notifies_malformed(stub_broker: StubBroker) -> None:
+    malformed: list[object] = []
+    queue = RedisJobQueue(
+        name="parse",
+        model=ParseJobMessage,
+        broker=stub_broker,
+        on_malformed=malformed.append,
+    )
+    queue._actor.send(["not", "an", "object"])
+    queue.consume(lambda message: None, until_empty=True)
+    assert malformed == [["not", "an", "object"]]
 
 
 def test_malformed_does_not_call_on_failed(stub_broker: StubBroker) -> None:
@@ -173,7 +186,7 @@ def test_malformed_does_not_call_on_failed(stub_broker: StubBroker) -> None:
 
 def test_wrong_schema_version_is_poisoned(stub_broker: StubBroker) -> None:
     received: list[ParseJobMessage] = []
-    malformed: list[dict[str, object]] = []
+    malformed: list[object] = []
     queue = RedisJobQueue(
         name="parse",
         model=ParseJobMessage,
@@ -195,7 +208,7 @@ def test_wrong_schema_version_is_poisoned(stub_broker: StubBroker) -> None:
 def test_malformed_hook_error_still_acks(stub_broker: StubBroker) -> None:
     received: list[ParseJobMessage] = []
 
-    def boom(payload: dict[str, object]) -> None:
+    def boom(payload: object) -> None:
         raise RuntimeError("hook failed")
 
     queue = RedisJobQueue(

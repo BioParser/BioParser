@@ -61,7 +61,7 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         broker: Broker,
         time_limit_ms: int = DEFAULT_TIME_LIMIT_MS,
         max_retries: int = DEFAULT_MAX_RETRIES,
-        on_malformed: Callable[[dict[str, object]], None] | None = None,
+        on_malformed: Callable[[object], None] | None = None,
         on_failed: Callable[[T, BaseException], None] | None = None,
     ) -> None:
         if not name.strip():
@@ -136,23 +136,22 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
             try:
                 queue._dispatch(payload)
             except MalformedJob:
+                LOGGER.warning("malformed message on queue %s", queue._name, exc_info=True)
+                queue._notify_malformed(payload)
                 raise
             except (Exception, TimeLimitExceeded) as exc:
                 if queue._is_last_retry():
-                    queue._notify_failed_from_payload(payload, exc)
+                    queue._notify_failed(payload, exc)
                 raise
 
         return dispatch
 
     def _dispatch(self, payload: object) -> None:
         if not isinstance(payload, dict):
-            LOGGER.warning("malformed message on queue %s: payload is not an object", self._name)
             raise MalformedJob(f"payload on queue {self._name} is not an object")
         try:
             message = self._model.model_validate(payload)
         except ValidationError as exc:
-            LOGGER.warning("malformed message on queue %s", self._name, exc_info=True)
-            self._notify_malformed(payload)
             raise MalformedJob(f"payload on queue {self._name} failed validation") from exc
         handler = self._handler
         if handler is None:
@@ -167,16 +166,7 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         retries = int(current.options.get("retries", 0))
         return retries >= self._max_retries
 
-    def _notify_failed_from_payload(self, payload: object, exc: BaseException) -> None:
-        try:
-            message = self._model.model_validate(payload)
-        except ValidationError:
-            if isinstance(payload, dict):
-                self._notify_malformed(payload)
-            return
-        self._notify_failed(message, exc)
-
-    def _notify_malformed(self, payload: dict[str, object]) -> None:
+    def _notify_malformed(self, payload: object) -> None:
         if self._on_malformed is None:
             return
         try:
@@ -184,7 +174,12 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         except Exception:
             LOGGER.exception("on_malformed hook failed on queue %s", self._name)
 
-    def _notify_failed(self, message: T, exc: BaseException) -> None:
+    def _notify_failed(self, payload: object, exc: BaseException) -> None:
+        try:
+            message = self._model.model_validate(payload)
+        except ValidationError:
+            self._notify_malformed(payload)
+            return
         if self._on_failed is None:
             return
         try:
