@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import os
 import uuid
 from collections.abc import AsyncGenerator
@@ -28,7 +29,7 @@ def anyio_backend() -> str:
 def _queued(job_id: str, **overrides: object) -> JobState:
     fields: dict[str, object] = {
         "job_id": job_id,
-        "document_id": f"doc-{job_id}",
+        "document_id": hashlib.sha256(job_id.encode()).hexdigest(),  # 64 hex chars, valid sha256
         "status": "queued",
         "input_artifact_ref": f"artifacts/{job_id}/input.pdf",
     }
@@ -79,13 +80,11 @@ async def test_update_replaces_stored_state(store: RedisJobStateStore) -> None:
     state = _queued(str(uuid.uuid4()))
     await store.create(state)
 
-    running = state.model_copy(update={"status": "running"})
+    running = state.with_changes(status="running")
     await store.update(running)
-    succeeded = running.model_copy(
-        update={
-            "status": "succeeded",
-            "output_artifact_ref": f"artifacts/{state.job_id}/output.json",
-        }
+    succeeded = running.with_changes(
+        status="succeeded",
+        output_artifact_ref=f"artifacts/{state.job_id}/output.json",
     )
     await store.update(succeeded)
 
@@ -107,7 +106,7 @@ async def test_concurrent_jobs_remain_independent(store: RedisJobStateStore) -> 
     async def bump_to_running(job_id: str) -> None:
         current = await store.get(job_id)
         assert current is not None
-        await store.update(current.model_copy(update={"status": "running"}))
+        await store.update(current.with_changes(status="running"))
 
     # Genuinely concurrent, not sequential -- these interleave on the event
     # loop, so this actually exercises the independence claim rather than

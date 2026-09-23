@@ -64,21 +64,33 @@ jobs:
       - name: mypy
         run: uv run mypy .
 
-  test:
-    name: Tests
+  test-unit:
+    name: Unit tests
     runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.9"
+          enable-cache: true
+      
+      - name: Set up Python
+        run: uv python install
+      
+      - name: Install dependencies
+        run: uv sync --locked --dev
+      
+      - name: Run unit tests
+        run: uv run pytest -m "not integration"
 
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
+  test-integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -86,7 +98,6 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          # uv version
           version: "0.12.9"
           enable-cache: true
 
@@ -96,5 +107,16 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --dev
 
-      - name: Run tests
-        run: uv run pytest
+      - name: Start Redis (matches production's persistence/memory flags)
+        run: |
+          docker run -d --name redis -p 6379:6379 \
+            redis:8.10.1@sha256:298e5b3bc566bade82f46ad5511777a4a07a294097ce16ada2f6a42be5239df5 \
+            redis-server --appendonly yes --appendfsync everysec --save "" \
+              --maxmemory 256mb --maxmemory-policy noeviction
+          for i in $(seq 1 10); do
+            docker exec redis redis-cli ping 2>/dev/null && break
+            sleep 1
+          done
+          
+      - name: Run integration tests
+        run: uv run pytest -m integration

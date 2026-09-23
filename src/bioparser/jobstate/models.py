@@ -20,22 +20,30 @@ _MAX_SAFE_ERROR_MESSAGE_LENGTH = 500
 class SafeError(BaseModel):
     """A short, non-sensitive description of why a job failed."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
     message: str = Field(min_length=1, max_length=_MAX_SAFE_ERROR_MESSAGE_LENGTH)
 
 
 class JobState(BaseModel):
     """Typed, versioned state for a single parse/extract job."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     schema_version: Literal[1] = JOB_STATE_SCHEMA_VERSION
-    job_id: str = Field(min_length=1)
-    document_id: str = Field(min_length=1)
+    job_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+    document_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     status: JobStatus
     input_artifact_ref: str = Field(min_length=1)
     output_artifact_ref: str | None = None
     error: SafeError | None = None
+
+    def with_changes(self, **changes: object) -> Self:
+        """Return a new, validated JobState with the given fields changed.
+        Use instead of model_copy(update=...), which skips validation
+        entirely and can silently produce a JobState that violates
+        _terminal_fields_match_status.
+        """
+        return self.model_validate(self.model_dump() | changes)
 
     @model_validator(mode="after")
     def _terminal_fields_match_status(self) -> Self:
