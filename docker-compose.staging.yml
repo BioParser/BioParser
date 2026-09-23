@@ -42,6 +42,7 @@ services:
 
   bioparser:
     build: .
+    # name of the image pushed to GHCR
     image: ghcr.io/bioparser/bioparser-api:latest
     init: true
     # depends_on:

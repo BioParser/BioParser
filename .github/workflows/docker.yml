@@ -1,4 +1,4 @@
-name: Build and Push Docker Images
+name: Build and Push Local Docker Images
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: read # fetch code
-  packages: write # write the image
+  packages: write # write image
 
 jobs:
   build-and-push-image:
@@ -23,6 +23,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
+      # build the locally defined Docker images and push them to GHCR
       - name: Build and push with docker compose
         run: |
           docker compose -f docker-compose.staging.yml build
