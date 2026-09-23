@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-import shutil
+import re
 import uuid
 from pathlib import Path
 
@@ -10,11 +10,12 @@ from bioparser.storage.errors import (
     ArtifactNotFoundError,
     InvalidArtifactIdError,
     StorageConfigurationError,
+    StorageError,
     StoragePathTraversalError,
+    StoragePayloadError,
 )
 from bioparser.storage.models import (
     ArtifactMetadata,
-    ArtifactRef,
     StoredArtifact,
 )
 
@@ -22,11 +23,15 @@ from bioparser.storage.models import (
 class FileSystemArtifactStorage:
     """Local filesystem implementation of the ArtifactStorage interface.
 
-    Stores artifacts within a configurable root directory. Artifacts are isolated
-    by their artifact_id into subdirectories containing the binary content and JSON
-    metadata. All operations validate that generated paths remain strictly within
-    the storage root.
+    Stores artifacts within a configurable root directory as flat files:
+      - Payload content: `{artifact_id}.data`
+      - Metadata JSON:  `{artifact_id}.meta.json`
+
+    All operations validate that generated paths remain strictly within the storage root.
     """
+
+    _ARTIFACT_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
+    MAX_ARTIFACT_ID_LENGTH = 128
 
     def __init__(self, root_path: Path | str, *, create_root: bool = True) -> None:
         self.root_path = Path(root_path).resolve()
@@ -37,38 +42,35 @@ class FileSystemArtifactStorage:
                 f"Configured storage root directory does not exist: {self.root_path}"
             )
 
-    def _resolve_id(self, artifact_id: str | ArtifactRef) -> str:
-        if isinstance(artifact_id, ArtifactRef):
-            return artifact_id.artifact_id
-        return str(artifact_id)
-
     def _validate_artifact_id(self, artifact_id: str) -> None:
-        if not artifact_id or not artifact_id.strip():
+        if not isinstance(artifact_id, str) or not artifact_id.strip():
             raise InvalidArtifactIdError("Artifact ID cannot be empty or whitespace")
-        if "\0" in artifact_id:
-            raise InvalidArtifactIdError("Artifact ID cannot contain null bytes")
-        if ":" in artifact_id:
-            raise StoragePathTraversalError("Artifact ID cannot contain drive or scheme separators")
+        if len(artifact_id) > self.MAX_ARTIFACT_ID_LENGTH:
+            raise InvalidArtifactIdError(
+                f"Artifact ID exceeds maximum length of {self.MAX_ARTIFACT_ID_LENGTH} characters: {artifact_id}"
+            )
+        if artifact_id in (".", ".."):
+            raise StoragePathTraversalError("Artifact ID cannot be '.' or '..'")
+        if not self._ARTIFACT_ID_PATTERN.fullmatch(artifact_id):
+            raise InvalidArtifactIdError(
+                f"Artifact ID '{artifact_id}' contains invalid characters. "
+                "Only alphanumeric characters, '.', '_', and '-' are allowed."
+            )
 
-        parts = Path(artifact_id).parts
-        if any(part in ("..", ".", "~") for part in parts):
-            raise StoragePathTraversalError("Artifact ID cannot contain path navigation tokens")
-        if Path(artifact_id).is_absolute() or artifact_id.startswith(("/", "\\")):
-            raise StoragePathTraversalError("Artifact ID cannot be an absolute path")
-
-    def _get_artifact_dir(self, artifact_id: str) -> Path:
+    def _get_artifact_paths(self, artifact_id: str) -> tuple[Path, Path]:
         self._validate_artifact_id(artifact_id)
-        target_dir = (self.root_path / artifact_id).resolve()
-        try:
-            is_relative = target_dir.is_relative_to(self.root_path)
-        except AttributeError:
-            is_relative = str(target_dir).startswith(str(self.root_path))
+        content_path = (self.root_path / f"{artifact_id}.data").resolve()
+        metadata_path = (self.root_path / f"{artifact_id}.meta.json").resolve()
 
-        if not is_relative or target_dir == self.root_path:
+        if (
+            not content_path.is_relative_to(self.root_path)
+            or not metadata_path.is_relative_to(self.root_path)
+            or content_path == self.root_path
+        ):
             raise StoragePathTraversalError(
                 f"Generated artifact path escapes storage root: {artifact_id}"
             )
-        return target_dir
+        return content_path, metadata_path
 
     def store(
         self,
@@ -76,9 +78,9 @@ class FileSystemArtifactStorage:
         metadata: ArtifactMetadata,
         *,
         overwrite: bool = False,
-    ) -> ArtifactRef:
+    ) -> str:
         aid = metadata.artifact_id
-        artifact_dir = self._get_artifact_dir(aid)
+        content_path, metadata_path = self._get_artifact_paths(aid)
 
         if not overwrite and self.exists(aid):
             raise ArtifactAlreadyExistsError(f"Artifact already exists: {aid}")
@@ -86,78 +88,69 @@ class FileSystemArtifactStorage:
         if metadata.size_bytes is None:
             metadata = metadata.model_copy(update={"size_bytes": len(content)})
         elif metadata.size_bytes != len(content):
-            raise ValueError(
+            raise StoragePayloadError(
                 f"Metadata size_bytes ({metadata.size_bytes}) does not match "
                 f"content length ({len(content)})"
             )
 
-        parent_dir = artifact_dir.parent
-        parent_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = self.root_path / f".lock_{aid}"
+        lock_acquired = False
 
-        staging_dir = parent_dir / f".tmp_{artifact_dir.name}_{uuid.uuid4().hex}"
-        staging_dir.mkdir(parents=True, exist_ok=False)
+        if not overwrite:
+            try:
+                fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.close(fd)
+                lock_acquired = True
+            except FileExistsError as exc:
+                raise ArtifactAlreadyExistsError(f"Artifact already exists: {aid}") from exc
+            except OSError as exc:
+                raise StorageError(
+                    f"Failed to acquire storage reservation for {aid}: {exc}"
+                ) from exc
+
+        tmp_suffix = f".tmp_{aid}_{uuid.uuid4().hex}"
+        tmp_content = self.root_path / f"{tmp_suffix}.data"
+        tmp_metadata = self.root_path / f"{tmp_suffix}.meta.json"
 
         try:
-            (staging_dir / "content").write_bytes(content)
-            (staging_dir / "metadata.json").write_text(
-                metadata.model_dump_json(indent=2), encoding="utf-8"
-            )
+            tmp_content.write_bytes(content)
+            tmp_metadata.write_text(metadata.model_dump_json(indent=2), encoding="utf-8")
 
-            if not overwrite:
-                try:
-                    os.rename(staging_dir, artifact_dir)
-                except (FileExistsError, OSError) as exc:
-                    raise ArtifactAlreadyExistsError(f"Artifact already exists: {aid}") from exc
-            else:
-                try:
-                    os.replace(staging_dir, artifact_dir)
-                except (PermissionError, OSError):
-                    if artifact_dir.exists():
-                        backup_dir = parent_dir / f".bak_{artifact_dir.name}_{uuid.uuid4().hex}"
-                        os.rename(artifact_dir, backup_dir)
-                        try:
-                            os.rename(staging_dir, artifact_dir)
-                            shutil.rmtree(backup_dir, ignore_errors=True)
-                        except Exception:
-                            if backup_dir.exists() and not artifact_dir.exists():
-                                os.rename(backup_dir, artifact_dir)
-                            raise
-                    else:
-                        os.rename(staging_dir, artifact_dir)
+            # Write content first, then metadata acts as the commit point
+            os.replace(tmp_content, content_path)
+            os.replace(tmp_metadata, metadata_path)
+        except OSError as exc:
+            raise StorageError(f"Failed to write artifact {aid}: {exc}") from exc
         finally:
-            if staging_dir.exists():
-                shutil.rmtree(staging_dir, ignore_errors=True)
+            if tmp_content.exists():
+                tmp_content.unlink(missing_ok=True)
+            if tmp_metadata.exists():
+                tmp_metadata.unlink(missing_ok=True)
+            if lock_acquired and lock_path.exists():
+                lock_path.unlink(missing_ok=True)
 
-        return ArtifactRef(artifact_id=aid)
+        return aid
 
-    def retrieve(self, artifact_id: str | ArtifactRef) -> bytes:
-        aid = self._resolve_id(artifact_id)
-        artifact_dir = self._get_artifact_dir(aid)
-        content_path = artifact_dir / "content"
-
-        if not content_path.is_file():
-            raise ArtifactNotFoundError(f"Artifact content not found: {aid}")
+    def retrieve(self, artifact_id: str) -> bytes:
+        content_path, _ = self._get_artifact_paths(artifact_id)
+        if not self.exists(artifact_id):
+            raise ArtifactNotFoundError(f"Artifact content not found: {artifact_id}")
 
         return content_path.read_bytes()
 
-    def retrieve_metadata(self, artifact_id: str | ArtifactRef) -> ArtifactMetadata:
-        aid = self._resolve_id(artifact_id)
-        artifact_dir = self._get_artifact_dir(aid)
-        metadata_path = artifact_dir / "metadata.json"
-
-        if not metadata_path.is_file():
-            raise ArtifactNotFoundError(f"Artifact metadata not found: {aid}")
+    def retrieve_metadata(self, artifact_id: str) -> ArtifactMetadata:
+        _, metadata_path = self._get_artifact_paths(artifact_id)
+        if not self.exists(artifact_id):
+            raise ArtifactNotFoundError(f"Artifact metadata not found: {artifact_id}")
 
         raw_json = metadata_path.read_text(encoding="utf-8")
         return ArtifactMetadata.model_validate_json(raw_json)
 
-    def retrieve_artifact(self, artifact_id: str | ArtifactRef) -> StoredArtifact:
-        aid = self._resolve_id(artifact_id)
-        content = self.retrieve(aid)
-        metadata = self.retrieve_metadata(aid)
+    def retrieve_artifact(self, artifact_id: str) -> StoredArtifact:
+        content = self.retrieve(artifact_id)
+        metadata = self.retrieve_metadata(artifact_id)
         return StoredArtifact(content=content, metadata=metadata)
 
-    def exists(self, artifact_id: str | ArtifactRef) -> bool:
-        aid = self._resolve_id(artifact_id)
-        artifact_dir = self._get_artifact_dir(aid)
-        return (artifact_dir / "content").is_file() and (artifact_dir / "metadata.json").is_file()
+    def exists(self, artifact_id: str) -> bool:
+        content_path, metadata_path = self._get_artifact_paths(artifact_id)
+        return content_path.is_file() and metadata_path.is_file()

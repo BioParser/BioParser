@@ -154,13 +154,11 @@ timeouts are bounded, and API errors do not expose secrets or stack traces.
 All stored structured artifacts have an explicit schema version. Artifacts are identified
 and transferred across workers using typed references and metadata rather than transport paths.
 
-### Artifact reference and metadata
+### Artifact metadata and contracts
 
 Artifacts across the pipeline (raw PDF uploads, parser outputs, and extractor observations)
 are addressed by stable artifact IDs using typed Pydantic models:
 
-- `ArtifactRef` (`schema_version = "1"`): lightweight handle (`artifact_id`, `schema_version`)
-  passed in job queue messages, avoiding sending large payloads over the queue.
 - `ArtifactMetadata` (`schema_version = "1"`): stores artifact identity and provenance:
   - `artifact_id`: stable identifier for the artifact.
   - `document_id`: identifier of the source document (e.g. upload checksum).
@@ -170,22 +168,24 @@ are addressed by stable artifact IDs using typed Pydantic models:
   - `content_schema_version`: explicit schema version of structured content where applicable
     (e.g., `"1"` for parser artifacts; omitted for raw PDFs).
   - `size_bytes`: payload size in bytes.
+- `StoredArtifact`: composite container bundling raw `content` (`bytes`) and `metadata` (`ArtifactMetadata`).
+
+Queue message envelopes can pass lightweight artifact IDs to workers to avoid transmitting large payloads over Redis.
 
 ### Artifact storage interface
 
 The `ArtifactStorage` protocol abstracts storage operations so components remain completely
 independent of local paths or cloud storage SDKs:
 
-- `store(content, metadata, *, overwrite=False) -> ArtifactRef`
+- `store(content, metadata, *, overwrite=False) -> str`
 - `retrieve(artifact_id) -> bytes`
 - `retrieve_metadata(artifact_id) -> ArtifactMetadata`
 - `retrieve_artifact(artifact_id) -> StoredArtifact`
 - `exists(artifact_id) -> bool`
 
 The `FileSystemArtifactStorage` implementation stores artifacts inside a configurable root
-directory, guarantees atomic writes, and strictly validates artifact IDs to prevent path
-traversal outside the storage root. Future S3-compatible backends implement
-the same interface without changing pipeline contracts.
+directory as flat files (`{artifact_id}.data` and `{artifact_id}.meta.json`).
+It writes to isolated temporary files, moves the content first, and uses the metadata file replacement as the atomic commit point. Readers only observe complete artifacts when both files exist. Artifact IDs are strictly validated using an allowlist regex (`^[A-Za-z0-9_.-]+$`, max 128 chars) and verified via `is_relative_to` to prevent path traversal outside the storage root. Future S3-compatible backends implement the same interface without changing pipeline contracts.
 
 ### Parser artifact
 

@@ -23,3 +23,7 @@ class InvalidArtifactIdError(StorageError, ValueError):
 
 class StorageConfigurationError(StorageError, ValueError):
     """Raised when the storage backend configuration is invalid."""
+
+
+class StoragePayloadError(StorageError, ValueError):
+    """Raised when the artifact payload is invalid or does not match metadata."""

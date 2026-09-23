@@ -5,7 +5,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-ARTIFACT_REF_SCHEMA_VERSION: Literal["1"] = "1"
 ARTIFACT_METADATA_SCHEMA_VERSION: Literal["1"] = "1"
 
 
@@ -23,15 +22,6 @@ class CreationInfo(BaseModel):
         if v.tzinfo is None or v.tzinfo.utcoffset(v) is None:
             raise ValueError("created_at must be timezone-aware (UTC)")
         return v.astimezone(UTC)
-
-
-class ArtifactRef(BaseModel):
-    """Reference to an artifact, used to address artifacts across jobs and workers."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    artifact_id: str = Field(min_length=1)
-    schema_version: Literal["1"] = ARTIFACT_REF_SCHEMA_VERSION
 
 
 class ArtifactMetadata(BaseModel):
@@ -89,7 +79,3 @@ class StoredArtifact(BaseModel):
     @property
     def artifact_id(self) -> str:
         return self.metadata.artifact_id
-
-    @property
-    def ref(self) -> ArtifactRef:
-        return ArtifactRef(artifact_id=self.metadata.artifact_id)

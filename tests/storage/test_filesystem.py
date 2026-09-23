@@ -8,12 +8,12 @@ from bioparser.storage import (
     ArtifactAlreadyExistsError,
     ArtifactMetadata,
     ArtifactNotFoundError,
-    ArtifactRef,
     ArtifactStorage,
     FileSystemArtifactStorage,
     InvalidArtifactIdError,
     StorageConfigurationError,
     StoragePathTraversalError,
+    StoragePayloadError,
 )
 
 
@@ -40,19 +40,17 @@ class TestBasicStorageOperations:
 
         assert not storage.exists("doc-123-pdf")
 
-        ref = storage.store(pdf_bytes, metadata)
-        assert isinstance(ref, ArtifactRef)
-        assert ref.artifact_id == "doc-123-pdf"
-        assert ref.schema_version == "1"
+        returned_id = storage.store(pdf_bytes, metadata)
+        assert returned_id == "doc-123-pdf"
+
+        # Verify flat file layout
+        assert (storage.root_path / "doc-123-pdf.data").is_file()
+        assert (storage.root_path / "doc-123-pdf.meta.json").is_file()
 
         assert storage.exists("doc-123-pdf")
-        assert storage.exists(ref)
 
         retrieved_bytes = storage.retrieve("doc-123-pdf")
         assert retrieved_bytes == pdf_bytes
-
-        retrieved_ref_bytes = storage.retrieve(ref)
-        assert retrieved_ref_bytes == pdf_bytes
 
         retrieved_meta = storage.retrieve_metadata("doc-123-pdf")
         assert retrieved_meta.artifact_id == "doc-123-pdf"
@@ -61,7 +59,7 @@ class TestBasicStorageOperations:
         assert retrieved_meta.checksum == "abc123sha"
         assert retrieved_meta.size_bytes == len(pdf_bytes)
 
-        stored_artifact = storage.retrieve_artifact(ref)
+        stored_artifact = storage.retrieve_artifact("doc-123-pdf")
         assert stored_artifact.content == pdf_bytes
         assert stored_artifact.metadata == retrieved_meta
 
@@ -76,13 +74,14 @@ class TestBasicStorageOperations:
             content_schema_version="1",
         )
 
-        ref = storage.store(json_bytes, metadata)
-        assert storage.exists(ref)
+        returned_id = storage.store(json_bytes, metadata)
+        assert returned_id == "parsed-blocks-1"
+        assert storage.exists("parsed-blocks-1")
 
-        retrieved = storage.retrieve(ref)
+        retrieved = storage.retrieve("parsed-blocks-1")
         assert retrieved == json_bytes
 
-        retrieved_meta = storage.retrieve_metadata(ref)
+        retrieved_meta = storage.retrieve_metadata("parsed-blocks-1")
         assert retrieved_meta.content_schema_version == "1"
         assert retrieved_meta.media_type == "application/json"
 
@@ -171,14 +170,35 @@ class TestErrorHandling:
 
         assert not storage.exists("missing-id")
 
-    def test_size_bytes_mismatch_raises(self, storage: FileSystemArtifactStorage) -> None:
+    def test_retrieve_requires_metadata_and_content_agreement(
+        self, storage: FileSystemArtifactStorage
+    ) -> None:
+        # Orphan content file without metadata
+        (storage.root_path / "orphan.data").write_bytes(b"content only")
+        assert not storage.exists("orphan")
+        with pytest.raises(ArtifactNotFoundError):
+            storage.retrieve("orphan")
+        with pytest.raises(ArtifactNotFoundError):
+            storage.retrieve_metadata("orphan")
+
+        # Orphan metadata file without content
+        (storage.root_path / "metaonly.meta.json").write_text("{}", encoding="utf-8")
+        assert not storage.exists("metaonly")
+        with pytest.raises(ArtifactNotFoundError):
+            storage.retrieve("metaonly")
+        with pytest.raises(ArtifactNotFoundError):
+            storage.retrieve_metadata("metaonly")
+
+    def test_size_bytes_mismatch_raises_storage_payload_error(
+        self, storage: FileSystemArtifactStorage
+    ) -> None:
         metadata = ArtifactMetadata(
             artifact_id="art-mismatch",
             document_id="doc-1",
             media_type="application/pdf",
             size_bytes=999,
         )
-        with pytest.raises(ValueError, match="Metadata size_bytes"):
+        with pytest.raises(StoragePayloadError, match="Metadata size_bytes"):
             storage.store(b"short", metadata)
 
     def test_uninitialized_root_without_create_root_raises(self, tmp_path: Path) -> None:
@@ -191,6 +211,21 @@ class TestPathTraversalDefense:
     @pytest.mark.parametrize(
         "malicious_id",
         [
+            ".",
+            "..",
+        ],
+    )
+    def test_path_traversal_tokens_raise(
+        self, storage: FileSystemArtifactStorage, malicious_id: str
+    ) -> None:
+        with pytest.raises(StoragePathTraversalError):
+            storage.retrieve(malicious_id)
+
+    @pytest.mark.parametrize(
+        "invalid_id",
+        [
+            "",
+            "   ",
             "../escaped",
             "../../etc/passwd",
             "something/../../root",
@@ -199,62 +234,29 @@ class TestPathTraversalDefense:
             "C:\\Windows\\System32",
             "D:/escaped",
             "C:file",
-            ".",
             "~",
             "subdir/../escaped",
-        ],
-    )
-    def test_path_traversal_attempts_raise(
-        self, storage: FileSystemArtifactStorage, malicious_id: str
-    ) -> None:
-        metadata = ArtifactMetadata(
-            artifact_id="temp",
-            document_id="doc-1",
-            media_type="application/pdf",
-        )
-        # Construct metadata with malicious artifact_id bypass
-        object.__setattr__(metadata, "artifact_id", malicious_id)
-
-        with pytest.raises(StoragePathTraversalError):
-            storage.store(b"payload", metadata)
-
-        with pytest.raises(StoragePathTraversalError):
-            storage.retrieve(malicious_id)
-
-        with pytest.raises(StoragePathTraversalError):
-            storage.retrieve_metadata(malicious_id)
-
-        with pytest.raises(StoragePathTraversalError):
-            storage.exists(malicious_id)
-
-    @pytest.mark.parametrize(
-        "invalid_id",
-        [
-            "",
-            "   ",
             "foo\0bar",
+            "has space",
+            "has@symbol",
+            "has/slash",
+            "has\\backslash",
+            "has:colon",
+            "a" * 129,  # exceeds 128 chars limit
         ],
     )
-    def test_invalid_artifact_ids_raise(
+    def test_invalid_artifact_ids_rejected_by_allowlist(
         self, storage: FileSystemArtifactStorage, invalid_id: str
     ) -> None:
         with pytest.raises(InvalidArtifactIdError):
             storage.retrieve(invalid_id)
 
-    def test_files_never_escape_storage_root(
-        self, storage: FileSystemArtifactStorage, tmp_path: Path
-    ) -> None:
-        outside_marker = tmp_path / "outside_marker.txt"
-        outside_marker.write_text("safe")
-
-        metadata = ArtifactMetadata(
-            artifact_id="temp",
-            document_id="doc-1",
-            media_type="application/pdf",
-        )
-        object.__setattr__(metadata, "artifact_id", "../outside_marker.txt")
-
-        with pytest.raises(StoragePathTraversalError):
-            storage.store(b"evil overwrite", metadata, overwrite=True)
-
-        assert outside_marker.read_text() == "safe"
+    def test_valid_ids_allowed(self, storage: FileSystemArtifactStorage) -> None:
+        valid_ids = [
+            "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            "doc_123.v1-final",
+            "SimpleArtifactID",
+            "a" * 128,  # exactly 128 chars
+        ]
+        for aid in valid_ids:
+            storage._validate_artifact_id(aid)

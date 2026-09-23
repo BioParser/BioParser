@@ -7,13 +7,12 @@ from bioparser.storage.errors import (
     StorageConfigurationError,
     StorageError,
     StoragePathTraversalError,
+    StoragePayloadError,
 )
 from bioparser.storage.filesystem import FileSystemArtifactStorage
 from bioparser.storage.models import (
     ARTIFACT_METADATA_SCHEMA_VERSION,
-    ARTIFACT_REF_SCHEMA_VERSION,
     ArtifactMetadata,
-    ArtifactRef,
     CreationInfo,
     StoredArtifact,
 )
@@ -21,11 +20,9 @@ from bioparser.storage.protocol import ArtifactStorage
 
 __all__ = [
     "ARTIFACT_METADATA_SCHEMA_VERSION",
-    "ARTIFACT_REF_SCHEMA_VERSION",
     "ArtifactAlreadyExistsError",
     "ArtifactMetadata",
     "ArtifactNotFoundError",
-    "ArtifactRef",
     "ArtifactStorage",
     "CreationInfo",
     "FileSystemArtifactStorage",
@@ -33,5 +30,6 @@ __all__ = [
     "StorageConfigurationError",
     "StorageError",
     "StoragePathTraversalError",
+    "StoragePayloadError",
     "StoredArtifact",
 ]

@@ -5,51 +5,21 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from bioparser.storage.examples import (
-    SAMPLE_EXTRACTOR_METADATA_JSON,
-    SAMPLE_PARSER_METADATA_JSON,
-    SAMPLE_PDF_METADATA_JSON,
-    sample_extractor_metadata,
-    sample_extractor_ref,
-    sample_parser_metadata,
-    sample_parser_ref,
-    sample_pdf_metadata,
-    sample_pdf_ref,
-)
 from bioparser.storage.models import (
     ARTIFACT_METADATA_SCHEMA_VERSION,
-    ARTIFACT_REF_SCHEMA_VERSION,
     ArtifactMetadata,
-    ArtifactRef,
     CreationInfo,
     StoredArtifact,
 )
 
-
-class TestArtifactRef:
-    def test_default_schema_version(self) -> None:
-        ref = ArtifactRef(artifact_id="art-123")
-        assert ref.artifact_id == "art-123"
-        assert ref.schema_version == ARTIFACT_REF_SCHEMA_VERSION
-        assert ref.schema_version == "1"
-
-    def test_forbid_extra_fields(self) -> None:
-        with pytest.raises(ValidationError):
-            ArtifactRef.model_validate({"artifact_id": "art-1", "extra_field": "disallowed"})
-
-    def test_empty_artifact_id_disallowed(self) -> None:
-        with pytest.raises(ValidationError):
-            ArtifactRef(artifact_id="")
-
-    def test_json_roundtrip(self) -> None:
-        ref = ArtifactRef(artifact_id="art-xyz", schema_version="1")
-        dumped = ref.model_dump_json()
-        loaded = ArtifactRef.model_validate_json(dumped)
-        assert ref == loaded
-
-    def test_unsupported_schema_version_rejected(self) -> None:
-        with pytest.raises(ValidationError):
-            ArtifactRef.model_validate({"artifact_id": "art-1", "schema_version": "2"})
+from .contract_examples import (
+    SAMPLE_EXTRACTOR_METADATA_JSON,
+    SAMPLE_PARSER_METADATA_JSON,
+    SAMPLE_PDF_METADATA_JSON,
+    sample_extractor_metadata,
+    sample_parser_metadata,
+    sample_pdf_metadata,
+)
 
 
 class TestCreationInfo:
@@ -225,7 +195,6 @@ class TestStoredArtifact:
         )
         artifact = StoredArtifact(content=b"test", metadata=meta)
         assert artifact.artifact_id == "art-stored"
-        assert artifact.ref == ArtifactRef(artifact_id="art-stored")
         assert artifact.content == b"test"
         assert artifact.metadata == meta
 
@@ -263,13 +232,3 @@ class TestContractExamples:
         from_json = ArtifactMetadata.model_validate_json(SAMPLE_EXTRACTOR_METADATA_JSON)
         assert from_json.content_schema_version == "1"
         assert from_json.artifact_id == meta.artifact_id
-
-    def test_sample_refs(self) -> None:
-        pdf_ref = sample_pdf_ref()
-        parser_ref = sample_parser_ref()
-        extractor_ref = sample_extractor_ref()
-
-        assert pdf_ref.artifact_id == "art-pdf-1002000"
-        assert parser_ref.artifact_id == "art-parsed-1002000"
-        assert extractor_ref.artifact_id == "art-extracted-1002000"
-        assert pdf_ref.schema_version == "1"

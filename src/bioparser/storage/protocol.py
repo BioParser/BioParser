@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from bioparser.storage.models import ArtifactMetadata, ArtifactRef, StoredArtifact
+from bioparser.storage.models import ArtifactMetadata, StoredArtifact
 
 
 @runtime_checkable
@@ -10,7 +10,7 @@ class ArtifactStorage(Protocol):
     """Replaceable storage interface for binary payloads and artifact metadata.
 
     The interface is completely independent of transport-specific and filesystem paths.
-    Artifacts are stored, retrieved, and checked strictly by artifact ID or reference.
+    Artifacts are stored, retrieved, and checked strictly by artifact ID string.
     """
 
     def store(
@@ -19,7 +19,7 @@ class ArtifactStorage(Protocol):
         metadata: ArtifactMetadata,
         *,
         overwrite: bool = False,
-    ) -> ArtifactRef:
+    ) -> str:
         """Store an artifact's content payload and metadata.
 
         Args:
@@ -29,15 +29,15 @@ class ArtifactStorage(Protocol):
                 this ID already exists. If True, overwrites existing artifact.
 
         Returns:
-            An ArtifactRef pointing to the stored artifact.
+            The artifact ID string.
         """
         ...
 
-    def retrieve(self, artifact_id: str | ArtifactRef) -> bytes:
+    def retrieve(self, artifact_id: str) -> bytes:
         """Retrieve the binary payload of an artifact.
 
         Args:
-            artifact_id: The string identifier or ArtifactRef.
+            artifact_id: The string identifier of the artifact.
 
         Returns:
             The raw bytes of the stored artifact.
@@ -48,11 +48,11 @@ class ArtifactStorage(Protocol):
         """
         ...
 
-    def retrieve_metadata(self, artifact_id: str | ArtifactRef) -> ArtifactMetadata:
+    def retrieve_metadata(self, artifact_id: str) -> ArtifactMetadata:
         """Retrieve the metadata of an artifact.
 
         Args:
-            artifact_id: The string identifier or ArtifactRef.
+            artifact_id: The string identifier of the artifact.
 
         Returns:
             ArtifactMetadata describing the artifact.
@@ -63,11 +63,11 @@ class ArtifactStorage(Protocol):
         """
         ...
 
-    def retrieve_artifact(self, artifact_id: str | ArtifactRef) -> StoredArtifact:
+    def retrieve_artifact(self, artifact_id: str) -> StoredArtifact:
         """Retrieve both content and metadata for an artifact in a single operation.
 
         Args:
-            artifact_id: The string identifier or ArtifactRef.
+            artifact_id: The string identifier of the artifact.
 
         Returns:
             StoredArtifact bundle containing content and metadata.
@@ -78,11 +78,11 @@ class ArtifactStorage(Protocol):
         """
         ...
 
-    def exists(self, artifact_id: str | ArtifactRef) -> bool:
+    def exists(self, artifact_id: str) -> bool:
         """Check whether an artifact exists in storage.
 
         Args:
-            artifact_id: The string identifier or ArtifactRef.
+            artifact_id: The string identifier of the artifact.
 
         Returns:
             True if both content and metadata exist; False otherwise.

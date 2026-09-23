@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from bioparser.storage.models import ArtifactMetadata, ArtifactRef, CreationInfo
+from bioparser.storage.models import ArtifactMetadata, CreationInfo
 
 SAMPLE_PDF_METADATA_JSON = """{
   "schema_version": "1",
@@ -96,18 +96,3 @@ def sample_extractor_metadata() -> ArtifactMetadata:
         content_schema_version="1",
         size_bytes=4096,
     )
-
-
-def sample_pdf_ref() -> ArtifactRef:
-    """Example reference to a PDF artifact."""
-    return ArtifactRef(artifact_id="art-pdf-1002000")
-
-
-def sample_parser_ref() -> ArtifactRef:
-    """Example reference to a parser output artifact."""
-    return ArtifactRef(artifact_id="art-parsed-1002000")
-
-
-def sample_extractor_ref() -> ArtifactRef:
-    """Example reference to an extractor output artifact."""
-    return ArtifactRef(artifact_id="art-extracted-1002000")
