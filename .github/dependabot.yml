@@ -24,7 +24,8 @@ updates:
       default-days: 7
     groups:
       pre-commit-hooks:
-        patterns: ["*"]
+        patterns:
+          - "*"
 
   - package-ecosystem: "uv"
     directory: "/"
@@ -36,7 +37,7 @@ updates:
     cooldown:
       default-days: 7
     groups:
-      python-minor-patch:
+      uv-minor-patch:
         update-types:
           - "minor"
           - "patch"
@@ -53,7 +54,7 @@ updates:
     cooldown:
       default-days: 7
     ignore:
-      # Python 3.13 is pinned in requires-python
+      # Python 3.13 is pinned
       - dependency-name: "python"
         update-types:
           - "version-update:semver-major"
@@ -72,15 +73,3 @@ updates:
       prefix: "build(docker)"
     cooldown:
       default-days: 7
-    ignore:
-      # vllm majors: upgrade by hand
-      - dependency-name: "vllm/vllm-openai"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "vllm/vllm-openai-cpu"
-        update-types:
-          - "version-update:semver-major"
-      # Redis majors: upgrade by hand
-      - dependency-name: "redis"
-        update-types:
-          - "version-update:semver-major"
