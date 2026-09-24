@@ -39,11 +39,11 @@ def test_succeeded_job_round_trips_through_json() -> None:
 
 
 def test_failed_job_round_trips_through_json() -> None:
-    state = _queued(status="failed", error=SafeError(message="parser rejected the document"))
+    state = _queued(status="failed", error=SafeError(code="parse_failed"))
     restored = JobState.model_validate_json(state.model_dump_json())
     assert restored == state
     assert restored.error is not None
-    assert restored.error.message == "parser rejected the document"
+    assert restored.error.code == "parse_failed"
 
 
 # --- status/field invariants --------------------------------------------
@@ -59,7 +59,7 @@ def test_succeeded_job_rejects_error() -> None:
         _queued(
             status="succeeded",
             output_artifact_ref="artifacts/doc-1/output.json",
-            error=SafeError(message="boom"),
+            error=SafeError(code="parse_failed"),
         )
 
 
@@ -73,7 +73,7 @@ def test_failed_job_rejects_output_artifact() -> None:
         _queued(
             status="failed",
             output_artifact_ref="artifacts/doc-1/output.json",
-            error=SafeError(message="boom"),
+            error=SafeError(code="parse_failed"),
         )
 
 
@@ -86,7 +86,7 @@ def test_non_terminal_job_rejects_output_artifact(status: str) -> None:
 @pytest.mark.parametrize("status", ["queued", "running"])
 def test_non_terminal_job_rejects_error(status: str) -> None:
     with pytest.raises(ValidationError):
-        _queued(status=status, error=SafeError(message="boom"))
+        _queued(status=status, error=SafeError(code="parse_failed"))
 
 
 def test_with_changes_returns_new_validated_instance() -> None:
@@ -103,24 +103,6 @@ def test_with_changes_rejects_invalid_combination() -> None:
     # same as constructing it directly would be.
     with pytest.raises(ValidationError):
         state.with_changes(status="succeeded")
-
-
-# --- SafeError -----------------------------------------------------------
-
-
-def test_safe_error_rejects_empty_message() -> None:
-    with pytest.raises(ValidationError):
-        SafeError(message="")
-
-
-def test_safe_error_rejects_message_over_500_chars() -> None:
-    with pytest.raises(ValidationError):
-        SafeError(message="x" * 501)
-
-
-def test_safe_error_accepts_message_at_500_chars() -> None:
-    error = SafeError(message="x" * 500)
-    assert len(error.message) == 500
 
 
 # --- Immutability and schema version --------------------------------------
@@ -147,7 +129,7 @@ def test_job_state_rejects_unknown_field() -> None:
 
 def test_safe_error_rejects_unknown_field() -> None:
     with pytest.raises(ValidationError):
-        SafeError.model_validate({"message": "boom", "extra": "surprise"})
+        SafeError.model_validate({"code": "parse_failed", "extra": "surprise"})
 
 
 def test_job_id_must_look_like_a_uuid() -> None:

@@ -3,25 +3,21 @@ from typing import Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
+SafeErrorCode = Literal[
+    "invalid_pdf", "parse_failed", "extraction_failed", "timeout", "internal_error"
+]
 
 #: Schema version for the JobState contract. Bump the version up when the shape of JobState
 #: changes in a way that is not backward compatible, so a stored record from
 #: an older version is recognized as such rather than silently misread.
 JOB_STATE_SCHEMA_VERSION: Literal[1] = 1
 
-# MAX_SAFE_ERROR is for limiting the length of error messages stored in the job state. This is to avoid
-# issues with storing very large error messages in the database, which can cause performance issues or
-# even failures when trying to retrieve or process the job state. The limit is set to 500 characters,
-# which is a reasonable size for an error message while still allowing
-# for meaningful information to be conveyed.
-_MAX_SAFE_ERROR_MESSAGE_LENGTH = 500
-
 
 class SafeError(BaseModel):
     """A short, non-sensitive description of why a job failed."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
-    message: str = Field(min_length=1, max_length=_MAX_SAFE_ERROR_MESSAGE_LENGTH)
+    code: SafeErrorCode
 
 
 class JobState(BaseModel):
