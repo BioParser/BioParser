@@ -15,7 +15,8 @@ services:
     memswap_limit: 12g # needed for OOM ?
 
   vllm:
-    image: vllm/vllm-openai-cpu:latest-x86_64
+    # Same vLLM version as the GPU overlay; pinned by digest so the image can't change under us.
+    image: vllm/vllm-openai-cpu:v0.21.0-x86_64@sha256:eb680690f111f2b26316265716218f31ce0a0f83efdcac1821fc6caeed41baea
     command:
       - ${VLLM_MODEL}
       - --host
