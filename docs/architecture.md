@@ -184,8 +184,14 @@ independent of local paths or cloud storage SDKs:
 - `exists(artifact_id) -> bool`
 
 The `FileSystemArtifactStorage` implementation stores artifacts inside a configurable root
-directory as flat files (`{artifact_id}.data` and `{artifact_id}.meta.json`).
-It writes to isolated temporary files, moves the content first, and uses the metadata file replacement as the atomic commit point. Readers only observe complete artifacts when both files exist. Artifact IDs are strictly validated using an allowlist regex (`^[A-Za-z0-9_.-]+$`, max 128 chars) and verified via `is_relative_to` to prevent path traversal outside the storage root. Future S3-compatible backends implement the same interface without changing pipeline contracts.
+directory using a versioned blob-pointer layout (`{artifact_id}.{blob_id}.data` and `{artifact_id}.meta.json`).
+Payloads are written as immutable blobs first, followed by an atomic link (on creation) or replacement (on overwrite)
+of the metadata JSON file as the single commit point. This guarantees that simultaneous overwrites cannot interleave
+or mismatch payload and metadata, eliminates fragile lock files, and allows readers to safely resolve the exact
+committed blob. Corrupted metadata or mismatched content sizes are detected and raised as `StoragePayloadError`.
+Artifact IDs are strictly validated using an allowlist regex (`^[A-Za-z0-9_.-]+$`, max 128 chars) and verified
+via `is_relative_to` to prevent path traversal outside the storage root. Future S3-compatible backends implement
+the same interface without changing pipeline contracts.
 
 ### Parser artifact
 

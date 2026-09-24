@@ -43,21 +43,22 @@ class TestBasicStorageOperations:
         returned_id = storage.store(pdf_bytes, metadata)
         assert returned_id == "doc-123-pdf"
 
-        # Verify flat file layout
-        assert (storage.root_path / "doc-123-pdf.data").is_file()
-        assert (storage.root_path / "doc-123-pdf.meta.json").is_file()
-
-        assert storage.exists("doc-123-pdf")
-
-        retrieved_bytes = storage.retrieve("doc-123-pdf")
-        assert retrieved_bytes == pdf_bytes
-
+        # Verify blob-pointer flat layout
         retrieved_meta = storage.retrieve_metadata("doc-123-pdf")
         assert retrieved_meta.artifact_id == "doc-123-pdf"
         assert retrieved_meta.document_id == "doc-123"
         assert retrieved_meta.media_type == "application/pdf"
         assert retrieved_meta.checksum == "abc123sha"
         assert retrieved_meta.size_bytes == len(pdf_bytes)
+        assert retrieved_meta.blob_id is not None
+
+        assert (storage.root_path / f"doc-123-pdf.{retrieved_meta.blob_id}.data").is_file()
+        assert (storage.root_path / "doc-123-pdf.meta.json").is_file()
+
+        assert storage.exists("doc-123-pdf")
+
+        retrieved_bytes = storage.retrieve("doc-123-pdf")
+        assert retrieved_bytes == pdf_bytes
 
         stored_artifact = storage.retrieve_artifact("doc-123-pdf")
         assert stored_artifact.content == pdf_bytes
@@ -113,6 +114,9 @@ class TestOverwriteBehavior:
             media_type="application/pdf",
         )
         storage.store(b"version 1", metadata_1)
+        meta_1 = storage.retrieve_metadata("art-upd")
+        old_blob_path = storage.root_path / f"art-upd.{meta_1.blob_id}.data"
+        assert old_blob_path.is_file()
 
         metadata_2 = ArtifactMetadata(
             artifact_id="art-upd",
@@ -123,9 +127,14 @@ class TestOverwriteBehavior:
         storage.store(b"version 2", metadata_2, overwrite=True)
 
         assert storage.retrieve("art-upd") == b"version 2"
-        meta = storage.retrieve_metadata("art-upd")
-        assert meta.checksum == "new-checksum"
-        assert meta.size_bytes == len(b"version 2")
+        meta_2 = storage.retrieve_metadata("art-upd")
+        assert meta_2.checksum == "new-checksum"
+        assert meta_2.size_bytes == len(b"version 2")
+        assert meta_2.blob_id != meta_1.blob_id
+
+        # Verify old blob was cleaned up and new blob exists
+        assert not old_blob_path.exists()
+        assert (storage.root_path / f"art-upd.{meta_2.blob_id}.data").is_file()
 
     def test_concurrent_exclusive_stores_race(self, storage: FileSystemArtifactStorage) -> None:
         import concurrent.futures
@@ -182,12 +191,48 @@ class TestErrorHandling:
             storage.retrieve_metadata("orphan")
 
         # Orphan metadata file without content
-        (storage.root_path / "metaonly.meta.json").write_text("{}", encoding="utf-8")
+        meta = ArtifactMetadata(
+            artifact_id="metaonly",
+            document_id="doc-meta",
+            media_type="application/pdf",
+            blob_id="nonexistent-blob",
+        )
+        (storage.root_path / "metaonly.meta.json").write_text(
+            meta.model_dump_json(), encoding="utf-8"
+        )
         assert not storage.exists("metaonly")
         with pytest.raises(ArtifactNotFoundError):
             storage.retrieve("metaonly")
         with pytest.raises(ArtifactNotFoundError):
             storage.retrieve_metadata("metaonly")
+
+    def test_corrupted_metadata_json_raises_storage_payload_error(
+        self, storage: FileSystemArtifactStorage
+    ) -> None:
+        (storage.root_path / "corrupt.meta.json").write_text(
+            "invalid json content", encoding="utf-8"
+        )
+        assert not storage.exists("corrupt")
+        with pytest.raises(StoragePayloadError, match="Corrupted metadata"):
+            storage.retrieve_metadata("corrupt")
+
+    def test_retrieved_content_size_mismatch_raises_storage_payload_error(
+        self, storage: FileSystemArtifactStorage
+    ) -> None:
+        meta = ArtifactMetadata(
+            artifact_id="art-tamper",
+            document_id="doc-1",
+            media_type="application/pdf",
+        )
+        storage.store(b"expected-length-content", meta)
+        retrieved_meta = storage.retrieve_metadata("art-tamper")
+        blob_path = storage.root_path / f"art-tamper.{retrieved_meta.blob_id}.data"
+
+        # Truncate content file on disk
+        blob_path.write_bytes(b"short")
+
+        with pytest.raises(StoragePayloadError, match="content size .* does not match metadata"):
+            storage.retrieve("art-tamper")
 
     def test_size_bytes_mismatch_raises_storage_payload_error(
         self, storage: FileSystemArtifactStorage
