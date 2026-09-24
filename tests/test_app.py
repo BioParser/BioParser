@@ -122,6 +122,7 @@ def test_submit_file_too_large(client: TestClient, monkeypatch: pytest.MonkeyPat
     )
 
     assert response.status_code == 413
+    assert response.headers["content-type"].startswith("application/json")
     ErrorResponse.model_validate(response.json())
     assert response.json() == {
         "detail": {

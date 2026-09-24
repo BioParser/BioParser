@@ -4,6 +4,11 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .errors import CONTENT_TOO_LARGE, ErrorResponse
 
+CONTENT_TOO_LARGE_RESPONSE = JSONResponse(
+    ErrorResponse(detail=CONTENT_TOO_LARGE).model_dump(),
+    status_code=413,
+)
+
 
 class TypedRequestBodyLimitMiddleware:
     def __init__(self, app: ASGIApp, max_body_size: int) -> None:
@@ -13,10 +18,6 @@ class TypedRequestBodyLimitMiddleware:
         )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        response = JSONResponse(
-            ErrorResponse(detail=CONTENT_TOO_LARGE).model_dump(),
-            status_code=413,
-        )
         replacing_response = False
         response_body_sent = False
 
@@ -25,7 +26,7 @@ class TypedRequestBodyLimitMiddleware:
 
             if message["type"] == "http.response.start" and message["status"] == 413:
                 replacing_response = True
-                message["headers"] = response.raw_headers
+                message["headers"] = CONTENT_TOO_LARGE_RESPONSE.raw_headers.copy()
                 await send(message)
                 return
 
@@ -35,7 +36,7 @@ class TypedRequestBodyLimitMiddleware:
                     await send(
                         {
                             "type": "http.response.body",
-                            "body": response.body,
+                            "body": CONTENT_TOO_LARGE_RESPONSE.body,
                             "more_body": False,
                         }
                     )

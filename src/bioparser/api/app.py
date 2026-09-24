@@ -11,7 +11,6 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from pydantic import ValidationError
-from starlette.responses import JSONResponse
 
 from bioparser.services.mineru import MinerUClient
 from bioparser.services.vllm import VLLMService
@@ -25,7 +24,6 @@ from .errors import (
     JOB_NOT_FOUND,
     MISSING_FILE,
     UNSUPPORTED_CONTENT_TYPE,
-    ErrorResponse,
     error_response,
     http_error,
 )
@@ -79,14 +77,6 @@ app.add_middleware(
     TypedRequestBodyLimitMiddleware,
     max_body_size=config.get_api_settings().max_upload_bytes,
 )
-
-
-@app.exception_handler(413)
-async def content_too_large_handler(_request: Request, _exc: Exception) -> JSONResponse:
-    return JSONResponse(
-        content=ErrorResponse(detail=CONTENT_TOO_LARGE).model_dump(),
-        status_code=413,
-    )
 
 
 async def _validated_upload(request: Request, file: UploadFile | None) -> tuple[str, bytes]:
