@@ -12,7 +12,7 @@ updates:
     groups:
       github-actions:
         patterns:
-          - ["*"]
+          - "*"
 
   - package-ecosystem: "pre-commit"
     directory: "/"
@@ -25,7 +25,7 @@ updates:
     groups:
       pre-commit-hooks:
         patterns: ["*"]
-  
+
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
@@ -84,4 +84,3 @@ updates:
       - dependency-name: "redis"
         update-types:
           - "version-update:semver-major"
-
