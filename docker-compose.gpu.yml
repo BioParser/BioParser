@@ -28,7 +28,6 @@ services:
   vllm:
     <<: *gpu
     # NOTE: mineru was using 0.21.0
-    # index digest so amd64 and arm64 both resolve
     image: vllm/vllm-openai:v0.21.0@sha256:a230095847e93bd4df9888b33dab956fa9504537b828a23657d2b26fed57b5c9
     command:
       - ${VLLM_MODEL}
