@@ -16,3 +16,7 @@ class CorruptJobStateError(JobStateError):
 
 class JobStateConnectionError(JobStateError):
     """Redis was unreachable, refused the connection, or timed out."""
+
+
+class JobStateBackendError(JobStateError):
+    """Redis answered with an error other than a connectivity failure (OOM, WRONGTYPE, NOPERM, READONLY, ...)."""
