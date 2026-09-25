@@ -27,7 +27,6 @@ services:
 
   vllm:
     <<: *gpu
-    # NOTE: mineru was using 0.21.0
     image: vllm/vllm-openai:v0.29.0@sha256:c2914767605584b6d8f45686b82de173ecc99e781897aa3d0a66dacd72c51ae1
     command:
       - ${VLLM_MODEL}

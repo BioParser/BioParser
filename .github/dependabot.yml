@@ -73,3 +73,8 @@ updates:
       prefix: "build(docker)"
     cooldown:
       default-days: 7
+    groups:
+      vllm:
+        patterns:
+          - "vllm/vllm-openai"
+          - "vllm/vllm-openai-cpu"
