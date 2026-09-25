@@ -20,5 +20,10 @@ class JobStateStore(Protocol):
         ...
 
     async def update(self, state: JobState) -> None:
-        """Replace the stored state for state.job_id."""
+        """Replace the stored state for state.job_id.
+
+        Implementations must refuse a non-terminal write over a state that
+        already reached a terminal status, so a stale worker cannot reopen
+        a finished job.
+        """
         ...

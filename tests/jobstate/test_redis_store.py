@@ -14,6 +14,7 @@ from bioparser.jobstate import (
     JobState,
     JobStateConnectionError,
     RedisJobStateStore,
+    TerminalJobStateError,
 )
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
@@ -96,6 +97,42 @@ async def test_update_unknown_job_raises(store: RedisJobStateStore) -> None:
 
     with pytest.raises(JobNotFoundError):
         await store.update(state)
+
+
+async def test_update_refuses_to_reopen_a_finished_job(store: RedisJobStateStore) -> None:
+    """A lagged worker must not drag a terminal job back to a live status."""
+    state = _queued(str(uuid.uuid4()))
+    await store.create(state)
+    stale = state.with_changes(status="running")  # the view a lagged worker still holds
+    succeeded = stale.with_changes(
+        status="succeeded",
+        output_artifact_ref=f"artifacts/{state.job_id}/output.json",
+    )
+    await store.update(succeeded)
+
+    with pytest.raises(TerminalJobStateError):
+        await store.update(stale)
+
+    assert await store.get(state.job_id) == succeeded
+
+
+async def test_update_allows_a_terminal_state_over_a_terminal_state(
+    store: RedisJobStateStore,
+) -> None:
+    """Only non-terminal writes are refused: a retry re-reporting its own result is fine."""
+    state = _queued(str(uuid.uuid4()))
+    await store.create(state)
+    failed = state.with_changes(status="failed", error={"code": "parse_failed"})
+    await store.update(failed)
+
+    await store.update(failed)
+    succeeded = state.with_changes(
+        status="succeeded",
+        output_artifact_ref=f"artifacts/{state.job_id}/output.json",
+    )
+    await store.update(succeeded)
+
+    assert await store.get(state.job_id) == succeeded
 
 
 async def test_concurrent_jobs_remain_independent(store: RedisJobStateStore) -> None:

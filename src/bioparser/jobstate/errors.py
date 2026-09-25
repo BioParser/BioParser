@@ -20,3 +20,7 @@ class JobStateConnectionError(JobStateError):
 
 class JobStateBackendError(JobStateError):
     """Redis answered with an error other than a connectivity failure (OOM, WRONGTYPE, NOPERM, READONLY, ...)."""
+
+
+class TerminalJobStateError(JobStateError):
+    """Stored state is already terminal and the update would undo that."""

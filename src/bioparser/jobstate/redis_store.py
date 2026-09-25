@@ -15,6 +15,7 @@ from .errors import (
     JobStateBackendError,
     JobStateConnectionError,
     JobStateError,
+    TerminalJobStateError,
 )
 from .models import JobState
 
@@ -24,6 +25,28 @@ DEFAULT_OPERATION_TIMEOUT_SECONDS = 2.0
 
 _MAX_TIMEOUT_ATTEMPTS = 3
 _RETRY_BASE_DELAY_SECONDS = 0.1
+
+TERMINAL_STATUSES = frozenset({"succeeded", "failed"})
+#: Lua runs on the Redis server as one indivisible step, so no other client
+#: can write between the status check and the SET. A plain read-then-write
+#: from Python could not promise that.
+#: Returns: 1 written, 0 no such key, -1 refused (stored state is terminal and the incoming one is not).
+_UPDATE_SCRIPT = """
+local current = redis.call("get", KEYS[1])
+if not current then
+    return 0
+end
+if ARGV[3] == "0" then
+    local ok, stored = pcall(cjson.decode, current)
+    if ok and type(stored) == "table" then
+        if stored["status"] == "succeeded" or stored["status"] == "failed" then
+            return -1
+        end
+    end
+end
+redis.call("set", KEYS[1], ARGV[1], "EX", ARGV[2])
+return 1
+"""
 
 T = TypeVar(
     "T"
@@ -100,6 +123,7 @@ class RedisJobStateStore:
             )
         except ValueError as exc:
             raise JobStateError(f"invalid Redis URL: {exc}") from exc
+        self._update_script = self._redis.register_script(_UPDATE_SCRIPT)
 
     def _key(self, job_id: str) -> str:
         return f"{self._key_prefix}{job_id}"
@@ -130,13 +154,29 @@ class RedisJobStateStore:
             raise CorruptJobStateError(f"stored state for job {job_id!r} is invalid") from exc
 
     async def update(self, state: JobState) -> None:
-        updated = await _call_with_redis_errors(
-            lambda: self._redis.set(
-                self._key(state.job_id),
-                state.model_dump_json(),
-                xx=True,
-                ex=self._ttl_seconds,
+        """Replace the stored state, unless that would undo a terminal one.
+
+        A job that already reached "succeeded" or "failed" is finished, and
+        a non-terminal write over it can only be a stale one: delivery is
+        at-least-once, so a worker that lost its heartbeat long enough to
+        have its message requeued is not stopped, and can wake up and write
+        a view of the job that another worker has since moved past. Such a
+        write is refused rather than applied.
+        """
+        result = await _call_with_redis_errors(
+            lambda: self._update_script(
+                keys=[self._key(state.job_id)],
+                args=[
+                    state.model_dump_json(),
+                    self._ttl_seconds,
+                    "1" if state.status in TERMINAL_STATUSES else "0",
+                ],
             )
         )
-        if not updated:
+        if result == 0:
             raise JobNotFoundError(f"no stored state for job {state.job_id!r}")
+        if result == -1:
+            raise TerminalJobStateError(
+                f"job {state.job_id!r} already finished; refusing to overwrite it "
+                f"with status={state.status!r}"
+            )

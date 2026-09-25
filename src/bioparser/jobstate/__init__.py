@@ -2,8 +2,10 @@ from .errors import (
     CorruptJobStateError,
     JobAlreadyExistsError,
     JobNotFoundError,
+    JobStateBackendError,
     JobStateConnectionError,
     JobStateError,
+    TerminalJobStateError,
 )
 from .models import JOB_STATE_SCHEMA_VERSION, JobState, JobStatus, SafeError
 from .redis_store import RedisJobStateStore
@@ -15,10 +17,12 @@ __all__ = [
     "JobAlreadyExistsError",
     "JobNotFoundError",
     "JobState",
+    "JobStateBackendError",
     "JobStateConnectionError",
     "JobStateError",
     "JobStateStore",
     "JobStatus",
     "RedisJobStateStore",
     "SafeError",
+    "TerminalJobStateError",
 ]
