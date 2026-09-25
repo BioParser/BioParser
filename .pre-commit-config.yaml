@@ -4,7 +4,7 @@ default_install_hook_types:
 repos:
   - repo: https://github.com/astral-sh/uv-pre-commit
     # uv version
-    rev: "d153933366256874470b9d8395de436c50714f41" # v0.12.9
+    rev: "04970bde2c7315e76a91457d89933b0ffc6ab1f4" # 0.12.16
     hooks:
       - id: uv-lock
 
