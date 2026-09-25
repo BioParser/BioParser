@@ -11,14 +11,13 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from pydantic import ValidationError
-from starlette.middleware.body_limit import RequestBodyLimitMiddleware
-from starlette.responses import PlainTextResponse
 
 from bioparser.services.mineru import MinerUClient
 from bioparser.services.vllm import VLLMService
 
 from . import config
 from .errors import (
+    CONTENT_TOO_LARGE,
     EMPTY_FILE,
     INVALID_CONTENT_LENGTH,
     INVALID_PDF,
@@ -29,6 +28,7 @@ from .errors import (
     http_error,
 )
 from .jobs import create_job, get_job
+from .middleware import TypedRequestBodyLimitMiddleware
 from .pipeline import PipelineError, run_pipeline
 from .schema import (
     HealthResponse,
@@ -37,7 +37,6 @@ from .schema import (
     ReadinessUnavailableResponse,
 )
 from .uploads import (
-    CONTENT_TOO_LARGE,
     read_upload,
     require_file,
     validate_content_length,
@@ -75,14 +74,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
-    RequestBodyLimitMiddleware,
+    TypedRequestBodyLimitMiddleware,
     max_body_size=config.get_api_settings().max_upload_bytes,
 )
-
-
-@app.exception_handler(413)
-async def content_too_large_handler(_request: Request, _exc: Exception) -> PlainTextResponse:
-    return PlainTextResponse(CONTENT_TOO_LARGE, status_code=413)
 
 
 async def _validated_upload(request: Request, file: UploadFile | None) -> tuple[str, bytes]:
@@ -123,6 +117,7 @@ async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
     status_code=202,
     responses={
         400: error_response(MISSING_FILE, EMPTY_FILE, INVALID_PDF, INVALID_CONTENT_LENGTH),
+        413: error_response(CONTENT_TOO_LARGE),
         415: error_response(UNSUPPORTED_CONTENT_TYPE),
     },
 )
