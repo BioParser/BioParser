@@ -192,7 +192,7 @@ class TestErrorHandling:
         with pytest.raises(ArtifactNotFoundError):
             storage.retrieve_metadata("orphan")
 
-        # Orphan metadata file without content
+        # Metadata file exists without content
         meta = FileBlobMetadata(
             artifact_id="metaonly",
             document_id="doc-meta",
@@ -202,10 +202,10 @@ class TestErrorHandling:
         (storage.root_path / "metaonly.meta.json").write_text(
             meta.model_dump_json(), encoding="utf-8"
         )
-        assert not storage.exists("metaonly")
-        with pytest.raises(ArtifactNotFoundError):
+        assert storage.exists("metaonly")
+        with pytest.raises(ArtifactNotFoundError, match="content not found"):
             storage.retrieve("metaonly")
-        with pytest.raises(ArtifactNotFoundError):
+        with pytest.raises(ArtifactNotFoundError, match="content not found"):
             storage.retrieve_metadata("metaonly")
 
     def test_corrupted_metadata_json_raises_storage_payload_error(
@@ -214,9 +214,23 @@ class TestErrorHandling:
         (storage.root_path / "corrupt.meta.json").write_text(
             "invalid json content", encoding="utf-8"
         )
-        assert not storage.exists("corrupt")
+        # Metadata file exists, so artifact slot is occupied
+        assert storage.exists("corrupt")
         with pytest.raises(StoragePayloadError, match="Corrupted metadata"):
             storage.retrieve_metadata("corrupt")
+
+        # Non-overwrite store correctly raises ArtifactAlreadyExistsError
+        meta = ArtifactMetadata(
+            artifact_id="corrupt",
+            document_id="doc-1",
+            media_type="application/pdf",
+        )
+        with pytest.raises(ArtifactAlreadyExistsError):
+            storage.store(b"content", meta, overwrite=False)
+
+        # Overwrite store succeeds and replaces corrupted metadata
+        storage.store(b"fixed-content", meta, overwrite=True)
+        assert storage.retrieve("corrupt") == b"fixed-content"
 
     def test_retrieved_content_size_mismatch_raises_storage_payload_error(
         self, storage: FileSystemArtifactStorage

@@ -210,12 +210,5 @@ class FileSystemArtifactStorage:
 
     def exists(self, artifact_id: str) -> bool:
         self._validate_artifact_id(artifact_id)
-        try:
-            metadata_path = self._get_metadata_path(artifact_id)
-            if not metadata_path.is_file():
-                return False
-            record = self._read_file_blob_metadata(artifact_id)
-            blob_path = self._get_blob_data_path(artifact_id, record.blob_id)
-            return blob_path.is_file()
-        except (ArtifactNotFoundError, StoragePayloadError):
-            return False
+        metadata_path = self._get_metadata_path(artifact_id)
+        return metadata_path.is_file()

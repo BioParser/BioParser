@@ -85,7 +85,7 @@ class ArtifactStorage(Protocol):
             artifact_id: The string identifier of the artifact.
 
         Returns:
-            True if both content and metadata exist; False otherwise.
+            True if the artifact exists; False otherwise.
 
         Raises:
             StoragePathTraversalError: If the ID attempts path traversal.
