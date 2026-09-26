@@ -13,8 +13,9 @@ services:
       MINERU_API_MAX_CONCURRENT_REQUESTS: "1"
     mem_limit: 12g
     memswap_limit: 12g # needed for OOM ?
+
   vllm:
-    image: vllm/vllm-openai-cpu:latest-x86_64
+    image: vllm/vllm-openai-cpu:v0.29.0-x86_64@sha256:66064cf683152e60eff2e5b18ec2d4ace236fb063c0a241f918691db9caddcf4
     command:
       - ${VLLM_MODEL}
       - --host

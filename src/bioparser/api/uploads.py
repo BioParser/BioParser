@@ -1,7 +1,8 @@
-from fastapi import HTTPException, UploadFile
+from fastapi import UploadFile
 
 from . import config
 from .errors import (
+    CONTENT_TOO_LARGE,
     EMPTY_FILE,
     INVALID_CONTENT_LENGTH,
     INVALID_PDF,
@@ -12,7 +13,6 @@ from .errors import (
 
 _CHUNK_SIZE = 1024 * 1024  # 1 MiB
 _PDF_MAGIC = b"%PDF-"
-CONTENT_TOO_LARGE = "Content Too Large"
 
 
 def require_file(file: UploadFile | None) -> UploadFile:
@@ -37,7 +37,7 @@ def validate_content_length(header: str | None) -> None:
     if length < 0:
         raise http_error(400, INVALID_CONTENT_LENGTH)
     if length > config.get_api_settings().max_upload_bytes:
-        raise HTTPException(status_code=413, detail=CONTENT_TOO_LARGE)
+        raise http_error(413, CONTENT_TOO_LARGE)
 
 
 async def read_upload(file: UploadFile) -> bytes:
@@ -46,7 +46,7 @@ async def read_upload(file: UploadFile) -> bytes:
     while chunk := await file.read(_CHUNK_SIZE):
         total += len(chunk)
         if total > config.get_api_settings().max_upload_bytes:
-            raise HTTPException(status_code=413, detail=CONTENT_TOO_LARGE)
+            raise http_error(413, CONTENT_TOO_LARGE)
         chunks.append(chunk)
     return b"".join(chunks)
 

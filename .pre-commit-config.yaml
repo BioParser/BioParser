@@ -4,24 +4,26 @@ default_install_hook_types:
 repos:
   - repo: https://github.com/astral-sh/uv-pre-commit
     # uv version
-    rev: "d153933366256874470b9d8395de436c50714f41" # v0.12.9
+    rev: "04970bde2c7315e76a91457d89933b0ffc6ab1f4" # 0.12.16
     hooks:
       - id: uv-lock
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Ruff version.
-    rev: "1f1e8bf348ff38fc88619a38d3ca4d9c56abea49" # v0.16.5
-    hooks:
-      # Run the linter.
-      - id: ruff-check
-      # Run the formatter.
-      - id: ruff-format
-
   - repo: local 
     hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check
+        language: system
+        types: [python]
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
+      
       - id: mypy
         name: mypy
         entry: uv run mypy
         language: system
         pass_filenames: false
-
