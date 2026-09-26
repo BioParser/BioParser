@@ -1,4 +1,5 @@
 from typing import Protocol
+from uuid import UUID
 
 from .models import JobState
 
@@ -15,7 +16,7 @@ class JobStateStore(Protocol):
         """Persist a new job's state."""
         ...
 
-    async def get(self, job_id: str) -> JobState | None:
+    async def get(self, job_id: str | UUID) -> JobState | None:
         """Return the stored state for job_id, or None if it doesn't exist."""
         ...
 
