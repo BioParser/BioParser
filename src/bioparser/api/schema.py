@@ -9,7 +9,7 @@ class JobStatusResponse(BaseModel):
 
     model_config = ConfigDict(
         json_schema_extra={
-            "examples": [{"job_id": "b3f1c2a4-5678-90ab-cdef-1234567890ab", "status": "queued"}]
+            "examples": [{"job_id": "9c6f2a10-5b3e-4d78-a1f2-7e4c8b0d9351", "status": "queued"}]
         }
     )
 

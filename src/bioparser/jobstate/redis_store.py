@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
+from uuid import UUID
 
 from pydantic import ValidationError
 from redis.asyncio import Redis
@@ -125,7 +126,7 @@ class RedisJobStateStore:
             raise JobStateError(f"invalid Redis URL: {exc}") from exc
         self._update_script = self._redis.register_script(_UPDATE_SCRIPT)
 
-    def _key(self, job_id: str) -> str:
+    def _key(self, job_id: str | UUID) -> str:
         return f"{self._key_prefix}{job_id}"
 
     async def aclose(self) -> None:
@@ -144,7 +145,7 @@ class RedisJobStateStore:
         if not created:
             raise JobAlreadyExistsError(f"job {state.job_id!r} already has stored state")
 
-    async def get(self, job_id: str) -> JobState | None:
+    async def get(self, job_id: str | UUID) -> JobState | None:
         raw = await _call_with_redis_errors(lambda: self._redis.get(self._key(job_id)))
         if raw is None:
             return None

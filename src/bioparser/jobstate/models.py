@@ -1,6 +1,6 @@
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import UUID4, BaseModel, ConfigDict, Field, model_validator
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
 SafeErrorCode = Literal[
@@ -26,7 +26,7 @@ class JobState(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     schema_version: Literal[1] = JOB_STATE_SCHEMA_VERSION
-    job_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+    job_id: UUID4
     document_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     status: JobStatus
     input_artifact_ref: str = Field(min_length=1)
