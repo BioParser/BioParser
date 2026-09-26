@@ -3,6 +3,8 @@ from functools import lru_cache
 from pydantic import AnyUrl, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from bioparser.logging_config import LogLevel
+
 DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MiB
 
 
@@ -11,7 +13,9 @@ class ApiSettings(BaseSettings):
         env_file=".env",
         env_prefix="BIOPARSER_",
         extra="ignore",
+        hide_input_in_errors=True,
     )
+    log_level: LogLevel = "INFO"
 
     max_upload_bytes: int = Field(default=DEFAULT_MAX_UPLOAD_BYTES, ge=1)
     mineru_base_url: str = "http://mineru:8000"
@@ -27,8 +31,14 @@ class ApiSettings(BaseSettings):
     extraction_max_tokens: int = Field(default=1024, ge=64)
 
     # redis
-    redis_url: AnyUrl | None = None
+    # repr=False: the URL can hold the password; keep it out of repr(settings)
+    redis_url: AnyUrl | None = Field(default=None, repr=False)
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def normalize_log_level(cls, value: object) -> object:
+        return value.upper() if isinstance(value, str) else value
 
     @field_validator("redis_url", mode="before")
     @classmethod

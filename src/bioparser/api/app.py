@@ -1,6 +1,6 @@
 import asyncio
-import contextlib
 import hashlib
+import logging
 import os
 import socket
 import tempfile
@@ -12,8 +12,11 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from pydantic import ValidationError
 
+from bioparser.logging_config import error_fields, redact_url, setup_logging
 from bioparser.services.mineru import MinerUClient
 from bioparser.services.vllm import VLLMService
+from bioparser.services.vllm.config import get_settings as get_vllm_settings
+from bioparser.services.vllm.vllm import VLLMError
 
 from . import config
 from .errors import (
@@ -44,21 +47,32 @@ from .uploads import (
     validate_pdf_content,
 )
 
-# TODO: logger
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = config.get_api_settings()
+    setup_logging(settings.log_level)
     app.state.mineru = MinerUClient(
         settings.mineru_base_url,
         settings.mineru_timeout_seconds,
         settings.mineru_connect_timeout_seconds,
     )
     app.state.vllm = VLLMService()
-    # Find served model id early to log what we are using
-    with contextlib.suppress(Exception):  # TODO: log this once there is a logger
-        await app.state.vllm.get_model()
+    # Find the served model
+    vllm_base_url = redact_url(get_vllm_settings().vllm_base_url)
+    try:
+        model = await app.state.vllm.get_model()
+    except Exception as exc:
+        logger.warning(
+            "vllm model discovery failed",
+            # vLLM not up yet is expected
+            exc_info=not isinstance(exc, VLLMError),
+            extra={"vllm_base_url": vllm_base_url, **error_fields(exc)},
+        )
+    else:
+        logger.info("vllm model discovered", extra={"vllm_base_url": vllm_base_url, "model": model})
     # Bounds /extract only. The queue replaces this once the worker lands.
     app.state.extract_sem = asyncio.Semaphore(settings.extract_concurrency)
     try:
@@ -72,6 +86,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await client.aclose()
 
 
+setup_logging(config.get_api_settings().log_level)
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     TypedRequestBodyLimitMiddleware,

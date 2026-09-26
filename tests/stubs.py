@@ -2,7 +2,13 @@
 
 import json
 import re
+from collections.abc import Callable
 from typing import Any
+
+import httpx2
+
+# What httpx2.MockTransport calls for every request a client sends
+type Handler = Callable[[httpx2.Request], httpx2.Response]
 
 # stub json one page and one text block for mineru mapper
 STUB_JSON: dict[str, Any] = {

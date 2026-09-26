@@ -276,10 +276,11 @@ this package into `bioparser.services.mineru`, `bioparser.services.vllm`,
 
 Holds the FastAPI app, its startup/shutdown lifecycle, and all four route handlers.
 
-**Lifespan:** on startup, builds a `MinerUClient` (`bioparser.services.mineru`) and
+**Lifespan:** on startup, first calls `setup_logging(settings.log_level)` (see
+[Logging](#logging)), then builds a `MinerUClient` (`bioparser.services.mineru`) and
 a `VLLMService` (`bioparser.services.vllm`) from `config.get_api_settings()`, and
-probes the vLLM model id once (best-effort — failures are swallowed; there is no
-logger yet). It also creates an `asyncio.Semaphore` sized `config.extract_concurrency`
+probes the vLLM model id once. The probe is best-effort: a failure logs one WARNING
+and startup continues. It also creates an `asyncio.Semaphore` sized `config.extract_concurrency`
 on `app.state.extract_sem`, used only by `POST /extract`. On shutdown, both clients
 are closed.
 
@@ -384,6 +385,7 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 | `extract_queue_timeout_seconds` | `5.0` | how long `POST /extract` waits for a semaphore slot before returning `503` |
 | `extraction_char_budget` | `8000` | character (not token) budget passed to vLLM extraction |
 | `extraction_max_tokens` | `1024` | max generation tokens passed to vLLM extraction |
+| `log_level` | `INFO` | level of the `bioparser` loggers (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`; case-insensitive); see [Logging](#logging) |
 
 `DEFAULT_MAX_UPLOAD_BYTES` is also exported as a module-level constant.
 
@@ -397,6 +399,58 @@ A plain Python dict mapping `job_id -> JobRecord` (a `@dataclass` with `job_id` 
 - `get_job(job_id: str) -> JobRecord | None` — looks up the record, or `None` if
   missing.
 
+### Logging
+
+`bioparser/logging_config.py` configures the whole process's log output.
+`setup_logging()` puts one handler on the root logger that writes each record to
+stderr as one line of JSON:
+
+```json
+{"timestamp": "2026-09-22T09:05:56.721+00:00", "level": "INFO", "logger": "bioparser.services.mineru.client", "msg": "mineru-api request completed", "status_code": 200, "bytes_read": 183422, "latency_ms": 4123.4, "checksum": "9f86d081884c7d65..."}
+```
+
+- Fields: `timestamp` (UTC), `level`, `logger`, `msg`, then any fields passed with
+  `extra=`, then `exc_type`/`exc_info` when an exception is logged. An `extra`
+  field never replaces one of the fixed keys; a `bytes` value is rendered as its
+  size (`"<21 bytes>"`), never its contents.
+- `BIOPARSER_LOG_LEVEL` sets the level of the `bioparser` loggers only.
+  Third-party loggers (httpx2, httpcore2, openai) stay at `WARNING` or stricter,
+  because httpx2 logs full URLs at `INFO`.
+- uvicorn's loggers keep the level from its `--log-level` and go through the same
+  handler, on stderr rather than stdout, from uvicorn's first line: `app.py` sets up
+  logging at import too. Only the supervisor process of `--reload` or `--workers`,
+  which never imports the app, keeps uvicorn's format. Access lines carry
+  `client_addr`, `method`, `path` (without the query string, where clients put
+  tokens), `http_version` and `status_code` instead of `msg`. `--no-access-log` is
+  respected.
+- `log_context(**fields)` adds fields to every record logged inside it, from any
+  logger. `run_pipeline()` uses it for `checksum` (the upload's sha256), so the
+  MinerU, vLLM and stage records of one run share it. Access lines do not carry it.
+
+What is logged:
+
+| Logger | Message | Level | Fields |
+|---|---|---|---|
+| `bioparser.api.app` | `vllm model discovered` / `vllm model discovery failed` | INFO / WARNING | `vllm_base_url` (credentials, query and fragment removed), then `model`, or `error` and `cause` |
+| `bioparser.api.pipeline` | `pipeline stage completed` / `pipeline stage failed` | INFO / ERROR | `stage` (`parse`, `map`, `extract`), `outcome` (`ok` or `error`), `duration_ms`, then results (`pages`; `observations`, `blocks_sent`, `truncated`, ...), or `error`, `cause` and the traceback |
+| `bioparser.services.mineru.client` | `mineru-api request completed` / `mineru-api request failed` | INFO / WARNING | `status_code`, `bytes_read`, `latency_ms`, then `error` on failure |
+| `bioparser.services.vllm.vllm` | `vllm completion finished` / `vllm request failed` | INFO if `finish_reason` is `stop`, else WARNING | `model`, `latency_ms`, `finish_reason`, `prompt_tokens`, `completion_tokens`, or `latency_ms` and `error` |
+
+Never logged: PDF bytes, prompt text, generated text, quotations, the vLLM API
+key, or credentials in configured URLs. Exceptions are named by type (`error`,
+`cause`). A logged traceback keeps every frame and exception type, but only
+exceptions defined in `bioparser` keep their message; any other message becomes
+`[message redacted]`, because it can quote its input (a vLLM 400 echoing the
+prompt) or a credential (a gateway quoting the rejected API key). So never put
+input data in a `bioparser` exception message. The pydantic models, including
+`ApiSettings`, also set `hide_input_in_errors=True`.
+
+Reading the logs locally:
+
+```
+docker compose logs --no-log-prefix bioparser | jq -R 'fromjson? // .'
+```
+
 ---
 
 ## Out of scope for this draft
@@ -406,8 +460,8 @@ job past `queued`. No `/api/v1` prefix. No idempotency — `POST /api/extraction
 computes a checksum but doesn't use it to detect duplicate uploads. No structured
 error envelope for `POST /extract`'s `502`/`503` (they use FastAPI's plain
 `{"detail": "<message>"}`, unlike `POST /api/extractions`'s `{"code", "message"}` object). No
-request-ID middleware or structured logging (see the `# TODO: logger` markers in
-`app.py` and `pipeline.py`). These are the gaps named in the Sprint 0 scope note
+request-ID middleware, so access lines are not correlated with a pipeline run's
+records. These are the gaps named in the Sprint 0 scope note
 above, deferred until a later revision of this document.
 
 ## Verification
