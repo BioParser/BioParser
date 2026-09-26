@@ -67,6 +67,20 @@ archive. PDFs and versioned outputs live behind an artifact storage interface:
 - a shared persistent volume on OpenShift
 - an S3 compatible backend such as MinIO if shared storage is unavailable
 
+### Job-state keys, retention, and timeouts
+
+- **Key format:** `bioparser:job:<job_id>` — one Redis key per job,
+  holding that job's `JobState` as JSON.
+- **Retention:** every write refreshes a 90-day TTL. Once 90 days pass
+  without an update, Redis deletes the key automatically. This only
+  bounds how long a job is findable by `job_id` — Redis holds a
+  reference to extraction output, never the output itself, so nothing
+  about the extracted result is deleted when a job's state expires.
+- **Operation timeouts:** Redis connection and command operations are
+  bounded to 2 seconds by default, so a reachable-but-slow Redis can't
+  hang a caller indefinitely. A fully unreachable Redis is a separate,
+  already-handled case (`JobStateConnectionError`).
+
 ### Workers
 
 The CPU oriented parser worker reads a PDF artifact, invokes the selected parser, stores
