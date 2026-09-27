@@ -4,11 +4,11 @@ This document defines the public HTTP contract of the API container and the inte
 module layout that implements it. The system context for these endpoints is in
 [architecture.md](architecture.md).
 
-Status: **draft** — all five routes (`POST api/extractions`, `GET /api/jobs/{job_id}`,
+Status: **draft** — all five routes (`POST /api/extractions`, `GET /api/jobs/{job_id}`,
 `POST /extract`, `GET /health`, `GET /ready`) are implemented, along with upload validation and a
 configurable size limit. `POST /extract` runs the real MinerU → vLLM pipeline
 synchronously for manual testing; it is not wired to the job store. The larger
-infrastructure below (a worker that advances `api/extractions` jobs, and wiring artifact
+infrastructure below (a worker that advances `/api/extractions` jobs, and wiring artifact
 storage to the API) is in progress.
 
 **Current API scope:** this is a deliberately reduced first pass, matching
