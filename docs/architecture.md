@@ -89,8 +89,8 @@ language model.
 
 The independently deployable extractor worker consumes parser artifacts, runs the local
 model, validates canonical observations, rejects candidates without evidence, and stores
-the result. It may have separate memory and GPU requirements. Sprint 0 defines this
-boundary and evaluates runtimes. Production inference comes later.
+the result. It may have separate memory and GPU requirements. Initial milestones define this
+boundary and evaluate runtimes; production inference comes later.
 
 Health and readiness for workers
 
@@ -143,7 +143,7 @@ sequenceDiagram
     API-->>Client: ETS JSON with evidence
 ```
 
-The parser only Sprint 0 path terminates successfully after storing the parser artifact.
+The parser-only path terminates successfully after storing the parser artifact.
 The extractor and ETS steps are added without changing PDF submission or job polling.
 
 ## Job lifecycle
