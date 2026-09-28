@@ -4,14 +4,14 @@ This document defines the public HTTP contract of the API container and the inte
 module layout that implements it. The system context for these endpoints is in
 [architecture.md](architecture.md).
 
-Status: **draft** — all five routes (`POST api/extractions`, `GET /api/jobs/{job_id}`,
+Status: **draft** — all five routes (`POST /api/extractions`, `GET /api/jobs/{job_id}`,
 `POST /extract`, `GET /health`, `GET /ready`) are implemented, along with upload validation and a
 configurable size limit. `POST /extract` runs the real MinerU → vLLM pipeline
 synchronously for manual testing; it is not wired to the job store. The larger
-infrastructure below (Redis, a worker that advances `api/extractions` jobs, artifact
-storage) is not implemented.
+infrastructure below (a worker that advances `/api/extractions` jobs, and wiring artifact
+storage to the API) is in progress.
 
-**Sprint 1 scope:** this is a deliberately reduced first pass, matching
+**Current API scope:** this is a deliberately reduced first pass, matching
 [architecture.md](architecture.md)'s core idea (accept a PDF, return
 immediately, poll for status) but not yet its full infrastructure. In
 particular:
@@ -24,18 +24,20 @@ particular:
   It runs the real MinerU → mapper → vLLM pipeline end-to-end and returns the
   result inline, bounded by a concurrency semaphore, but it does not read or
   write the job store, and `POST /api/extractions` never calls it.
-- **No artifact storage.** Uploaded PDF bytes are not persisted anywhere.
+- **Artifact storage not yet wired to API routes.** While the `bioparser.storage`
+  library is implemented, uploaded PDF bytes in `POST /api/extractions` are not
+  yet persisted to storage.
 - **Readiness (`/ready`) is supported.** The readiness endpoint performs
   lightweight dependency checks only when corresponding environment variables are
   set (see *Readiness behaviour* below).
 - **No `/api/v1` prefix, no checksum-based idempotency, no global error envelope or exception handlers** 
 - routes still raise plain `fastapi.HTTPException` directly, with no registered `@app.exception_handler`. `POST /api/extractions`'s validation failures do pass a structured `{"code", "message"}` object as `detail` (see above), but that's local to this one route, not a repo-wide convention.
 
-These are the pieces `architecture.md` calls for that this draft does
+These are the pieces `architecture.md` calls for that this API draft does
 not yet satisfy. They are the intended next steps, not omissions to be
-missed: Redis and a real job store, an artifact storage interface, a
-parser worker, and the `ports`/`adapters` split that lets tests swap in
-fakes. `POST /extract` already exercises the real MinerU/vLLM pipeline
+missed: wiring the API to the artifact storage library, a Redis-backed job
+store, a parser worker, and the `ports`/`adapters` split that lets tests
+swap in fakes. `POST /extract` already exercises the real MinerU/vLLM pipeline
 synchronously, but that's a manual-testing shortcut, not the queued worker
 described here. This note should be replaced or removed once those exist.
 
@@ -45,7 +47,7 @@ described here. This note should be replaced or removed once those exist.
 
 The API container accepts a born-digital PDF, creates a job, and lets the client poll
 for the job's status. `POST /api/extractions` never parses in the request process — it only
-records that a job exists; nothing currently advances that job (see Sprint 1 scope
+records that a job exists; nothing currently advances that job (see Current API scope
 above). Separately, `POST /extract` runs the same kind of upload through the real
 MinerU → vLLM pipeline synchronously, for manually testing the pipeline itself outside
 the job lifecycle.
@@ -256,13 +258,14 @@ expose secrets in error messages.
 ```
 src/bioparser/api/
   __init__.py       # main() -> starts the app
-  app.py            # FastAPI app, lifespan startup, all four routes
-  uploads.py        # upload-validation helpers shared by POST /api/extractions and POST /extract
-  schema.py         # pydantic response/error models used across routes
-  pipeline.py       # run_pipeline(): MinerU -> mapper -> vLLM, used by POST /extract
+  app.py            # FastAPI app, lifespan startup, all five routes
   config.py         # process configuration read from the environment
-  jobs.py           # an in-process dict acting as the job store, plus a helper
-                     #   to create/read jobs
+  errors.py         # named ErrorDetail constants, codes, and OpenAPI helpers
+  jobs.py           # in-process dict job store (Redis models in bioparser.jobstate)
+  middleware.py     # body size limit middleware
+  pipeline.py       # run_pipeline(): MinerU -> mapper -> vLLM, used by POST /extract
+  schema.py         # pydantic response/error models used across routes
+  uploads.py        # upload-validation helpers shared by POST /api/extractions and POST /extract
 ```
 
 No `ports/`, `adapters/`, or `ets/` folders yet inside `api/` itself. Routes live
@@ -274,7 +277,7 @@ this package into `bioparser.services.mineru`, `bioparser.services.vllm`,
 
 ### `app.py`
 
-Holds the FastAPI app, its startup/shutdown lifecycle, and all four route handlers.
+Holds the FastAPI app, its startup/shutdown lifecycle, and all five route handlers.
 
 **Lifespan:** on startup, builds a `MinerUClient` (`bioparser.services.mineru`) and
 a `VLLMService` (`bioparser.services.vllm`) from `config.get_api_settings()`, and
@@ -400,14 +403,15 @@ A plain Python dict mapping `job_id -> JobRecord` (a `@dataclass` with `job_id` 
 ---
 
 ## Out of scope for this draft
-
-No PDF storage. No Redis-backed queue for `POST /api/extractions`. No worker that advances a
+ 
+No PDF persistence in the API routes yet (pending wiring to artifact storage). No
+Redis-backed queue worker for `POST /api/extractions`. No worker that advances a
 job past `queued`. No `/api/v1` prefix. No idempotency — `POST /api/extractions`
 computes a checksum but doesn't use it to detect duplicate uploads. No structured
 error envelope for `POST /extract`'s `502`/`503` (they use FastAPI's plain
 `{"detail": "<message>"}`, unlike `POST /api/extractions`'s `{"code", "message"}` object). No
 request-ID middleware or structured logging (see the `# TODO: logger` markers in
-`app.py` and `pipeline.py`). These are the gaps named in the Sprint 0 scope note
+`app.py` and `pipeline.py`). These are the gaps named in the scope note
 above, deferred until a later revision of this document.
 
 ## Verification
