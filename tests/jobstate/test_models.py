@@ -6,7 +6,7 @@ from bioparser.jobstate import JOB_STATE_SCHEMA_VERSION, JobState, SafeError
 
 def _queued(**overrides: object) -> JobState:
     fields: dict[str, object] = {
-        "job_id": "11111111-1111-1111-1111-111111111111",
+        "job_id": "3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34",  # UUID
         "document_id": "a" * 64,  # 64 hex chars, valid sha256
         "status": "queued",
         "input_artifact_ref": "artifacts/doc-1/input.pdf",
