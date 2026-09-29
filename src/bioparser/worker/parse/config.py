@@ -1,0 +1,48 @@
+from pathlib import Path
+
+from pydantic import AnyUrl, Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# MinerU's pipeline backend runs in-process on CPU and can take much longer than
+# the queue's 10 minute default. A shorter limit kills the parse and retries it.
+DEFAULT_PARSE_TIME_LIMIT_MS = 30 * 60 * 1000
+DEFAULT_PARSE_MAX_RETRIES = 3
+# Head start the parser process limit has over the queue limit, so the process is
+# stopped and reported before the queue interrupts the thread. Also covers fetching
+# the PDF and storing the artifact. Capped at half the limit for small limits.
+PARSE_TIME_LIMIT_MARGIN_S = 30.0
+
+
+class WorkerSettings(BaseSettings):
+    """Environment configuration for the parser worker.
+
+    One job runs at a time. The handler drives an asyncio job-state client and
+    the MinerU CLI from the queue thread, so the process does not raise the
+    queue's worker thread count.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="BIOPARSER_",
+        extra="ignore",
+    )
+
+    redis_url: AnyUrl
+    artifact_storage_path: Path
+    parse_queue_name: str = Field(min_length=1)
+    redis_timeout_seconds: float = Field(default=5.0, gt=0)
+    parse_time_limit_ms: int = Field(default=DEFAULT_PARSE_TIME_LIMIT_MS, gt=0)
+    parse_max_retries: int = Field(default=DEFAULT_PARSE_MAX_RETRIES, ge=0)
+
+    @property
+    def parser_timeout_seconds(self) -> float:
+        """Limit for the MinerU process, slightly below the queue's time limit."""
+        limit_s = self.parse_time_limit_ms / 1000
+        return limit_s - min(PARSE_TIME_LIMIT_MARGIN_S, limit_s / 2)
+
+    @field_validator("redis_url", mode="before")
+    @classmethod
+    def empty_redis_url_is_rejected(cls, value: object) -> object:
+        if value == "":
+            raise ValueError("BIOPARSER_REDIS_URL is set but empty")
+        return value

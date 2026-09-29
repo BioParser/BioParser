@@ -34,7 +34,6 @@ class TestBasicStorageOperations:
         pdf_bytes = b"%PDF-1.4\n%some test pdf content\n%%EOF"
         metadata = ArtifactMetadata(
             artifact_id="doc-123-pdf",
-            document_id="doc-123",
             media_type="application/pdf",
             checksum="abc123sha",
         )
@@ -58,7 +57,6 @@ class TestBasicStorageOperations:
 
         retrieved_meta = storage.retrieve_metadata("doc-123-pdf")
         assert retrieved_meta.artifact_id == "doc-123-pdf"
-        assert retrieved_meta.document_id == "doc-123"
         assert retrieved_meta.media_type == "application/pdf"
         assert retrieved_meta.checksum == "abc123sha"
         assert retrieved_meta.size_bytes == len(pdf_bytes)
@@ -73,7 +71,6 @@ class TestBasicStorageOperations:
         json_bytes = b'{"schema_version": "1", "pages": []}'
         metadata = ArtifactMetadata(
             artifact_id="parsed-blocks-1",
-            document_id="doc-456",
             media_type="application/json",
             content_schema_version="1",
         )
@@ -96,7 +93,6 @@ class TestOverwriteBehavior:
     ) -> None:
         metadata = ArtifactMetadata(
             artifact_id="art-dup",
-            document_id="doc-1",
             media_type="application/pdf",
         )
         storage.store(b"first content", metadata)
@@ -113,7 +109,6 @@ class TestOverwriteBehavior:
     ) -> None:
         metadata_1 = ArtifactMetadata(
             artifact_id="art-upd",
-            document_id="doc-1",
             media_type="application/pdf",
         )
         storage.store(b"version 1", metadata_1)
@@ -122,7 +117,6 @@ class TestOverwriteBehavior:
 
         metadata_2 = ArtifactMetadata(
             artifact_id="art-upd",
-            document_id="doc-1",
             media_type="application/pdf",
             checksum="new-checksum",
         )
@@ -143,7 +137,6 @@ class TestOverwriteBehavior:
 
         metadata = ArtifactMetadata(
             artifact_id="art-race",
-            document_id="doc-race",
             media_type="application/pdf",
         )
 
@@ -195,7 +188,6 @@ class TestErrorHandling:
         # Metadata file exists without content
         meta = FileBlobMetadata(
             artifact_id="metaonly",
-            document_id="doc-meta",
             media_type="application/pdf",
             blob_id="nonexistent-blob",
         )
@@ -222,7 +214,6 @@ class TestErrorHandling:
         # Non-overwrite store correctly raises ArtifactAlreadyExistsError
         meta = ArtifactMetadata(
             artifact_id="corrupt",
-            document_id="doc-1",
             media_type="application/pdf",
         )
         with pytest.raises(ArtifactAlreadyExistsError):
@@ -237,7 +228,6 @@ class TestErrorHandling:
     ) -> None:
         meta = ArtifactMetadata(
             artifact_id="art-tamper",
-            document_id="doc-1",
             media_type="application/pdf",
         )
         storage.store(b"expected-length-content", meta)
@@ -254,7 +244,6 @@ class TestErrorHandling:
     ) -> None:
         metadata = ArtifactMetadata(
             artifact_id="art-mismatch",
-            document_id="doc-1",
             media_type="application/pdf",
             size_bytes=999,
         )

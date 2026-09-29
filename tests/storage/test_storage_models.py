@@ -60,13 +60,11 @@ class TestArtifactMetadata:
     def test_required_fields_and_defaults(self) -> None:
         meta = ArtifactMetadata(
             artifact_id="art-1",
-            document_id="doc-1",
             media_type="application/pdf",
         )
         assert meta.schema_version == ARTIFACT_METADATA_SCHEMA_VERSION
         assert meta.schema_version == "1"
         assert meta.artifact_id == "art-1"
-        assert meta.document_id == "doc-1"
         assert meta.media_type == "application/pdf"
         assert meta.checksum is None
         assert meta.content_schema_version is None
@@ -81,7 +79,6 @@ class TestArtifactMetadata:
                 {
                     "schema_version": "2",
                     "artifact_id": "art-1",
-                    "document_id": "doc-1",
                     "media_type": "application/pdf",
                 }
             )
@@ -91,7 +88,6 @@ class TestArtifactMetadata:
         meta = ArtifactMetadata.model_validate(
             {
                 "artifact_id": "art-2",
-                "document_id": "doc-2",
                 "media_type": "application/json",
                 "created_at": dt,
                 "created_by": "api-gateway",
@@ -106,7 +102,6 @@ class TestArtifactMetadata:
         dt = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
         orig = {
             "artifact_id": "art-2",
-            "document_id": "doc-2",
             "media_type": "application/json",
             "created_at": dt,
             "created_by": "api-gateway",
@@ -121,7 +116,6 @@ class TestArtifactMetadata:
         sha = "3fa85f6457174562b3fc2c963f66afa6e3b0c44298fc1c149afbf4c8996fb924"
         meta = ArtifactMetadata(
             artifact_id="art-3",
-            document_id="doc-3",
             media_type="application/pdf",
             checksum=sha,
         )
@@ -133,7 +127,6 @@ class TestArtifactMetadata:
     def test_content_schema_version_for_structured_artifacts(self) -> None:
         meta = ArtifactMetadata(
             artifact_id="art-parsed",
-            document_id="doc-1",
             media_type="application/json",
             content_schema_version="1",
         )
@@ -143,25 +136,21 @@ class TestArtifactMetadata:
         with pytest.raises(ValidationError):
             ArtifactMetadata(
                 artifact_id="art-1",
-                document_id="doc-1",
                 media_type="application/pdf",
                 size_bytes=-1,
             )
 
     def test_missing_required_fields_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            ArtifactMetadata.model_validate({"document_id": "d1", "media_type": "application/pdf"})
+            ArtifactMetadata.model_validate({"media_type": "application/pdf"})
         with pytest.raises(ValidationError):
-            ArtifactMetadata.model_validate({"artifact_id": "a1", "media_type": "application/pdf"})
-        with pytest.raises(ValidationError):
-            ArtifactMetadata.model_validate({"artifact_id": "a1", "document_id": "d1"})
+            ArtifactMetadata.model_validate({"artifact_id": "a1"})
 
     def test_forbid_extra_fields(self) -> None:
         with pytest.raises(ValidationError):
             ArtifactMetadata.model_validate(
                 {
                     "artifact_id": "a1",
-                    "document_id": "d1",
                     "media_type": "application/pdf",
                     "unknown_field": "value",
                 }
@@ -170,7 +159,6 @@ class TestArtifactMetadata:
     def test_json_roundtrip(self) -> None:
         meta = ArtifactMetadata(
             artifact_id="art-rt",
-            document_id="doc-rt",
             media_type="application/pdf",
             checksum="abc123sha",
             creation_info=CreationInfo(
@@ -189,7 +177,6 @@ class TestStoredArtifact:
     def test_properties(self) -> None:
         meta = ArtifactMetadata(
             artifact_id="art-stored",
-            document_id="doc-stored",
             media_type="application/pdf",
             size_bytes=4,
         )

@@ -3,13 +3,16 @@ from pydantic import ValidationError
 
 from bioparser.jobstate import JOB_STATE_SCHEMA_VERSION, JobState, SafeError
 
+PDF_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
+RESULT_REF = "7c2e1d3b-8e55-4f2b-ad4c-3a9f6b1e7d22"
+
 
 def _queued(**overrides: object) -> JobState:
     fields: dict[str, object] = {
-        "job_id": "3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34",  # UUID
-        "document_id": "a" * 64,  # 64 hex chars, valid sha256
+        "job_id": "3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34",
         "status": "queued",
-        "input_artifact_ref": "artifacts/doc-1/input.pdf",
+        "parser": "default",
+        "pdf_ref": PDF_REF,
     }
     fields.update(overrides)
     return JobState.model_validate(fields)
@@ -26,16 +29,26 @@ def test_queued_job_round_trips_through_json() -> None:
 
 
 def test_running_job_round_trips_through_json() -> None:
-    state = _queued(status="running")
+    state = _queued(status="parsing")
     restored = JobState.model_validate_json(state.model_dump_json())
     assert restored == state
 
 
 def test_succeeded_job_round_trips_through_json() -> None:
-    state = _queued(status="succeeded", output_artifact_ref="artifacts/doc-1/output.json")
+    state = _queued(status="parsed", parse_result_ref=RESULT_REF)
     restored = JobState.model_validate_json(state.model_dump_json())
     assert restored == state
-    assert restored.output_artifact_ref == "artifacts/doc-1/output.json"
+    assert restored.parse_result_ref == RESULT_REF
+
+
+@pytest.mark.parametrize("status", ["extracting", "done"])
+def test_later_stages_require_parse_result_and_reject_error(status: str) -> None:
+    state = _queued(status=status, parse_result_ref=RESULT_REF)
+    assert JobState.model_validate_json(state.model_dump_json()) == state
+    with pytest.raises(ValidationError):
+        _queued(status=status)
+    with pytest.raises(ValidationError):
+        _queued(status=status, parse_result_ref=RESULT_REF, error=SafeError(code="parse_failed"))
 
 
 def test_failed_job_round_trips_through_json() -> None:
@@ -49,16 +62,16 @@ def test_failed_job_round_trips_through_json() -> None:
 # --- status/field invariants --------------------------------------------
 
 
-def test_succeeded_job_requires_output_artifact() -> None:
+def test_succeeded_job_requires_parse_result() -> None:
     with pytest.raises(ValidationError):
-        _queued(status="succeeded")
+        _queued(status="parsed")
 
 
 def test_succeeded_job_rejects_error() -> None:
     with pytest.raises(ValidationError):
         _queued(
-            status="succeeded",
-            output_artifact_ref="artifacts/doc-1/output.json",
+            status="parsed",
+            parse_result_ref=RESULT_REF,
             error=SafeError(code="parse_failed"),
         )
 
@@ -68,22 +81,22 @@ def test_failed_job_requires_error() -> None:
         _queued(status="failed")
 
 
-def test_failed_job_rejects_output_artifact() -> None:
+def test_failed_job_rejects_parse_result() -> None:
     with pytest.raises(ValidationError):
         _queued(
             status="failed",
-            output_artifact_ref="artifacts/doc-1/output.json",
+            parse_result_ref=RESULT_REF,
             error=SafeError(code="parse_failed"),
         )
 
 
-@pytest.mark.parametrize("status", ["queued", "running"])
-def test_non_terminal_job_rejects_output_artifact(status: str) -> None:
+@pytest.mark.parametrize("status", ["queued", "parsing"])
+def test_non_terminal_job_rejects_parse_result(status: str) -> None:
     with pytest.raises(ValidationError):
-        _queued(status=status, output_artifact_ref="artifacts/doc-1/output.json")
+        _queued(status=status, parse_result_ref=RESULT_REF)
 
 
-@pytest.mark.parametrize("status", ["queued", "running"])
+@pytest.mark.parametrize("status", ["queued", "parsing"])
 def test_non_terminal_job_rejects_error(status: str) -> None:
     with pytest.raises(ValidationError):
         _queued(status=status, error=SafeError(code="parse_failed"))
@@ -91,18 +104,18 @@ def test_non_terminal_job_rejects_error(status: str) -> None:
 
 def test_with_changes_returns_new_validated_instance() -> None:
     state = _queued()
-    running = state.with_changes(status="running")
-    assert running.status == "running"
+    running = state.with_changes(status="parsing")
+    assert running.status == "parsing"
     assert running is not state
     assert state.status == "queued"  # original is untouched (frozen)
 
 
 def test_with_changes_rejects_invalid_combination() -> None:
     state = _queued()
-    # queued -> succeeded with no output_artifact_ref should be rejected,
+    # queued -> parsed with no parse_result_ref should be rejected,
     # same as constructing it directly would be.
     with pytest.raises(ValidationError):
-        state.with_changes(status="succeeded")
+        state.with_changes(status="parsed")
 
 
 # --- Immutability and schema version --------------------------------------
@@ -111,7 +124,7 @@ def test_with_changes_rejects_invalid_combination() -> None:
 def test_job_state_is_frozen() -> None:
     state = _queued()
     with pytest.raises(ValidationError):
-        state.status = "running"
+        state.status = "parsing"
 
 
 def test_job_state_rejects_unknown_schema_version() -> None:
@@ -132,11 +145,27 @@ def test_safe_error_rejects_unknown_field() -> None:
         SafeError.model_validate({"code": "parse_failed", "extra": "surprise"})
 
 
-def test_job_id_must_look_like_a_uuid() -> None:
+def test_job_id_must_be_uuid4() -> None:
     with pytest.raises(ValidationError):
         _queued(job_id="not-a-uuid")
-
-
-def test_document_id_must_be_a_sha256_hex_digest() -> None:
     with pytest.raises(ValidationError):
-        _queued(document_id="doc-1")
+        _queued(job_id="3f2b8c1e-9a4d-5f6b-8c2e-1d5a7b9c0e34")
+
+
+def test_artifact_refs_are_opaque_strings() -> None:
+    state = _queued(
+        status="parsed",
+        pdf_ref="artifacts/doc-1/input.pdf",
+        parse_result_ref="artifacts/doc-1/parsed.json",
+    )
+    assert state.pdf_ref == "artifacts/doc-1/input.pdf"
+    assert state.parse_result_ref == "artifacts/doc-1/parsed.json"
+
+
+def test_parser_name_is_stored_as_given() -> None:
+    assert _queued(parser="mineru").parser == "mineru"
+
+
+def test_unknown_parser_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        _queued(parser="missing")

@@ -18,8 +18,9 @@ particular:
 
 - **Job store** is an in-process Python dict, not Redis. Jobs do not
   survive a restart and are not visible to any other process.
-- **No worker exists yet.** A job created via `POST /api/extractions` is created as
-  `queued` and nothing currently advances it to `running` or `succeeded`.
+- **The API does not start the parser worker.** `python -m bioparser.worker.parse` can
+  consume Redis parse jobs, but a job created via `POST /api/extractions` is stored
+  only in the in-process dict as `queued`. Nothing in the API process advances it.
 - **`POST /extract` is a separate, synchronous test path**, not the worker above.
   It runs the real MinerU → mapper → vLLM pipeline end-to-end and returns the
   result inline, bounded by a concurrency semaphore, but it does not read or
@@ -134,9 +135,10 @@ Poll a job.
 }
 ```
 
-- `status` is `"queued"` for every job right now — nothing exists yet to move it to
-  `"running"`, `"succeeded"`, or `"failed"`. Those states are reserved for when a
-  worker is added.
+- `status` is `"queued"` for every job this API returns. The parser worker moves
+  its own job record through `"parsing"`, `"parsed"`, and `"failed"`. `"extracting"`
+  and `"done"` are reserved for the extraction step. This route
+  does not read that record yet.
 
 **Failure:**
 

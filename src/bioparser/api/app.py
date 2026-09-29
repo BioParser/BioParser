@@ -90,7 +90,7 @@ async def _validated_upload(request: Request, file: UploadFile | None) -> tuple[
     validate_content_type(file)
     content = await read_upload(file)
     validate_pdf_content(content)
-    # Used as document_id; sha identifies the file, not the job (which is UUID)
+    # sha identifies the file, not the job (which is UUID)
     return hashlib.sha256(content).hexdigest(), content
 
 
