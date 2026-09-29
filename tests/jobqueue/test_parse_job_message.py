@@ -6,9 +6,7 @@ from bioparser.jobqueue import ParseJobMessage
 
 def _valid(**overrides: object) -> ParseJobMessage:
     data: dict[str, object] = {
-        "job_id": "job-1",
-        "document_id": "doc-1",
-        "input_pdf_ref": "pdf-1",
+        "job_id": "3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34",
     }
     data.update(overrides)
     return ParseJobMessage.model_validate(data)
@@ -25,7 +23,7 @@ def test_default_schema_version() -> None:
 
 
 def test_rejects_empty_fields() -> None:
-    for field in ("job_id", "document_id", "input_pdf_ref"):
+    for field in ("job_id",):
         with pytest.raises(ValidationError):
             _valid(**{field: ""})
 
@@ -33,6 +31,11 @@ def test_rejects_empty_fields() -> None:
 def test_rejects_extra_fields() -> None:
     with pytest.raises(ValidationError):
         _valid(pdf_bytes="nope")
+
+
+def test_rejects_non_uuid_job_id() -> None:
+    with pytest.raises(ValidationError):
+        _valid(job_id="job-1")
 
 
 def test_rejects_unknown_schema_version() -> None:

@@ -29,8 +29,8 @@ def stub_broker() -> Generator[StubBroker]:
     broker.close()
 
 
-def _message(job_id: str = "job-1") -> ParseJobMessage:
-    return ParseJobMessage(job_id=job_id, document_id="doc-1", input_pdf_ref="pdf-1")
+def _message(job_id: str = "3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34") -> ParseJobMessage:
+    return ParseJobMessage(job_id=job_id)
 
 
 def _queue(
@@ -202,11 +202,14 @@ def test_rejects_consume_while_already_consuming(stub_broker: StubBroker) -> Non
 def test_consume_can_run_again_after_returning(stub_broker: StubBroker) -> None:
     handler = _Recorder()
     queue = _queue(stub_broker)
-    queue.submit(_message("first"))
+    queue.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e31"))
     queue.consume(handler, until_empty=True)
-    queue.submit(_message("second"))
+    queue.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e32"))
     queue.consume(handler, until_empty=True)
-    assert handler.received == [_message("first"), _message("second")]
+    assert handler.received == [
+        _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e31"),
+        _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e32"),
+    ]
 
 
 def test_consume_returns_when_stop_is_already_set(stub_broker: StubBroker) -> None:
@@ -237,20 +240,20 @@ def test_named_queues_are_independent(stub_broker: StubBroker) -> None:
     extract_handler = _Recorder()
     parse = _queue(stub_broker)
     extract = _queue(stub_broker, name="extract")
-    parse.submit(_message("parse-job"))
+    parse.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e33"))
     extract.consume(extract_handler, until_empty=True)
     parse.consume(parse_handler, until_empty=True)
     assert extract_handler.received == []
-    assert parse_handler.received == [_message("parse-job")]
+    assert parse_handler.received == [_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e33")]
 
 
 def test_malformed_payload_is_poisoned(stub_broker: StubBroker) -> None:
     handler = _Recorder()
     queue = _queue(stub_broker)
     queue._actor.send({"job_id": "only-id"})
-    queue.submit(_message("good"))
+    queue.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35"))
     queue.consume(handler, until_empty=True)
-    assert handler.received == [_message("good")]
+    assert handler.received == [_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35")]
     assert handler.malformed == [{"job_id": "only-id"}]
 
 
@@ -276,8 +279,6 @@ def test_wrong_schema_version_is_poisoned(stub_broker: StubBroker) -> None:
     bad = {
         "schema_version": 99,
         "job_id": "job-1",
-        "document_id": "doc-1",
-        "input_pdf_ref": "pdf-1",
     }
     queue._actor.send(bad)
     queue.consume(handler, until_empty=True)
@@ -292,8 +293,6 @@ def test_malformed_log_names_fields_without_values(
     queue._actor.send(
         {
             "job_id": "job-1",
-            "document_id": "doc-1",
-            "input_pdf_ref": "pdf-1",
             "token": "s3cret",
         }
     )
@@ -311,9 +310,9 @@ def test_malformed_hook_error_still_acks(stub_broker: StubBroker) -> None:
     handler = Boom()
     queue = _queue(stub_broker)
     queue._actor.send({"job_id": "only-id"})
-    queue.submit(_message("good"))
+    queue.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35"))
     queue.consume(handler, until_empty=True)
-    assert handler.received == [_message("good")]
+    assert handler.received == [_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35")]
 
 
 def test_dispatch_without_handler_raises(stub_broker: StubBroker) -> None:

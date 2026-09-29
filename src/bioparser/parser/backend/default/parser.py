@@ -25,8 +25,8 @@ from bioparser.parser.models import (
     TextContent,
     TextSpan,
 )
+from bioparser.parser_names import DEFAULT_PARSER_NAME
 
-DEFAULT_PARSER_NAME = "default"
 DEFAULT_PARSER_VERSION = "1"
 
 # Distances below are PDF points (1 pt = 1/72 in) unless noted as a factor.

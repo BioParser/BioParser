@@ -8,10 +8,14 @@ from bioparser.parser.backend.mineru.mapper import artifact_from_middle_json
 from bioparser.parser.backend.mineru.runtime import run_cli_pipeline
 from bioparser.parser.backend.mineru.schema import pipeline_configuration
 from bioparser.parser.checksum import sha256_file
-from bioparser.parser.errors import ParserBackendUnavailableError, UnsupportedDocumentError
+from bioparser.parser.errors import (
+    ParserBackendUnavailableError,
+    ParserTimeoutError,
+    UnsupportedDocumentError,
+)
 from bioparser.parser.models import ParserArtifact
+from bioparser.parser_names import MINERU_PARSER_NAME
 
-MINERU_PARSER_NAME = "mineru"
 MINERU_PARSER_VERSION = "1"
 
 
@@ -45,6 +49,9 @@ def artifact_from_cli_output(
 class MinerUParser:
     """Runs the MinerU CLI, then maps middle.json into a parser artifact."""
 
+    def __init__(self, timeout_s: float | None = None) -> None:
+        self._timeout_s = timeout_s
+
     def parse(self, path: Path) -> ParserArtifact:
         pdf_path = path.expanduser().resolve()
         if not pdf_path.is_file():
@@ -53,13 +60,13 @@ class MinerUParser:
         try:
             with tempfile.TemporaryDirectory(prefix="bioparser-mineru-") as tmp:
                 output_dir = Path(tmp)
-                run_cli_pipeline(pdf_path, output_dir)
+                run_cli_pipeline(pdf_path, output_dir, self._timeout_s)
                 return artifact_from_cli_output(
                     pdf_path,
                     output_dir,
                     parser_version=MINERU_PARSER_VERSION,
                 )
-        except ParserBackendUnavailableError:
+        except (ParserBackendUnavailableError, ParserTimeoutError):
             raise
         except UnsupportedDocumentError:
             raise

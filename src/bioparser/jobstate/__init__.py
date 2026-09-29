@@ -5,13 +5,21 @@ from .errors import (
     JobStateBackendError,
     JobStateConnectionError,
     JobStateError,
-    TerminalJobStateError,
+    StaleJobStateWriteError,
 )
-from .models import JOB_STATE_SCHEMA_VERSION, JobState, JobStatus, SafeError
+from .models import (
+    ALLOWED_TRANSITIONS,
+    JOB_STATE_SCHEMA_VERSION,
+    JobState,
+    JobStatus,
+    SafeError,
+    SafeErrorCode,
+)
 from .redis_store import RedisJobStateStore
 from .store import JobStateStore
 
 __all__ = [
+    "ALLOWED_TRANSITIONS",
     "JOB_STATE_SCHEMA_VERSION",
     "CorruptJobStateError",
     "JobAlreadyExistsError",
@@ -24,5 +32,6 @@ __all__ = [
     "JobStatus",
     "RedisJobStateStore",
     "SafeError",
-    "TerminalJobStateError",
+    "SafeErrorCode",
+    "StaleJobStateWriteError",
 ]

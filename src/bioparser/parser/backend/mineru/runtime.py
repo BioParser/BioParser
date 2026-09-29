@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import signal
 import subprocess
 from pathlib import Path
 
@@ -13,6 +15,7 @@ from bioparser.parser.backend.mineru.schema import (
 )
 from bioparser.parser.errors import (
     ParserBackendUnavailableError,
+    ParserTimeoutError,
     UnsupportedDocumentError,
 )
 
@@ -29,7 +32,8 @@ def _unavailable_message() -> str:
     )
 
 
-def run_cli_pipeline(pdf_path: Path, output_dir: Path) -> None:
+def run_cli_pipeline(pdf_path: Path, output_dir: Path, timeout_s: float | None = None) -> None:
+    """Run the CLI. After `timeout_s` seconds (None means no limit) it is killed."""
     executable = shutil.which("mineru")
     if executable is None:
         raise ParserBackendUnavailableError(_unavailable_message())
@@ -44,10 +48,44 @@ def run_cli_pipeline(pdf_path: Path, output_dir: Path) -> None:
         "-m",
         PARSE_METHOD,
     ]
+    # Own session, so the whole process group (MinerU spawns workers) can be killed.
     try:
-        subprocess.run(command, check=True, capture_output=True, text=True)
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
     except FileNotFoundError as exc:
         raise ParserBackendUnavailableError(_unavailable_message()) from exc
-    except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or exc.stdout or "").strip()
-        raise UnsupportedDocumentError(detail or "MinerU CLI failed to parse the PDF.") from exc
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired as exc:
+        _kill_group(process)
+        raise ParserTimeoutError(
+            f"MinerU CLI ran longer than {timeout_s} s and was killed."
+        ) from exc
+    except BaseException:
+        # Includes the queue's TimeLimitExceeded and shutdown interrupts.
+        _kill_group(process)
+        raise
+    # The CLI exited on its own. Stop any children it left behind.
+    _signal_group(process)
+    if process.returncode != 0:
+        detail = (stderr or stdout or "").strip()
+        raise UnsupportedDocumentError(detail or "MinerU CLI failed to parse the PDF.")
+
+
+def _signal_group(process: subprocess.Popen[str]) -> None:
+    """SIGKILL the CLI's process group. A group that is already gone or not ours is fine."""
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def _kill_group(process: subprocess.Popen[str]) -> None:
+    """Kill the CLI and its children, then reap it so no zombie or pipe is left."""
+    _signal_group(process)
+    process.communicate()
