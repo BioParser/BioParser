@@ -30,23 +30,23 @@ def test_time_limit_must_be_positive(tmp_path: Path) -> None:
             _env_file=None,
             redis_url="redis://localhost:6379/0",
             artifact_storage_path=tmp_path,
-            parse_time_limit_ms=0,
+            parse_time_limit_seconds=0,
         )
 
 
-def _settings(tmp_path: Path, limit_ms: int) -> WorkerSettings:
+def _settings(tmp_path: Path, limit_s: float) -> WorkerSettings:
     return WorkerSettings(
         _env_file=None,
         redis_url="redis://localhost:6379/0",
         artifact_storage_path=tmp_path,
         parse_queue_name="parse",
-        parse_time_limit_ms=limit_ms,
+        parse_time_limit_seconds=limit_s,
     )
 
 
 def test_parser_timeout_is_below_the_queue_limit(tmp_path: Path) -> None:
-    assert _settings(tmp_path, 1_800_000).parser_timeout_seconds == 1770.0
+    assert _settings(tmp_path, 1800).parser_timeout_seconds == 1770.0
 
 
 def test_parser_timeout_keeps_half_of_a_small_limit(tmp_path: Path) -> None:
-    assert _settings(tmp_path, 10_000).parser_timeout_seconds == 5.0
+    assert _settings(tmp_path, 10).parser_timeout_seconds == 5.0

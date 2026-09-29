@@ -40,7 +40,7 @@ def build_worker(
         name=settings.parse_queue_name,
         model=ParseJobMessage,
         broker=broker,
-        time_limit_ms=settings.parse_time_limit_ms,
+        time_limit_ms=round(settings.parse_time_limit_seconds * 1000),
         max_retries=settings.parse_max_retries,
         worker_threads=1,
     )
