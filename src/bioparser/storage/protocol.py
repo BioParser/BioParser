@@ -91,3 +91,14 @@ class ArtifactStorage(Protocol):
             StoragePathTraversalError: If the ID attempts path traversal.
         """
         ...
+
+    def lookup_by_checksum(self, checksum: str) -> str | None:
+        """Resolve an artifact ID from its content checksum.
+
+        Args:
+            checksum: The SHA-256 hex digest of the content.
+
+        Returns:
+            The artifact_id string if found, or None if not found.
+        """
+        ...
