@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # MinerU's pipeline backend runs in-process on CPU and can take much longer than
 # the queue's 10 minute default. A shorter limit kills the parse and retries it.
-DEFAULT_PARSE_TIME_LIMIT_MS = 30 * 60 * 1000
+DEFAULT_PARSE_TIME_LIMIT_SECONDS = 30 * 60
 DEFAULT_PARSE_MAX_RETRIES = 3
 # Head start the parser process limit has over the queue limit, so the process is
 # stopped and reported before the queue interrupts the thread. Also covers fetching
@@ -31,13 +31,13 @@ class WorkerSettings(BaseSettings):
     artifact_storage_path: Path
     parse_queue_name: str = Field(min_length=1)
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
-    parse_time_limit_ms: int = Field(default=DEFAULT_PARSE_TIME_LIMIT_MS, gt=0)
+    parse_time_limit_seconds: float = Field(default=DEFAULT_PARSE_TIME_LIMIT_SECONDS, gt=0)
     parse_max_retries: int = Field(default=DEFAULT_PARSE_MAX_RETRIES, ge=0)
 
     @property
     def parser_timeout_seconds(self) -> float:
         """Limit for the MinerU process, slightly below the queue's time limit."""
-        limit_s = self.parse_time_limit_ms / 1000
+        limit_s = self.parse_time_limit_seconds
         return limit_s - min(PARSE_TIME_LIMIT_MARGIN_S, limit_s / 2)
 
     @field_validator("redis_url", mode="before")
