@@ -27,7 +27,7 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-def _queued(job_id: str, **overrides: object) -> JobState:
+def _queued(job_id: uuid.UUID, **overrides: object) -> JobState:
     fields: dict[str, object] = {
         "job_id": job_id,
         "document_id": hashlib.sha256(job_id.encode()).hexdigest(),  # 64 hex chars, valid sha256

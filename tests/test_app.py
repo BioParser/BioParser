@@ -1,3 +1,5 @@
+from uuid import UUID, uuid4
+
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
@@ -31,11 +33,30 @@ def test_submit_and_retrieve_job(client: TestClient) -> None:
 
 
 def test_unknown_job_returns_404(client: TestClient) -> None:
-    response = client.get("/api/jobs/missing")
+    response = client.get(f"/api/jobs/{uuid4()}")
 
     assert response.status_code == 404
     ErrorResponse.model_validate(response.json())
     assert response.json() == {"detail": {"code": "job_not_found", "message": "Job not found"}}
+
+
+@pytest.mark.parametrize(
+    "job_id",
+    [
+        "missing",
+        "11111111-1111-1111-1111-11111111111",  # one character short
+        "00000000-0000-0000-0000-000000000000",  # nil UUID, not v4
+        str(UUID(int=1, version=1)),  # valid UUID, wrong version
+    ],
+)
+def test_malformed_job_id_returns_typed_422(client: TestClient, job_id: str) -> None:
+    response = client.get(f"/api/jobs/{job_id}")
+
+    assert response.status_code == 422
+    ErrorResponse.model_validate(response.json())
+    assert response.json() == {
+        "detail": {"code": "invalid_job_id", "message": "job_id must be a version 4 UUID"}
+    }
 
 
 def test_submit_pdf(client: TestClient) -> None:

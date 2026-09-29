@@ -1,27 +1,27 @@
-import uuid
 from dataclasses import dataclass
 from typing import Literal
+from uuid import UUID, uuid4
 
 
 # TODO: After sprint 0, replace with Redis job store (see architecture.md)
 # The current dict is not preserved over reboot and other processes cannot see it
 @dataclass
 class JobRecord:
-    job_id: str
+    job_id: UUID
     status: Literal["queued"]
 
 
-_jobs: dict[str, JobRecord] = {}
+_jobs: dict[UUID, JobRecord] = {}
 
 
 def create_job() -> JobRecord:
-    job_id = str(uuid.uuid4())
+    job_id = uuid4()
     record = JobRecord(job_id=job_id, status="queued")
     _jobs[job_id] = record
     return record
 
 
-def get_job(job_id: str) -> JobRecord | None:
+def get_job(job_id: UUID) -> JobRecord | None:
     return _jobs.get(job_id)
 
 

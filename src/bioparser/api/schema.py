@@ -1,10 +1,11 @@
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
 
 class JobStatusResponse(BaseModel):
-    job_id: str
+    job_id: UUID
     status: Literal["queued"]
 
     model_config = ConfigDict(

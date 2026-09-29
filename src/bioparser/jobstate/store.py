@@ -16,7 +16,7 @@ class JobStateStore(Protocol):
         """Persist a new job's state."""
         ...
 
-    async def get(self, job_id: str | UUID) -> JobState | None:
+    async def get(self, job_id: UUID) -> JobState | None:
         """Return the stored state for job_id, or None if it doesn't exist."""
         ...
 

@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from bioparser.api.jobs import create_job, get_job
 
 
@@ -9,7 +11,7 @@ def test_create_job_is_queued_and_can_be_retrieved() -> None:
 
 
 def test_get_unknown_job() -> None:
-    assert get_job("missing") is None
+    assert get_job(uuid4()) is None
 
 
 def test_jobs_have_unique_ids() -> None:
