@@ -62,13 +62,14 @@ class TestArtifactMetadata:
             artifact_id="art-1",
             document_id="doc-1",
             media_type="application/pdf",
+            checksum="a" * 64,
         )
         assert meta.schema_version == ARTIFACT_METADATA_SCHEMA_VERSION
         assert meta.schema_version == "1"
         assert meta.artifact_id == "art-1"
         assert meta.document_id == "doc-1"
         assert meta.media_type == "application/pdf"
-        assert meta.checksum is None
+        assert meta.checksum == "a" * 64
         assert meta.content_schema_version is None
         assert meta.size_bytes is None
         assert isinstance(meta.creation_info, CreationInfo)
@@ -83,6 +84,7 @@ class TestArtifactMetadata:
                     "artifact_id": "art-1",
                     "document_id": "doc-1",
                     "media_type": "application/pdf",
+                    "checksum": "a" * 64,
                 }
             )
 
@@ -93,6 +95,7 @@ class TestArtifactMetadata:
                 "artifact_id": "art-2",
                 "document_id": "doc-2",
                 "media_type": "application/json",
+                "checksum": "b" * 64,
                 "created_at": dt,
                 "created_by": "api-gateway",
             }
@@ -108,6 +111,7 @@ class TestArtifactMetadata:
             "artifact_id": "art-2",
             "document_id": "doc-2",
             "media_type": "application/json",
+            "checksum": "c" * 64,
             "created_at": dt,
             "created_by": "api-gateway",
         }
@@ -135,6 +139,7 @@ class TestArtifactMetadata:
             artifact_id="art-parsed",
             document_id="doc-1",
             media_type="application/json",
+            checksum="d" * 64,
             content_schema_version="1",
         )
         assert meta.content_schema_version == "1"
@@ -145,16 +150,27 @@ class TestArtifactMetadata:
                 artifact_id="art-1",
                 document_id="doc-1",
                 media_type="application/pdf",
+                checksum="e" * 64,
                 size_bytes=-1,
             )
 
     def test_missing_required_fields_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            ArtifactMetadata.model_validate({"document_id": "d1", "media_type": "application/pdf"})
+            ArtifactMetadata.model_validate(
+                {"document_id": "d1", "media_type": "application/pdf", "checksum": "f" * 64}
+            )
         with pytest.raises(ValidationError):
-            ArtifactMetadata.model_validate({"artifact_id": "a1", "media_type": "application/pdf"})
+            ArtifactMetadata.model_validate(
+                {"artifact_id": "a1", "media_type": "application/pdf", "checksum": "f" * 64}
+            )
         with pytest.raises(ValidationError):
-            ArtifactMetadata.model_validate({"artifact_id": "a1", "document_id": "d1"})
+            ArtifactMetadata.model_validate(
+                {"artifact_id": "a1", "document_id": "d1", "checksum": "f" * 64}
+            )
+        with pytest.raises(ValidationError):
+            ArtifactMetadata.model_validate(
+                {"artifact_id": "a1", "document_id": "d1", "media_type": "application/pdf"}
+            )
 
     def test_forbid_extra_fields(self) -> None:
         with pytest.raises(ValidationError):
@@ -163,6 +179,7 @@ class TestArtifactMetadata:
                     "artifact_id": "a1",
                     "document_id": "d1",
                     "media_type": "application/pdf",
+                    "checksum": "0" * 64,
                     "unknown_field": "value",
                 }
             )
@@ -172,7 +189,7 @@ class TestArtifactMetadata:
             artifact_id="art-rt",
             document_id="doc-rt",
             media_type="application/pdf",
-            checksum="abc123sha",
+            checksum="1" * 64,
             creation_info=CreationInfo(
                 created_at=datetime(2026, 9, 17, 14, 0, tzinfo=UTC),
                 created_by="worker-1",
@@ -191,6 +208,7 @@ class TestStoredArtifact:
             artifact_id="art-stored",
             document_id="doc-stored",
             media_type="application/pdf",
+            checksum="2" * 64,
             size_bytes=4,
         )
         artifact = StoredArtifact(content=b"test", metadata=meta)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import os
 import re
 import uuid
@@ -135,10 +136,37 @@ class FileSystemArtifactStorage:
         overwrite: bool = False,
     ) -> str:
         aid = metadata.artifact_id
+
+        actual_checksum = hashlib.sha256(content).hexdigest()
+        if metadata.checksum != actual_checksum:
+            raise StoragePayloadError(
+                f"Caller-supplied checksum ({metadata.checksum}) does not match "
+                f"content bytes ({actual_checksum})"
+            )
+
+        chk_path = self.root_path / f"{actual_checksum}.idx"
+        if chk_path.is_file():
+            try:
+                claimed_aid = chk_path.read_text(encoding="utf-8").strip()
+            except OSError:
+                claimed_aid = None
+
+            if claimed_aid and claimed_aid != aid and self.exists(claimed_aid):
+                raise ArtifactAlreadyExistsError(
+                    f"Content checksum already mapped to artifact: {claimed_aid}"
+                )
+
         metadata_path = self._get_metadata_path(aid)
 
-        if not overwrite and self.exists(aid):
-            raise ArtifactAlreadyExistsError(f"Artifact already exists: {aid}")
+        old_checksum = None
+        if self.exists(aid):
+            if not overwrite:
+                raise ArtifactAlreadyExistsError(f"Artifact already exists: {aid}")
+            try:
+                old_meta = self._read_file_blob_metadata(aid)
+                old_checksum = old_meta.checksum
+            except StorageError:
+                pass
 
         if metadata.size_bytes is None:
             metadata = metadata.model_copy(update={"size_bytes": len(content)})
@@ -156,9 +184,11 @@ class FileSystemArtifactStorage:
 
         blob_data_path = self._get_blob_data_path(aid, blob_id)
         tmp_meta_path = self.root_path / f".tmp_{aid}_{blob_id}.meta.json"
+        tmp_chk_path = self.root_path / f".tmp_{aid}_{blob_id}.idx"
 
         blob_written = False
         tmp_meta_written = False
+        tmp_chk_written = False
         committed = False
 
         try:
@@ -167,6 +197,9 @@ class FileSystemArtifactStorage:
 
             tmp_meta_path.write_text(blob_meta.model_dump_json(indent=2), encoding="utf-8")
             tmp_meta_written = True
+
+            tmp_chk_path.write_text(aid, encoding="utf-8")
+            tmp_chk_written = True
 
             if not overwrite:
                 try:
@@ -178,6 +211,16 @@ class FileSystemArtifactStorage:
                 os.replace(tmp_meta_path, metadata_path)
                 committed = True
 
+            os.replace(tmp_chk_path, chk_path)
+
+            if committed and overwrite and old_checksum and old_checksum != actual_checksum:
+                old_chk_path = self.root_path / f"{old_checksum}.idx"
+                try:
+                    if old_chk_path.read_text(encoding="utf-8").strip() == aid:
+                        old_chk_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
         except (ArtifactAlreadyExistsError, StoragePayloadError):
             raise
         except OSError as exc:
@@ -186,6 +229,9 @@ class FileSystemArtifactStorage:
             if tmp_meta_written:
                 with contextlib.suppress(OSError):
                     tmp_meta_path.unlink(missing_ok=True)
+            if tmp_chk_written:
+                with contextlib.suppress(OSError):
+                    tmp_chk_path.unlink(missing_ok=True)
             if not committed and blob_written:
                 with contextlib.suppress(OSError):
                     blob_data_path.unlink(missing_ok=True)
@@ -212,3 +258,17 @@ class FileSystemArtifactStorage:
         self._validate_artifact_id(artifact_id)
         metadata_path = self._get_metadata_path(artifact_id)
         return metadata_path.is_file()
+
+    def lookup_by_checksum(self, checksum: str) -> str | None:
+        if not isinstance(checksum, str) or not re.fullmatch(r"^[a-fA-F0-9]{64}$", checksum):
+            return None
+        chk_path = self.root_path / f"{checksum}.idx"
+        if not chk_path.is_file():
+            return None
+        try:
+            aid = chk_path.read_text(encoding="utf-8").strip()
+            if self.exists(aid):
+                return aid
+        except OSError:
+            pass
+        return None
