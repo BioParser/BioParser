@@ -20,7 +20,7 @@ Then open `http://127.0.0.1:8765/` (loopback only; change with `--port`). Run `u
 
 ## MinerU
 
-`mineru` is the heavier CPU backend. It can recover richer layout and reading order. A parse needs roughly 16 GB of RAM and can take from seconds to minutes per paper.
+`mineru` is the heavier CPU backend. It can recover richer layout and reading order. On a 20-thread desktop the two test fixtures (3 and 15 pages) took about 25 s each, mostly model loading, and peaked at 4.4 to 5.2 GB of RAM. Treat that as a lower bound: slower CPUs and longer papers take longer, and memory grows with page count. Plan for 8 GB or more.
 
 On the host, install the CLI as a uv tool, separate from the project environment. The first run downloads the models.
 
@@ -33,7 +33,7 @@ If `mineru` is not found afterwards, run `uv tool update-shell` and start a new 
 
 ## Worker image
 
-The image includes both backends. Pipeline weights are downloaded in their own build stage, then reused by the CPU and GPU images. The running image sets `HF_HUB_OFFLINE=1`, so a job does not fetch weights. A CPU parse needs roughly 16 GB of RAM. The GPU image keeps the weights in VRAM.
+The image includes both backends. Pipeline weights are downloaded in their own build stage, then reused by the CPU and GPU images. `mineru-models-download` has no revision option, so the download follows the current Hugging Face pipeline weights. The MinerU package version is pinned. The running image sets `HF_HUB_OFFLINE=1`, so a job does not fetch weights. A CPU parse needs about 5 GB for short papers and takes roughly 25 s at best (see MinerU above). Compose caps the worker at 16 GB for longer papers. The GPU image keeps the weights in VRAM.
 
 ```sh
 docker build -f docker/parser-worker.Dockerfile --target cpu -t bioparser-parser-worker:cpu .
