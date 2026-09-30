@@ -15,11 +15,11 @@ RUN apt-get update \
 # uv 0.12.9; index digest so amd64 and arm64 both resolve
 COPY --from=ghcr.io/astral-sh/uv:0.12.9@sha256:8b940d3a9d65bed080436972241af2e21c84b5e8c9193f7014ed71479ee795ff /uv /uvx /bin/
 
-# The pin matches MINERU_PIPELINE_VERSION in src/bioparser/parser/backend/mineru/schema.py.
+# mineru[pipeline] pin is checked against MINERU_PIPELINE_VERSION.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /opt/mineru \
     && uv pip install --python /opt/mineru/bin/python \
-        "mineru[pipeline]==3.4.5" "six>=1.17"
+        "mineru[pipeline]==3.4.5" "six==1.17.0"
 
 # Fail the build if the pipeline install cannot be imported.
 RUN /opt/mineru/bin/python -c "from mineru.backend.pipeline.pipeline_analyze import doc_analyze_streaming"
@@ -33,7 +33,9 @@ ENV PATH="/opt/mineru/bin:$PATH" \
 
 USER app:app
 
-RUN mineru-models-download -s huggingface -m pipeline
+# Fail the build if the pipeline model config or directory is missing.
+RUN mineru-models-download -s huggingface -m pipeline \
+    && python3 -c "import json, os, pathlib; cfg=json.loads((pathlib.Path.home()/'mineru.json').read_text()); root=cfg['models-dir']['pipeline']; assert os.path.isdir(root), root"
 
 #-------------------------------------------
 
@@ -71,7 +73,8 @@ RUN apt-get update \
 ENV PATH="/app/.venv/bin:/opt/mineru/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     HOME=/home/app \
-    MINERU_MODEL_SOURCE=local
+    MINERU_MODEL_SOURCE=local \
+    HF_HUB_OFFLINE=1
 
 WORKDIR /app
 
@@ -98,11 +101,13 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.9@sha256:8b940d3a9d65bed080436972241af2e21
 RUN --mount=type=cache,target=/root/.cache/uv \
     UV_TORCH_BACKEND=${TORCH_BACKEND} uv venv /opt/mineru \
     && UV_TORCH_BACKEND=${TORCH_BACKEND} uv pip install --python /opt/mineru/bin/python \
-        "mineru[pipeline]==3.4.5" "six>=1.17" \
+        "mineru[pipeline]==3.4.5" "six==1.17.0" \
     && /opt/mineru/bin/python -c "from mineru.backend.pipeline.pipeline_analyze import doc_analyze_streaming" \
     && chown -R app:app /opt/mineru
 
 COPY --from=models --chown=app:app /home/app /home/app
+# Fail the build if the pipeline model config or directory is missing.
+RUN python3 -c "import json, os, pathlib; cfg=json.loads((pathlib.Path.home()/'mineru.json').read_text()); root=cfg['models-dir']['pipeline']; assert os.path.isdir(root), root"
 
 USER app:app
 
@@ -114,6 +119,8 @@ FROM runtime AS cpu
 
 COPY --from=models --chown=app:app /opt/mineru /opt/mineru
 COPY --from=models --chown=app:app /home/app /home/app
+# Fail the build if the pipeline model config or directory is missing.
+RUN python3 -c "import json, os, pathlib; cfg=json.loads((pathlib.Path.home()/'mineru.json').read_text()); root=cfg['models-dir']['pipeline']; assert os.path.isdir(root), root"
 
 USER app:app
 
