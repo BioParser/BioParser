@@ -3,6 +3,8 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
+from pydantic import TypeAdapter
+from stubs import StubArtifactStorage, StubJobStateStore, StubParseQueue
 
 from bioparser.api import config
 from bioparser.api.errors import ErrorResponse
@@ -11,24 +13,37 @@ from bioparser.api.schema import JobStatusResponse
 
 # A minimal byte string that passes every /api/extractions validation check.
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
+JOB_STATUS_ADAPTER: TypeAdapter[JobStatusResponse] = TypeAdapter(JobStatusResponse)
 
 
-def test_submit_and_retrieve_job(client: TestClient) -> None:
+def test_submit_and_retrieve_job(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+) -> None:
+    artifact_storage, job_store, parse_queue, events = stub_api_adapters
     response = client.post(
         "/api/extractions",
         files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
     )
     assert response.status_code == 202
-    JobStatusResponse.model_validate(response.json())
+    JOB_STATUS_ADAPTER.validate_python(response.json())
     record = response.json()
 
     assert record["job_id"]
     assert record["status"] == "queued"
+    assert events == ["artifact.store", "job_state.create", "queue.submit"]
+
+    state = job_store.states[record["job_id"]]
+    message = parse_queue.messages[0]
+    assert state.input_artifact_ref in artifact_storage.artifacts
+    assert message.job_id == state.job_id
+    assert message.document_id == state.document_id
+    assert message.input_pdf_ref == state.input_artifact_ref
 
     response = client.get(f"/api/jobs/{record['job_id']}")
 
     assert response.status_code == 200
-    JobStatusResponse.model_validate(response.json())
+    JOB_STATUS_ADAPTER.validate_python(response.json())
     assert response.json() == record
 
 

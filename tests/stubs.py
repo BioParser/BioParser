@@ -2,13 +2,11 @@
 
 import json
 import re
-from collections.abc import Callable
 from typing import Any
 
-import httpx2
-
-# What httpx2.MockTransport calls for every request a client sends
-type Handler = Callable[[httpx2.Request], httpx2.Response]
+from bioparser.jobqueue import ParseJobMessage
+from bioparser.jobstate import JobState
+from bioparser.storage import ArtifactMetadata
 
 # stub json one page and one text block for mineru mapper
 STUB_JSON: dict[str, Any] = {
@@ -98,3 +96,48 @@ class StubVLLMService:
 
     async def aclose(self) -> None:
         return None
+
+
+class StubArtifactStorage:
+    def __init__(self, events: list[str]) -> None:
+        self.artifacts: dict[str, tuple[bytes, ArtifactMetadata]] = {}
+        self.events = events
+
+    def store(
+        self,
+        content: bytes,
+        metadata: ArtifactMetadata,
+        *,
+        overwrite: bool = False,
+    ) -> str:
+        self.events.append("artifact.store")
+        self.artifacts[metadata.artifact_path] = (content, metadata)
+        return metadata.artifact_path
+
+
+class StubJobStateStore:
+    def __init__(self, events: list[str]) -> None:
+        self.states: dict[object, JobState] = {}
+        self.events = events
+
+    async def create(self, state: JobState) -> None:
+        self.events.append("job_state.create")
+        self.states[state.job_id] = state
+
+    async def get(self, job_id: object) -> JobState | None:
+        self.events.append("job_state.get")
+        return self.states.get(job_id)
+
+    async def update(self, state: JobState) -> None:
+        self.events.append("job_state.update")
+        self.states[state.job_id] = state
+
+
+class StubParseQueue:
+    def __init__(self, events: list[str]) -> None:
+        self.messages: list[ParseJobMessage] = []
+        self.events = events
+
+    def submit(self, message: ParseJobMessage) -> None:
+        self.events.append("queue.submit")
+        self.messages.append(message)

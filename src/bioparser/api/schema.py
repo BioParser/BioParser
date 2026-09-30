@@ -1,18 +1,9 @@
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-
-class JobStatusResponse(BaseModel):
-    job_id: UUID
-    status: Literal["queued"]
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [{"job_id": "9c6f2a10-5b3e-4d78-a1f2-7e4c8b0d9351", "status": "queued"}]
-        }
-    )
+from bioparser.jobstate import SafeError
 
 
 class HealthResponse(BaseModel):
@@ -47,3 +38,31 @@ class ReadinessUnavailableResponse(BaseModel):
             ]
         }
     )
+
+
+class QueuedJobResponse(BaseModel):
+    job_id: UUID
+    status: Literal["queued"]
+
+
+class RunningJobResponse(BaseModel):
+    job_id: UUID
+    status: Literal["parsing", "extracting"]
+
+
+class SucceededJobResponse(BaseModel):
+    job_id: UUID
+    status: Literal["parsed", "done"]
+    output_artifact_ref: str | None = None
+
+
+class FailedJobResponse(BaseModel):
+    job_id: str
+    status: Literal["failed"]
+    error: SafeError
+
+
+JobStatusResponse = Annotated[
+    QueuedJobResponse | RunningJobResponse | SucceededJobResponse | FailedJobResponse,
+    Field(discriminator="status"),
+]
