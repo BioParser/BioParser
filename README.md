@@ -75,7 +75,11 @@ Serves on `http://127.0.0.1:8080`. Job submission and polling work on their own;
 
 ### Parse a PDF
 
-Local parsing and the worker image: [docs/parser.md](docs/parser.md).
+```sh
+uv run pdf-parse tests/parser/fixtures/plos-biology-3000248.pdf -o artifact.json
+```
+
+Omit `-o` to print the artifact JSON to stdout. This uses the default backend. For the PDF viewer (`pdf-view`), the MinerU backend, or building the worker image, see [docs/parser.md](docs/parser.md).
 
 ### Send a prompt to vLLM
 

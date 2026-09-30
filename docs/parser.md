@@ -42,4 +42,4 @@ docker build -f docker/parser-worker.Dockerfile --target gpu --build-arg TORCH_B
 
 Compose starts this service on the backend network with Redis and a shared artifact volume at `/data`. The same volume is mounted into the API. To run it without Compose, the image needs Redis, the queue name, and a mounted artifact directory writable by the container user. The `BIOPARSER_` variables are listed in `.env.example`.
 
-The process serves `GET /health` on port 8081 (`{"status":"ok"}`). The image probe calls that. A probe that gets no answer is how the platform restarts a worker that has stopped responding. A parse that is still running keeps the probe healthy. The parse time limit ends a hung parse.
+The process serves `GET /health` on port 8081 (`{"status":"ok"}`). The image probe calls that. A probe that gets no answer marks the container unhealthy. Plain Compose does not act on that, but a platform such as OpenShift can restart the worker. A parse that is still running keeps the probe healthy. The parse time limit ends a hung parse.
