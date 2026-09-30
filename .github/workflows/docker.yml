@@ -30,5 +30,9 @@ jobs:
       - name: Build and push API image
         # assuming the docker file is in the root with name "Dockerfile"
         run: |
-          docker build -t ghcr.io/bioparser/bioparser-api:latest .
-          docker push ghcr.io/bioparser/bioparser-api:latest
+          IMAGE=ghcr.io/bioparser/bioparser/api
+          docker buildx build --push \
+            -f Dockerfile \
+            -t "$IMAGE:${{ github.sha }}" \
+            -t "$IMAGE:latest" \
+              .
