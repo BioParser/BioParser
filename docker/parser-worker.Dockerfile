@@ -83,6 +83,12 @@ RUN groupadd --system --gid 10001 app \
     && mkdir -p /data \
     && chown app:app /data
 
+COPY --from=models --chown=app:app /home/app /home/app
+# Fail the build if the pipeline model config or directory is missing.
+RUN python3 -c "import json, os, pathlib; cfg=json.loads((pathlib.Path.home()/'mineru.json').read_text()); root=cfg['models-dir']['pipeline']; assert os.path.isdir(root), root"
+
+USER app:app
+
 # Port matches DEFAULT_LIVENESS_PORT.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python3 -c "import os,urllib.request; port=os.environ.get('BIOPARSER_LIVENESS_PORT','8081'); urllib.request.urlopen(f'http://127.0.0.1:{port}/health', timeout=3)"
@@ -93,6 +99,8 @@ CMD ["python", "-m", "bioparser.worker.parse"]
 #-------------------------------------------
 
 FROM runtime AS gpu
+
+USER root
 
 ARG TORCH_BACKEND=cu129
 
@@ -105,10 +113,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && /opt/mineru/bin/python -c "from mineru.backend.pipeline.pipeline_analyze import doc_analyze_streaming" \
     && chown -R app:app /opt/mineru
 
-COPY --from=models --chown=app:app /home/app /home/app
-# Fail the build if the pipeline model config or directory is missing.
-RUN python3 -c "import json, os, pathlib; cfg=json.loads((pathlib.Path.home()/'mineru.json').read_text()); root=cfg['models-dir']['pipeline']; assert os.path.isdir(root), root"
-
 USER app:app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
@@ -118,10 +122,4 @@ COPY --from=builder --chown=app:app /app/.venv /app/.venv
 FROM runtime AS cpu
 
 COPY --from=models --chown=app:app /opt/mineru /opt/mineru
-COPY --from=models --chown=app:app /home/app /home/app
-# Fail the build if the pipeline model config or directory is missing.
-RUN python3 -c "import json, os, pathlib; cfg=json.loads((pathlib.Path.home()/'mineru.json').read_text()); root=cfg['models-dir']['pipeline']; assert os.path.isdir(root), root"
-
-USER app:app
-
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
