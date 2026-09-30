@@ -19,9 +19,6 @@ services:
     environment:
       MINERU_DEVICE_MODE: cuda
       MINERU_VIRTUAL_VRAM_SIZE: "${MINERU_VIRTUAL_VRAM_SIZE:-2}"
-    # Host RAM. Weights sit in VRAM.
-    mem_limit: 6g
-    memswap_limit: 6g
 
   mineru:
     <<: *gpu
