@@ -4,6 +4,7 @@ import hashlib
 import os
 import socket
 import tempfile
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -12,8 +13,21 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from pydantic import ValidationError
 
+from bioparser.jobqueue import (
+    JobQueueError,
+    ParseJobMessage,
+    RedisJobQueue,
+    create_redis_broker,
+)
+from bioparser.jobstate import JobState, JobStateError, RedisJobStateStore, SafeError
 from bioparser.services.mineru import MinerUClient
 from bioparser.services.vllm import VLLMService
+from bioparser.storage import (
+    ArtifactMetadata,
+    CreationInfo,
+    FileSystemArtifactStorage,
+    StorageError,
+)
 
 from . import config
 from .errors import (
@@ -23,18 +37,24 @@ from .errors import (
     INVALID_PDF,
     JOB_NOT_FOUND,
     MISSING_FILE,
+    QUEUE_UNAVAILABLE,
+    REDIS_UNAVAILABLE,
+    STORAGE_UNAVAILABLE,
     UNSUPPORTED_CONTENT_TYPE,
     error_response,
     http_error,
 )
-from .jobs import create_job, get_job
 from .middleware import TypedRequestBodyLimitMiddleware
 from .pipeline import PipelineError, run_pipeline
 from .schema import (
+    FailedJobResponse,
     HealthResponse,
     JobStatusResponse,
+    QueuedJobResponse,
     ReadinessResponse,
     ReadinessUnavailableResponse,
+    RunningJobResponse,
+    SucceededJobResponse,
 )
 from .uploads import (
     read_upload,
@@ -55,6 +75,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.mineru_timeout_seconds,
         settings.mineru_connect_timeout_seconds,
     )
+
+    if settings.redis_url is None:
+        raise RuntimeError("BIOPARSER_REDIS_URL is required")
+    if settings.artifact_storage_path is None:
+        raise RuntimeError("BIOPARSER_ARTIFACT_STORAGE_PATH is required")
+
+    redis_url = str(settings.redis_url)
+    redis_timeout = settings.redis_timeout_seconds
+
+    broker = create_redis_broker(redis_url, timeout_s=redis_timeout)
+
+    app.state.job_store = RedisJobStateStore(redis_url, operation_timeout_seconds=redis_timeout)
+
+    app.state.parse_queue = RedisJobQueue(name="parse", model=ParseJobMessage, broker=broker)
+
+    app.state.artifact_storage = FileSystemArtifactStorage(root_path=settings.artifact_storage_path)
+
     app.state.vllm = VLLMService()
     # Find served model id early to log what we are using
     with contextlib.suppress(Exception):  # TODO: log this once there is a logger
@@ -67,6 +104,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         for client in (
             getattr(app.state, "mineru", None),
             getattr(app.state, "vllm", None),
+            getattr(app.state, "job_store", None),
         ):
             if client is not None:
                 await client.aclose()
@@ -112,6 +150,42 @@ async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
         app.state.extract_sem.release()
 
 
+def _job_state_response(state: JobState) -> JobStatusResponse:
+    if state.status == "queued":
+        return QueuedJobResponse(
+            job_id=state.job_id,
+            status="queued",
+        )
+
+    if state.status == "running":
+        return RunningJobResponse(
+            job_id=state.job_id,
+            status="running",
+        )
+
+    if state.status == "succeeded":
+        if state.output_artifact_ref is None:
+            raise ValueError("Succeeded job is missing output_artifact_ref")
+
+        return SucceededJobResponse(
+            job_id=state.job_id,
+            status="succeeded",
+            output_artifact_ref=state.output_artifact_ref,
+        )
+
+    if state.status == "failed":
+        if state.error is None:
+            raise ValueError("Failed job is missing error")
+
+        return FailedJobResponse(
+            job_id=state.job_id,
+            status="failed",
+            error=state.error,
+        )
+    else:
+        raise ValueError(f"Unknown job status: {state.status}")
+
+
 @app.post(
     "/api/extractions",
     status_code=202,
@@ -119,21 +193,75 @@ async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
         400: error_response(MISSING_FILE, EMPTY_FILE, INVALID_PDF, INVALID_CONTENT_LENGTH),
         413: error_response(CONTENT_TOO_LARGE),
         415: error_response(UNSUPPORTED_CONTENT_TYPE),
+        503: error_response(STORAGE_UNAVAILABLE, REDIS_UNAVAILABLE, QUEUE_UNAVAILABLE),
     },
 )
-async def submit_job(request: Request, file: UploadFile | None = None) -> JobStatusResponse:
-    # Redis is not implemented so does nothing yet except validation
-    await _validated_upload(request, file)
-    record = create_job()
-    return JobStatusResponse(job_id=record.job_id, status=record.status)
+async def submit_job(request: Request, file: UploadFile | None = None) -> QueuedJobResponse:
+    document_id, pdf_bytes = await _validated_upload(request, file)
+    job_id = str(uuid.uuid4())
+    artifact_id = "art-pdf-" + job_id
+    creation_info = CreationInfo(created_by="api-upload")
+    artifact_metadata = ArtifactMetadata(
+        artifact_id=artifact_id,
+        document_id=document_id,
+        media_type="application/pdf",
+        checksum=document_id,
+        creation_info=creation_info,
+    )
+
+    try:
+        input_artifact_ref = await asyncio.to_thread(
+            request.app.state.artifact_storage.store, pdf_bytes, artifact_metadata
+        )
+    except StorageError as exc:
+        raise http_error(503, STORAGE_UNAVAILABLE) from exc
+
+    job_state = JobState(
+        job_id=job_id,
+        document_id=document_id,
+        status="queued",
+        input_artifact_ref=input_artifact_ref,
+    )
+
+    try:
+        await request.app.state.job_store.create(job_state)
+    except JobStateError as exc:
+        raise http_error(503, REDIS_UNAVAILABLE) from exc
+
+    parse_job_message = ParseJobMessage(
+        job_id=job_id,
+        document_id=document_id,
+        input_pdf_ref=input_artifact_ref,
+    )
+    try:
+        await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
+    except JobQueueError as exc:
+        failed_state = job_state.with_changes(
+            status="failed",
+            error=SafeError(code="internal_error"),
+        )
+        with contextlib.suppress(JobStateError):
+            await request.app.state.job_store.update(failed_state)
+        raise http_error(503, QUEUE_UNAVAILABLE) from exc
+
+    return QueuedJobResponse(job_id=job_id, status="queued")
 
 
-@app.get("/api/jobs/{job_id}", responses={404: error_response(JOB_NOT_FOUND)})
-def job_status(job_id: str) -> JobStatusResponse:
-    record = get_job(job_id)
+@app.get(
+    "/api/jobs/{job_id}",
+    responses={
+        404: error_response(JOB_NOT_FOUND),
+        503: error_response(REDIS_UNAVAILABLE),
+    },
+)
+async def job_status(request: Request, job_id: str) -> JobStatusResponse:
+    try:
+        record = await request.app.state.job_store.get(job_id)
+    except JobStateError as exc:
+        raise http_error(503, REDIS_UNAVAILABLE) from exc
     if record is None:
         raise http_error(404, JOB_NOT_FOUND)
-    return JobStatusResponse(job_id=job_id, status=record.status)
+    return _job_state_response(record)
 
 
 @app.post("/extract")

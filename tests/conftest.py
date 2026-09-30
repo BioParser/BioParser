@@ -3,14 +3,37 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
-from stubs import StubMinerUClient, StubVLLMService
+from stubs import (
+    StubArtifactStorage,
+    StubJobStateStore,
+    StubMinerUClient,
+    StubParseQueue,
+    StubVLLMService,
+)
 
-from bioparser.api import config, jobs
+from bioparser.api import config
 from bioparser.api.app import app
 
 
 @pytest.fixture
-def client() -> TestClient:
+def stub_api_adapters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]]:
+    events: list[str] = []
+    artifact_storage = StubArtifactStorage(events)
+    job_store = StubJobStateStore(events)
+    parse_queue = StubParseQueue(events)
+
+    monkeypatch.setattr(app.state, "artifact_storage", artifact_storage, raising=False)
+    monkeypatch.setattr(app.state, "job_store", job_store, raising=False)
+    monkeypatch.setattr(app.state, "parse_queue", parse_queue, raising=False)
+    return artifact_storage, job_store, parse_queue, events
+
+
+@pytest.fixture
+def client(
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+) -> TestClient:
     return TestClient(app)
 
 
@@ -36,11 +59,6 @@ def reset_api_settings_cache() -> Generator[None]:
     yield
     if hasattr(config.get_api_settings, "cache_clear"):
         config.get_api_settings.cache_clear()
-
-
-@pytest.fixture(autouse=True)
-def isolated_job_store(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(jobs, "_jobs", {})
 
 
 @pytest.fixture
