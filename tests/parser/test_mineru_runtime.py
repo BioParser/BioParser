@@ -2,6 +2,7 @@ import os
 import subprocess
 import time
 from pathlib import Path
+from typing import IO, Any
 
 import pytest
 from dramatiq.middleware.time_limit import TimeLimitExceeded
@@ -61,12 +62,25 @@ def test_interrupt_kills_the_cli_and_its_children(
 
     real_popen = subprocess.Popen
 
-    def popen(command: list[str], **kwargs: object) -> subprocess.Popen[str]:
-        process: subprocess.Popen[str] = real_popen(command, **kwargs)  # type: ignore[call-overload]
+    def popen(
+        command: list[str],
+        *,
+        stdin: IO[Any] | int | None = None,
+        stdout: IO[Any] | int | None = None,
+        stderr: IO[Any] | int | None = None,
+        text: bool | None = None,
+        start_new_session: bool = False,
+    ) -> subprocess.Popen[str]:
+        process: subprocess.Popen[str] = real_popen(
+            command,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+            text=text,
+            start_new_session=start_new_session,
+        )
 
-        def communicate(
-            input: str | None = None, timeout: float | None = None
-        ) -> tuple[str, str]:
+        def communicate(input: str | None = None, timeout: float | None = None) -> tuple[str, str]:
             # Give the shell time to start its child before "the queue" interrupts.
             deadline = time.monotonic() + 5
             while not pid_file.exists() and time.monotonic() < deadline:
