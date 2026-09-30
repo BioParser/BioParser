@@ -7,7 +7,7 @@ from bioparser.worker.parse.runtime import install_shutdown
 
 
 @pytest.fixture
-def restore_signals():
+def restore_signals() -> object:
     saved = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
     yield
     for sig, handler in saved.items():

@@ -35,6 +35,7 @@ from bioparser.parser.models import (
     TextContent,
 )
 from bioparser.parser.protocol import PdfParser
+from bioparser.storage import StoredArtifact
 from bioparser.storage.errors import ArtifactAlreadyExistsError, ArtifactNotFoundError
 from bioparser.storage.models import ArtifactMetadata
 from bioparser.worker.parse.handler import ParseJobHandler, _parser_artifact_id
@@ -97,7 +98,7 @@ class MemoryStorage:
     def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
         return self.metadata[artifact_path]
 
-    def retrieve_artifact(self, artifact_path: str) -> object:
+    def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
         raise NotImplementedError
 
 
@@ -230,7 +231,7 @@ def test_retry_after_parser_error_can_succeed() -> None:
     parser.error = None
     handler.handle(message)
     handler.close()
-    assert jobs.state.status == "parsed"
+    assert jobs.state.status == "parsed"  # type: ignore[comparison-overlap]
     assert len(parser.paths) == 2
 
 
@@ -306,7 +307,11 @@ def test_mineru_cli_failure_fails_the_job_as_invalid_pdf(
     executable = tmp_path / "mineru"
     executable.write_text("#!/bin/sh\necho broken >&2\nexit 1\n")
     executable.chmod(0o755)
-    monkeypatch.setattr(mineru_runtime.shutil, "which", lambda _name: str(executable))
+    monkeypatch.setattr(
+        mineru_runtime,
+        "shutil",
+        type("S", (), {"which": staticmethod(lambda _name: str(executable))})(),
+    )
 
     jobs = MemoryJobs(_queued().with_changes(parser="mineru"))
     handler = ParseJobHandler(

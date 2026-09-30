@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from bioparser.parser.backend.mineru.mapper import artifact_from_middle_json
-from bioparser.parser.backend.mineru.parser import MINERU_PARSER_NAME, MINERU_PARSER_VERSION
+from bioparser.parser.backend.mineru.parser import MINERU_PARSER_VERSION
 from bioparser.parser.backend.mineru.schema import MINERU_PIPELINE_VERSION
 from bioparser.parser.backend.mineru.tables import (
     HTML_CELL_MAX_OCCUPIED,
@@ -20,6 +20,7 @@ from bioparser.parser.models import (
     TableContent,
     TextContent,
 )
+from bioparser.parser_names import MINERU_PARSER_NAME
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mineru-middle.json"
 CHECKSUM = "a" * 64
