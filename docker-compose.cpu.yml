@@ -15,7 +15,7 @@ services:
     memswap_limit: 12g # needed for OOM ?
 
   vllm:
-    image: vllm/vllm-openai-cpu:v0.29.0-x86_64@sha256:66064cf683152e60eff2e5b18ec2d4ace236fb063c0a241f918691db9caddcf4
+    image: vllm/vllm-openai-cpu:v0.30.0@sha256:85d126740e78e9b7270b6cfc01159776d066c445609b7167faf32efc4a86f19d
     command:
       - ${VLLM_MODEL}
       - --host
