@@ -79,8 +79,8 @@ services:
       BIOPARSER_PARSE_QUEUE_NAME: parse
     volumes:
       - artifacts:/data
-    mem_limit: 16g
-    memswap_limit: 16g
+    mem_limit: 12g
+    memswap_limit: 12g
     restart: unless-stopped
     networks: [backend]
 
