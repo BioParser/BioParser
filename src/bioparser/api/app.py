@@ -10,9 +10,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from pydantic import ValidationError
-from starlette.middleware.body_limit import RequestBodyLimitMiddleware
-from starlette.responses import PlainTextResponse
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, Response
+from pydantic import UUID4, ValidationError
 
 from bioparser.logging_config import error_fields, redact_url, setup_logging
 from bioparser.services.mineru import MinerUClient
@@ -22,16 +23,20 @@ from bioparser.services.vllm.vllm import VLLMError
 
 from . import config
 from .errors import (
+    CONTENT_TOO_LARGE,
     EMPTY_FILE,
     INVALID_CONTENT_LENGTH,
+    INVALID_JOB_ID,
     INVALID_PDF,
     JOB_NOT_FOUND,
     MISSING_FILE,
     UNSUPPORTED_CONTENT_TYPE,
+    ErrorResponse,
     error_response,
     http_error,
 )
 from .jobs import create_job, get_job
+from .middleware import TypedRequestBodyLimitMiddleware
 from .pipeline import PipelineError, run_pipeline
 from .schema import (
     HealthResponse,
@@ -40,7 +45,6 @@ from .schema import (
     ReadinessUnavailableResponse,
 )
 from .uploads import (
-    CONTENT_TOO_LARGE,
     read_upload,
     require_file,
     validate_content_length,
@@ -90,14 +94,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 setup_logging(config.get_api_settings().log_level)
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
-    RequestBodyLimitMiddleware,
+    TypedRequestBodyLimitMiddleware,
     max_body_size=config.get_api_settings().max_upload_bytes,
 )
-
-
-@app.exception_handler(413)
-async def content_too_large_handler(_request: Request, _exc: Exception) -> PlainTextResponse:
-    return PlainTextResponse(CONTENT_TOO_LARGE, status_code=413)
 
 
 async def _validated_upload(request: Request, file: UploadFile | None) -> tuple[str, bytes]:
@@ -106,8 +105,7 @@ async def _validated_upload(request: Request, file: UploadFile | None) -> tuple[
     validate_content_type(file)
     content = await read_upload(file)
     validate_pdf_content(content)
-    # If we use sha256 as digest then same files get same digest
-    # Can be used as job id etc
+    # Used as document_id; sha identifies the file, not the job (which is UUID)
     return hashlib.sha256(content).hexdigest(), content
 
 
@@ -138,6 +136,7 @@ async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
     status_code=202,
     responses={
         400: error_response(MISSING_FILE, EMPTY_FILE, INVALID_PDF, INVALID_CONTENT_LENGTH),
+        413: error_response(CONTENT_TOO_LARGE),
         415: error_response(UNSUPPORTED_CONTENT_TYPE),
     },
 )
@@ -148,8 +147,22 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> JobSta
     return JobStatusResponse(job_id=record.job_id, status=record.status)
 
 
-@app.get("/api/jobs/{job_id}", responses={404: error_response(JOB_NOT_FOUND)})
-def job_status(job_id: str) -> JobStatusResponse:
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError) -> Response:
+    """Return the typed error body for a malformed job_id; keep FastAPI's default otherwise."""
+    if any(error["loc"] == ("path", "job_id") for error in exc.errors()):
+        return JSONResponse(
+            status_code=422,
+            content=ErrorResponse(detail=INVALID_JOB_ID).model_dump(),
+        )
+    return await request_validation_exception_handler(request, exc)
+
+
+@app.get(
+    "/api/jobs/{job_id}",
+    responses={404: error_response(JOB_NOT_FOUND), 422: error_response(INVALID_JOB_ID)},
+)
+def job_status(job_id: UUID4) -> JobStatusResponse:
     record = get_job(job_id)
     if record is None:
         raise http_error(404, JOB_NOT_FOUND)

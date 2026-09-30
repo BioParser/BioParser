@@ -27,9 +27,7 @@ services:
 
   vllm:
     <<: *gpu
-    # TODO: get sha
-    # NOTE: mineru was using 0.21.0
-    image: vllm/vllm-openai:v0.21.0
+    image: vllm/vllm-openai:v0.30.0@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90
     command:
       - ${VLLM_MODEL}
       - --host

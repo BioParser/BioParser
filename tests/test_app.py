@@ -1,8 +1,12 @@
+from uuid import UUID, uuid4
+
 import pytest
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from bioparser.api import config
 from bioparser.api.errors import ErrorResponse
+from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
 
 # A minimal byte string that passes every /api/extractions validation check.
@@ -29,11 +33,30 @@ def test_submit_and_retrieve_job(client: TestClient) -> None:
 
 
 def test_unknown_job_returns_404(client: TestClient) -> None:
-    response = client.get("/api/jobs/missing")
+    response = client.get(f"/api/jobs/{uuid4()}")
 
     assert response.status_code == 404
     ErrorResponse.model_validate(response.json())
     assert response.json() == {"detail": {"code": "job_not_found", "message": "Job not found"}}
+
+
+@pytest.mark.parametrize(
+    "job_id",
+    [
+        "missing",
+        "11111111-1111-1111-1111-11111111111",  # one character short
+        "00000000-0000-0000-0000-000000000000",  # nil UUID, not v4
+        str(UUID(int=1, version=1)),  # valid UUID, wrong version
+    ],
+)
+def test_malformed_job_id_returns_typed_422(client: TestClient, job_id: str) -> None:
+    response = client.get(f"/api/jobs/{job_id}")
+
+    assert response.status_code == 422
+    ErrorResponse.model_validate(response.json())
+    assert response.json() == {
+        "detail": {"code": "invalid_job_id", "message": "job_id must be a version 4 UUID"}
+    }
 
 
 def test_submit_pdf(client: TestClient) -> None:
@@ -120,8 +143,14 @@ def test_submit_file_too_large(client: TestClient, monkeypatch: pytest.MonkeyPat
     )
 
     assert response.status_code == 413
-    assert response.headers["content-type"].startswith("text/plain")
-    assert response.text == "Content Too Large"
+    assert response.headers["content-type"].startswith("application/json")
+    ErrorResponse.model_validate(response.json())
+    assert response.json() == {
+        "detail": {
+            "code": "content_too_large",
+            "message": "Content Too Large",
+        }
+    }
 
 
 def test_submit_declared_content_length_too_large(client: TestClient) -> None:
@@ -133,8 +162,13 @@ def test_submit_declared_content_length_too_large(client: TestClient) -> None:
     )
 
     assert response.status_code == 413
-    assert response.headers["content-type"].startswith("text/plain")
-    assert response.text == "Content Too Large"
+    ErrorResponse.model_validate(response.json())
+    assert response.json() == {
+        "detail": {
+            "code": "content_too_large",
+            "message": "Content Too Large",
+        }
+    }
 
 
 def test_submit_invalid_content_length(client: TestClient) -> None:
@@ -161,3 +195,30 @@ def test_submit_negative_content_length(client: TestClient) -> None:
     detail = response.json()["detail"]
     assert detail["code"] == "invalid_content_length"
     assert detail["message"]
+
+
+def test_streamed_body_too_large_with_understated_content_length() -> None:
+    app = FastAPI()
+    app.add_middleware(TypedRequestBodyLimitMiddleware, max_body_size=5)
+
+    @app.post("/")
+    async def endpoint(request: Request) -> dict[str, bool]:
+        await request.body()
+        return {"ok": True}
+
+    client = TestClient(app)
+
+    response = client.post(
+        "/",
+        content=b"123456789",
+        headers={"content-length": "1"},
+    )
+
+    assert response.status_code == 413
+    ErrorResponse.model_validate(response.json())
+    assert response.json() == {
+        "detail": {
+            "code": "content_too_large",
+            "message": "Content Too Large",
+        }
+    }

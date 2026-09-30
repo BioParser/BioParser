@@ -1,10 +1,11 @@
 # Docker Compose
 
-Compose runs three services.
+Compose runs four services:
 
-`vllm` is a local OpenAI compatible model server on host port `VLLM_PORT` (default 8000).  
-`bioparser` is FastAPI on host port `BIOPARSER_PORT` (default 8080).  
-`redis` on port 6379 (accessed inside of the Docker network using redis:6379).
+- `vllm` is a local OpenAI-compatible model server on host port `VLLM_PORT` (default 8000).  
+- `mineru` is the PDF parser service on internal network port 8000; it is not published to the host unless the commented `ports` mapping in `docker-compose.yml` is enabled (`MINERU_PORT`, default 8001).  
+- `redis` is queue and job state storage on port 6379 (accessed inside the Docker network using `redis:6379`).  
+- `bioparser` is FastAPI on host port `BIOPARSER_PORT` (default 8080).  
 
 The README has the default install and start commands. This page covers env vars, networking, and `test_prompt`.
 
@@ -18,21 +19,23 @@ cp .env.example .env
 
 Required:
 
+`COMPOSE_FILE`: Compose configuration preference, e.g. `docker-compose.yml:docker-compose.gpu.yml` (GPU) or `docker-compose.yml:docker-compose.cpu.yml` (CPU).  
 `VLLM_MODEL`: Hugging Face repo id, for example `Qwen/Qwen3-0.6B` (already set in `.env.example`).  
 `VLLM_PORT`: host port for vLLM (default `8000`).  
 `BIOPARSER_PORT`: host port for the API (default `8080`).  
 
 Optional:
 
-`HF_TOKEN`: needed for gated or private Hugging Face models.
+`HF_TOKEN`: needed for gated or private Hugging Face models.  
+`MINERU_PORT`: host port for MinerU (default `8001`; requires enabling the commented `ports` mapping in `docker-compose.yml`).  
 
-Inside Compose, the API uses `BIOPARSER_VLLM_BASE_URL=http://vllm:8000/v1`. On the host, `test_prompt` should use `http://localhost:8000/v1` (the default in `.env.example`).
+Inside Compose, the API uses `BIOPARSER_VLLM_BASE_URL=http://vllm:8000/v1` and `BIOPARSER_MINERU_BASE_URL=http://mineru:8000`. On the host, `test_prompt` should use `http://localhost:8000/v1` (the default in `.env.example`).
 
 Weights cache on the host at `~/.cache/huggingface`.
 
 ## Start
 
-All three services start together; the API does not wait for vLLM. The first model download can take several minutes (`start_period` 600s). `/health` on the API can succeed while the model is still loading.
+All services are included in the Compose stack; the API container starts only after `vllm`, `mineru`, and `redis` health checks pass. The first model download can take several minutes (vLLM's health-check `start_period` is 180s for GPU and 600s for CPU).
 
 ```sh
 docker compose up --build

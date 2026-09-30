@@ -13,6 +13,7 @@ authors = [
 ]
 requires-python = "==3.13.*"
 dependencies = [
+  "dramatiq[redis]>=2.2.1",
   "fastapi>=0.141.1",
   "httpx2>=2.12",
   "openai>=3.8.0",
@@ -20,6 +21,7 @@ dependencies = [
   "pydantic>=2.13.5",
   "pydantic-settings>=2.15.0",
   "python-multipart>=0.0.32",
+  "redis>=8.1.0",
   "uvicorn[standard]>=0.52.4",
 ]
 
@@ -66,3 +68,4 @@ files = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = ["integration: requires a real Redis instance (see BIOPARSER_TEST_REDIS_URL)"]

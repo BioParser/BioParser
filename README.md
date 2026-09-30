@@ -1,103 +1,147 @@
 # BioParser
-[![Build](https://github.com/bioparser/bioparser/actions/workflows/ci.yml/badge.svg)](https://github.com/bioparser/bioparser/actions/workflows/ci.yml)
 
-## Install
+[![CI](https://github.com/BioParser/BioParser/actions/workflows/ci.yml/badge.svg)](https://github.com/BioParser/BioParser/actions/workflows/ci.yml)
 
-### Docker Compose
+BioParser extracts mammal trait data (for example body length and weight) from born-digital scientific PDFs. Everything runs locally: a PDF parser (pdfplumber or MinerU) splits the article into traceable blocks, and a local LLM served by vLLM extracts observations with evidence.
+
+> **Status: early development.** `POST /api/extractions` accepts a PDF and creates a job, but no worker processes jobs yet, so every job stays `queued`. To run the full parse → extract pipeline today, use the synchronous test route `POST /extract`. Details: [docs/api.md](docs/api.md).
+
+## Quick start (Docker Compose)
+
+Runs the full stack: API, MinerU, vLLM, and Redis.
+
+Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and needs the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). A CPU stack is also available.
+
+1. Create your config (`.env` is gitignored):
 
 ```sh
-cp .env.example .env
+   cp .env.example .env
 ```
 
-`.env` is gitignored.
+   This selects the GPU stack. For CPU, change the `COMPOSE_FILE` line in `.env` to:
 
-### Host (`uv`)
+```sh
+   COMPOSE_FILE=docker-compose.yml:docker-compose.cpu.yml
+```
 
-Needs **Python 3.13** and [uv](https://docs.astral.sh/uv/). For the local API, checks, and dev scripts:
+2. Build and start:
+
+```sh
+   docker compose up --build
+```
+
+   The first run is slow: MinerU models download during the image build, and vLLM downloads the model set in `VLLM_MODEL` (default `Qwen/Qwen3-0.6B`). The API starts only after `vllm`, `mineru`, and `redis` pass their health checks.
+
+3. Check the API:
+
+```sh
+   curl localhost:8080/health
+   # {"status":"ok"}
+```
+
+4. Run the pipeline on a sample paper (synchronous; can take minutes on CPU):
+
+```sh
+   curl -F file=@tests/parser/fixtures/plos-biology-3000248.pdf localhost:8080/extract
+```
+
+Stop with `Ctrl+C` or `docker compose down`.
+
+| Service | Address on the host |
+|---|---|
+| API | `http://localhost:8080` (Swagger UI: `/docs`) |
+| vLLM (OpenAI-compatible) | `http://localhost:8000/v1` |
+| MinerU, Redis | not published (internal network only) |
+
+Published ports bind to `127.0.0.1` only. Ports, environment variables, and `test_prompt`: [docs/docker-compose.md](docs/docker-compose.md).
+
+## Local development (uv)
+
+Prerequisites: [uv](https://docs.astral.sh/uv/). The project pins Python 3.13; `uv sync` downloads it if missing.
 
 ```sh
 uv sync
 ```
 
-## Running
-
-### Docker Compose (default)
-
-```sh
-docker compose up --build
-```
-
-- API: `http://localhost:8080`: `curl localhost:8080/health`
-- vLLM: `http://localhost:8000`
-
-First start can take several minutes (image pull, model download, healthcheck). Stop with `Ctrl+C` or `docker compose down`.
-
-Probe the model from the host (after vLLM is up):
-
-```sh
-uv run test_prompt "Say hello in one sentence"
-```
-
-Ports, env vars, Hugging Face tokens, and more options: [docs/docker-compose.md](docs/docker-compose.md).
-
-### Local (`uv`)
-
-Starts the FastAPI app only
+### Run the API
 
 ```sh
 uv run bioparser
 ```
 
-Listens on `127.0.0.1:8080`.
+Serves on `http://127.0.0.1:8080`. Job submission and polling work on their own; `POST /extract` also needs reachable MinerU and vLLM services.
 
-Parse a PDF to artifact JSON:
+> The host API reads `.env` if it exists. `.env.example` sets `BIOPARSER_REDIS_URL=redis://redis:6379/0`, which only resolves inside Compose, so `/ready` returns `503`. Empty that line for host-only runs.
+
+### Parse a PDF
 
 ```sh
 uv run pdf-parse tests/parser/fixtures/plos-biology-3000248.pdf -o artifact.json
 ```
 
-Overlay parser boxes on the PDF (localhost only):
+Omit `-o` to print the artifact JSON to stdout.
+
+### View parser boxes on a PDF
 
 ```sh
 uv run pdf-view tests/parser/fixtures/plos-biology-1002000.pdf
 ```
 
-Opens `http://127.0.0.1:8765/`. You can also start `uv run pdf-view` with no file and upload a PDF in the browser.
+Then open `http://127.0.0.1:8765/` (loopback only; change with `--port`). Run `uv run pdf-view` with no file to upload a PDF in the browser.
 
-Optional CPU MinerU backend (an isolated UV tool, not `uv sync`):
+### Optional: MinerU backend
+
+Both scripts accept `--backend mineru`. It needs the MinerU CLI as a separate uv tool (not part of `uv sync`):
 
 ```sh
 uv tool install --python 3.13 'mineru[pipeline]==3.4.5' --with six
-# If `mineru` is not found afterwards: uv tool update-shell
 uv run pdf-parse tests/parser/fixtures/plos-biology-3000248.pdf --backend mineru -o artifact.json
-uv run pdf-view tests/parser/fixtures/plos-biology-1002000.pdf --backend mineru
 ```
 
-Uninstall it with `uv tool uninstall mineru`.
+Version pin, RAM needs, and uninstalling: [docs/parser.md](docs/parser.md).
 
-Details: [Local PDF parser](docs/parser.md).
+### Send a prompt to vLLM
 
-## Development
+With the Compose stack running:
 
-- [Architecture](docs/architecture.md)
-- [Local PDF parser](docs/parser.md)
-- [Definition of Done](docs/dod.md)
-- [Collaboration practices](docs/collaboration.md)
-- [Docker Compose](docs/docker-compose.md)
+```sh
+uv run test_prompt "Say hello in one sentence"
+```
 
-Install hooks so they run on commit:
+This calls vLLM directly, not the API. Options: `uv run test_prompt --help`.
+
+## Checks and tests
+
+Same commands as CI:
+
+```sh
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy .
+uv run pytest -m "not integration"
+```
+
+Auto-fix: `uv run ruff check --fix` and `uv run ruff format`.
+
+Integration tests need Redis at `BIOPARSER_TEST_REDIS_URL` (default `redis://localhost:6379/15`); without it they are skipped:
+
+```sh
+uv run pytest -m integration
+```
+
+Install the pre-commit hooks (uv lock, ruff, mypy) once:
 
 ```sh
 uv run pre-commit install
 ```
 
-All hooks: `uv run pre-commit run --all-files`.
+Run them on all files: `uv run pre-commit run --all-files`.
 
-```bash
-uv run ruff check
-uv run ruff format
-uv run mypy
-uv run pytest
-```
+## Documentation
 
-Lint auto-fixes: `uv run ruff check --fix`.
+- [Architecture](docs/architecture.md): target design, components, data contracts
+- [API](docs/api.md): HTTP contract, current scope, module layout
+- [Docker Compose](docs/docker-compose.md): services, environment variables, `test_prompt`
+- [Local PDF parser](docs/parser.md): parser backends and the dev viewer
+- [Collaboration practices](docs/collaboration.md): branching, PRs, reviews
+- [Definition of Done](docs/dod.md)
