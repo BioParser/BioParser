@@ -10,6 +10,7 @@ from bioparser.storage.filesystem import FileSystemArtifactStorage
 
 from .config import WorkerSettings
 from .handler import ParseJobHandler
+from .health import LivenessServer
 
 LOGGER = logging.getLogger(__name__)
 
@@ -57,10 +58,15 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     # Values come from the environment; mypy only sees the required fields.
     settings = WorkerSettings()  # type: ignore[call-arg]
-    queue, handler = build_worker(settings)
-    stop = Event()
-    install_shutdown(stop)
+    liveness = LivenessServer(settings.liveness_port)
+    liveness.start()
     try:
-        queue.consume(handler, stop=stop)
+        queue, handler = build_worker(settings)
+        stop = Event()
+        install_shutdown(stop)
+        try:
+            queue.consume(handler, stop=stop)
+        finally:
+            handler.close()
     finally:
-        handler.close()
+        liveness.close()

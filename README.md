@@ -8,7 +8,7 @@ BioParser extracts mammal trait data (for example body length and weight) from b
 
 ## Quick start (Docker Compose)
 
-Runs the full stack: API, MinerU, vLLM, and Redis.
+Runs the full stack: API, the parser worker, MinerU, vLLM, and Redis.
 
 Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and needs the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). A CPU stack is also available.
 
@@ -30,7 +30,7 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
    docker compose up --build
 ```
 
-   The first run is slow: MinerU models download during the image build, and vLLM downloads the model set in `VLLM_MODEL` (default `Qwen/Qwen3-0.6B`). The API starts only after `vllm`, `mineru`, and `redis` pass their health checks.
+   The first run is slow: the MinerU service and the parser worker each download MinerU models during their image build, and vLLM downloads the model set in `VLLM_MODEL` (default `Qwen/Qwen3-0.6B`). The API starts only after `vllm`, `mineru`, and `redis` pass their health checks. The worker starts after Redis does.
 
 3. Check the API:
 
@@ -75,30 +75,7 @@ Serves on `http://127.0.0.1:8080`. Job submission and polling work on their own;
 
 ### Parse a PDF
 
-```sh
-uv run pdf-parse tests/parser/fixtures/plos-biology-3000248.pdf -o artifact.json
-```
-
-Omit `-o` to print the artifact JSON to stdout.
-
-### View parser boxes on a PDF
-
-```sh
-uv run pdf-view tests/parser/fixtures/plos-biology-1002000.pdf
-```
-
-Then open `http://127.0.0.1:8765/` (loopback only; change with `--port`). Run `uv run pdf-view` with no file to upload a PDF in the browser.
-
-### Optional: MinerU backend
-
-Both scripts accept `--backend mineru`. It needs the MinerU CLI as a separate uv tool (not part of `uv sync`):
-
-```sh
-uv tool install --python 3.13 'mineru[pipeline]==3.4.5' --with six
-uv run pdf-parse tests/parser/fixtures/plos-biology-3000248.pdf --backend mineru -o artifact.json
-```
-
-Version pin, RAM needs, and uninstalling: [docs/parser.md](docs/parser.md).
+Local parsing and the worker image: [docs/parser.md](docs/parser.md).
 
 ### Send a prompt to vLLM
 
