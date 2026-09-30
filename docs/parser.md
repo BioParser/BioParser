@@ -33,7 +33,7 @@ If `mineru` is not found afterwards, run `uv tool update-shell` and start a new 
 
 ## Worker image
 
-The image includes both backends. Pipeline weights are downloaded in their own build stage, then reused by the CPU and GPU images. A CPU parse needs roughly 16 GB of RAM. The GPU image keeps the weights in VRAM.
+The image includes both backends. Pipeline weights are downloaded in their own build stage, then reused by the CPU and GPU images. The running image sets `HF_HUB_OFFLINE=1`, so a job does not fetch weights. A CPU parse needs roughly 16 GB of RAM. The GPU image keeps the weights in VRAM.
 
 ```sh
 docker build -f docker/parser-worker.Dockerfile --target cpu -t bioparser-parser-worker:cpu .
