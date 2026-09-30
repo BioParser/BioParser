@@ -19,3 +19,11 @@ def test_health_returns_ok_and_other_paths_do_not() -> None:
         assert exc_info.value.code == 404
     finally:
         server.close()
+
+
+def test_close_is_idempotent_and_safe_before_start() -> None:
+    LivenessServer(0).close()
+    server = LivenessServer(0)
+    server.start()
+    server.close()
+    server.close()

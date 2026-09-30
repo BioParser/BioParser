@@ -24,6 +24,16 @@ def test_empty_redis_url_is_rejected(tmp_path: Path) -> None:
         )
 
 
+def test_liveness_port_defaults_to_8081(tmp_path: Path) -> None:
+    settings = WorkerSettings(
+        _env_file=None,  # type: ignore[call-arg]
+        redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+        artifact_storage_path=tmp_path,
+        parse_queue_name="parse",
+    )
+    assert settings.liveness_port == 8081
+
+
 @pytest.mark.parametrize("port", [0, 65536])
 def test_liveness_port_must_be_a_tcp_port(tmp_path: Path, port: int) -> None:
     with pytest.raises(ValidationError):
