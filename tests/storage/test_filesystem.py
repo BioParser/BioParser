@@ -186,7 +186,10 @@ class TestOverwriteBehavior:
             concurrent.futures.wait(futures)
 
         assert len(results) == 1
-        assert len(errors) == 3
+
+        # All others should fail with ArtifactAlreadyExistsError
+        for exc in errors:
+            assert isinstance(exc, ArtifactAlreadyExistsError)
         stored = storage.retrieve_artifact("art-race")
         assert stored.content == content
         assert stored.metadata.size_bytes == len(stored.content)

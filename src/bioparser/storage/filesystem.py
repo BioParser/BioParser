@@ -201,6 +201,31 @@ class FileSystemArtifactStorage:
             tmp_chk_path.write_text(aid, encoding="utf-8")
             tmp_chk_written = True
 
+            while True:
+                try:
+                    os.link(tmp_chk_path, chk_path)
+                    break
+                except FileExistsError:
+                    try:
+                        claimed_aid = chk_path.read_text(encoding="utf-8").strip()
+                    except OSError:
+                        claimed_aid = None
+
+                    if claimed_aid == aid:
+                        try:
+                            os.replace(tmp_chk_path, chk_path)
+                            break
+                        except PermissionError:
+                            continue
+
+                    if claimed_aid and self.exists(claimed_aid):
+                        raise ArtifactAlreadyExistsError(
+                            f"Content checksum already mapped to artifact: {claimed_aid}"
+                        )
+
+                    with contextlib.suppress(OSError):
+                        chk_path.unlink()
+
             if not overwrite:
                 try:
                     os.link(tmp_meta_path, metadata_path)
@@ -210,8 +235,6 @@ class FileSystemArtifactStorage:
             else:
                 os.replace(tmp_meta_path, metadata_path)
                 committed = True
-
-            os.replace(tmp_chk_path, chk_path)
 
             if committed and overwrite and old_checksum and old_checksum != actual_checksum:
                 old_chk_path = self.root_path / f"{old_checksum}.idx"

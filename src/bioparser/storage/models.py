@@ -33,7 +33,7 @@ class ArtifactMetadata(BaseModel):
     artifact_id: str = Field(min_length=1)
     document_id: str = Field(min_length=1)
     media_type: str = Field(min_length=1)
-    checksum: str = Field(min_length=64, max_length=64, pattern=r"^[a-fA-F0-9]{64}$")
+    checksum: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
     creation_info: CreationInfo = Field(default_factory=CreationInfo)
     content_schema_version: str | None = None
     size_bytes: int | None = Field(default=None, ge=0)
