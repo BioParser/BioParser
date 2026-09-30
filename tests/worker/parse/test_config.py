@@ -9,8 +9,8 @@ from bioparser.worker.parse.config import WorkerSettings
 def test_queue_name_is_required(tmp_path: Path) -> None:
     with pytest.raises(ValidationError):
         WorkerSettings(
-            _env_file=None,
-            redis_url="redis://localhost:6379/0",
+            _env_file=None,  # type: ignore[call-arg]
+            redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
         )
 
@@ -18,8 +18,8 @@ def test_queue_name_is_required(tmp_path: Path) -> None:
 def test_empty_redis_url_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValidationError):
         WorkerSettings(
-            _env_file=None,
-            redis_url="",
+            _env_file=None,  # type: ignore[call-arg]
+            redis_url="",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
         )
 
@@ -27,8 +27,8 @@ def test_empty_redis_url_is_rejected(tmp_path: Path) -> None:
 def test_time_limit_must_be_positive(tmp_path: Path) -> None:
     with pytest.raises(ValidationError):
         WorkerSettings(
-            _env_file=None,
-            redis_url="redis://localhost:6379/0",
+            _env_file=None,  # type: ignore[call-arg]
+            redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
             parse_time_limit_seconds=0,
         )
@@ -36,8 +36,8 @@ def test_time_limit_must_be_positive(tmp_path: Path) -> None:
 
 def _settings(tmp_path: Path, limit_s: float) -> WorkerSettings:
     return WorkerSettings(
-        _env_file=None,
-        redis_url="redis://localhost:6379/0",
+        _env_file=None,  # type: ignore[call-arg]
+        redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
         artifact_storage_path=tmp_path,
         parse_queue_name="parse",
         parse_time_limit_seconds=limit_s,

@@ -14,7 +14,9 @@ def _fake_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: str) -> N
     executable = tmp_path / "mineru"
     executable.write_text(f"#!/bin/sh\n{script}\n")
     executable.chmod(0o755)
-    monkeypatch.setattr(runtime.shutil, "which", lambda _name: str(executable))
+    monkeypatch.setattr(
+        runtime, "shutil", type("S", (), {"which": staticmethod(lambda _name: str(executable))})()
+    )
 
 
 def _alive(pid: int) -> bool:
@@ -56,22 +58,25 @@ def test_interrupt_kills_the_cli_and_its_children(
     """Any BaseException while waiting (queue time limit, shutdown) must not orphan MinerU."""
     pid_file = tmp_path / "child.pid"
     _fake_cli(tmp_path, monkeypatch, f"sleep 60 &\necho $! > {pid_file}\nwait")
+
     real_popen = subprocess.Popen
 
-    class _InterruptedOnce(real_popen):  # type: ignore[type-arg,misc]
-        interrupted = False
+    def popen(command: list[str], **kwargs: object) -> subprocess.Popen[str]:
+        process: subprocess.Popen[str] = real_popen(command, **kwargs)  # type: ignore[call-overload]
 
-        def communicate(self, *args: object, **kwargs: object) -> tuple[str, str]:
-            if not _InterruptedOnce.interrupted:
-                _InterruptedOnce.interrupted = True
-                # Give the shell time to start its child before "the queue" interrupts.
-                deadline = time.monotonic() + 5
-                while not pid_file.exists() and time.monotonic() < deadline:
-                    time.sleep(0.05)
-                raise TimeLimitExceeded
-            return super().communicate(*args, **kwargs)  # type: ignore[arg-type]
+        def communicate(
+            input: str | None = None, timeout: float | None = None
+        ) -> tuple[str, str]:
+            # Give the shell time to start its child before "the queue" interrupts.
+            deadline = time.monotonic() + 5
+            while not pid_file.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            raise TimeLimitExceeded
 
-    monkeypatch.setattr(runtime.subprocess, "Popen", _InterruptedOnce)
+        process.communicate = communicate  # type: ignore[method-assign]
+        return process
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
 
     with pytest.raises(TimeLimitExceeded):
         runtime.run_cli_pipeline(tmp_path / "a.pdf", tmp_path, timeout_s=30.0)

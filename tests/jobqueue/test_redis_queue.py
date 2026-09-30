@@ -30,7 +30,7 @@ def stub_broker() -> Generator[StubBroker]:
 
 
 def _message(job_id: str = "3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34") -> ParseJobMessage:
-    return ParseJobMessage(job_id=job_id)
+    return ParseJobMessage.model_validate({"job_id": job_id})
 
 
 def _queue(
