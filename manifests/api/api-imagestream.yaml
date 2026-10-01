@@ -1,0 +1,19 @@
+kind: ImageStream
+apiVersion: image.openshift.io/v1
+
+metadata:
+  name: bioparser-api
+  labels:
+    app: bioparser-api
+spec:
+  lookupPolicy:
+    local: false
+  tags:
+    - name: latest
+      from:
+        kind: DockerImage
+        name: ghcr.io/bioparser/bioparser-api:latest
+      importPolicy:
+        scheduled: true
+      referencePolicy:
+        type: Local
