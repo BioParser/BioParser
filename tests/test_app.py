@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
@@ -8,6 +10,7 @@ from bioparser.api import config
 from bioparser.api.errors import ErrorResponse
 from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
+from bioparser.jobstate import JobState, SafeError
 
 # A minimal byte string that passes every /api/extractions validation check.
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
@@ -215,4 +218,84 @@ def test_streamed_body_too_large_with_understated_content_length() -> None:
             "code": "content_too_large",
             "message": "Content Too Large",
         }
+    }
+
+
+def test_running_job_status(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+) -> None:
+    job_store = stub_api_adapters[1]
+    job_id = str(uuid.uuid4())
+
+    state = JobState(
+        job_id=job_id,
+        document_id="a" * 64,
+        status="running",
+        input_artifact_ref="art-pdf-test",
+    )
+    job_store.states[job_id] = state
+
+    response = client.get(f"/api/jobs/{job_id}")
+
+    assert response.status_code == 200
+    JOB_STATUS_ADAPTER.validate_python(response.json())
+    assert response.json() == {"job_id": job_id, "status": "running"}
+
+
+def test_succeeded_job_status(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+) -> None:
+    job_store = stub_api_adapters[1]
+    job_id = str(uuid.uuid4())
+
+    state = JobState(
+        job_id=job_id,
+        document_id="a" * 64,
+        status="succeeded",
+        input_artifact_ref="art-pdf-test",
+        output_artifact_ref="art-result-test",
+    )
+
+    job_store.states[job_id] = state
+
+    response = client.get(f"/api/jobs/{job_id}")
+
+    assert response.status_code == 200
+    JOB_STATUS_ADAPTER.validate_python(response.json())
+    assert response.json() == {
+        "job_id": job_id,
+        "status": "succeeded",
+        "output_artifact_ref": "art-result-test",
+    }
+
+
+def test_failed_job_status(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+) -> None:
+    job_store = stub_api_adapters[1]
+    job_id = str(uuid.uuid4())
+
+    state = JobState(
+        job_id=job_id,
+        document_id="a" * 64,
+        status="failed",
+        input_artifact_ref="art-pdf-test",
+        error=SafeError(
+            code="parse_failed",
+        ),
+    )
+
+    job_store.states[job_id] = state
+
+    response = client.get(f"/api/jobs/{job_id}")
+
+    assert response.status_code == 200
+    JOB_STATUS_ADAPTER.validate_python(response.json())
+    assert response.json() == {
+        "job_id": job_id,
+        "status": "failed",
+        "error": {"code": "parse_failed"},
     }
