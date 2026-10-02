@@ -10,34 +10,30 @@ class ArtifactStorage(Protocol):
     """Replaceable storage interface for binary payloads and artifact metadata.
 
     The interface is completely independent of transport-specific and filesystem paths.
-    Artifacts are stored, retrieved, and checked strictly by artifact ID string.
+    Artifacts are stored, retrieved, and checked strictly by Artifact path string.
     """
 
     def store(
         self,
         content: bytes,
         metadata: ArtifactMetadata,
-        *,
-        overwrite: bool = False,
     ) -> str:
         """Store an artifact's content payload and metadata.
 
         Args:
             content: The binary payload of the artifact.
-            metadata: Metadata describing the artifact, including artifact_id and document_id.
-            overwrite: If False, raises ArtifactAlreadyExistsError if an artifact with
-                this ID already exists. If True, overwrites existing artifact.
+            metadata: Metadata describing the artifact.
 
         Returns:
-            The artifact ID string.
+            The Artifact path string.
         """
         ...
 
-    def retrieve(self, artifact_id: str) -> bytes:
+    def retrieve(self, artifact_path: str) -> bytes:
         """Retrieve the binary payload of an artifact.
 
         Args:
-            artifact_id: The string identifier of the artifact.
+            artifact_path: The string identifier of the artifact.
 
         Returns:
             The raw bytes of the stored artifact.
@@ -48,11 +44,11 @@ class ArtifactStorage(Protocol):
         """
         ...
 
-    def retrieve_metadata(self, artifact_id: str) -> ArtifactMetadata:
+    def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
         """Retrieve the metadata of an artifact.
 
         Args:
-            artifact_id: The string identifier of the artifact.
+            artifact_path: The string identifier of the artifact.
 
         Returns:
             ArtifactMetadata describing the artifact.
@@ -63,11 +59,11 @@ class ArtifactStorage(Protocol):
         """
         ...
 
-    def retrieve_artifact(self, artifact_id: str) -> StoredArtifact:
+    def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
         """Retrieve both content and metadata for an artifact in a single operation.
 
         Args:
-            artifact_id: The string identifier of the artifact.
+            artifact_path: The string identifier of the artifact.
 
         Returns:
             StoredArtifact bundle containing content and metadata.
@@ -78,27 +74,16 @@ class ArtifactStorage(Protocol):
         """
         ...
 
-    def exists(self, artifact_id: str) -> bool:
+    def exists(self, artifact_path: str) -> bool:
         """Check whether an artifact exists in storage.
 
         Args:
-            artifact_id: The string identifier of the artifact.
+            artifact_path: The string identifier of the artifact.
 
         Returns:
             True if the artifact exists; False otherwise.
 
         Raises:
             StoragePathTraversalError: If the ID attempts path traversal.
-        """
-        ...
-
-    def lookup_by_checksum(self, checksum: str) -> str | None:
-        """Resolve an artifact ID from its content checksum.
-
-        Args:
-            checksum: The SHA-256 hex digest of the content.
-
-        Returns:
-            The artifact_id string if found, or None if not found.
         """
         ...
