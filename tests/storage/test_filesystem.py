@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 import pytest
@@ -34,36 +33,36 @@ class TestBasicStorageOperations:
     def test_store_and_retrieve_pdf(self, storage: FileSystemArtifactStorage) -> None:
         pdf_bytes = b"%PDF-1.4\n%some test pdf content\n%%EOF"
 
-        checksum = hashlib.sha256(pdf_bytes).hexdigest()
+        artifact_path = "pdf/dummy_hash/1"
         metadata = ArtifactMetadata(
-            artifact_path=checksum,
+            artifact_path=artifact_path,
             media_type="application/pdf",
         )
 
-        assert not storage.exists(checksum)
+        assert not storage.exists(artifact_path)
 
         returned_id = storage.store(pdf_bytes, metadata)
-        assert returned_id == checksum
+        assert returned_id == artifact_path
 
         # Verify blob-pointer flat layout on disk
-        meta_json = (storage.root_path / f"{checksum}.meta.json").read_text(encoding="utf-8")
+        meta_json = (storage.root_path / f"{artifact_path}.meta.json").read_text(encoding="utf-8")
         blob_record = FileBlobMetadata.model_validate_json(meta_json)
         assert blob_record.blob_id is not None
-        assert (storage.root_path / f"{checksum}.{blob_record.blob_id}.data").is_file()
-        assert (storage.root_path / f"{checksum}.meta.json").is_file()
+        assert (storage.root_path / f"{artifact_path}.{blob_record.blob_id}.data").is_file()
+        assert (storage.root_path / f"{artifact_path}.meta.json").is_file()
 
-        assert storage.exists(checksum)
+        assert storage.exists(artifact_path)
 
-        retrieved_bytes = storage.retrieve(checksum)
+        retrieved_bytes = storage.retrieve(artifact_path)
         assert retrieved_bytes == pdf_bytes
 
-        retrieved_meta = storage.retrieve_metadata(checksum)
-        assert retrieved_meta.artifact_path == checksum
+        retrieved_meta = storage.retrieve_metadata(artifact_path)
+        assert retrieved_meta.artifact_path == artifact_path
         assert retrieved_meta.media_type == "application/pdf"
 
         assert retrieved_meta.size_bytes == len(pdf_bytes)
 
-        stored_artifact = storage.retrieve_artifact(checksum)
+        stored_artifact = storage.retrieve_artifact(artifact_path)
         assert stored_artifact.content == pdf_bytes
         assert stored_artifact.metadata == retrieved_meta
 
@@ -72,21 +71,21 @@ class TestBasicStorageOperations:
     ) -> None:
         json_bytes = b'{"schema_version": "1", "pages": []}'
 
-        checksum = hashlib.sha256(json_bytes).hexdigest()
+        artifact_path = "pdf/dummy_hash/1"
         metadata = ArtifactMetadata(
-            artifact_path=checksum,
+            artifact_path=artifact_path,
             media_type="application/json",
             content_schema_version="1",
         )
 
         returned_id = storage.store(json_bytes, metadata)
-        assert returned_id == checksum
-        assert storage.exists(checksum)
+        assert returned_id == artifact_path
+        assert storage.exists(artifact_path)
 
-        retrieved = storage.retrieve(checksum)
+        retrieved = storage.retrieve(artifact_path)
         assert retrieved == json_bytes
 
-        retrieved_meta = storage.retrieve_metadata(checksum)
+        retrieved_meta = storage.retrieve_metadata(artifact_path)
         assert retrieved_meta.content_schema_version == "1"
         assert retrieved_meta.media_type == "application/json"
 
@@ -94,32 +93,32 @@ class TestBasicStorageOperations:
 class TestDuplicateUploadBehavior:
     def test_store_duplicate_raises(self, storage: FileSystemArtifactStorage) -> None:
 
-        checksum = hashlib.sha256(b"content").hexdigest()
+        artifact_path = "pdf/dummy_hash/1"
         metadata = ArtifactMetadata(
-            artifact_path=checksum,
+            artifact_path=artifact_path,
             media_type="application/pdf",
         )
         storage.store(b"content", metadata)
 
         metadata2 = ArtifactMetadata(
-            artifact_path=checksum,
+            artifact_path=artifact_path,
             media_type="application/pdf",
         )
         with pytest.raises(ArtifactAlreadyExistsError) as exc_info:
             storage.store(b"content", metadata2)
-        assert checksum in str(exc_info.value)
+        assert artifact_path in str(exc_info.value)
 
         # Content should remain unchanged
-        assert storage.retrieve(checksum) == b"content"
+        assert storage.retrieve(artifact_path) == b"content"
 
     def test_concurrent_exclusive_stores_race(self, storage: FileSystemArtifactStorage) -> None:
         import concurrent.futures
 
         content = b"race-content"
-        checksum = hashlib.sha256(content).hexdigest()
+        artifact_path = "race_condition_test"
 
         metadata = ArtifactMetadata(
-            artifact_path=checksum,
+            artifact_path=artifact_path,
             media_type="application/pdf",
         )
 
@@ -140,7 +139,7 @@ class TestDuplicateUploadBehavior:
 
         assert len(results) == 1
         assert len(errors) == 3
-        stored = storage.retrieve_artifact(checksum)
+        stored = storage.retrieve_artifact(artifact_path)
         assert stored.content == content
         assert stored.metadata.size_bytes == len(stored.content)
 
@@ -187,17 +186,17 @@ class TestErrorHandling:
     def test_corrupted_metadata_json_raises_storage_payload_error(
         self, storage: FileSystemArtifactStorage
     ) -> None:
-        checksum1 = hashlib.sha256(b"content").hexdigest()
-        (storage.root_path / f"{checksum1}.meta.json").write_text(
+        artifact_path = "corrupted_metadata_test"
+        (storage.root_path / f"{artifact_path}.meta.json").write_text(
             "invalid json content", encoding="utf-8"
         )
         # Metadata file exists, so artifact slot is occupied
-        assert storage.exists(checksum1)
+        assert storage.exists(artifact_path)
         with pytest.raises(StoragePayloadError, match="Corrupted metadata"):
-            storage.retrieve_metadata(checksum1)
+            storage.retrieve_metadata(artifact_path)
 
         meta = ArtifactMetadata(
-            artifact_path=checksum1,
+            artifact_path=artifact_path,
             media_type="application/pdf",
         )
         with pytest.raises(ArtifactAlreadyExistsError):
@@ -207,27 +206,27 @@ class TestErrorHandling:
         self, storage: FileSystemArtifactStorage
     ) -> None:
 
-        checksum = hashlib.sha256(b"expected-length-content").hexdigest()
+        artifact_path = "pdf/dummy_hash/1"
         meta = ArtifactMetadata(
-            artifact_path=checksum,
+            artifact_path=artifact_path,
             media_type="application/pdf",
         )
         storage.store(b"expected-length-content", meta)
-        blob_path = next(storage.root_path.glob(f"{checksum}.*.data"))
+        blob_path = next(storage.root_path.glob(f"{artifact_path}.*.data"))
 
         # Truncate content file on disk
         blob_path.write_bytes(b"short")
 
         with pytest.raises(StoragePayloadError, match="content size .* does not match metadata"):
-            storage.retrieve(checksum)
+            storage.retrieve(artifact_path)
 
     def test_size_bytes_mismatch_raises_storage_payload_error(
         self, storage: FileSystemArtifactStorage
     ) -> None:
 
-        checksum = hashlib.sha256(b"short").hexdigest()
+        artifact_path = "pdf/dummy_hash/1"
         metadata = ArtifactMetadata(
-            artifact_path=checksum,
+            artifact_path=artifact_path,
             media_type="application/pdf",
             size_bytes=999,
         )
@@ -269,6 +268,7 @@ class TestPathTraversalDefense:
             "has\\backslash",
             "has:colon",
             "a" * 513,  # exceeds 512 chars limit
+            "/absolute/path",
         ],
     )
     def test_invalid_artifact_paths_rejected_by_allowlist(
@@ -283,7 +283,6 @@ class TestPathTraversalDefense:
             "../escaped",
             "../../etc/passwd",
             "something/../../root",
-            "/absolute/path",
         ],
     )
     def test_path_traversal_paths_rejected(

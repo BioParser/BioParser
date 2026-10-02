@@ -62,6 +62,8 @@ class FileSystemArtifactStorage:
     def _validate_artifact_path(self, artifact_path: str) -> None:
         if not isinstance(artifact_path, str) or not artifact_path.strip():
             raise InvalidArtifactPathError("Artifact path cannot be empty or whitespace")
+        if artifact_path.startswith("/"):
+            raise InvalidArtifactPathError("Artifact path must not be absolute (no leading '/')")
         if len(artifact_path) > _MAX_artifact_path_LENGTH:
             raise InvalidArtifactPathError(
                 f"Artifact path exceeds maximum length of {_MAX_artifact_path_LENGTH} characters: {artifact_path}"
@@ -140,9 +142,6 @@ class FileSystemArtifactStorage:
     ) -> str:
         aid = metadata.artifact_path
 
-        if self.exists(aid):
-            raise ArtifactAlreadyExistsError(f"Artifact already exists: {aid}")
-
         metadata_path = self._get_metadata_path(aid)
 
         if metadata.size_bytes is None:
@@ -161,12 +160,11 @@ class FileSystemArtifactStorage:
 
         blob_data_path = self._get_blob_data_path(aid, blob_id)
 
-        # If aid has slashes, replace them with underscores for the flat tmp meta path
-        safe_aid = aid.replace("/", "_")
-        tmp_meta_path = self.root_path / f".tmp_{safe_aid}_{blob_id}.meta.json"
-
-        # Ensure parent directories exist for the artifact
+        # Ensure parent directories exist for both metadata and data
         metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        blob_data_path.parent.mkdir(parents=True, exist_ok=True)
+
+        tmp_meta_path = metadata_path.parent / f".tmp_{blob_id}.meta.json"
 
         blob_written = False
         tmp_meta_written = False
