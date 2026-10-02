@@ -435,11 +435,14 @@ class _OfflineVLLM:
 
 def test_lifespan_sets_up_logging_once_across_restarts(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(app_module, "VLLMService", _OfflineVLLM)
+    monkeypatch.setenv("BIOPARSER_LOG_LEVEL", "DEBUG")
+
     monkeypatch.setattr(
         config,
         "get_api_settings",
-        lambda: config.ApiSettings(log_level="DEBUG"),
+        lambda: config.ApiSettings(),
     )
+
     # The lifespan overwrites these; registering them lets monkeypatch restore them.
     for name in ("mineru", "vllm"):
         monkeypatch.setattr(app.state, name, None, raising=False)
