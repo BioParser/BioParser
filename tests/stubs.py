@@ -4,9 +4,9 @@ import json
 import re
 from typing import Any
 
-from bioparser.jobqueue import ParseJobMessage
-from bioparser.jobstate import JobState
-from bioparser.storage import ArtifactMetadata
+from bioparser.jobqueue import JobQueueError, ParseJobMessage
+from bioparser.jobstate import JobState, JobStateError
+from bioparser.storage import ArtifactMetadata, StorageError
 
 # stub json one page and one text block for mineru mapper
 STUB_JSON: dict[str, Any] = {
@@ -102,6 +102,7 @@ class StubArtifactStorage:
     def __init__(self, events: list[str]) -> None:
         self.artifacts: dict[str, tuple[bytes, ArtifactMetadata]] = {}
         self.events = events
+        self.store_error: StorageError | None = None
 
     def store(
         self,
@@ -111,6 +112,8 @@ class StubArtifactStorage:
         overwrite: bool = False,
     ) -> str:
         self.events.append("artifact.store")
+        if self.store_error is not None:
+            raise self.store_error
         self.artifacts[metadata.artifact_path] = (content, metadata)
         return metadata.artifact_path
 
@@ -119,12 +122,18 @@ class StubJobStateStore:
     def __init__(self, events: list[str]) -> None:
         self.states: dict[object, JobState] = {}
         self.events = events
+        self.create_error: JobStateError | None = None
+        self.get_error: JobStateError | None = None
 
     async def create(self, state: JobState) -> None:
         self.events.append("job_state.create")
+        if self.create_error is not None:
+            raise self.create_error
         self.states[state.job_id] = state
 
     async def get(self, job_id: object) -> JobState | None:
+        if self.get_error is not None:
+            raise self.get_error
         self.events.append("job_state.get")
         return self.states.get(job_id)
 
@@ -137,7 +146,10 @@ class StubParseQueue:
     def __init__(self, events: list[str]) -> None:
         self.messages: list[ParseJobMessage] = []
         self.events = events
+        self.submit_error: JobQueueError | None = None
 
     def submit(self, message: ParseJobMessage) -> None:
         self.events.append("queue.submit")
+        if self.submit_error is not None:
+            raise self.submit_error
         self.messages.append(message)
