@@ -171,39 +171,37 @@ and transferred across workers using typed references and metadata rather than t
 ### Artifact metadata and contracts
 
 Artifacts across the pipeline (raw PDF uploads, parser outputs, and extractor observations)
-are addressed by stable artifact IDs using typed Pydantic models:
+are addressed by stable artifact paths using typed Pydantic models:
 
 - `ArtifactMetadata` (`schema_version = "1"`): stores artifact identity and provenance:
-  - `artifact_id`: stable identifier for the artifact.
-  - `document_id`: identifier of the source document (e.g. upload checksum).
+  - `artifact_path`: logical path or checksum identifier for the artifact.
   - `media_type`: MIME media type (`application/pdf`, `application/json`, etc.).
-  - `checksum`: payload checksum value (optional, stored and retrieved as metadata).
   - `creation_info`: timestamp (`created_at` in UTC) and creator identifier (`created_by`).
   - `content_schema_version`: explicit schema version of structured content where applicable
     (e.g., `"1"` for parser artifacts; omitted for raw PDFs).
   - `size_bytes`: payload size in bytes.
 - `StoredArtifact`: composite container bundling raw `content` (`bytes`) and `metadata` (`ArtifactMetadata`).
 
-Queue message envelopes can pass lightweight artifact IDs to workers to avoid transmitting large payloads over Redis.
+Queue message envelopes can pass lightweight artifact paths to workers to avoid transmitting large payloads over Redis.
 
 ### Artifact storage interface
 
 The `ArtifactStorage` protocol abstracts storage operations so components remain completely
 independent of local paths or cloud storage SDKs:
 
-- `store(content, metadata, *, overwrite=False) -> str`
-- `retrieve(artifact_id) -> bytes`
-- `retrieve_metadata(artifact_id) -> ArtifactMetadata`
-- `retrieve_artifact(artifact_id) -> StoredArtifact`
-- `exists(artifact_id) -> bool`
+- `store(content, metadata) -> str`
+- `retrieve(artifact_path) -> bytes`
+- `retrieve_metadata(artifact_path) -> ArtifactMetadata`
+- `retrieve_artifact(artifact_path) -> StoredArtifact`
+- `exists(artifact_path) -> bool`
 
 The `FileSystemArtifactStorage` implementation stores artifacts inside a configurable root
-directory using a versioned blob-pointer layout (`{artifact_id}.{blob_id}.data` and `{artifact_id}.meta.json`).
-Payloads are written as immutable blobs first, followed by an atomic link (on creation) or replacement (on overwrite)
-of the metadata JSON file as the single commit point. This guarantees that simultaneous overwrites cannot interleave
+directory using an atomic layout (`{artifact_path}.{blob_id}.data` and `{artifact_path}.meta.json`).
+Payloads are written as immutable blobs first, followed by an atomic link (on creation)
+of the metadata JSON file as the single commit point. If the artifact already exists, an error is natively raised. This guarantees that simultaneous writes cannot interleave
 or mismatch payload and metadata, eliminates fragile lock files, and allows readers to safely resolve the exact
 committed blob. Corrupted metadata or mismatched content sizes are detected and raised as `StoragePayloadError`.
-Artifact IDs are strictly validated using an allowlist regex (`^[A-Za-z0-9_.-]+$`, max 128 chars) and verified
+Artifact paths are strictly validated using an allowlist regex and verified
 via `is_relative_to` to prevent path traversal outside the storage root. Future S3-compatible backends implement
 the same interface without changing pipeline contracts.
 
