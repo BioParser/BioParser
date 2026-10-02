@@ -22,7 +22,7 @@ from bioparser.storage.models import (
     StoredArtifact,
 )
 
-_artifact_path_PATTERN = re.compile(r"^[A-Za-z0-9_./-]+$")
+_artifact_path_PATTERN = re.compile(r"[A-Za-z0-9_./-]+")
 _MAX_artifact_path_LENGTH = 512
 
 
@@ -93,7 +93,7 @@ class FileSystemArtifactStorage:
 
     def _get_blob_data_path(self, artifact_path: str, blob_id: str) -> Path:
         self._validate_artifact_path(artifact_path)
-        if not re.fullmatch(r"^[A-Za-z0-9_.-]+$", blob_id):
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", blob_id):
             raise StoragePathTraversalError(f"Invalid blob ID: {blob_id}")
         content_path = (self.root_path / f"{artifact_path}.{blob_id}.data").resolve()
         if not content_path.is_relative_to(self.root_path) or content_path == self.root_path:
