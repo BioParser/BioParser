@@ -66,8 +66,14 @@ class FileSystemArtifactStorage:
             raise InvalidArtifactPathError(
                 f"Artifact path exceeds maximum length of {_MAX_artifact_path_LENGTH} characters: {artifact_path}"
             )
-        if artifact_path in (".", ".."):
-            raise StoragePathTraversalError("Artifact path cannot be '.' or '..'")
+        if any(part in (".", "..") for part in artifact_path.split("/")):
+            raise StoragePathTraversalError(
+                "Artifact path cannot contain '.' or '..' path segments"
+            )
+        if any(len(part) > 200 for part in artifact_path.split("/")):
+            raise InvalidArtifactPathError(
+                "Artifact path contains a segment exceeding 200 characters"
+            )
         if not _artifact_path_PATTERN.fullmatch(artifact_path):
             raise InvalidArtifactPathError(
                 f"Artifact path '{artifact_path}' contains invalid characters. "
@@ -85,7 +91,7 @@ class FileSystemArtifactStorage:
 
     def _get_blob_data_path(self, artifact_path: str, blob_id: str) -> Path:
         self._validate_artifact_path(artifact_path)
-        if not _artifact_path_PATTERN.fullmatch(blob_id):
+        if not re.fullmatch(r"^[A-Za-z0-9_.-]+$", blob_id):
             raise StoragePathTraversalError(f"Invalid blob ID: {blob_id}")
         content_path = (self.root_path / f"{artifact_path}.{blob_id}.data").resolve()
         if not content_path.is_relative_to(self.root_path) or content_path == self.root_path:

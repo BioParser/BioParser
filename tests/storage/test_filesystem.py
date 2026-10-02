@@ -127,21 +127,19 @@ class TestDuplicateUploadBehavior:
         errors = []
 
         def _worker(worker_id: int) -> None:
-            try:
-                storage.store(content, metadata)
-                results.append(worker_id)
-            except ArtifactAlreadyExistsError as exc:
-                errors.append(exc)
+            storage.store(content, metadata)
+            results.append(worker_id)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             futures = [executor.submit(_worker, i) for i in range(4)]
-            concurrent.futures.wait(futures)
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()
+                except ArtifactAlreadyExistsError as exc:
+                    errors.append(exc)
 
         assert len(results) == 1
-
-        # All others should fail with ArtifactAlreadyExistsError
-        for exc in errors:
-            assert isinstance(exc, ArtifactAlreadyExistsError)
+        assert len(errors) == 3
         stored = storage.retrieve_artifact(checksum)
         assert stored.content == content
         assert stored.metadata.size_bytes == len(stored.content)
@@ -299,7 +297,7 @@ class TestPathTraversalDefense:
             "3fa85f64-5717-4562-b3fc-2c963f66afa6",
             "doc_123.v1-final",
             "SimpleArtifactID",
-            "a" * 512,  # exactly 512 chars
+            "a" * 150 + "/" + "b" * 150 + "/" + "c" * 150,  # long path, but short segments
             "pdf/f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2/parsed/mineru/1.0",
             "a/b/c/d/e/f/g",
         ]

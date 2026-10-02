@@ -25,7 +25,7 @@ class CreationInfo(BaseModel):
 
 
 class ArtifactMetadata(BaseModel):
-    """Metadata describing an artifact's identity, provenance, format, and checksum."""
+    """Metadata describing an artifact's identity, provenance, and format."""
 
     model_config = ConfigDict(extra="forbid")
 
