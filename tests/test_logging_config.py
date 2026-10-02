@@ -5,8 +5,10 @@ Also log_context(), error_fields() and redact_url()."""
 import contextlib
 import importlib
 import io
+import itertools
 import json
 import logging
+import os
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -21,9 +23,9 @@ from bioparser.api.app import app
 from bioparser.logging_config import (
     HANDLER_NAME,
     JsonFormatter,
-    LogLevel,
     error_fields,
     log_context,
+    parse_level,
     redact_url,
     setup_logging,
 )
@@ -58,7 +60,7 @@ def test_repeated_setup_keeps_one_handler_and_applies_the_latest_level(
     [("DEBUG", logging.DEBUG, logging.WARNING), ("ERROR", logging.ERROR, logging.ERROR)],
 )
 def test_level_applies_to_bioparser_and_never_lowers_third_party_below_warning(
-    level: LogLevel, ours: int, third_party: int
+    level: str, ours: int, third_party: int
 ) -> None:
     setup_logging(level)
 
@@ -278,6 +280,46 @@ def test_redact_url_hides_credentials(url: str, expected: str) -> None:
     assert redact_url(url) == expected
 
 
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        #  "pa?ss" came back as "http://user:pa", "pa/ss" unchanged
+        ("http://user:pa?ss@vllm:8000/v1", "***"),
+        ("http://user:pa/ss@vllm:8000/v1", "***"),
+        ("http://user:pa#ss@vllm:8000/v1", "***"),
+        ("redis://:pa/ss@redis:6379/0", "***"),
+        ("http://user:1234/5678@vllm:8000/v1", "***"),  # parses as host "user", port 1234
+        ("http://user:pa%2Fss@vllm:8000/v1", "http://***@vllm:8000/v1"),  # encoded: fine
+        ("http://user:p@ss@vllm:8000/v1", "http://***@vllm:8000/v1"),  # "@" alone: fine
+        ("http://vllm:8000/v1/a@b", "***"),  # cannot tell from the cases above
+    ],
+    ids=["query", "path", "fragment", "redis", "numeric", "encoded", "at-sign", "at-in-path"],
+)
+def test_redact_url_fails_closed_on_an_unencoded_delimiter_in_the_password(
+    url: str, expected: str
+) -> None:
+    assert redact_url(url) == expected
+
+
+def test_redact_url_returns_no_part_of_any_password() -> None:
+    """Every password of 1 to 4 characters over a hostile alphabet: only the safe forms.
+
+    Each is wrapped in "Z", which no template holds, so the output is either the
+    URL redacted as intended or "***", and never holds a "Z".
+    """
+    alphabet = "a1/?#@:%[]"
+    templates = {
+        "http://user:Z{}Z@vllm:8000/v1": "http://***@vllm:8000/v1",
+        "redis://:Z{}Z@redis:6379/0": "redis://***@redis:6379/0",
+        "user:Z{}Z@vllm:8000/v1?k=v": "//***@vllm:8000/v1",
+    }
+    for length in range(1, 5):
+        for chars in itertools.product(alphabet, repeat=length):
+            password = "".join(chars)
+            for template, redacted in templates.items():
+                assert redact_url(template.format(password)) in {redacted, "***"}, password
+
+
 def test_the_handler_follows_sys_stderr_after_it_is_replaced() -> None:
     setup_logging("INFO")  # sys.stderr is pytest's capture stream at this point
 
@@ -289,11 +331,22 @@ def test_the_handler_follows_sys_stderr_after_it_is_replaced() -> None:
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    [(None, "INFO"), ("debug", "DEBUG"), ("Warning", "WARNING")],
-    ids=["unset", "lowercase", "mixed-case"],
+    [
+        (None, logging.INFO),
+        ("debug", logging.DEBUG),
+        ("Warning", logging.WARNING),
+        #  these failed validation, which stops the server at import
+        ("warn", logging.WARNING),
+        ("WARN", logging.WARNING),
+        ("30", logging.WARNING),
+        ("fatal", logging.CRITICAL),
+        (" info ", logging.INFO),
+        ("25", 25),  # between INFO and WARNING: logging takes any positive level
+    ],
+    ids=["unset", "lower", "mixed", "warn", "WARN", "number", "fatal", "spaces", "custom"],
 )
 def test_log_level_comes_from_bioparser_log_level(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, raw: str | None, expected: str
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, raw: str | None, expected: int
 ) -> None:
     monkeypatch.chdir(tmp_path)  # no developer .env: ApiSettings reads ./.env
     if raw is None:
@@ -304,11 +357,70 @@ def test_log_level_comes_from_bioparser_log_level(
     assert config.ApiSettings().log_level == expected
 
 
-def test_an_unknown_log_level_fails_at_startup(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("BIOPARSER_LOG_LEVEL", "verbose")
+@pytest.mark.parametrize("raw", ["verbose", "NOTSET", "0", "-10", "1.5", ""])
+def test_an_unknown_log_level_fails_at_startup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, raw: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BIOPARSER_LOG_LEVEL", raw)
 
-    with pytest.raises(ValidationError, match="log_level"):
+    with pytest.raises(ValidationError, match="log_level") as failure:
         config.ApiSettings()
+
+    assert "expected a logging level name" in str(failure.value)  # says what would work
+
+
+@pytest.mark.parametrize(
+    ("level", "expected"),
+    [(logging.ERROR, logging.ERROR), (5, 5), ("Critical", logging.CRITICAL), ("10", 10)],
+)
+def test_parse_level_takes_names_and_numbers(level: int | str, expected: int) -> None:
+    assert parse_level(level) == expected
+
+
+@pytest.mark.parametrize(
+    "level", [True, 0, -1, None, 2.0, "NOTSET", "verbose", "\u0663\u0660"]
+)  # the last: "30" in Arabic-Indic digits, which int() would take
+def test_parse_level_refuses_without_echoing_the_value(level: object) -> None:
+    with pytest.raises(ValueError, match="expected a logging level name") as failure:
+        parse_level(level)
+
+    assert str(level) not in str(failure.value)
+
+
+def test_a_bad_level_leaves_logging_as_it_was() -> None:
+    setup_logging("INFO")
+
+    with pytest.raises(ValueError):
+        setup_logging("verbose")
+
+    assert logging.getLogger("bioparser").level == logging.INFO
+    assert len(_our_handlers()) == 1
+
+
+def test_an_invalid_setting_at_import_is_logged_as_one_json_record(tmp_path: Path) -> None:
+    """a bad setting stopped the server with no log line, only a traceback."""
+    env = os.environ | {
+        "BIOPARSER_LOG_LEVEL": "verbose",
+        "BIOPARSER_REDIS_URL": "redis://:canary-redis-pass@redis:99999/0",
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", "import bioparser.api.app"],
+        cwd=tmp_path,  # no developer .env
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0  # still fails fast
+    record = json.loads(result.stderr.splitlines()[0])
+    assert (record["level"], record["msg"]) == ("CRITICAL", "invalid configuration")
+    assert record["invalid_settings"] == [
+        {"setting": "log_level", "type": "value_error"},
+        {"setting": "redis_url", "type": "url_parsing"},
+    ]
+    assert "canary-redis-pass" not in result.stderr  # the traceback after it neither
 
 
 class _OfflineVLLM:

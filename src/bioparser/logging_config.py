@@ -19,10 +19,13 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from time import perf_counter
 from types import TracebackType
-from typing import Literal, TextIO
+from typing import TextIO
 from urllib.parse import urlsplit, urlunsplit
 
-type LogLevel = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
+_LEVEL_HELP = (
+    "expected a logging level name (DEBUG, INFO, WARNING or WARN, ERROR, "
+    "CRITICAL or FATAL) or a positive integer"
+)
 
 _CAUSE = "\nThe above exception was the direct cause of the following exception:\n\n"
 _CONTEXT = "\nDuring handling of the above exception, another exception occurred:\n\n"
@@ -162,16 +165,37 @@ class _StderrHandler(logging.StreamHandler[TextIO]):
         return sys.stderr
 
 
-def setup_logging(level: LogLevel) -> None:
+def parse_level(level: object) -> int:
+    """Numeric logging level for [level]
+
+    Takes what logging.Logger.setLevel() accepts
+    """
+    numeric: object = level
+    if isinstance(level, str):
+        text = level.strip()
+        if text.isascii() and text.isdigit():
+            numeric = int(text)
+        else:
+            names = logging.getLevelNamesMapping()
+            numeric = names.get(text, names.get(text.upper()))
+    # True is not a level
+    if isinstance(numeric, bool) or not isinstance(numeric, int) or numeric < 1:
+        raise ValueError(_LEVEL_HELP)
+    return numeric
+
+
+def setup_logging(level: int | str = logging.INFO) -> None:
     """
     Send every logger's record to a JSON handler on stderr.
 
-    Idempotent: lifespan runs on startup of the app object (app.py)
+    Idempotent: app.py calls it at import, and lifespan again on every startup.
 
-    Level: applies to BioParser logger tree. Third-party loggers should stay at
-           minimum THIRD_PARTY_LEVEL, and uvicorn's loggers keep their own
-           level.
+    level: any form parse_level() accepts; applies to the bioparser logger tree.
+           Third-party loggers stay at THIRD_PARTY_MIN_LEVEL or stricter, and
+           uvicorn's loggers keep their own level.
     """
+    numeric_level = parse_level(level)
+
     root_logger = logging.getLogger()
     if not any(handler.name == HANDLER_NAME for handler in root_logger.handlers):
         stderr_handler = _StderrHandler()
@@ -180,7 +204,6 @@ def setup_logging(level: LogLevel) -> None:
         stderr_handler.addFilter(_ContextFilter())
         root_logger.addHandler(stderr_handler)
 
-    numeric_level = logging.getLevelNamesMapping()[level]
     logging.getLogger(APP_LOGGER_NAME).setLevel(numeric_level)
     # set a default level to loggers; overriden by explicit settings
     root_logger.setLevel(max(numeric_level, THIRD_PARTY_MIN_LEVEL))
@@ -218,12 +241,13 @@ def error_fields(exc: BaseException) -> dict[str, str]:
 
 
 def redact_url(url: str) -> str:
-    """url for a log: user:password@ becomes `***@`, query and fragment go."""
     if "://" not in url and not url.startswith("//"):
         url = f"//{url}"
     try:
         parts = urlsplit(url)
     except ValueError:
+        return "***"
+    if "@" in parts.path or "@" in parts.query or "@" in parts.fragment:
         return "***"
     _userinfo, at, hostport = parts.netloc.rpartition("@")
     netloc = f"***@{hostport}" if at else hostport

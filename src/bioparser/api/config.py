@@ -1,9 +1,10 @@
+import logging
 from functools import lru_cache
 
-from pydantic import AnyUrl, Field, field_validator
+from pydantic import AnyUrl, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from bioparser.logging_config import LogLevel
+from bioparser.logging_config import parse_level
 
 DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MiB
 
@@ -15,7 +16,9 @@ class ApiSettings(BaseSettings):
         extra="ignore",
         hide_input_in_errors=True,
     )
-    log_level: LogLevel = "INFO"
+    # Using the numeric level. BIOPARSER_LOG_LEVEL takes a name in any case or a number:
+    # see logging_config.parse_level().
+    log_level: int = logging.INFO
 
     max_upload_bytes: int = Field(default=DEFAULT_MAX_UPLOAD_BYTES, ge=1)
     mineru_base_url: str = "http://mineru:8000"
@@ -37,8 +40,8 @@ class ApiSettings(BaseSettings):
 
     @field_validator("log_level", mode="before")
     @classmethod
-    def normalize_log_level(cls, value: object) -> object:
-        return value.upper() if isinstance(value, str) else value
+    def parse_log_level(cls, value: object) -> int:
+        return parse_level(value)
 
     @field_validator("redis_url", mode="before")
     @classmethod
@@ -51,3 +54,13 @@ class ApiSettings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_api_settings() -> ApiSettings:
     return ApiSettings()
+
+
+def invalid_settings(exc: ValidationError) -> list[dict[str, str]]:
+    """Settings that failed validation, with pydantic's error type, for logs.
+    Input and message are redacted.
+    """
+    return [
+        {"setting": ".".join(map(str, error["loc"])), "type": error["type"]}
+        for error in exc.errors(include_url=False, include_context=False, include_input=False)
+    ]

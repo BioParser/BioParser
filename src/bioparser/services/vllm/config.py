@@ -10,6 +10,7 @@ class Settings(BaseSettings):
         env_file=(".env"),
         env_prefix="BIOPARSER_",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     vllm_base_url: str = "http://localhost:8000/v1"

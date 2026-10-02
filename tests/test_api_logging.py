@@ -5,7 +5,12 @@ import importlib
 import itertools
 import json
 import logging
+import os
+import subprocess
+import sys
+import traceback
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import httpx2
@@ -111,6 +116,57 @@ def test_an_unexpected_discovery_error_keeps_its_traceback_and_startup_continues
     assert warning.exc_info is not None
 
 
+# What httpx2 raises for a vLLM URL whose password holds an unencoded "/". Kept off
+# the raise line: a traceback prints each frame's source line.
+_INVALID_PORT = "Invalid port: 'canary-start-of-password'"
+
+
+def _fails_to_build() -> object:
+    raise httpx2.InvalidURL(_INVALID_PORT)
+
+
+def test_a_failed_startup_is_logged_redacted_and_handed_on_without_its_chain(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(app_module, "VLLMService", _fails_to_build)
+
+    with pytest.raises(app_module.LifespanError) as failure, _app(monkeypatch):
+        pass
+
+    [record] = [r for r in caplog.records if r.levelno == logging.CRITICAL]
+    assert (record.getMessage(), vars(record)["phase"], vars(record)["error"]) == (
+        "lifespan failed",
+        "startup",
+        "InvalidURL",
+    )
+    assert "canary" not in _rendered([record])  # our record: redacted
+    # What Starlette formats with traceback.format_exc() for uvicorn to log as text
+    handed_on = "".join(traceback.format_exception(failure.value))
+    assert "LifespanError: startup failed: InvalidURL" in handed_on
+    assert "canary" not in handed_on
+
+
+def test_uvicorn_logs_no_password_when_the_vllm_url_is_malformed(tmp_path: Path) -> None:
+    """The real path: the uvicorn CLI, as in the Dockerfile, with a "/" in the password."""
+    env = os.environ | {"BIOPARSER_VLLM_BASE_URL": "http://user:canary/rest@127.0.0.1:9/v1"}
+    result = subprocess.run(
+        [sys.executable, "-m", "uvicorn", "bioparser.api.app:app", "--port", "0"],
+        cwd=tmp_path,  # no developer .env
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode != 0  # startup failed, as it should
+    records = [json.loads(line) for line in result.stderr.splitlines()]  # all of it JSON
+    assert {"msg": "lifespan failed", "phase": "startup", "error": "InvalidURL"}.items() <= next(
+        r for r in records if r["level"] == "CRITICAL"
+    ).items()
+    assert "canary" not in result.stderr + result.stdout
+
+
 def test_a_discovered_model_is_logged_with_the_base_url_redacted(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -148,8 +204,8 @@ def test_the_redis_password_never_appears_in_logs(
 def test_a_malformed_redis_url_does_not_echo_its_password(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # app.py loads the settings at import, so this error reaches the container
-    # log as a plain traceback, before any logging is configured.
+    # app.py loads the settings at import, so this error's traceback reaches the
+    # container log as plain text, after the JSON record app.py logs about it.
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://:canary-redis-pass@redis:99999/0")
 
     with pytest.raises(ValidationError, match="redis_url") as failure:
