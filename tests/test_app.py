@@ -11,7 +11,9 @@ from bioparser.api import config
 from bioparser.api.errors import ErrorResponse
 from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
-from bioparser.jobstate import JobState, SafeError
+from bioparser.jobqueue import JobQueueError
+from bioparser.jobstate import JobState, JobStateError, SafeError
+from bioparser.storage import StorageError
 
 # A minimal byte string that passes every /api/extractions validation check.
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
@@ -319,3 +321,85 @@ def test_failed_job_status(
         "status": "failed",
         "error": {"code": "parse_failed"},
     }
+
+
+def test_job_status_returns_503_when_redis_unavailable(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+) -> None:
+    job_store = stub_api_adapters[1]
+    job_store.get_error = JobStateError("Redis unavailable")
+
+    response = client.get("/api/jobs/test-job")
+
+    assert response.status_code == 503
+    ErrorResponse.model_validate(response.json())
+    assert response.json()["detail"]["code"] == "redis_unavailable"
+
+
+def test_submit_returns_503_when_redis_unavailable(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+) -> None:
+    artifact_storage, job_store, parse_queue, events = stub_api_adapters
+    job_store.create_error = JobStateError("Redis unavailable")
+
+    response = client.post(
+        "/api/extractions",
+        files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+
+    assert response.status_code == 503
+    ErrorResponse.model_validate(response.json())
+    assert response.json()["detail"]["code"] == "redis_unavailable"
+    assert len(artifact_storage.artifacts) == 1
+    assert parse_queue.messages == []
+    assert events == ["artifact.store", "job_state.create"]
+
+
+def test_submit_returns_503_when_storage_unavailable(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+) -> None:
+    artifact_storage, job_store, parse_queue, events = stub_api_adapters
+    artifact_storage.store_error = StorageError("Storage unavailable")
+
+    response = client.post(
+        "/api/extractions",
+        files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+
+    assert response.status_code == 503
+    ErrorResponse.model_validate(response.json())
+    assert response.json()["detail"]["code"] == "storage_unavailable"
+    assert artifact_storage.artifacts == {}
+    assert job_store.states == {}
+    assert parse_queue.messages == []
+    assert events == ["artifact.store"]
+
+
+def test_submit_returns_503_when_queue_unavailable(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+) -> None:
+    artifact_storage, job_store, parse_queue, events = stub_api_adapters
+    parse_queue.submit_error = JobQueueError("Queue unavailable")
+    response = client.post(
+        "/api/extractions",
+        files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+    assert response.status_code == 503
+    ErrorResponse.model_validate(response.json())
+    assert response.json()["detail"]["code"] == "queue_unavailable"
+    assert len(artifact_storage.artifacts) == 1
+    assert parse_queue.messages == []
+    assert len(job_store.states) == 1
+    failed_state = next(iter(job_store.states.values()))
+    assert failed_state.status == "failed"
+    assert failed_state.error == SafeError(code="internal_error")
+    assert events == [
+        "artifact.store",
+        "job_state.create",
+        "queue.submit",
+        "job_state.update",
+    ]
