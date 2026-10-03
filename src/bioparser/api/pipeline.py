@@ -6,11 +6,9 @@ from typing import Any
 from bioparser.extract.extract import ExtractionFailedError, extract_observations
 from bioparser.logging_config import error_fields, log_context, stopwatch
 from bioparser.parser.backend.mineru.mapper import artifact_from_middle_json
-from bioparser.parser.backend.mineru.parser import (
-    MINERU_PARSER_NAME,
-    MINERU_PARSER_VERSION,
-)
+from bioparser.parser.backend.mineru.parser import MINERU_PARSER_VERSION
 from bioparser.parser.backend.mineru.schema import pipeline_configuration
+from bioparser.parser_names import MINERU_PARSER_NAME
 from bioparser.services.mineru import MinerUError
 from bioparser.services.vllm.vllm import VLLMError, VLLMTruncatedError
 

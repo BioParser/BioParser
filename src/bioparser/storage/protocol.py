@@ -24,7 +24,7 @@ class ArtifactStorage(Protocol):
 
         Args:
             content: The binary payload of the artifact.
-            metadata: Metadata describing the artifact, including artifact_id and document_id.
+            metadata: Metadata describing the artifact, including artifact_id.
             overwrite: If False, raises ArtifactAlreadyExistsError if an artifact with
                 this ID already exists. If True, overwrites existing artifact.
 

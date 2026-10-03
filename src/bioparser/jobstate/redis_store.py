@@ -16,9 +16,9 @@ from .errors import (
     JobStateBackendError,
     JobStateConnectionError,
     JobStateError,
-    TerminalJobStateError,
+    StaleJobStateWriteError,
 )
-from .models import JobState
+from .models import ALLOWED_TRANSITIONS, JobState
 
 DEFAULT_TTL_SECONDS = 90 * 24 * 60 * 60  # 90 days
 DEFAULT_KEY_PREFIX = "bioparser:job:"  # not jobstate?
@@ -27,22 +27,29 @@ DEFAULT_OPERATION_TIMEOUT_SECONDS = 2.0
 _MAX_TIMEOUT_ATTEMPTS = 3
 _RETRY_BASE_DELAY_SECONDS = 0.1
 
-TERMINAL_STATUSES = frozenset({"succeeded", "failed"})
-#: Lua runs on the Redis server as one indivisible step, so no other client
-#: can write between the status check and the SET. A plain read-then-write
-#: from Python could not promise that.
-#: Returns: 1 written, 0 no such key, -1 refused (stored state is terminal and the incoming one is not).
-_UPDATE_SCRIPT = """
+# Lua runs on the Redis server as one indivisible step, so no other client
+# can write between the status check and the SET. A plain read-then-write
+# from Python could not promise that.
+# ARGV[3] is the incoming status.
+# Returns: 1 written, 0 no such key, -1 refused (ALLOWED_TRANSITIONS does not list the
+# incoming status for the stored one). A stored value that cannot be decoded, or has an
+# unknown status, is overwritten: get() reports it as corrupt, and the writer holds
+# the only valid view.
+_TRANSITIONS = ", ".join(
+    f"{status}={{{', '.join(f'{nxt}=true' for nxt in sorted(nexts))}}}"
+    for status, nexts in ALLOWED_TRANSITIONS.items()
+)
+_UPDATE_SCRIPT = f"""
+local allowed = {{{_TRANSITIONS}}}
 local current = redis.call("get", KEYS[1])
 if not current then
     return 0
 end
-if ARGV[3] == "0" then
-    local ok, stored = pcall(cjson.decode, current)
-    if ok and type(stored) == "table" then
-        if stored["status"] == "succeeded" or stored["status"] == "failed" then
-            return -1
-        end
+local ok, stored = pcall(cjson.decode, current)
+if ok and type(stored) == "table" then
+    local next_statuses = allowed[stored["status"]]
+    if next_statuses and not next_statuses[ARGV[3]] then
+        return -1
     end
 end
 redis.call("set", KEYS[1], ARGV[1], "EX", ARGV[2])
@@ -155,14 +162,14 @@ class RedisJobStateStore:
             raise CorruptJobStateError(f"stored state for job {job_id!r} is invalid") from exc
 
     async def update(self, state: JobState) -> None:
-        """Replace the stored state, unless that would undo a terminal one.
+        """Replace the stored state, unless the status change is not allowed.
 
-        A job that already reached "succeeded" or "failed" is finished, and
-        a non-terminal write over it can only be a stale one: delivery is
-        at-least-once, so a worker that lost its heartbeat long enough to
-        have its message requeued is not stopped, and can wake up and write
-        a view of the job that another worker has since moved past. Such a
-        write is refused rather than applied.
+        ALLOWED_TRANSITIONS lists what may follow each stored status. "done" and
+        "failed" are final. Any other refused write can only be a stale or
+        duplicate one: delivery is at-least-once, so a worker that lost its
+        heartbeat long enough to have its message requeued is not stopped, and
+        can wake up and write a view of the job that another worker has since
+        moved past. Such a write is refused rather than applied.
         """
         result = await _call_with_redis_errors(
             lambda: self._update_script(
@@ -170,14 +177,14 @@ class RedisJobStateStore:
                 args=[
                     state.model_dump_json(),
                     self._ttl_seconds,
-                    "1" if state.status in TERMINAL_STATUSES else "0",
+                    state.status,
                 ],
             )
         )
         if result == 0:
             raise JobNotFoundError(f"no stored state for job {state.job_id!r}")
         if result == -1:
-            raise TerminalJobStateError(
-                f"job {state.job_id!r} already finished; refusing to overwrite it "
-                f"with status={state.status!r}"
+            raise StaleJobStateWriteError(
+                f"job {state.job_id!r}: refusing to write status={state.status!r}. "
+                "The stored status does not allow that transition"
             )

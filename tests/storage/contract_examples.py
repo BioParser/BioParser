@@ -7,7 +7,6 @@ from bioparser.storage.models import ArtifactMetadata, CreationInfo
 SAMPLE_PDF_METADATA_JSON = """{
   "schema_version": "1",
   "artifact_id": "art-pdf-1002000",
-  "document_id": "doc-plos-1002000",
   "media_type": "application/pdf",
   "checksum": "3fa85f6457174562b3fc2c963f66afa6e3b0c44298fc1c149afbf4c8996fb924",
   "creation_info": {
@@ -21,7 +20,6 @@ SAMPLE_PDF_METADATA_JSON = """{
 SAMPLE_PARSER_METADATA_JSON = """{
   "schema_version": "1",
   "artifact_id": "art-parsed-1002000",
-  "document_id": "doc-plos-1002000",
   "media_type": "application/json",
   "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "creation_info": {
@@ -35,7 +33,6 @@ SAMPLE_PARSER_METADATA_JSON = """{
 SAMPLE_EXTRACTOR_METADATA_JSON = """{
   "schema_version": "1",
   "artifact_id": "art-extracted-1002000",
-  "document_id": "doc-plos-1002000",
   "media_type": "application/json",
   "checksum": "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
   "creation_info": {
@@ -52,7 +49,6 @@ def sample_pdf_metadata() -> ArtifactMetadata:
     return ArtifactMetadata(
         schema_version="1",
         artifact_id="art-pdf-1002000",
-        document_id="doc-plos-1002000",
         media_type="application/pdf",
         checksum="3fa85f6457174562b3fc2c963f66afa6e3b0c44298fc1c149afbf4c8996fb924",
         creation_info=CreationInfo(
@@ -69,7 +65,6 @@ def sample_parser_metadata() -> ArtifactMetadata:
     return ArtifactMetadata(
         schema_version="1",
         artifact_id="art-parsed-1002000",
-        document_id="doc-plos-1002000",
         media_type="application/json",
         checksum="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         creation_info=CreationInfo(
@@ -86,7 +81,6 @@ def sample_extractor_metadata() -> ArtifactMetadata:
     return ArtifactMetadata(
         schema_version="1",
         artifact_id="art-extracted-1002000",
-        document_id="doc-plos-1002000",
         media_type="application/json",
         checksum="a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
         creation_info=CreationInfo(

@@ -31,7 +31,6 @@ class ArtifactMetadata(BaseModel):
 
     schema_version: Literal["1"] = ARTIFACT_METADATA_SCHEMA_VERSION
     artifact_id: str = Field(min_length=1)
-    document_id: str = Field(min_length=1)
     media_type: str = Field(min_length=1)
     checksum: str | None = None
     creation_info: CreationInfo = Field(default_factory=CreationInfo)

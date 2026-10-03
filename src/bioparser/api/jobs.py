@@ -26,5 +26,5 @@ def get_job(job_id: UUID) -> JobRecord | None:
 
 
 # TODO: On later worker implementation:
-# A function (update_job_status) is needed to transfer job from "queued" -> "running" -> "success/failed"
+# A function (update_job_status) is needed to transfer job from "queued" -> "parsing" -> "parsed"/"failed"
 # As of now, nothing changes the status
