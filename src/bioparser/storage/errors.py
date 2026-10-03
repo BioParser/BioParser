@@ -10,15 +10,15 @@ class ArtifactNotFoundError(StorageError, KeyError):
 
 
 class ArtifactAlreadyExistsError(StorageError, FileExistsError):
-    """Raised when attempting to overwrite an existing artifact without permission."""
+    """Raised when attempting to store an artifact that already exists."""
 
 
 class StoragePathTraversalError(StorageError, ValueError):
-    """Raised when an artifact ID attempts to escape the configured storage root."""
+    """Raised when an Artifact path attempts to escape the configured storage root."""
 
 
-class InvalidArtifactIdError(StorageError, ValueError):
-    """Raised when an artifact ID is malformed or invalid."""
+class InvalidArtifactPathError(StorageError, ValueError):
+    """Raised when an Artifact path is malformed or invalid."""
 
 
 class StorageConfigurationError(StorageError, ValueError):
