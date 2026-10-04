@@ -174,7 +174,7 @@ Artifacts across the pipeline (raw PDF uploads, parser outputs, and extractor ob
 are addressed by stable artifact paths using typed Pydantic models:
 
 - `ArtifactMetadata` (`schema_version = "1"`): stores artifact identity and provenance:
-  - `artifact_path`: logical path or checksum identifier for the artifact.
+  - `artifact_path`: the artifact's key, a deterministic, path-like string derived by the storing component (API or worker) from the content checksum and pipeline configuration, for example `pdf/<pdf-checksum>` or `pdf/<pdf-checksum>/parsed/<backend>/<version>`.
   - `media_type`: MIME media type (`application/pdf`, `application/json`, etc.).
   - `creation_info`: timestamp (`created_at` in UTC) and creator identifier (`created_by`).
   - `content_schema_version`: explicit schema version of structured content where applicable

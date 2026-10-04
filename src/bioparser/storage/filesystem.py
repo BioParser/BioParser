@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import re
 import uuid
@@ -22,8 +23,13 @@ from bioparser.storage.models import (
     StoredArtifact,
 )
 
-_artifact_path_PATTERN = re.compile(r"[A-Za-z0-9_./-]+")
-_MAX_artifact_path_LENGTH = 512
+logger = logging.getLogger(__name__)
+
+_ARTIFACT_PATH_PATTERN = re.compile(r"[A-Za-z0-9_./-]+")
+_MAX_ARTIFACT_PATH_LENGTH = 512
+# 255-byte filename limit minus the longest suffix we append (".<32 hex>.data" = 38),
+# rounded down for margin.
+_MAX_SEGMENT_LENGTH = 200
 
 
 class FileBlobMetadata(ArtifactMetadata):
@@ -64,19 +70,27 @@ class FileSystemArtifactStorage:
             raise InvalidArtifactPathError("Artifact path cannot be empty or whitespace")
         if artifact_path.startswith("/"):
             raise InvalidArtifactPathError("Artifact path must not be absolute (no leading '/')")
-        if len(artifact_path) > _MAX_artifact_path_LENGTH:
+        if len(artifact_path) > _MAX_ARTIFACT_PATH_LENGTH:
             raise InvalidArtifactPathError(
-                f"Artifact path exceeds maximum length of {_MAX_artifact_path_LENGTH} characters: {artifact_path}"
+                f"Artifact path exceeds maximum length of {_MAX_ARTIFACT_PATH_LENGTH} characters: {artifact_path}"
             )
-        if any(part in (".", "..") for part in artifact_path.split("/")):
+
+        segments = artifact_path.split("/")
+        if "" in segments:
+            raise InvalidArtifactPathError(
+                "Artifact path must not have empty segments (leading, trailing or doubled '/')"
+            )
+        if any(seg in (".", "..") for seg in segments):
+            logger.warning("Path traversal attempt blocked: %s", artifact_path)
             raise StoragePathTraversalError(
                 "Artifact path cannot contain '.' or '..' path segments"
             )
-        if any(len(part) > 200 for part in artifact_path.split("/")):
+        if any(len(seg) > _MAX_SEGMENT_LENGTH for seg in segments):
             raise InvalidArtifactPathError(
-                "Artifact path contains a segment exceeding 200 characters"
+                f"Artifact path contains a segment exceeding {_MAX_SEGMENT_LENGTH} characters"
             )
-        if not _artifact_path_PATTERN.fullmatch(artifact_path):
+
+        if not _ARTIFACT_PATH_PATTERN.fullmatch(artifact_path):
             raise InvalidArtifactPathError(
                 f"Artifact path '{artifact_path}' contains invalid characters. "
                 "Only alphanumeric characters, '/', '.', '_', and '-' are allowed."
@@ -111,10 +125,12 @@ class FileSystemArtifactStorage:
             raw_json = metadata_path.read_text(encoding="utf-8")
             return FileBlobMetadata.model_validate_json(raw_json)
         except (ValidationError, ValueError) as exc:
+            logger.error("Corrupted metadata for artifact %s: %s", artifact_path, exc)
             raise StoragePayloadError(
                 f"Corrupted metadata for artifact {artifact_path}: {exc}"
             ) from exc
         except OSError as exc:
+            logger.exception("Filesystem OSError reading metadata for %s", artifact_path)
             raise StorageError(f"Failed to read metadata for {artifact_path}: {exc}") from exc
 
     def _read_content(self, artifact_path: str, meta: FileBlobMetadata) -> bytes:
@@ -143,6 +159,9 @@ class FileSystemArtifactStorage:
         aid = metadata.artifact_path
 
         metadata_path = self._get_metadata_path(aid)
+        if metadata_path.is_file():
+            logger.debug("Artifact already exists: %s", aid)
+            raise ArtifactAlreadyExistsError(f"Artifact already exists: {aid}")
 
         if metadata.size_bytes is None:
             metadata = metadata.model_copy(update={"size_bytes": len(content)})
@@ -180,12 +199,15 @@ class FileSystemArtifactStorage:
             try:
                 os.link(tmp_meta_path, metadata_path)
                 committed = True
+                logger.debug("Successfully stored artifact: %s", aid)
             except FileExistsError as exc:
+                logger.debug("Artifact already exists (race collision): %s", aid)
                 raise ArtifactAlreadyExistsError(f"Artifact already exists: {aid}") from exc
 
         except (ArtifactAlreadyExistsError, StoragePayloadError, InvalidArtifactPathError):
             raise
         except OSError as exc:
+            logger.exception("Filesystem OSError writing artifact %s", aid)
             raise StorageError(f"Failed to write artifact {aid}: {exc}") from exc
         finally:
             if tmp_meta_written:
