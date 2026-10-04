@@ -8,10 +8,11 @@ from pydantic import TypeAdapter
 from stubs import StubArtifactStorage, StubJobStateStore, StubParseQueue
 
 from bioparser.api import config
+from bioparser.api.app import app as api_app
 from bioparser.api.errors import ErrorResponse
 from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
-from bioparser.jobqueue import JobQueueError
+from bioparser.jobqueue import PARSE_JOB_SCHEMA_VERSION, JobQueueError
 from bioparser.jobstate import JobState, JobStateError, SafeError
 from bioparser.storage import StorageError
 
@@ -39,6 +40,7 @@ def test_submit_and_retrieve_job(
 
     state = job_store.states[record["job_id"]]
     message = parse_queue.messages[0]
+    assert message.schema_version == PARSE_JOB_SCHEMA_VERSION
     assert state.input_artifact_ref in artifact_storage.artifacts
     assert message.job_id == state.job_id
     assert message.document_id == state.document_id
@@ -49,6 +51,29 @@ def test_submit_and_retrieve_job(
     assert response.status_code == 200
     JOB_STATUS_ADAPTER.validate_python(response.json())
     assert response.json() == record
+
+
+def test_job_status_openapi_schema() -> None:
+    schema = api_app.openapi()
+    response_schema = schema["paths"]["/api/jobs/{job_id}"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+
+    assert response_schema["discriminator"] == {
+        "propertyName": "status",
+        "mapping": {
+            "queued": "#/components/schemas/QueuedJobResponse",
+            "running": "#/components/schemas/RunningJobResponse",
+            "succeeded": "#/components/schemas/SucceededJobResponse",
+            "failed": "#/components/schemas/FailedJobResponse",
+        },
+    }
+    assert response_schema["oneOf"] == [
+        {"$ref": "#/components/schemas/QueuedJobResponse"},
+        {"$ref": "#/components/schemas/RunningJobResponse"},
+        {"$ref": "#/components/schemas/SucceededJobResponse"},
+        {"$ref": "#/components/schemas/FailedJobResponse"},
+    ]
 
 
 def test_unknown_job_returns_404(client: TestClient) -> None:
