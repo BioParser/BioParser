@@ -269,6 +269,9 @@ class TestPathTraversalDefense:
             "has:colon",
             "a" * 513,  # exceeds 512 chars limit
             "/absolute/path",
+            "a//b",  # empty segment
+            "a/b/",  # trailing empty segment
+            "a" * 201,  # exceeds max segment length (200)
         ],
     )
     def test_invalid_artifact_paths_rejected_by_allowlist(
@@ -283,6 +286,8 @@ class TestPathTraversalDefense:
             "../escaped",
             "../../etc/passwd",
             "something/../../root",
+            "a/./b",
+            "./x",
         ],
     )
     def test_path_traversal_paths_rejected(

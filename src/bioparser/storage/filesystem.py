@@ -179,10 +179,6 @@ class FileSystemArtifactStorage:
 
         blob_data_path = self._get_blob_data_path(aid, blob_id)
 
-        # Ensure parent directories exist for both metadata and data
-        metadata_path.parent.mkdir(parents=True, exist_ok=True)
-        blob_data_path.parent.mkdir(parents=True, exist_ok=True)
-
         tmp_meta_path = metadata_path.parent / f".tmp_{blob_id}.meta.json"
 
         blob_written = False
@@ -190,6 +186,10 @@ class FileSystemArtifactStorage:
         committed = False
 
         try:
+            # Ensure parent directories exist for both metadata and data
+            metadata_path.parent.mkdir(parents=True, exist_ok=True)
+            blob_data_path.parent.mkdir(parents=True, exist_ok=True)
+
             blob_data_path.write_bytes(content)
             blob_written = True
 
