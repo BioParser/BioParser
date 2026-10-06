@@ -59,16 +59,14 @@ class TestCreationInfo:
 class TestArtifactMetadata:
     def test_required_fields_and_defaults(self) -> None:
         meta = ArtifactMetadata(
-            artifact_id="art-1",
-            document_id="doc-1",
+            artifact_path="art-1",
             media_type="application/pdf",
         )
         assert meta.schema_version == ARTIFACT_METADATA_SCHEMA_VERSION
         assert meta.schema_version == "1"
-        assert meta.artifact_id == "art-1"
-        assert meta.document_id == "doc-1"
+        assert meta.artifact_path == "art-1"
         assert meta.media_type == "application/pdf"
-        assert meta.checksum is None
+
         assert meta.content_schema_version is None
         assert meta.size_bytes is None
         assert isinstance(meta.creation_info, CreationInfo)
@@ -80,8 +78,7 @@ class TestArtifactMetadata:
             ArtifactMetadata.model_validate(
                 {
                     "schema_version": "2",
-                    "artifact_id": "art-1",
-                    "document_id": "doc-1",
+                    "artifact_path": "art-1",
                     "media_type": "application/pdf",
                 }
             )
@@ -90,8 +87,7 @@ class TestArtifactMetadata:
         dt = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
         meta = ArtifactMetadata.model_validate(
             {
-                "artifact_id": "art-2",
-                "document_id": "doc-2",
+                "artifact_path": "art-2",
                 "media_type": "application/json",
                 "created_at": dt,
                 "created_by": "api-gateway",
@@ -105,8 +101,7 @@ class TestArtifactMetadata:
     def test_coercion_does_not_mutate_caller_dict(self) -> None:
         dt = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
         orig = {
-            "artifact_id": "art-2",
-            "document_id": "doc-2",
+            "artifact_path": "art-2",
             "media_type": "application/json",
             "created_at": dt,
             "created_by": "api-gateway",
@@ -117,23 +112,9 @@ class TestArtifactMetadata:
         assert orig["created_at"] == dt
         assert orig["created_by"] == "api-gateway"
 
-    def test_checksum_stored_and_retrieved(self) -> None:
-        sha = "3fa85f6457174562b3fc2c963f66afa6e3b0c44298fc1c149afbf4c8996fb924"
-        meta = ArtifactMetadata(
-            artifact_id="art-3",
-            document_id="doc-3",
-            media_type="application/pdf",
-            checksum=sha,
-        )
-        assert meta.checksum == sha
-        dumped = meta.model_dump_json()
-        loaded = ArtifactMetadata.model_validate_json(dumped)
-        assert loaded.checksum == sha
-
     def test_content_schema_version_for_structured_artifacts(self) -> None:
         meta = ArtifactMetadata(
-            artifact_id="art-parsed",
-            document_id="doc-1",
+            artifact_path="art-parsed",
             media_type="application/json",
             content_schema_version="1",
         )
@@ -142,26 +123,22 @@ class TestArtifactMetadata:
     def test_negative_size_bytes_rejected(self) -> None:
         with pytest.raises(ValidationError):
             ArtifactMetadata(
-                artifact_id="art-1",
-                document_id="doc-1",
+                artifact_path="art-1",
                 media_type="application/pdf",
                 size_bytes=-1,
             )
 
     def test_missing_required_fields_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            ArtifactMetadata.model_validate({"document_id": "d1", "media_type": "application/pdf"})
+            ArtifactMetadata.model_validate({"media_type": "application/pdf"})
         with pytest.raises(ValidationError):
-            ArtifactMetadata.model_validate({"artifact_id": "a1", "media_type": "application/pdf"})
-        with pytest.raises(ValidationError):
-            ArtifactMetadata.model_validate({"artifact_id": "a1", "document_id": "d1"})
+            ArtifactMetadata.model_validate({"artifact_path": "a1"})
 
     def test_forbid_extra_fields(self) -> None:
         with pytest.raises(ValidationError):
             ArtifactMetadata.model_validate(
                 {
-                    "artifact_id": "a1",
-                    "document_id": "d1",
+                    "artifact_path": "a1",
                     "media_type": "application/pdf",
                     "unknown_field": "value",
                 }
@@ -169,10 +146,8 @@ class TestArtifactMetadata:
 
     def test_json_roundtrip(self) -> None:
         meta = ArtifactMetadata(
-            artifact_id="art-rt",
-            document_id="doc-rt",
+            artifact_path="art-rt",
             media_type="application/pdf",
-            checksum="abc123sha",
             creation_info=CreationInfo(
                 created_at=datetime(2026, 9, 17, 14, 0, tzinfo=UTC),
                 created_by="worker-1",
@@ -188,13 +163,12 @@ class TestArtifactMetadata:
 class TestStoredArtifact:
     def test_properties(self) -> None:
         meta = ArtifactMetadata(
-            artifact_id="art-stored",
-            document_id="doc-stored",
+            artifact_path="art-stored",
             media_type="application/pdf",
             size_bytes=4,
         )
         artifact = StoredArtifact(content=b"test", metadata=meta)
-        assert artifact.artifact_id == "art-stored"
+        assert artifact.artifact_path == "art-stored"
         assert artifact.content == b"test"
         assert artifact.metadata == meta
 
@@ -205,13 +179,11 @@ class TestContractExamples:
         assert meta.schema_version == "1"
         assert meta.media_type == "application/pdf"
         assert meta.content_schema_version is None
-        assert meta.checksum is not None
 
         # Validate against example JSON
         from_json = ArtifactMetadata.model_validate_json(SAMPLE_PDF_METADATA_JSON)
-        assert from_json.artifact_id == meta.artifact_id
+        assert from_json.artifact_path == meta.artifact_path
         assert from_json.media_type == meta.media_type
-        assert from_json.checksum == meta.checksum
 
     def test_sample_parser_metadata_contract(self) -> None:
         meta = sample_parser_metadata()
@@ -221,7 +193,7 @@ class TestContractExamples:
 
         from_json = ArtifactMetadata.model_validate_json(SAMPLE_PARSER_METADATA_JSON)
         assert from_json.content_schema_version == "1"
-        assert from_json.artifact_id == meta.artifact_id
+        assert from_json.artifact_path == meta.artifact_path
 
     def test_sample_extractor_metadata_contract(self) -> None:
         meta = sample_extractor_metadata()
@@ -231,4 +203,4 @@ class TestContractExamples:
 
         from_json = ArtifactMetadata.model_validate_json(SAMPLE_EXTRACTOR_METADATA_JSON)
         assert from_json.content_schema_version == "1"
-        assert from_json.artifact_id == meta.artifact_id
+        assert from_json.artifact_path == meta.artifact_path

@@ -25,15 +25,13 @@ class CreationInfo(BaseModel):
 
 
 class ArtifactMetadata(BaseModel):
-    """Metadata describing an artifact's identity, provenance, format, and checksum."""
+    """Metadata describing an artifact's identity, provenance, and format."""
 
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["1"] = ARTIFACT_METADATA_SCHEMA_VERSION
-    artifact_id: str = Field(min_length=1)
-    document_id: str = Field(min_length=1)
+    artifact_path: str = Field(min_length=1)
     media_type: str = Field(min_length=1)
-    checksum: str | None = None
     creation_info: CreationInfo = Field(default_factory=CreationInfo)
     content_schema_version: str | None = None
     size_bytes: int | None = Field(default=None, ge=0)
@@ -77,5 +75,5 @@ class StoredArtifact(BaseModel):
     metadata: ArtifactMetadata
 
     @property
-    def artifact_id(self) -> str:
-        return self.metadata.artifact_id
+    def artifact_path(self) -> str:
+        return self.metadata.artifact_path
