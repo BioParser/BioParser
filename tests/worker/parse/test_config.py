@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import pytest
@@ -50,3 +51,33 @@ def test_parser_timeout_is_below_the_queue_limit(tmp_path: Path) -> None:
 
 def test_parser_timeout_keeps_half_of_a_small_limit(tmp_path: Path) -> None:
     assert _settings(tmp_path, 10).parser_timeout_seconds == 5.0
+
+
+def _log_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raw: str | None
+) -> WorkerSettings:
+    monkeypatch.chdir(tmp_path)  # no developer .env: WorkerSettings reads ./.env
+    if raw is None:
+        monkeypatch.delenv("BIOPARSER_LOG_LEVEL", raising=False)
+    else:
+        monkeypatch.setenv("BIOPARSER_LOG_LEVEL", raw)
+    return WorkerSettings(
+        redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+        artifact_storage_path=tmp_path,
+        parse_queue_name="parse",
+    )
+
+
+def test_log_level_defaults_to_info(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _log_settings(tmp_path, monkeypatch, None).log_level == logging.INFO
+
+
+def test_log_level_is_read_from_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _log_settings(tmp_path, monkeypatch, "error").log_level == logging.ERROR
+
+
+def test_unknown_log_level_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(ValidationError, match="log_level"):
+        _log_settings(tmp_path, monkeypatch, "verbose")

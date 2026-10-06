@@ -1,8 +1,12 @@
+import json
+import logging
 import signal
+from pathlib import Path
 from threading import Event
 
 import pytest
 
+from bioparser.worker.parse import runtime
 from bioparser.worker.parse.runtime import install_shutdown
 
 
@@ -23,3 +27,40 @@ def test_signal_sets_stop_event(restore_signals: None, sig: signal.Signals) -> N
     signal.raise_signal(sig)
 
     assert stop.is_set()
+
+
+class _LoggingQueue:
+    """Stands in for the Redis queue: logs instead of consuming."""
+
+    def consume(self, handler: object, *, stop: Event) -> None:
+        logging.getLogger("bioparser.tests").info("bioparser info")
+        logging.getLogger("dramatiq.worker").critical("dramatiq critical")
+        logging.getLogger("dramatiq.worker").info("dramatiq info")
+
+
+class _Handler:
+    def close(self) -> None:
+        pass
+
+
+def test_main_logs_json_to_stderr_with_dramatiq_at_warning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)  # no developer .env
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path))
+    monkeypatch.setenv("BIOPARSER_PARSE_QUEUE_NAME", "parse")
+    monkeypatch.delenv("BIOPARSER_LOG_LEVEL", raising=False)
+    monkeypatch.setattr(runtime, "build_worker", lambda settings: (_LoggingQueue(), _Handler()))
+    monkeypatch.setattr(runtime, "install_shutdown", lambda stop: None)
+
+    runtime.main()
+
+    records = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
+    assert [(r["logger"], r["level"], r["msg"]) for r in records] == [
+        ("bioparser.tests", "INFO", "bioparser info"),
+        ("dramatiq.worker", "CRITICAL", "dramatiq critical"),
+    ]
+    assert logging.getLogger("dramatiq").getEffectiveLevel() == logging.WARNING

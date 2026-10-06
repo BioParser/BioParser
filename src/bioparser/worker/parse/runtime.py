@@ -4,6 +4,7 @@ from threading import Event
 
 from bioparser.jobqueue import JobQueue, ParseJobMessage, RedisJobQueue, create_redis_broker
 from bioparser.jobstate import RedisJobStateStore
+from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
 from bioparser.parser.protocol import PdfParser
 from bioparser.storage.filesystem import FileSystemArtifactStorage
@@ -54,9 +55,9 @@ def build_worker(
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO)
     # Values come from the environment; mypy only sees the required fields.
     settings = WorkerSettings()  # type: ignore[call-arg]
+    setup_logging(settings.log_level)
     queue, handler = build_worker(settings)
     stop = Event()
     install_shutdown(stop)

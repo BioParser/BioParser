@@ -1,7 +1,10 @@
+import logging
 from pathlib import Path
 
 from pydantic import AnyUrl, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from bioparser.logging_config import parse_level
 
 # MinerU's pipeline backend runs in-process on CPU and can take much longer than
 # the queue's 10 minute default. A shorter limit kills the parse and retries it.
@@ -27,6 +30,10 @@ class WorkerSettings(BaseSettings):
         extra="ignore",
     )
 
+    # Using the numeric level. BIOPARSER_LOG_LEVEL takes a name in any case or a number:
+    # see logging_config.parse_level().
+    log_level: int = logging.INFO
+
     redis_url: AnyUrl
     artifact_storage_path: Path
     parse_queue_name: str = Field(min_length=1)
@@ -39,6 +46,11 @@ class WorkerSettings(BaseSettings):
         """Limit for the MinerU process, slightly below the queue's time limit."""
         limit_s = self.parse_time_limit_seconds
         return limit_s - min(PARSE_TIME_LIMIT_MARGIN_S, limit_s / 2)
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def parse_log_level(cls, value: object) -> int:
+        return parse_level(value)
 
     @field_validator("redis_url", mode="before")
     @classmethod

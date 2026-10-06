@@ -1,9 +1,8 @@
 """
 Produces one JSON object per line on stderr.
 
-setup_logging runs on API startup (lifespan), and it puts a handler on the
-root logger, so records from e.g. BioParser, uvicorn, httpx2 reach it and share the
-same format.
+setup_logging puts a handler on the root logger, so records from e.g. BioParser,
+uvicorn, httpx2 reach it and share the same format.
 
 log_context() adds fields, such as the upload checksum, to every record logged
 inside it, whichever logger created the record.
@@ -188,7 +187,7 @@ def setup_logging(level: int | str = logging.INFO) -> None:
     """
     Send every logger's record to a JSON handler on stderr.
 
-    Idempotent: app.py calls it at import, and lifespan again on every startup.
+    Idempotent: a later call updates the level and does not add a second handler.
 
     level: any form parse_level() accepts; applies to the bioparser logger tree.
            Third-party loggers stay at THIRD_PARTY_MIN_LEVEL or stricter, and
