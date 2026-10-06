@@ -301,7 +301,7 @@ class TestPathTraversalDefense:
             "3fa85f64-5717-4562-b3fc-2c963f66afa6",
             "doc_123.v1-final",
             "SimpleArtifactID",
-            "a" * 150 + "/" + "b" * 150 + "/" + "c" * 150,  # long path, but short segments
+            "a" * 150 + "/" + "b" * 150 + "/" + "c" * 200,  # long path, but short segments
             "pdf/f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2/parsed/mineru/1.0",
             "a/b/c/d/e/f/g",
         ]
