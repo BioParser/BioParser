@@ -21,18 +21,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          # uv version
-          version: "0.12.9"
-          enable-cache: true
-
-      - name: Set up Python
-        run: uv python install
-
-      - name: Install dependencies
-        run: uv sync --locked --dev
+      - name: Setup Python
+        uses: ./.github/actions/setup
 
       - name: Ruff lint
         run: uv run ruff check .
@@ -48,18 +38,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          # uv version
-          version: "0.12.9"
-          enable-cache: true
-
-      - name: Set up Python
-        run: uv python install
-
-      - name: Install dependencies
-        run: uv sync --locked --dev
+      - name: Setup Python
+        uses: ./.github/actions/setup
 
       - name: mypy
         run: uv run mypy .
@@ -67,56 +47,39 @@ jobs:
   test-unit:
     name: Unit tests
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      
-      - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          version: "0.12.9"
-          enable-cache: true
-      
-      - name: Set up Python
-        run: uv python install
-      
-      - name: Install dependencies
-        run: uv sync --locked --dev
-      
+
+      - name: Setup Python
+        uses: ./.github/actions/setup
+
       - name: Run unit tests
         run: uv run pytest -m "not integration"
 
   test-integration:
     name: Integration tests
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          version: "0.12.9"
-          enable-cache: true
+      - name: Setup Python
+        uses: ./.github/actions/setup
 
-      - name: Set up Python
-        run: uv python install
-
-      - name: Install dependencies
-        run: uv sync --locked --dev
-
-      - name: Start Redis (matches production's persistence/memory flags)
+      - name: Start Redis
         run: |
           docker run -d --name redis -p 6379:6379 \
-            redis:8.10.1@sha256:298e5b3bc566bade82f46ad5511777a4a07a294097ce16ada2f6a42be5239df5 \
+            redis:8.10.2@sha256:6f81e8915c60b065a524e6967e0ad1c639ba6efa84d669f823683ea04d9150ee \
             redis-server --appendonly yes --appendfsync everysec --save "" \
               --maxmemory 256mb --maxmemory-policy noeviction
           for i in $(seq 1 10); do
             docker exec redis redis-cli ping 2>/dev/null && break
             sleep 1
           done
+          docker exec redis redis-cli ping
 
       - name: Run integration tests
         run: uv run pytest -m integration
