@@ -38,7 +38,7 @@ from bioparser.parser.protocol import PdfParser
 from bioparser.storage import StoredArtifact
 from bioparser.storage.errors import ArtifactAlreadyExistsError, ArtifactNotFoundError
 from bioparser.storage.models import ArtifactMetadata
-from bioparser.worker.parse.handler import ParseJobHandler, _parser_artifact_id
+from bioparser.worker.parse.handler import ParseJobHandler, _parser_artifact_path
 from bioparser.worker.parse.runtime import install_shutdown
 
 JOB_ID = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
@@ -191,12 +191,12 @@ def test_success_stores_artifact_and_marks_parsed() -> None:
     assert parser.paths == [b"%PDF-1.4"]
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
-    assert jobs.state.parse_result_ref == str(_parser_artifact_id(JOB_ID))
-    assert _parser_artifact_id(JOB_ID).version == 5
-    stored = storage.retrieve(str(_parser_artifact_id(JOB_ID)))
+    assert jobs.state.parse_result_ref == _parser_artifact_path(JOB_ID)
+    assert UUID(_parser_artifact_path(JOB_ID)).version == 5
+    stored = storage.retrieve(_parser_artifact_path(JOB_ID))
     restored = ParserArtifact.model_validate_json(stored)
     assert restored == _artifact()
-    assert storage.metadata[str(_parser_artifact_id(JOB_ID))].created_by == "parser-worker"
+    assert storage.metadata[_parser_artifact_path(JOB_ID)].created_by == "parser-worker"
 
 
 def test_duplicate_delivery_does_not_parse_again() -> None:
@@ -206,13 +206,13 @@ def test_duplicate_delivery_does_not_parse_again() -> None:
     handler = _handler(jobs, storage, parser)
     message = _message()
     handler.handle(message)
-    stored = storage.retrieve(str(_parser_artifact_id(JOB_ID)))
+    stored = storage.retrieve(_parser_artifact_path(JOB_ID))
     handler.handle(message)
     handler.close()
 
     assert parser.paths == [b"%PDF-1.4"]
     assert storage.stores == 1
-    assert storage.retrieve(str(_parser_artifact_id(JOB_ID))) == stored
+    assert storage.retrieve(_parser_artifact_path(JOB_ID)) == stored
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
 
@@ -348,7 +348,7 @@ def test_invalid_existing_artifact_fails_the_job() -> None:
     jobs = MemoryJobs(_queued())
     storage = MemoryStorage()
     invalid = b'{"old":true}'
-    storage.payloads[str(_parser_artifact_id(JOB_ID))] = invalid
+    storage.payloads[_parser_artifact_path(JOB_ID)] = invalid
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, storage, parser)
     handler.handle(_message())
@@ -356,7 +356,7 @@ def test_invalid_existing_artifact_fails_the_job() -> None:
 
     assert parser.paths == []
     assert storage.stores == 0
-    assert storage.retrieve(str(_parser_artifact_id(JOB_ID))) == invalid
+    assert storage.retrieve(_parser_artifact_path(JOB_ID)) == invalid
     assert jobs.state is not None
     assert jobs.state.status == "failed"
     assert jobs.state.error == SafeError(code="internal_error")
@@ -366,7 +366,7 @@ def test_different_valid_artifact_is_reused_without_parsing() -> None:
     jobs = MemoryJobs(_queued())
     storage = MemoryStorage()
     stored = _artifact().model_copy(update={"checksum": "other"}).model_dump_json().encode()
-    storage.payloads[str(_parser_artifact_id(JOB_ID))] = stored
+    storage.payloads[_parser_artifact_path(JOB_ID)] = stored
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, storage, parser)
     handler.handle(_message())
@@ -374,17 +374,17 @@ def test_different_valid_artifact_is_reused_without_parsing() -> None:
 
     assert parser.paths == []
     assert storage.stores == 0
-    assert storage.retrieve(str(_parser_artifact_id(JOB_ID))) == stored
+    assert storage.retrieve(_parser_artifact_path(JOB_ID)) == stored
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
-    assert jobs.state.parse_result_ref == str(_parser_artifact_id(JOB_ID))
+    assert jobs.state.parse_result_ref == _parser_artifact_path(JOB_ID)
 
 
 def test_identical_existing_artifact_is_reused() -> None:
     jobs = MemoryJobs(_queued().with_changes(status="parsing"))
     storage = MemoryStorage()
     payload = _artifact().model_dump_json().encode()
-    storage.payloads[str(_parser_artifact_id(JOB_ID))] = payload
+    storage.payloads[_parser_artifact_path(JOB_ID)] = payload
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, storage, parser)
     handler.handle(_message())
@@ -393,7 +393,7 @@ def test_identical_existing_artifact_is_reused() -> None:
     assert storage.stores == 0
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
-    assert jobs.state.parse_result_ref == str(_parser_artifact_id(JOB_ID))
+    assert jobs.state.parse_result_ref == _parser_artifact_path(JOB_ID)
 
 
 def test_missing_job_state_is_retried() -> None:

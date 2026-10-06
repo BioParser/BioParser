@@ -145,7 +145,7 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
         if not await self._mark_running(state):
             return
         try:
-            artifact_id = self._parse_and_store(job_id, state.parser, state.pdf_ref)
+            artifact_path = self._ensure_parser_artifact(job_id, state.parser, state.pdf_ref)
         except _JobFailure as exc:
             LOGGER.error(f"job {job_id}: parsing failed. Marking the job failed ({exc.code})")
             await self._mark_failed(job_id, exc.code)
@@ -154,7 +154,7 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
             await self._jobs.update(
                 state.with_changes(
                     status="parsed",
-                    parse_result_ref=artifact_id,
+                    parse_result_ref=artifact_path,
                 )
             )
         except StaleJobStateWriteError:
@@ -192,21 +192,21 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
                 f"job {job_id}: job already finished or moved on. Not marking it failed ({code})"
             )
 
-    def _parse_and_store(self, job_id: UUID, parser_name: str, pdf_ref: str) -> str:
-        artifact_key = str(_parser_artifact_id(job_id))
-        stored = _retrieve_if_exists(self._storage, artifact_key)
+    def _ensure_parser_artifact(self, job_id: UUID, parser_name: str, pdf_ref: str) -> str:
+        artifact_path = _parser_artifact_path(job_id)
+        stored = _retrieve_or_none(self._storage, artifact_path)
         if stored is not None and _is_parser_artifact(stored):
-            return artifact_key
+            return artifact_path
         if stored is not None:
             # The storage interface cannot replace an artifact, so an invalid one is permanent.
             LOGGER.error(
-                f"job {job_id}: stored parser artifact {artifact_key} is invalid and cannot be "
+                f"job {job_id}: stored parser artifact {artifact_path} is invalid and cannot be "
                 "replaced through the storage interface"
             )
             raise _JobFailure("internal_error")
         artifact = self._parse(job_id, parser_name, pdf_ref)
         payload = artifact.model_dump_json().encode()
-        return self._store_artifact(job_id, artifact.schema_version, payload, artifact_key)
+        return self._store_artifact(job_id, artifact.schema_version, payload, artifact_path)
 
     def _parse(self, job_id: UUID, parser_name: str, pdf_ref: str) -> ParserArtifact:
         """Fetch the input PDF and parse it. Known failures become `_JobFailure`."""
@@ -238,10 +238,10 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
         job_id: UUID,
         schema_version: str,
         payload: bytes,
-        artifact_key: str,
+        artifact_path: str,
     ) -> str:
         metadata = ArtifactMetadata(
-            artifact_path=artifact_key,
+            artifact_path=artifact_path,
             media_type="application/json",
             content_schema_version=schema_version,
             size_bytes=len(payload),
@@ -251,20 +251,20 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
             self._storage.store(payload, metadata)
         except ArtifactAlreadyExistsError as exc:
             # Another delivery stored it first. Keep its artifact if it is valid.
-            existing = _retrieve_if_exists(self._storage, artifact_key)
+            existing = _retrieve_or_none(self._storage, artifact_path)
             if existing is None:
                 LOGGER.error(
-                    f"job {job_id}: storage said parser artifact {artifact_key} already exists, "
+                    f"job {job_id}: storage said parser artifact {artifact_path} already exists, "
                     "but it is gone when read back"
                 )
                 raise _JobFailure("internal_error") from exc
             if not _is_parser_artifact(existing):
                 LOGGER.error(
-                    f"job {job_id}: parser artifact {artifact_key} written by another delivery "
+                    f"job {job_id}: parser artifact {artifact_path} written by another delivery "
                     "is invalid and cannot be replaced"
                 )
                 raise _JobFailure("internal_error") from exc
-        return artifact_key
+        return artifact_path
 
 
 def _left_parse_stage(status: str) -> bool:
@@ -272,9 +272,9 @@ def _left_parse_stage(status: str) -> bool:
     return status not in _PARSE_STAGE
 
 
-def _parser_artifact_id(job_id: UUID) -> UUID:
-    """UUID5 of the job id, so a retry stores the same artifact."""
-    return uuid5(_PARSER_ARTIFACT_NAMESPACE, str(job_id))
+def _parser_artifact_path(job_id: UUID) -> str:
+    """UUID5 of the job id as the artifact path, so a retry stores the same artifact."""
+    return str(uuid5(_PARSER_ARTIFACT_NAMESPACE, str(job_id)))
 
 
 def _parse_pdf(parser: PdfParser, pdf: bytes) -> ParserArtifact:
@@ -292,7 +292,8 @@ def _is_parser_artifact(payload: bytes) -> bool:
     return True
 
 
-def _retrieve_if_exists(storage: ArtifactStorage, artifact_path: str) -> bytes | None:
-    if not storage.exists(artifact_path):
+def _retrieve_or_none(storage: ArtifactStorage, artifact_path: str) -> bytes | None:
+    try:
+        return storage.retrieve(artifact_path)
+    except ArtifactNotFoundError:
         return None
-    return storage.retrieve(artifact_path)
