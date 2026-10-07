@@ -1,7 +1,10 @@
+from typing import get_args
+
 import pytest
 from pydantic import ValidationError
 
 from bioparser.jobstate import JOB_STATE_SCHEMA_VERSION, JobState, SafeError
+from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobStatus
 
 PDF_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
 RESULT_REF = "7c2e1d3b-8e55-4f2b-ad4c-3a9f6b1e7d22"
@@ -19,6 +22,11 @@ def _queued(**overrides: object) -> JobState:
 
 
 # --- round trips -------------------------------------------------------
+
+
+def test_every_status_has_a_transition_row() -> None:
+    """The Redis transition test only walks this table, so a missing status would never run."""
+    assert set(ALLOWED_TRANSITIONS) == set(get_args(JobStatus))
 
 
 def test_queued_job_round_trips_through_json() -> None:

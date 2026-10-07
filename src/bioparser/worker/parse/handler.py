@@ -24,10 +24,12 @@ from bioparser.jobstate import (
     JobNotFoundError,
     JobState,
     JobStateStore,
+    JobStatus,
     SafeError,
     SafeErrorCode,
     StaleJobStateWriteError,
 )
+from bioparser.logging_config import log_context
 from bioparser.parser import (
     ParserArtifact,
     ParserBackendUnavailableError,
@@ -45,11 +47,11 @@ from bioparser.storage import (
 
 LOGGER = logging.getLogger(__name__)
 
-_PARSE_STAGE: frozenset[str] = frozenset(("queued", "parsing"))
+_PARSE_STAGE: frozenset[JobStatus] = frozenset(("queued", "parsing"))
 _PARSER_ARTIFACT_NAMESPACE = uuid5(NAMESPACE_DNS, "bioparser.parser-artifact")
 
 
-class _JobFailure(Exception):
+class _PermanentJobFailure(Exception):
     """A job error that must be recorded and not retried."""
 
     def __init__(self, code: SafeErrorCode) -> None:
@@ -100,7 +102,8 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
                 raise
 
     def handle(self, message: ParseJobMessage) -> None:
-        self.run_async(self._handle(message.job_id))
+        with log_context(job_id=str(message.job_id)):
+            self.run_async(self._handle(message.job_id))
 
     def on_malformed(self, payload: object) -> None:
         if not isinstance(payload, dict):
@@ -110,19 +113,19 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
         except (KeyError, TypeError, ValueError, AttributeError):
             # UUID() raises AttributeError, not TypeError, for a non-string such as an int.
             return
-        LOGGER.error(
-            f"job {job_id}: queue message is malformed and can never be processed. "
-            "Marking the job failed (internal_error)"
-        )
-        self.run_async(self._mark_failed(job_id, "internal_error"))
+        with log_context(job_id=str(job_id)):
+            LOGGER.error(
+                "queue message is malformed and can never be processed. Marking the job failed (internal_error)"
+            )
+            self.run_async(self._mark_failed(job_id, "internal_error"))
 
     def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
         code: SafeErrorCode = "timeout" if isinstance(exc, TimeLimitExceeded) else "internal_error"
-        LOGGER.error(
-            f"job {message.job_id}: retries exhausted, last attempt raised {type(exc).__name__}. "
-            f"Marking the job failed ({code})"
-        )
-        self.run_async(self._mark_failed(message.job_id, code))
+        with log_context(job_id=str(message.job_id)):
+            LOGGER.error(
+                f"retries exhausted, last attempt raised {type(exc).__name__}. Marking the job failed ({code})"
+            )
+            self.run_async(self._mark_failed(message.job_id, code))
 
     async def _handle(self, job_id: UUID) -> None:
         try:
@@ -130,24 +133,20 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
         except CorruptJobStateError:
             # Retrying reads the same bytes. The record cannot be rewritten without its fields.
             LOGGER.error(
-                f"job {job_id}: stored job state is unreadable. "
-                "Dropping the message without retry, the job stays in its stored status"
+                "stored job state is unreadable. Dropping the message without retry, the job stays in its stored status"
             )
             return
         if state is None:
             raise JobNotFoundError(f"no stored state for job {job_id}. Message will be retried")
         if _left_parse_stage(state.status):
-            LOGGER.info(
-                f"job {job_id}: status is already {state.status!r}. "
-                "Skipping this duplicate delivery"
-            )
+            LOGGER.info(f"status is already {state.status!r}. Skipping this duplicate delivery")
             return
         if not await self._mark_running(state):
             return
         try:
             artifact_path = self._ensure_parser_artifact(job_id, state.parser, state.pdf_ref)
-        except _JobFailure as exc:
-            LOGGER.error(f"job {job_id}: parsing failed. Marking the job failed ({exc.code})")
+        except _PermanentJobFailure as exc:
+            LOGGER.error(f"parsing failed. Marking the job failed ({exc.code})")
             await self._mark_failed(job_id, exc.code)
             return
         try:
@@ -159,8 +158,7 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
             )
         except StaleJobStateWriteError:
             LOGGER.info(
-                f"job {job_id}: another delivery or a later stage moved the job on while it was "
-                "parsing. Not recording 'parsed'"
+                "another delivery or a later stage moved the job on while it was parsing. Not recording 'parsed'"
             )
 
     async def _mark_running(self, state: JobState) -> bool:
@@ -168,8 +166,7 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
             await self._jobs.update(state.with_changes(status="parsing"))
         except StaleJobStateWriteError:
             LOGGER.info(
-                f"job {state.job_id}: job moved past the parse stage before this delivery could "
-                "start parsing. Skipping"
+                "job moved past the parse stage before this delivery could start parsing. Skipping"
             )
             return False
         return True
@@ -178,19 +175,17 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
         try:
             state = await self._jobs.get(job_id)
         except CorruptJobStateError:
-            LOGGER.error(f"job {job_id}: stored job state is unreadable. Cannot mark it failed")
+            LOGGER.error("stored job state is unreadable. Cannot mark it failed")
             return
         if state is None:
-            LOGGER.error(f"job {job_id}: no stored job state exists. Cannot mark it failed")
+            LOGGER.error("no stored job state exists. Cannot mark it failed")
             return
         if _left_parse_stage(state.status):
             return
         try:
             await self._jobs.update(state.with_changes(status="failed", error=SafeError(code=code)))
         except StaleJobStateWriteError:
-            LOGGER.info(
-                f"job {job_id}: job already finished or moved on. Not marking it failed ({code})"
-            )
+            LOGGER.info(f"job already finished or moved on. Not marking it failed ({code})")
 
     def _ensure_parser_artifact(self, job_id: UUID, parser_name: str, pdf_ref: str) -> str:
         artifact_path = _parser_artifact_path(job_id)
@@ -200,38 +195,37 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
         if stored is not None:
             # The storage interface cannot replace an artifact, so an invalid one is permanent.
             LOGGER.error(
-                f"job {job_id}: stored parser artifact {artifact_path} is invalid and cannot be "
-                "replaced through the storage interface"
+                f"stored parser artifact {artifact_path} is invalid and cannot be replaced through the storage interface"
             )
-            raise _JobFailure("internal_error")
+            raise _PermanentJobFailure("internal_error")
         artifact = self._parse(job_id, parser_name, pdf_ref)
         payload = artifact.model_dump_json().encode()
         return self._store_artifact(job_id, artifact.schema_version, payload, artifact_path)
 
     def _parse(self, job_id: UUID, parser_name: str, pdf_ref: str) -> ParserArtifact:
-        """Fetch the input PDF and parse it. Known failures become `_JobFailure`."""
+        """Fetch the input PDF and parse it. Known failures become `_PermanentJobFailure`."""
         try:
             parser = self._parser_factory(parser_name)
         except ParserBackendUnavailableError as exc:
-            LOGGER.error(f"job {job_id}: parser backend {parser_name!r} cannot run: {exc}")
-            raise _JobFailure("parse_failed") from exc
+            LOGGER.error(f"parser backend {parser_name!r} cannot run: {exc}")
+            raise _PermanentJobFailure("parse_failed") from exc
         try:
             pdf = self._storage.retrieve(pdf_ref)
         except ArtifactNotFoundError as exc:
-            LOGGER.error(f"job {job_id}: input PDF {pdf_ref} not found in artifact storage")
-            raise _JobFailure("internal_error") from exc
+            LOGGER.error(f"input PDF {pdf_ref} not found in artifact storage")
+            raise _PermanentJobFailure("internal_error") from exc
         try:
             return _parse_pdf(parser, pdf)
         except ParserBackendUnavailableError as exc:
-            LOGGER.error(f"job {job_id}: parser backend {parser_name!r} cannot run: {exc}")
-            raise _JobFailure("parse_failed") from exc
+            LOGGER.error(f"parser backend {parser_name!r} cannot run: {exc}")
+            raise _PermanentJobFailure("parse_failed") from exc
         except ParserTimeoutError as exc:
             # The same parse would run out of time again, so it is not retried.
-            LOGGER.error(f"job {job_id}: parser {parser_name!r} timed out: {exc}")
-            raise _JobFailure("timeout") from exc
+            LOGGER.error(f"parser {parser_name!r} timed out: {exc}")
+            raise _PermanentJobFailure("timeout") from exc
         except UnsupportedDocumentError as exc:
-            LOGGER.error(f"job {job_id}: parser {parser_name!r} could not read the PDF: {exc}")
-            raise _JobFailure("invalid_pdf") from exc
+            LOGGER.error(f"parser {parser_name!r} could not read the PDF: {exc}")
+            raise _PermanentJobFailure("invalid_pdf") from exc
 
     def _store_artifact(
         self,
@@ -254,20 +248,18 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
             existing = _retrieve_or_none(self._storage, artifact_path)
             if existing is None:
                 LOGGER.error(
-                    f"job {job_id}: storage said parser artifact {artifact_path} already exists, "
-                    "but it is gone when read back"
+                    f"storage said parser artifact {artifact_path} already exists, but it is gone when read back"
                 )
-                raise _JobFailure("internal_error") from exc
+                raise _PermanentJobFailure("internal_error") from exc
             if not _is_parser_artifact(existing):
                 LOGGER.error(
-                    f"job {job_id}: parser artifact {artifact_path} written by another delivery "
-                    "is invalid and cannot be replaced"
+                    f"parser artifact {artifact_path} written by another delivery is invalid and cannot be replaced"
                 )
-                raise _JobFailure("internal_error") from exc
+                raise _PermanentJobFailure("internal_error") from exc
         return artifact_path
 
 
-def _left_parse_stage(status: str) -> bool:
+def _left_parse_stage(status: JobStatus) -> bool:
     """True once the job has left the parse stage, however it left."""
     return status not in _PARSE_STAGE
 

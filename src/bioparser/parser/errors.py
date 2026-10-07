@@ -6,5 +6,12 @@ class ParserTimeoutError(RuntimeError):
     """Raised when a backend ran past its time limit and was stopped."""
 
 
+class ParserProcessError(RuntimeError):
+    """Raised when a backend process was killed or crashed, so the PDF was not judged.
+
+    Not a document problem: the same PDF may parse once the machine has room again.
+    """
+
+
 class ParserBackendUnavailableError(RuntimeError):
     """Raised when the requested backend is unknown or cannot be run."""

@@ -1,5 +1,7 @@
 import asyncio
 import ctypes
+import json
+import logging
 import signal
 import threading
 from collections.abc import Callable
@@ -17,10 +19,12 @@ from bioparser.jobstate.errors import (
     StaleJobStateWriteError,
 )
 from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobState, SafeError
+from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
 from bioparser.parser.backend.mineru import runtime as mineru_runtime
 from bioparser.parser.errors import (
     ParserBackendUnavailableError,
+    ParserProcessError,
     ParserTimeoutError,
     UnsupportedDocumentError,
 )
@@ -506,3 +510,38 @@ def test_install_shutdown_stops_on_sigterm() -> None:
     finally:
         signal.signal(signal.SIGTERM, previous_term)
         signal.signal(signal.SIGINT, previous_int)
+
+
+def test_killed_parser_process_is_retried_not_failed_as_invalid_pdf() -> None:
+    jobs = MemoryJobs(_queued())
+    parser = RecordingParser(_artifact(), error=ParserProcessError("killed by signal 9"))
+    handler = _handler(jobs, MemoryStorage(), parser)
+    with pytest.raises(ParserProcessError):
+        handler.handle(_message())
+    handler.close()
+
+    assert jobs.state is not None
+    assert jobs.state.status == "parsing"
+
+
+def test_records_logged_while_a_job_runs_carry_its_job_id(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _LoggingParser:
+        def parse(self, path: Path) -> ParserArtifact:
+            logging.getLogger("bioparser.parser.test").info("parsing")
+            return _artifact()
+
+    setup_logging("INFO")
+    handler = _handler(
+        MemoryJobs(_queued()),
+        MemoryStorage(),
+        RecordingParser(_artifact()),
+        factory=lambda _name: _LoggingParser(),
+    )
+    handler.handle(_message())
+    handler.close()
+
+    records = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
+    [parsing] = [r for r in records if r["msg"] == "parsing"]
+    assert parsing["job_id"] == str(JOB_ID)

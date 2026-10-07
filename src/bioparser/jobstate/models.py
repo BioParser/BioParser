@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Literal, Self
 
 from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -15,14 +17,16 @@ JobStatus = Literal["queued", "parsing", "parsed", "extracting", "done", "failed
 # undo or rewrite progress. Self-loops let a retried attempt report its own status again.
 # `done` and `failed` are final: nothing may follow them. This mirrors the state diagram
 # in docs/architecture.md.
-ALLOWED_TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
-    "queued": frozenset({"parsing", "failed"}),
-    "parsing": frozenset({"parsing", "parsed", "failed"}),
-    "parsed": frozenset({"extracting"}),
-    "extracting": frozenset({"extracting", "done", "failed"}),
-    "done": frozenset(),
-    "failed": frozenset(),
-}
+ALLOWED_TRANSITIONS: Mapping[JobStatus, frozenset[JobStatus]] = MappingProxyType(
+    {
+        "queued": frozenset({"parsing", "failed"}),
+        "parsing": frozenset({"parsing", "parsed", "failed"}),
+        "parsed": frozenset({"extracting"}),
+        "extracting": frozenset({"extracting", "done", "failed"}),
+        "done": frozenset(),
+        "failed": frozenset(),
+    }
+)
 SafeErrorCode = Literal[
     "invalid_pdf", "parse_failed", "extraction_failed", "timeout", "internal_error"
 ]

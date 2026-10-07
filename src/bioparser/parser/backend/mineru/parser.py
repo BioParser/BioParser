@@ -10,6 +10,7 @@ from bioparser.parser.backend.mineru.schema import pipeline_configuration
 from bioparser.parser.checksum import sha256_file
 from bioparser.parser.errors import (
     ParserBackendUnavailableError,
+    ParserProcessError,
     ParserTimeoutError,
     UnsupportedDocumentError,
 )
@@ -66,9 +67,15 @@ class MinerUParser:
                     output_dir,
                     parser_version=MINERU_PARSER_VERSION,
                 )
-        except (ParserBackendUnavailableError, ParserTimeoutError):
-            raise
-        except UnsupportedDocumentError:
+        except (
+            ParserBackendUnavailableError,
+            ParserProcessError,
+            ParserTimeoutError,
+            UnsupportedDocumentError,
+            # Disk or memory trouble says nothing about the PDF, so it is left to retry.
+            OSError,
+            MemoryError,
+        ):
             raise
         except Exception as exc:
             raise UnsupportedDocumentError(

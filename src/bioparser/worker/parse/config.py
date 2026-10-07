@@ -28,6 +28,7 @@ class WorkerSettings(BaseSettings):
         env_file=".env",
         env_prefix="BIOPARSER_",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     # Using the numeric level. BIOPARSER_LOG_LEVEL takes a name in any case or a number:

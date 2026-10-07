@@ -55,6 +55,7 @@ def test_main_logs_json_to_stderr_with_dramatiq_at_warning(
     monkeypatch.delenv("BIOPARSER_LOG_LEVEL", raising=False)
     monkeypatch.setattr(runtime, "build_worker", lambda settings: (_LoggingQueue(), _Handler()))
     monkeypatch.setattr(runtime, "install_shutdown", lambda stop: None)
+    monkeypatch.setattr(runtime, "require_mineru_cli", lambda: None)
 
     runtime.main()
 
@@ -64,3 +65,28 @@ def test_main_logs_json_to_stderr_with_dramatiq_at_warning(
         ("dramatiq.worker", "CRITICAL", "dramatiq critical"),
     ]
     assert logging.getLogger("dramatiq").getEffectiveLevel() == logging.WARNING
+
+
+def _worker_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path))
+    monkeypatch.setenv("BIOPARSER_PARSE_QUEUE_NAME", "parse")
+
+
+def test_main_refuses_to_start_without_the_mineru_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _worker_env(tmp_path, monkeypatch)
+
+    def _missing() -> None:
+        raise RuntimeError("missing")
+
+    def _must_not_start(settings: object) -> tuple[object, object]:
+        raise AssertionError("started")
+
+    monkeypatch.setattr(runtime, "require_mineru_cli", _missing)
+    monkeypatch.setattr(runtime, "build_worker", _must_not_start)
+
+    with pytest.raises(RuntimeError, match="missing"):
+        runtime.main()

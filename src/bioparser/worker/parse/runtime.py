@@ -6,6 +6,7 @@ from bioparser.jobqueue import JobQueue, ParseJobMessage, RedisJobQueue, create_
 from bioparser.jobstate import RedisJobStateStore
 from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
+from bioparser.parser.backend.mineru.runtime import require_mineru_cli
 from bioparser.parser.protocol import PdfParser
 from bioparser.storage.filesystem import FileSystemArtifactStorage
 
@@ -58,6 +59,7 @@ def main() -> None:
     # Values come from the environment; mypy only sees the required fields.
     settings = WorkerSettings()  # type: ignore[call-arg]
     setup_logging(settings.log_level)
+    require_mineru_cli()
     queue, handler = build_worker(settings)
     stop = Event()
     install_shutdown(stop)

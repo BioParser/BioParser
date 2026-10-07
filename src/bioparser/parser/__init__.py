@@ -3,6 +3,7 @@ from bioparser.parser.backend.factory import get_parser
 from bioparser.parser.backend.mineru.parser import MinerUParser
 from bioparser.parser.errors import (
     ParserBackendUnavailableError,
+    ParserProcessError,
     ParserTimeoutError,
     UnsupportedDocumentError,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "MinerUParser",
     "ParserArtifact",
     "ParserBackendUnavailableError",
+    "ParserProcessError",
     "ParserTimeoutError",
     "PdfParser",
     "UnsupportedDocumentError",
