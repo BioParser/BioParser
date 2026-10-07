@@ -44,6 +44,7 @@ def build_worker(
         broker=broker,
         time_limit_ms=round(settings.parse_time_limit_seconds * 1000),
         max_retries=settings.parse_max_retries,
+        # One thread is supported today. The handler serializes any extra threads.
         worker_threads=1,
     )
     parser_timeout_s = settings.parser_timeout_seconds
