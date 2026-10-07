@@ -42,6 +42,7 @@ from bioparser.parser.protocol import PdfParser
 from bioparser.storage import StoredArtifact
 from bioparser.storage.errors import ArtifactAlreadyExistsError, ArtifactNotFoundError
 from bioparser.storage.models import ArtifactMetadata
+from bioparser.worker.parse.config import DEFAULT_PARSE_MAX_RETRIES
 from bioparser.worker.parse.handler import ParseJobHandler, _parser_artifact_path
 from bioparser.worker.parse.runtime import install_shutdown
 
@@ -171,6 +172,7 @@ def _handler(
     parser: RecordingParser,
     *,
     factory: Callable[[str], PdfParser] | None = None,
+    max_claims: int = DEFAULT_PARSE_MAX_RETRIES + 1,
 ) -> ParseJobHandler:
     def _factory(name: str) -> PdfParser:
         if name != "default":
@@ -181,6 +183,7 @@ def _handler(
         jobs=jobs,
         storage=storage,
         parser_factory=factory or _factory,
+        max_claims=max_claims,
     )
 
 
@@ -196,6 +199,7 @@ def test_success_stores_artifact_and_marks_parsed() -> None:
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
     assert jobs.state.parse_result_ref == _parser_artifact_path(JOB_ID)
+    assert jobs.state.claims("parsing") == 1
     assert UUID(_parser_artifact_path(JOB_ID)).version == 5
     stored = storage.retrieve(_parser_artifact_path(JOB_ID))
     restored = ParserArtifact.model_validate_json(stored)
@@ -221,6 +225,26 @@ def test_duplicate_delivery_does_not_parse_again() -> None:
     assert jobs.state.status == "parsed"
 
 
+def test_claim_is_counted_and_a_further_start_stops_at_the_cap() -> None:
+    jobs = MemoryJobs(_queued())
+    storage = MemoryStorage()
+    parser = RecordingParser(_artifact(), error=RuntimeError("backend blip"))
+    handler = _handler(jobs, storage, parser, max_claims=1)
+    with pytest.raises(RuntimeError, match="backend blip"):
+        handler.handle(_message())
+    assert jobs.state is not None
+    assert jobs.state.claims("parsing") == 1
+
+    parser.error = None
+    handler.handle(_message())
+    handler.close()
+
+    assert len(parser.paths) == 1
+    assert jobs.state.status == "failed"
+    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.claims("parsing") == 1
+
+
 def test_retry_after_parser_error_can_succeed() -> None:
     jobs = MemoryJobs(_queued())
     storage = MemoryStorage()
@@ -236,6 +260,7 @@ def test_retry_after_parser_error_can_succeed() -> None:
     handler.handle(message)
     handler.close()
     assert jobs.state.status == "parsed"  # type: ignore[comparison-overlap]
+    assert jobs.state.claims("parsing") == 2
     assert len(parser.paths) == 2
 
 
@@ -247,7 +272,12 @@ def test_parser_comes_from_job_state() -> None:
         seen.append(name)
         raise ParserBackendUnavailableError(name)
 
-    handler = ParseJobHandler(jobs=jobs, storage=MemoryStorage(), parser_factory=_factory)
+    handler = ParseJobHandler(
+        jobs=jobs,
+        storage=MemoryStorage(),
+        parser_factory=_factory,
+        max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
+    )
     handler.handle(_message())
     handler.close()
 
@@ -322,6 +352,7 @@ def test_mineru_cli_failure_fails_the_job_as_invalid_pdf(
         jobs=jobs,
         storage=MemoryStorage(),
         parser_factory=lambda name: get_parser(name, timeout_s=5.0),
+        max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
     )
     handler.handle(_message())
     handler.close()

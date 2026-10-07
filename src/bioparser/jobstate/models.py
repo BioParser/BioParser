@@ -56,6 +56,24 @@ class JobState(BaseModel):
     pdf_ref: str = Field(min_length=1)
     parse_result_ref: str | None = Field(default=None, min_length=1)
     error: SafeError | None = None
+    # Claims per stage.
+    claim_counts: dict[JobStatus, int] = Field(default_factory=dict)
+
+    def claims(self, status: JobStatus) -> int:
+        """How many times status has been claimed."""
+        return self.claim_counts.get(status, 0)
+
+    def with_claim(self, status: JobStatus) -> Self:
+        """Return this job moved to status, counting one start of that stage.
+
+        The count includes this start. A stage that cannot be re-entered is not a claim.
+        Store the result before the heavy work, then read the job again before a later write.
+        """
+        if status not in ALLOWED_TRANSITIONS[status]:
+            raise ValueError(f"status={status!r} cannot be claimed")
+        counts = dict(self.claim_counts)
+        counts[status] = counts.get(status, 0) + 1
+        return self.with_changes(status=status, claim_counts=counts)
 
     def with_changes(self, **changes: object) -> Self:
         """Return a new, validated JobState with the given fields changed.
@@ -70,6 +88,16 @@ class JobState(BaseModel):
     def known_parser(cls, value: str) -> str:
         if value not in PARSER_BACKENDS:
             raise ValueError(f"must be one of: {', '.join(PARSER_BACKENDS)}")
+        return value
+
+    @field_validator("claim_counts")
+    @classmethod
+    def claim_counts_are_per_stage(cls, value: dict[JobStatus, int]) -> dict[JobStatus, int]:
+        for status, count in value.items():
+            if status not in ALLOWED_TRANSITIONS[status]:
+                raise ValueError(f"status={status!r} cannot be claimed")
+            if count < 0:
+                raise ValueError(f"claim count for {status!r} must be >= 0")
         return value
 
     @model_validator(mode="after")

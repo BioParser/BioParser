@@ -24,6 +24,29 @@ def _queued(**overrides: object) -> JobState:
 # --- round trips -------------------------------------------------------
 
 
+def test_claim_counts_a_start_of_that_stage_only() -> None:
+    claimed = _queued().with_claim("parsing")
+    assert claimed.status == "parsing"
+    assert claimed.claim_counts == {"parsing": 1}
+    again = _queued(status="parsing", claim_counts={"parsing": 1, "extracting": 2}).with_claim(
+        "parsing"
+    )
+    assert again.claim_counts == {"parsing": 2, "extracting": 2}
+
+
+def test_a_stage_that_cannot_be_reentered_is_not_a_claim() -> None:
+    with pytest.raises(ValueError, match="cannot be claimed"):
+        _queued().with_claim("parsed")
+
+
+def test_stored_state_without_claim_counts_reads_as_empty() -> None:
+    raw = _queued().model_dump()
+    del raw["claim_counts"]
+    restored = JobState.model_validate(raw)
+    assert restored.claims("parsing") == 0
+    assert restored.claims("extracting") == 0
+
+
 def test_every_status_has_a_transition_row() -> None:
     """The Redis transition test only walks this table, so a missing status would never run."""
     assert set(ALLOWED_TRANSITIONS) == set(get_args(JobStatus))

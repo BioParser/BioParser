@@ -43,6 +43,15 @@ class WorkerSettings(BaseSettings):
     parse_max_retries: int = Field(default=DEFAULT_PARSE_MAX_RETRIES, ge=0)
 
     @property
+    def parse_max_claims(self) -> int:
+        """Parse-stage starts allowed, one more than the queue retry count.
+
+        The extra start lets a full set of ordinary retries finish. Starts where
+        the worker was killed share the same budget.
+        """
+        return self.parse_max_retries + 1
+
+    @property
     def parser_timeout_seconds(self) -> float:
         """Limit for the MinerU process, slightly below the queue's time limit."""
         limit_s = self.parse_time_limit_seconds

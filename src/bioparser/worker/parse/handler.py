@@ -68,10 +68,12 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
         jobs: JobStateStore,
         storage: ArtifactStorage,
         parser_factory: Callable[[str], PdfParser],
+        max_claims: int,
     ) -> None:
         self._jobs = jobs
         self._storage = storage
         self._parser_factory = parser_factory
+        self._max_claims = max_claims
         self._loop = asyncio.new_event_loop()
         # One loop serves every callback, so calls from different threads take turns.
         self._loop_lock = threading.Lock()
@@ -150,11 +152,17 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
             await self._mark_failed(job_id, exc.code)
             return
         try:
+            latest = await self._jobs.get(job_id)
+        except CorruptJobStateError:
+            LOGGER.error("stored job state is unreadable. Not recording 'parsed'")
+            return
+        if latest is None or _left_parse_stage(latest.status):
+            LOGGER.info("job moved on while it was parsing. Not recording 'parsed'")
+            return
+        try:
+            # The claim is already stored. This read picks it up, so the full write keeps the count.
             await self._jobs.update(
-                state.with_changes(
-                    status="parsed",
-                    parse_result_ref=artifact_path,
-                )
+                latest.with_changes(status="parsed", parse_result_ref=artifact_path)
             )
         except StaleJobStateWriteError:
             LOGGER.info(
@@ -162,8 +170,15 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
             )
 
     async def _mark_running(self, state: JobState) -> bool:
+        if state.claims("parsing") >= self._max_claims:
+            LOGGER.error(
+                f"parsing was already claimed {state.claims('parsing')} times. "
+                "Marking the job failed (internal_error)"
+            )
+            await self._mark_failed(state.job_id, "internal_error")
+            return False
         try:
-            await self._jobs.update(state.with_changes(status="parsing"))
+            await self._jobs.update(state.with_claim("parsing"))
         except StaleJobStateWriteError:
             LOGGER.info(
                 "job moved past the parse stage before this delivery could start parsing. Skipping"

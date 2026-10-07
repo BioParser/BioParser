@@ -52,7 +52,12 @@ def build_worker(
     def parser_factory(name: str) -> PdfParser:
         return get_parser(name, timeout_s=parser_timeout_s)
 
-    handler = ParseJobHandler(jobs=jobs, storage=storage, parser_factory=parser_factory)
+    handler = ParseJobHandler(
+        jobs=jobs,
+        storage=storage,
+        parser_factory=parser_factory,
+        max_claims=settings.parse_max_claims,
+    )
     return queue, handler
 
 

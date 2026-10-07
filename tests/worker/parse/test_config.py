@@ -45,6 +45,18 @@ def _settings(tmp_path: Path, limit_s: float) -> WorkerSettings:
     )
 
 
+def test_claim_cap_follows_the_retry_count(tmp_path: Path) -> None:
+    assert _settings(tmp_path, 1800).parse_max_claims == 4
+    raised = WorkerSettings(
+        _env_file=None,  # type: ignore[call-arg]
+        redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+        artifact_storage_path=tmp_path,
+        parse_queue_name="parse",
+        parse_max_retries=5,
+    )
+    assert raised.parse_max_claims == 6
+
+
 def test_parser_timeout_is_below_the_queue_limit(tmp_path: Path) -> None:
     assert _settings(tmp_path, 1800).parser_timeout_seconds == 1770.0
 
