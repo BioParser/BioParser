@@ -1,6 +1,7 @@
 import asyncio
 import importlib
 import json
+from pathlib import Path
 from uuid import UUID, uuid4
 import uuid
 
@@ -18,6 +19,7 @@ from bioparser.api.schema import JobStatusResponse
 from bioparser.jobqueue import PARSE_JOB_SCHEMA_VERSION, JobQueueError
 from bioparser.jobstate import JobState, JobStateError, SafeError
 from bioparser.parser import ParserArtifact
+from bioparser.parser.models import ParserInfo
 from bioparser.storage import (
     ArtifactMetadata,
     ArtifactNotFoundError,
@@ -321,7 +323,7 @@ def test_succeeded_job_status(
             ParserArtifact(
                 schema_version="1",
                 checksum="a" * 64,
-                parser={"name": "test", "version": "1", "configuration": {}},
+                parser=ParserInfo(name="test", version="1", configuration={}),
                 pages=[],
             ).model_dump()
         ).encode(),
@@ -376,8 +378,13 @@ def test_succeeded_job_status_returns_503_for_invalid_output(
         input_artifact_ref="art-pdf-test",
         output_artifact_ref="art-result-test",
     )
-    artifact_storage.artifacts["art-result-test"] = (b"{}", None)
-
+    artifact_storage.artifacts["art-result-test"] = (
+        b"{}",
+        ArtifactMetadata(
+            artifact_path="art-result-test",
+            media_type="application/json",
+        ),
+    )
     response = client.get(f"/api/jobs/{job_id}")
 
     assert response.status_code == 503
@@ -387,7 +394,7 @@ def test_succeeded_job_status_returns_503_for_invalid_output(
 def test_succeeded_job_status_reads_parser_artifact_from_filesystem(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
-    tmp_path,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, job_store = stub_api_adapters[:2]
@@ -398,7 +405,7 @@ def test_succeeded_job_status_reads_parser_artifact_from_filesystem(
     artifact = ParserArtifact(
         schema_version="1",
         checksum="a" * 64,
-        parser={"name": "test", "version": "1", "configuration": {}},
+        parser=ParserInfo(name="test", version="1", configuration={}),
         pages=[],
     )
     artifact_storage.store(

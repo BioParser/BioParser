@@ -18,6 +18,7 @@ from bioparser.jobqueue import (
 )
 from bioparser.jobstate import RedisJobStateStore
 from bioparser.parser import ParserArtifact
+from bioparser.parser.models import ParserInfo
 from bioparser.storage import ArtifactMetadata, FileSystemArtifactStorage
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
@@ -175,17 +176,20 @@ async def test_redis_backed_submission_and_polling(
             status="succeeded",
             output_artifact_ref=f"art-result-{job_id}",
         )
+        output_artifact_ref = succeeded.output_artifact_ref
+        assert output_artifact_ref is not None
+
         artifact_storage.store(
             ParserArtifact(
                 schema_version="1",
                 checksum=queued.document_id,
-                parser={"name": "test", "version": "1", "configuration": {}},
+                parser=ParserInfo(name="test", version="1", configuration={}),
                 pages=[],
             )
             .model_dump_json()
             .encode(),
             ArtifactMetadata(
-                artifact_path=succeeded.output_artifact_ref,
+                artifact_path=output_artifact_ref,
                 media_type="application/json",
             ),
         )
