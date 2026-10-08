@@ -28,6 +28,16 @@ class _DeadlineThread(Thread):
         self.interval = interval_s
         self._deadlines: dict[int, float] = {}
         self._lock = threading.RLock()
+        self._start_lock = threading.Lock()
+        self._start_requested = False
+
+    def start(self) -> None:
+        """Start the timer once. Dramatiq's `process_boot` calls this again and must not fail."""
+        with self._start_lock:
+            if self._start_requested:
+                return
+            self._start_requested = True
+        super().start()
 
     def add_timeout(self, thread_id: int, ttl_ms: float) -> None:
         with self._lock:
@@ -47,14 +57,19 @@ class _DeadlineThread(Thread):
 
     def _expire(self) -> None:
         now = monotonic()
-        # The lock is held while raising. A handler that finishes calls `remove_timeout`,
-        # which waits here, so an exception cannot land in that thread's next job.
+        # Clear under the lock, inject after releasing it. Same gap as Dramatiq's timer:
+        # the injection is only requested here and lands on the thread's next bytecode, so a
+        # handler blocked in a C call can still finish and take the exception on a later job.
+        late: list[int] = []
         with self._lock:
-            for thread_id, deadline in list(self._deadlines.items()):
+            for thread_id, deadline in self._deadlines.items():
                 if now >= deadline:
-                    del self._deadlines[thread_id]
-                    LOGGER.warning("time limit exceeded. Raising in worker thread %r", thread_id)
-                    raise_thread_exception(thread_id, JobTimeLimitExceeded)  # type: ignore[no-untyped-call]
+                    late.append(thread_id)
+            for thread_id in late:
+                del self._deadlines[thread_id]
+        for thread_id in late:
+            LOGGER.warning("time limit exceeded. Raising in worker thread %r", thread_id)
+            raise_thread_exception(thread_id, JobTimeLimitExceeded)  # type: ignore[no-untyped-call]
 
 
 def use_job_time_limit(broker: Broker) -> None:

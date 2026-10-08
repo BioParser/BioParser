@@ -449,6 +449,23 @@ def test_several_queues_on_one_broker_share_one_job_time_limit(stub_broker: Stub
     assert time_limit.manager is manager
 
 
+def test_process_boot_after_the_queue_is_built_leaves_the_timer_running() -> None:
+    """Dramatiq's CLI emits process_boot, which starts the manager a second time."""
+    broker = StubBroker()
+    try:
+        DramatiqJobQueue(name="parse", model=ParseJobMessage, broker=broker)
+        (time_limit,) = [m for m in broker.middleware if isinstance(m, TimeLimit)]
+        manager = time_limit.manager
+
+        broker.emit_after("process_boot")
+
+        assert time_limit.manager is manager
+        assert isinstance(manager, _DeadlineThread)
+        assert manager.is_alive()
+    finally:
+        broker.close()
+
+
 def test_queue_refuses_a_broker_whose_time_limit_already_runs() -> None:
     broker = StubBroker()
     broker.emit_after("process_boot")  # starts Dramatiq's own timer, which raises its own type

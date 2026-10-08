@@ -44,7 +44,7 @@ def _create_redis_broker(
     timeout_s: float = _DEFAULT_REDIS_TIMEOUT_S,
     namespace: str = _DEFAULT_BROKER_NAMESPACE,
 ) -> RedisBroker:
-    """Redis broker shared by named queues in this process."""
+    """The Redis broker for one queue. `from_redis` builds a new one on each call."""
     if timeout_s <= 0:
         raise JobQueueConfigError("timeout_s must be > 0")
     try:
