@@ -17,7 +17,8 @@ from bioparser.jobqueue import (
     create_redis_broker,
 )
 from bioparser.jobstate import RedisJobStateStore
-from bioparser.storage import FileSystemArtifactStorage
+from bioparser.parser import ParserArtifact
+from bioparser.storage import ArtifactMetadata, FileSystemArtifactStorage
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
 
@@ -173,6 +174,20 @@ async def test_redis_backed_submission_and_polling(
         succeeded = running.with_changes(
             status="succeeded",
             output_artifact_ref=f"art-result-{job_id}",
+        )
+        artifact_storage.store(
+            ParserArtifact(
+                schema_version="1",
+                checksum=queued.document_id,
+                parser={"name": "test", "version": "1", "configuration": {}},
+                pages=[],
+            )
+            .model_dump_json()
+            .encode(),
+            ArtifactMetadata(
+                artifact_path=succeeded.output_artifact_ref,
+                media_type="application/json",
+            ),
         )
         await job_store.update(succeeded)
         poll = await client.get(f"/api/jobs/{job_id}")
