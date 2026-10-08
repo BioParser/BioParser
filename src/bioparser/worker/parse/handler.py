@@ -234,9 +234,10 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
         except ParserBackendUnavailableError as exc:
             LOGGER.error(f"parser backend {parser_name!r} cannot run: {exc}")
             raise _PermanentJobFailure("parse_failed") from exc
-        except ParserTimeoutError as exc:
-            # The same parse would run out of time again, so it is not retried.
-            LOGGER.error(f"parser {parser_name!r} timed out: {exc}")
+        except (ParserTimeoutError, TimeLimitExceeded) as exc:
+            # The parser's own limit or the queue's. The same parse would run out of time
+            # again, so it is not retried.
+            LOGGER.error(f"parser {parser_name!r} timed out: {exc!r}")
             raise _PermanentJobFailure("timeout") from exc
         except UnsupportedDocumentError as exc:
             LOGGER.error(f"parser {parser_name!r} could not read the PDF: {exc}")

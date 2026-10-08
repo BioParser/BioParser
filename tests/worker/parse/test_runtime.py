@@ -1,5 +1,6 @@
 import json
 import logging
+import runpy
 import signal
 from pathlib import Path
 from threading import Event
@@ -90,3 +91,13 @@ def test_main_refuses_to_start_without_the_mineru_cli(
 
     with pytest.raises(RuntimeError, match="missing"):
         runtime.main()
+
+
+def test_python_dash_m_runs_the_worker_main(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The container command is `python -m bioparser.worker.parse`."""
+    called: list[bool] = []
+    monkeypatch.setattr(runtime, "main", lambda: called.append(True))
+
+    runpy.run_module("bioparser.worker.parse", run_name="__main__")
+
+    assert called == [True]

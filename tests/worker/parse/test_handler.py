@@ -5,14 +5,17 @@ import logging
 import signal
 import sys
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from threading import Event
 from uuid import UUID
 
 import pytest
-from dramatiq.middleware.time_limit import TimeLimitExceeded
+from dramatiq.brokers.stub import StubBroker
+from dramatiq.middleware.time_limit import TimeLimit, TimeLimitExceeded
 
+from bioparser.jobqueue import RedisJobQueue
 from bioparser.jobqueue.messages import ParseJobMessage
 from bioparser.jobstate.errors import (
     CorruptJobStateError,
@@ -378,10 +381,13 @@ def test_mineru_cli_failure_is_retried_not_failed_as_invalid_pdf(
     assert jobs.state.status == "parsing"
 
 
-def test_parser_timeout_fails_with_timeout_without_retry() -> None:
+@pytest.mark.parametrize("error", [ParserTimeoutError("too slow"), TimeLimitExceeded()])
+def test_parser_timeout_fails_with_timeout_without_retry(error: BaseException) -> None:
+    """Both the parser's own limit and the queue's time limit end the job as a timeout."""
+
     class _SlowParser:
         def parse(self, path: Path) -> ParserArtifact:
-            raise ParserTimeoutError("too slow")
+            raise error
 
     jobs = MemoryJobs(_queued())
     handler = _handler(
@@ -592,3 +598,90 @@ def test_records_logged_while_a_job_runs_carry_its_job_id(
     records = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
     [parsing] = [r for r in records if r["msg"] == "parsing"]
     assert parsing["job_id"] == str(JOB_ID)
+
+
+# The handler behind the real queue: delivery, retries and the time limit are Dramatiq's.
+
+
+def _consume(handler: ParseJobHandler, *, max_retries: int, time_limit_ms: int = 60_000) -> None:
+    """Submit the job and run it to the end through a real queue on an in-memory broker."""
+    broker = StubBroker(fail_fast_default=False)
+    try:
+        (time_limit,) = [m for m in broker.middleware if isinstance(m, TimeLimit)]
+        time_limit.manager.interval = 0.05  # type: ignore[union-attr]
+        queue = RedisJobQueue(
+            name="parse",
+            model=ParseJobMessage,
+            broker=broker,
+            max_retries=max_retries,
+            min_backoff_ms=1,
+            time_limit_ms=time_limit_ms,
+            worker_timeout_ms=50,
+        )
+        queue.submit(_message())
+        queue.consume(handler, until_empty=True)
+    finally:
+        handler.close()
+        broker.flush_all()
+        broker.close()
+
+
+def test_a_job_runs_from_the_queue_to_parsed() -> None:
+    jobs = MemoryJobs(_queued())
+    storage = MemoryStorage()
+    parser = RecordingParser(_artifact())
+
+    _consume(_handler(jobs, storage, parser), max_retries=3)
+
+    assert jobs.state is not None
+    assert jobs.state.status == "parsed"
+    assert len(parser.paths) == 1
+    assert storage.stores == 1
+
+
+def test_a_failing_parse_is_retried_then_fails_the_job() -> None:
+    jobs = MemoryJobs(_queued())
+    parser = RecordingParser(_artifact(), error=RuntimeError("boom"))
+
+    _consume(_handler(jobs, MemoryStorage(), parser, max_claims=3), max_retries=2)
+
+    assert len(parser.paths) == 3
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error == SafeError(code="internal_error")
+
+
+def test_claim_cap_stops_retries_that_the_queue_would_still_allow() -> None:
+    """A job started max_claims times is not parsed again, even with retries left."""
+    jobs = MemoryJobs(_queued())
+    parser = RecordingParser(_artifact(), error=RuntimeError("boom"))
+
+    _consume(_handler(jobs, MemoryStorage(), parser, max_claims=2), max_retries=5)
+
+    assert len(parser.paths) == 2
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error == SafeError(code="internal_error")
+
+
+def test_queue_time_limit_fails_the_job_as_timeout_without_retry() -> None:
+    class _HangingParser:
+        calls = 0
+
+        def parse(self, path: Path) -> ParserArtifact:
+            _HangingParser.calls += 1
+            for _ in range(1000):
+                time.sleep(0.01)
+            raise AssertionError("the time limit never interrupted the parse")
+
+    jobs = MemoryJobs(_queued())
+    handler = _handler(
+        jobs, MemoryStorage(), RecordingParser(_artifact()), factory=lambda _name: _HangingParser()
+    )
+
+    _consume(handler, max_retries=3, time_limit_ms=200)
+
+    assert _HangingParser.calls == 1
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error == SafeError(code="timeout")
