@@ -27,8 +27,10 @@ BBox = tuple[float, float, float, float]
 PageSize = tuple[float, float]
 
 
+# hide_input_in_errors: a ValidationError must not quote its input (paper text or
+# model output); pipeline failures log their traceback.
 class MiddleSpan(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", hide_input_in_errors=True)
 
     type: str
     content: str | None = None
@@ -38,14 +40,14 @@ class MiddleSpan(BaseModel):
 
 
 class MiddleLine(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", hide_input_in_errors=True)
 
     bbox: BBox
     spans: list[MiddleSpan] = Field(default_factory=list)
 
 
 class MiddleBlock(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", hide_input_in_errors=True)
 
     type: str
     bbox: BBox
@@ -55,7 +57,7 @@ class MiddleBlock(BaseModel):
 
 
 class MiddlePage(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", hide_input_in_errors=True)
 
     page_idx: int
     page_size: PageSize
@@ -63,7 +65,7 @@ class MiddlePage(BaseModel):
 
 
 class MiddleDump(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", hide_input_in_errors=True)
 
     pdf_info: list[MiddlePage] = Field(min_length=1)
     backend: str = Field(alias="_backend")

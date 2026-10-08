@@ -23,10 +23,12 @@ class BlockRole(StrEnum):
     REFERENCE = "reference"
 
 
+# hide_input_in_errors: a ValidationError must not quote its input (paper text or
+# model output); pipeline failures log their traceback.
 class BoundingBox(BaseModel):
     """Axis-aligned box in page space, top-left origin, normalized to [0, 1]."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     x0: float
     y0: float
@@ -53,7 +55,7 @@ class BoundingBox(BaseModel):
 class TextSpan(BaseModel):
     """Word box mapped onto `TextContent.text` as a half-open character range."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     start: int
     end: int
@@ -72,7 +74,7 @@ class TextSpan(BaseModel):
 
 
 class TextContent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     type: Literal["text"] = "text"
     text: str
@@ -81,7 +83,7 @@ class TextContent(BaseModel):
 
 
 class TableCell(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     row: int
     column: int
@@ -92,7 +94,7 @@ class TableCell(BaseModel):
 
 
 class TableContent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     type: Literal["table"] = "table"
     cells: list[TableCell]
@@ -105,7 +107,7 @@ BlockContent = Annotated[
 
 
 class ContentBlock(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     block_id: str
     order: int
@@ -117,7 +119,7 @@ class ContentBlock(BaseModel):
 
 
 class Page(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     page_number: int
     width: float
@@ -126,7 +128,7 @@ class Page(BaseModel):
 
 
 class ParserInfo(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     name: str
     version: str
@@ -134,7 +136,7 @@ class ParserInfo(BaseModel):
 
 
 class ParserArtifact(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     schema_version: str
     checksum: str

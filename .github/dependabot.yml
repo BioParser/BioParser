@@ -22,6 +22,9 @@ updates:
       prefix: "CI"
     cooldown:
       default-days: 7
+    ignore:
+      # This rev is the uv release CI pins by hand. Bump both manually.
+      - dependency-name: "https://github.com/astral-sh/uv-pre-commit"
     groups:
       pre-commit-hooks:
         patterns:

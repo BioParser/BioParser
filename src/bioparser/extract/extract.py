@@ -12,7 +12,6 @@ from bioparser.services.vllm import VLLMService
 # Dropping references to cut tokens
 SKIP_ROLES = frozenset({BlockRole.REFERENCE, BlockRole.HEADER, BlockRole.FOOTER})
 
-# TODO: logger
 # TODO: Change SYSTEM_PROMPT for ETS
 # TODO: check render_prompt
 SYSTEM_PROMPT = """You extract mammal trait measurements from scientific text.
@@ -123,7 +122,10 @@ async def extract_observations(
     try:
         parsed = Extraction.model_validate_json(raw)
     except ValidationError as exc:
-        raise ExtractionFailedError("model output did not match the extraction schema") from exc
+        codes = sorted({error["type"] for error in exc.errors(include_input=False)})
+        raise ExtractionFailedError(
+            f"model output did not match the extraction schema: {', '.join(codes)}"
+        ) from exc
 
     verified: list[VerifiedObservation] = []
     ungrounded = 0

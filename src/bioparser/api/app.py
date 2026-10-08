@@ -1,6 +1,6 @@
 import asyncio
-import contextlib
 import hashlib
+import logging
 import os
 import socket
 import tempfile
@@ -15,8 +15,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import UUID4, ValidationError
 
+from bioparser.logging_config import error_fields, redact_url, setup_logging
 from bioparser.services.mineru import MinerUClient
 from bioparser.services.vllm import VLLMService
+from bioparser.services.vllm.config import get_settings as get_vllm_settings
+from bioparser.services.vllm.vllm import VLLMError
 
 from . import config
 from .errors import (
@@ -49,34 +52,73 @@ from .uploads import (
     validate_pdf_content,
 )
 
-# TODO: logger
+logger = logging.getLogger(__name__)
+
+
+class LifespanError(RuntimeError):
+    """Startup or shutdown failed"""
+
+
+@asynccontextmanager
+async def _failure_logged_redacted(phase: str) -> AsyncIterator[None]:
+    try:
+        yield
+    except Exception as exc:
+        logger.critical(
+            "lifespan failed", exc_info=True, extra={"phase": phase, **error_fields(exc)}
+        )
+        raise LifespanError(f"{phase} failed: {type(exc).__name__}") from None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    settings = config.get_api_settings()
-    app.state.mineru = MinerUClient(
-        settings.mineru_base_url,
-        settings.mineru_timeout_seconds,
-        settings.mineru_connect_timeout_seconds,
-    )
-    app.state.vllm = VLLMService()
-    # Find served model id early to log what we are using
-    with contextlib.suppress(Exception):  # TODO: log this once there is a logger
-        await app.state.vllm.get_model()
-    # Bounds /extract only. The queue replaces this once the worker lands.
-    app.state.extract_sem = asyncio.Semaphore(settings.extract_concurrency)
+    async with _failure_logged_redacted("startup"):
+        settings = config.get_api_settings()
+        setup_logging(settings.log_level)
+        app.state.mineru = MinerUClient(
+            settings.mineru_base_url,
+            settings.mineru_timeout_seconds,
+            settings.mineru_connect_timeout_seconds,
+        )
+        app.state.vllm = VLLMService()
+        # Find the served model
+        vllm_base_url = redact_url(get_vllm_settings().vllm_base_url)
+        try:
+            model = await app.state.vllm.get_model()
+        except Exception as exc:
+            logger.warning(
+                "vllm model discovery failed",
+                # vLLM not up yet is expected
+                exc_info=not isinstance(exc, VLLMError),
+                extra={"vllm_base_url": vllm_base_url, **error_fields(exc)},
+            )
+        else:
+            logger.info(
+                "vllm model discovered", extra={"vllm_base_url": vllm_base_url, "model": model}
+            )
+        # Bounds /extract only. The queue replaces this once the worker lands.
+        app.state.extract_sem = asyncio.Semaphore(settings.extract_concurrency)
     try:
         yield
     finally:
-        for client in (
-            getattr(app.state, "mineru", None),
-            getattr(app.state, "vllm", None),
-        ):
-            if client is not None:
-                await client.aclose()
+        async with _failure_logged_redacted("shutdown"):
+            for client in (
+                getattr(app.state, "mineru", None),
+                getattr(app.state, "vllm", None),
+            ):
+                if client is not None:
+                    await client.aclose()
 
 
+# uvicorn's CLI imports this module before its first log line, and the lines are JSON
+setup_logging()
+try:
+    setup_logging(config.get_api_settings().log_level)
+except ValidationError as exc:
+    logger.critical(
+        "invalid configuration", extra={"invalid_settings": config.invalid_settings(exc)}
+    )
+    raise
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     TypedRequestBodyLimitMiddleware,

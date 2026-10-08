@@ -3,27 +3,27 @@ default_install_hook_types:
   - pre-commit
 repos:
   - repo: https://github.com/astral-sh/uv-pre-commit
-    # uv version
-    rev: "9b16a472943852b803af3785c45041dcf10b9f12" # 0.12.18
+    # uv 0.12.23. Keep in sync with .github/actions/setup/action.yml.
+    rev: "a1785f8e81fe9936d828bef574e6db07e8c8c374"
     hooks:
       - id: uv-lock
 
-  - repo: local 
+  - repo: local
     hooks:
       - id: ruff-check
         name: ruff check
-        entry: uv run ruff check
+        entry: uv run --locked ruff check
         language: system
         types: [python]
 
       - id: ruff-format
         name: ruff format
-        entry: uv run ruff format
+        entry: uv run --locked ruff format
         language: system
         types: [python]
       
       - id: mypy
         name: mypy
-        entry: uv run mypy
+        entry: uv run --locked mypy
         language: system
         pass_filenames: false
