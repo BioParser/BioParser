@@ -3,6 +3,7 @@ import ctypes
 import json
 import logging
 import signal
+import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -334,17 +335,32 @@ def test_unavailable_parser_fails_without_retry() -> None:
     assert jobs.state.error == SafeError(code="parse_failed")
 
 
-def test_mineru_cli_failure_fails_the_job_as_invalid_pdf(
+def test_mineru_cli_failure_is_retried_not_failed_as_invalid_pdf(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A non-zero MinerU exit, through the real MinerUParser and runtime, is not retried."""
+    """A non-zero MinerU exit, through the real runtime, is not a judged document."""
     executable = tmp_path / "mineru"
     executable.write_text("#!/bin/sh\necho broken >&2\nexit 1\n")
     executable.chmod(0o755)
+    server = tmp_path / "mineru-api"
+    server.write_text(
+        f"#!{sys.executable}\n"
+        "import http.server, sys\n"
+        "port = int(sys.argv[sys.argv.index('--port') + 1])\n"
+        "class H(http.server.BaseHTTPRequestHandler):\n"
+        "    def do_GET(self):\n"
+        "        self.send_response(200)\n"
+        "        self.end_headers()\n"
+        "    def log_message(self, *args):\n"
+        "        pass\n"
+        "http.server.HTTPServer(('127.0.0.1', port), H).serve_forever()\n"
+    )
+    server.chmod(0o755)
+    tools = {"mineru": str(executable), "mineru-api": str(server)}
     monkeypatch.setattr(
         mineru_runtime,
         "shutil",
-        type("S", (), {"which": staticmethod(lambda _name: str(executable))})(),
+        type("S", (), {"which": staticmethod(tools.get)})(),
     )
 
     jobs = MemoryJobs(_queued().with_changes(parser="mineru"))
@@ -354,12 +370,12 @@ def test_mineru_cli_failure_fails_the_job_as_invalid_pdf(
         parser_factory=lambda name: get_parser(name, timeout_s=5.0),
         max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
     )
-    handler.handle(_message())
+    with pytest.raises(ParserProcessError, match="broken"):
+        handler.handle(_message())
     handler.close()
 
     assert jobs.state is not None
-    assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="invalid_pdf")
+    assert jobs.state.status == "parsing"
 
 
 def test_parser_timeout_fails_with_timeout_without_retry() -> None:

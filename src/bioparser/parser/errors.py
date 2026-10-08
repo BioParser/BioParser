@@ -7,7 +7,7 @@ class ParserTimeoutError(RuntimeError):
 
 
 class ParserProcessError(RuntimeError):
-    """Raised when a backend process was killed or crashed, so the PDF was not judged.
+    """Raised when a backend process was killed, crashed or exited non-zero, so the PDF was not judged.
 
     Not a document problem: the same PDF may parse once the machine has room again.
     """
