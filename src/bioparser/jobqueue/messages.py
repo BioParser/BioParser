@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import UUID4, BaseModel, ConfigDict
 
-PARSE_JOB_SCHEMA_VERSION: Literal[1] = 1
+_PARSE_JOB_SCHEMA_VERSION: Literal[1] = 1
 
 
 class ParseJobMessage(BaseModel):
@@ -10,5 +10,5 @@ class ParseJobMessage(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    schema_version: Literal[1] = PARSE_JOB_SCHEMA_VERSION
+    schema_version: Literal[1] = _PARSE_JOB_SCHEMA_VERSION
     job_id: UUID4

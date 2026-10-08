@@ -12,7 +12,6 @@ Messages that leave the queue without a successful handler run are poisoned.
 """
 
 import logging
-import weakref
 from collections.abc import Iterator
 from contextlib import contextmanager
 from threading import Event, Lock
@@ -22,32 +21,28 @@ import redis
 from dramatiq import Actor, Broker, Worker
 from dramatiq.brokers.redis import RedisBroker
 from dramatiq.middleware import CurrentMessage
-from dramatiq.middleware.time_limit import TimeLimitExceeded
 from pydantic import BaseModel, ValidationError
 
-from .errors import JobQueueConfigError, JobQueueError, MalformedJob
-from .protocol import JobHandler, JobQueue
+from ..errors import JobQueueConfigError, JobQueueError, JobTimeLimitExceeded, MalformedJob
+from ..protocol import JobHandler, JobQueue
+from .time_limit import use_job_time_limit
 
 LOGGER = logging.getLogger(__name__)
 
-# Brokers that have had `process_boot` emitted. It starts middleware threads, so once only.
-_booted_brokers: weakref.WeakSet[Broker] = weakref.WeakSet()
-_boot_lock = Lock()
-
-DEFAULT_TIME_LIMIT_MS = 600_000
-DEFAULT_MAX_RETRIES = 3
-DEFAULT_MIN_BACKOFF_MS = 15_000
-DEFAULT_BROKER_NAMESPACE = "bioparser"
-DEFAULT_WORKER_TIMEOUT_MS = 1000
-DEFAULT_WORKER_THREADS = 1
-DEFAULT_REDIS_TIMEOUT_S = 5.0
+_DEFAULT_TIME_LIMIT_MS = 600_000
+_DEFAULT_MAX_RETRIES = 3
+_DEFAULT_MIN_BACKOFF_MS = 15_000
+_DEFAULT_BROKER_NAMESPACE = "bioparser"
+_DEFAULT_WORKER_TIMEOUT_MS = 1000
+_DEFAULT_WORKER_THREADS = 1
+_DEFAULT_REDIS_TIMEOUT_S = 5.0
 
 
-def create_redis_broker(
+def _create_redis_broker(
     url: str,
     *,
-    timeout_s: float = DEFAULT_REDIS_TIMEOUT_S,
-    namespace: str = DEFAULT_BROKER_NAMESPACE,
+    timeout_s: float = _DEFAULT_REDIS_TIMEOUT_S,
+    namespace: str = _DEFAULT_BROKER_NAMESPACE,
 ) -> RedisBroker:
     """Redis broker shared by named queues in this process."""
     if timeout_s <= 0:
@@ -63,7 +58,7 @@ def create_redis_broker(
     return RedisBroker(client=client, namespace=namespace)  # type: ignore[no-untyped-call]
 
 
-class RedisJobQueue[T: BaseModel](JobQueue[T]):
+class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
     """Named Redis queue bound to one pydantic message model."""
 
     def __init__(
@@ -72,11 +67,11 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         name: str,
         model: type[T],
         broker: Broker,
-        time_limit_ms: int = DEFAULT_TIME_LIMIT_MS,
-        max_retries: int = DEFAULT_MAX_RETRIES,
-        min_backoff_ms: int = DEFAULT_MIN_BACKOFF_MS,
-        worker_threads: int = DEFAULT_WORKER_THREADS,
-        worker_timeout_ms: int = DEFAULT_WORKER_TIMEOUT_MS,
+        time_limit_ms: int = _DEFAULT_TIME_LIMIT_MS,
+        max_retries: int = _DEFAULT_MAX_RETRIES,
+        min_backoff_ms: int = _DEFAULT_MIN_BACKOFF_MS,
+        worker_threads: int = _DEFAULT_WORKER_THREADS,
+        worker_timeout_ms: int = _DEFAULT_WORKER_TIMEOUT_MS,
     ) -> None:
         if not name.strip():
             raise JobQueueConfigError("queue name must be non-empty")
@@ -93,6 +88,7 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         if name in broker.actors:
             raise JobQueueConfigError(f"queue {name!r} is already registered on this broker")
         _ensure_current_message(broker)
+        use_job_time_limit(broker)
         self._name = name
         self._model = model
         self._broker = broker
@@ -110,6 +106,33 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         except ValueError as exc:
             raise JobQueueConfigError(str(exc)) from exc
 
+    @classmethod
+    def from_redis(
+        cls,
+        url: str,
+        *,
+        name: str,
+        model: type[T],
+        timeout_s: float = _DEFAULT_REDIS_TIMEOUT_S,
+        namespace: str = _DEFAULT_BROKER_NAMESPACE,
+        time_limit_ms: int = _DEFAULT_TIME_LIMIT_MS,
+        max_retries: int = _DEFAULT_MAX_RETRIES,
+        min_backoff_ms: int = _DEFAULT_MIN_BACKOFF_MS,
+        worker_threads: int = _DEFAULT_WORKER_THREADS,
+        worker_timeout_ms: int = _DEFAULT_WORKER_TIMEOUT_MS,
+    ) -> "DramatiqJobQueue[T]":
+        """A queue backed by Redis. The broker stays inside this backend."""
+        return cls(
+            name=name,
+            model=model,
+            broker=_create_redis_broker(url, timeout_s=timeout_s, namespace=namespace),
+            time_limit_ms=time_limit_ms,
+            max_retries=max_retries,
+            min_backoff_ms=min_backoff_ms,
+            worker_threads=worker_threads,
+            worker_timeout_ms=worker_timeout_ms,
+        )
+
     def submit(self, message: T) -> None:
         payload = message.model_dump(mode="json")
         try:
@@ -125,7 +148,6 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         stop: Event | None = None,
     ) -> None:
         with self._bind(handler):
-            _boot_broker(self._broker)
             worker = Worker(
                 self._broker,
                 queues={self._name},
@@ -177,7 +199,7 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
                 LOGGER.warning("malformed message on queue %s: %s", queue._name, exc)
                 queue._notify_malformed(payload)
                 raise
-            except (Exception, TimeLimitExceeded) as exc:
+            except (Exception, JobTimeLimitExceeded) as exc:
                 if queue._is_last_retry():
                     queue._notify_failed(payload, exc)
                 raise
@@ -236,19 +258,6 @@ def _validation_summary(exc: ValidationError) -> str:
         f"{'.'.join(str(part) for part in error['loc']) or '<root>'}: {error['type']}"
         for error in exc.errors(include_url=False, include_input=False)
     )
-
-
-def _boot_broker(broker: Broker) -> None:
-    """Emit the process-level boot event that Dramatiq's own command line would.
-
-    A `Worker` built here is not run by that command line. Without the event the TimeLimit
-    middleware never starts its timer thread, and the time limit is silently not enforced.
-    """
-    with _boot_lock:
-        if broker in _booted_brokers:
-            return
-        broker.emit_after("process_boot")
-        _booted_brokers.add(broker)
 
 
 def _ensure_current_message(broker: Broker) -> None:

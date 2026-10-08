@@ -15,10 +15,9 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
-from dramatiq.middleware.time_limit import TimeLimitExceeded
 from pydantic import ValidationError
 
-from bioparser.jobqueue import JobHandler, ParseJobMessage
+from bioparser.jobqueue import JobHandler, JobTimeLimitExceeded, ParseJobMessage
 from bioparser.jobstate import (
     CorruptJobStateError,
     JobNotFoundError,
@@ -89,7 +88,7 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
     def run_async[T](self, awaitable: Awaitable[T]) -> T:
         """Run one awaitable to completion on the shared loop.
 
-        The queue can raise TimeLimitExceeded in this thread at any point,
+        The queue can raise JobTimeLimitExceeded in this thread at any point,
         including while the loop is running. The interrupted task would stay
         on the loop and resume during the next call, so it is cancelled and
         drained before the exception leaves.
@@ -122,11 +121,11 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
             self.run_async(self._mark_failed(job_id, "internal_error"))
 
     def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
-        code: SafeErrorCode = "timeout" if isinstance(exc, TimeLimitExceeded) else "internal_error"
+        code: SafeErrorCode = (
+            "timeout" if isinstance(exc, JobTimeLimitExceeded) else "internal_error"
+        )
         with log_context(job_id=str(message.job_id)):
-            LOGGER.error(
-                f"retries exhausted, last attempt raised {type(exc).__name__}. Marking the job failed ({code})"
-            )
+            LOGGER.error(f"giving up after {type(exc).__name__}. Marking the job failed ({code})")
             self.run_async(self._mark_failed(message.job_id, code))
 
     async def _handle(self, job_id: UUID) -> None:
@@ -234,7 +233,7 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
         except ParserBackendUnavailableError as exc:
             LOGGER.error(f"parser backend {parser_name!r} cannot run: {exc}")
             raise _PermanentJobFailure("parse_failed") from exc
-        except (ParserTimeoutError, TimeLimitExceeded) as exc:
+        except (ParserTimeoutError, JobTimeLimitExceeded) as exc:
             # The parser's own limit or the queue's. The same parse would run out of time
             # again, so it is not retried.
             LOGGER.error(f"parser {parser_name!r} timed out: {exc!r}")
