@@ -1,6 +1,8 @@
 import asyncio
 import contextlib
 import hashlib
+import json
+import logging
 import os
 import socket
 import tempfile
@@ -21,10 +23,13 @@ from bioparser.jobqueue import (
 )
 from bioparser.jobstate import JobState, JobStateError, RedisJobStateStore, SafeError
 from bioparser.parser_names import DEFAULT_PARSER_NAME
+from bioparser.logging_config import error_fields, redact_url, setup_logging
+from bioparser.parser import ParserArtifact
 from bioparser.services.mineru import MinerUClient
 from bioparser.services.vllm import VLLMService
 from bioparser.storage import (
     ArtifactMetadata,
+    ArtifactNotFoundError,
     CreationInfo,
     FileSystemArtifactStorage,
     StorageError,
@@ -32,6 +37,7 @@ from bioparser.storage import (
 
 from . import config
 from .errors import (
+    ARTIFACT_INVALID,
     CONTENT_TOO_LARGE,
     EMPTY_FILE,
     INVALID_CONTENT_LENGTH,
@@ -247,7 +253,8 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     "/api/jobs/{job_id}",
     responses={
         404: error_response(JOB_NOT_FOUND),
-        503: error_response(REDIS_UNAVAILABLE),
+        422: error_response(INVALID_JOB_ID),
+        503: error_response(REDIS_UNAVAILABLE, STORAGE_UNAVAILABLE, ARTIFACT_INVALID),
     },
 )
 async def job_status(request: Request, job_id: UUID4) -> JobStatusResponse:
@@ -257,6 +264,19 @@ async def job_status(request: Request, job_id: UUID4) -> JobStatusResponse:
         raise http_error(503, REDIS_UNAVAILABLE) from exc
     if record is None:
         raise http_error(404, JOB_NOT_FOUND)
+    if record.status in ("parsed", "done"):
+        if record.parse_result_ref is None:
+            raise http_error(503, ARTIFACT_INVALID)
+        try:
+            payload = await asyncio.to_thread(
+                request.app.state.artifact_storage.retrieve,
+                record.parse_result_ref,
+            )
+            ParserArtifact.model_validate(json.loads(payload))
+        except (ArtifactNotFoundError, StorageError) as exc:
+            raise http_error(503, STORAGE_UNAVAILABLE) from exc
+        except (UnicodeDecodeError, json.JSONDecodeError, ValidationError) as exc:
+            raise http_error(503, ARTIFACT_INVALID) from exc
     return _job_state_response(record)
 
 

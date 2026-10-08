@@ -1,3 +1,6 @@
+import asyncio
+import importlib
+import json
 from uuid import UUID, uuid4
 import uuid
 
@@ -14,7 +17,14 @@ from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
 from bioparser.jobqueue import PARSE_JOB_SCHEMA_VERSION, JobQueueError
 from bioparser.jobstate import JobState, JobStateError, SafeError
-from bioparser.storage import StorageError
+from bioparser.parser import ParserArtifact
+from bioparser.storage import (
+    ArtifactMetadata,
+    ArtifactNotFoundError,
+    CreationInfo,
+    FileSystemArtifactStorage,
+    StorageError,
+)
 
 # A minimal byte string that passes every /api/extractions validation check.
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
@@ -294,18 +304,32 @@ def test_succeeded_job_status(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
 ) -> None:
-    job_store = stub_api_adapters[1]
-    job_id = str(uuid.uuid4())
+    artifact_storage, job_store = stub_api_adapters[:2]
+    job_id = uuid4()
 
     state = JobState(
         job_id=job_id,
-        document_id="a" * 64,
-        status="succeeded",
-        input_artifact_ref="art-pdf-test",
-        output_artifact_ref="art-result-test",
+        parser="default",
+        status="parsed",
+        pdf_ref="pdf/test",
+        parse_result_ref="art-result-test",
     )
 
     job_store.states[job_id] = state
+    artifact_storage.artifacts["art-result-test"] = (
+        json.dumps(
+            ParserArtifact(
+                schema_version="1",
+                checksum="a" * 64,
+                parser={"name": "test", "version": "1", "configuration": {}},
+                pages=[],
+            ).model_dump()
+        ).encode(),
+        ArtifactMetadata(
+            artifact_path="art-result-test",
+            media_type="application/json",
+        ),
+    )
 
     response = client.get(f"/api/jobs/{job_id}")
 
@@ -313,8 +337,93 @@ def test_succeeded_job_status(
     JOB_STATUS_ADAPTER.validate_python(response.json())
     assert response.json() == {
         "job_id": job_id,
-        "status": "succeeded",
+        "status": "parsed",
         "output_artifact_ref": "art-result-test",
+    }
+
+
+def test_succeeded_job_status_returns_503_when_output_is_missing(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+) -> None:
+    artifact_storage, job_store = stub_api_adapters[:2]
+    job_id = uuid4()
+    job_store.states[job_id] = JobState(
+        job_id=job_id,
+        document_id="a" * 64,
+        status="succeeded",
+        input_artifact_ref="art-pdf-test",
+        output_artifact_ref="art-result-test",
+    )
+    artifact_storage.retrieve_error = ArtifactNotFoundError("missing")
+
+    response = client.get(f"/api/jobs/{job_id}")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "storage_unavailable"
+
+
+def test_succeeded_job_status_returns_503_for_invalid_output(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+) -> None:
+    artifact_storage, job_store = stub_api_adapters[:2]
+    job_id = uuid4()
+    job_store.states[job_id] = JobState(
+        job_id=job_id,
+        document_id="a" * 64,
+        status="succeeded",
+        input_artifact_ref="art-pdf-test",
+        output_artifact_ref="art-result-test",
+    )
+    artifact_storage.artifacts["art-result-test"] = (b"{}", None)
+
+    response = client.get(f"/api/jobs/{job_id}")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "artifact_invalid"
+
+
+def test_succeeded_job_status_reads_parser_artifact_from_filesystem(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, job_store = stub_api_adapters[:2]
+    artifact_storage = FileSystemArtifactStorage(tmp_path / "artifacts")
+    monkeypatch.setattr(api_app.state, "artifact_storage", artifact_storage)
+    job_id = uuid4()
+    output_path = f"pdf/{'a' * 64}/parsed/test/1"
+    artifact = ParserArtifact(
+        schema_version="1",
+        checksum="a" * 64,
+        parser={"name": "test", "version": "1", "configuration": {}},
+        pages=[],
+    )
+    artifact_storage.store(
+        artifact.model_dump_json().encode(),
+        ArtifactMetadata(
+            artifact_path=output_path,
+            media_type="application/json",
+            creation_info=CreationInfo(created_by="test"),
+        ),
+    )
+    job_store.states[job_id] = JobState(
+        job_id=job_id,
+        document_id="a" * 64,
+        status="succeeded",
+        input_artifact_ref="pdf/input",
+        output_artifact_ref=output_path,
+    )
+
+    response = client.get(f"/api/jobs/{job_id}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "job_id": str(job_id),
+        "status": "succeeded",
+        "output_artifact_ref": output_path,
     }
 
 

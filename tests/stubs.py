@@ -2,11 +2,17 @@
 
 import json
 import re
+from collections.abc import Callable
 from typing import Any
 
+import httpx2
 from bioparser.jobqueue import JobQueueError, ParseJobMessage
 from bioparser.jobstate import JobState, JobStateError
 from bioparser.storage import ArtifactMetadata, StorageError
+from bioparser.storage import ArtifactNotFoundError
+
+# What httpx2.MockTransport calls for every request a client sends
+type Handler = Callable[[httpx2.Request], httpx2.Response]
 
 # stub json one page and one text block for mineru mapper
 STUB_JSON: dict[str, Any] = {
@@ -103,6 +109,7 @@ class StubArtifactStorage:
         self.artifacts: dict[str, tuple[bytes, ArtifactMetadata]] = {}
         self.events = events
         self.store_error: StorageError | None = None
+        self.retrieve_error: StorageError | None = None
 
     def store(
         self,
@@ -116,6 +123,15 @@ class StubArtifactStorage:
             raise self.store_error
         self.artifacts[metadata.artifact_path] = (content, metadata)
         return metadata.artifact_path
+
+    def retrieve(self, artifact_path: str) -> bytes:
+        self.events.append("artifact.retrieve")
+        if self.retrieve_error is not None:
+            raise self.retrieve_error
+        try:
+            return self.artifacts[artifact_path][0]
+        except KeyError as exc:
+            raise ArtifactNotFoundError(f"Artifact not found: {artifact_path}") from exc
 
 
 class StubJobStateStore:
