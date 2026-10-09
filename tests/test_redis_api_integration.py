@@ -130,7 +130,7 @@ async def test_redis_backed_submission_and_polling(
         queued = await job_store.get(job_id)
         assert queued is not None
         assert queued.status == "queued"
-        assert artifact_storage.retrieve(queued.input_artifact_ref) == MINIMAL_PDF
+        assert artifact_storage.retrieve(queued.pdf_ref) == MINIMAL_PDF
 
         # Redis must contain only typed state and artifact references, never
         # the uploaded PDF payload itself.
@@ -140,11 +140,12 @@ async def test_redis_backed_submission_and_polling(
         assert set(json.loads(raw_state)) == {
             "schema_version",
             "job_id",
-            "document_id",
+            "parser",
             "status",
-            "input_artifact_ref",
-            "output_artifact_ref",
+            "pdf_ref",
+            "parse_result_ref",
             "error",
+            "claim_counts",
         }
 
         poll = await client.get(f"/api/jobs/{job_id}")
@@ -159,30 +160,28 @@ async def test_redis_backed_submission_and_polling(
             ParseJobMessage(
                 schema_version=PARSE_JOB_SCHEMA_VERSION,
                 job_id=queued.job_id,
-                document_id=queued.document_id,
-                input_pdf_ref=queued.input_artifact_ref,
             )
         ]
 
         # Worker execution is outside this issue, so simulate only its state
         # transitions through the real store and verify the public mappings.
-        running = queued.with_changes(status="running")
+        running = queued.with_changes(status="parsing")
         await job_store.update(running)
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
-        assert poll.json() == {"job_id": job_id, "status": "running"}
+        assert poll.json() == {"job_id": job_id, "status": "parsing"}
 
         succeeded = running.with_changes(
-            status="succeeded",
-            output_artifact_ref=f"art-result-{job_id}",
+            status="parsed",
+            parse_result_ref=f"art-result-{job_id}",
         )
-        output_artifact_ref = succeeded.output_artifact_ref
+        output_artifact_ref = succeeded.parse_result_ref
         assert output_artifact_ref is not None
 
         artifact_storage.store(
             ParserArtifact(
                 schema_version="1",
-                checksum=queued.document_id,
+                checksum="a" * 64,
                 parser=ParserInfo(name="test", version="1", configuration={}),
                 pages=[],
             )
@@ -198,6 +197,6 @@ async def test_redis_backed_submission_and_polling(
         assert poll.status_code == 200
         assert poll.json() == {
             "job_id": job_id,
-            "status": "succeeded",
+            "status": "parsed",
             "output_artifact_ref": f"art-result-{job_id}",
         }

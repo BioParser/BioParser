@@ -57,7 +57,7 @@ class SucceededJobResponse(BaseModel):
 
 
 class FailedJobResponse(BaseModel):
-    job_id: str
+    job_id: UUID
     status: Literal["failed"]
     error: SafeError
 
