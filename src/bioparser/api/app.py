@@ -78,6 +78,10 @@ from .uploads import (
 logger = logging.getLogger(__name__)
 
 
+class LifespanError(RuntimeError):
+    """Startup or shutdown failed."""
+
+
 @contextlib.asynccontextmanager
 async def _failure_logged_redacted(phase: str) -> AsyncIterator[None]:
     try:
@@ -86,59 +90,72 @@ async def _failure_logged_redacted(phase: str) -> AsyncIterator[None]:
         logger.critical(
             "lifespan failed", exc_info=True, extra={"phase": phase, **error_fields(exc)}
         )
-        raise RuntimeError(f"{phase} failed: {type(exc).__name__}") from None
+        raise LifespanError(f"{phase} failed: {type(exc).__name__}") from None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    settings = config.get_api_settings()
-    setup_logging(settings.log_level)
-    app.state.mineru = MinerUClient(
-        settings.mineru_base_url,
-        settings.mineru_timeout_seconds,
-        settings.mineru_connect_timeout_seconds,
-    )
-
-    if settings.redis_url is None:
-        raise RuntimeError("BIOPARSER_REDIS_URL is required")
-    if settings.artifact_storage_path is None:
-        raise RuntimeError("BIOPARSER_ARTIFACT_STORAGE_PATH is required")
-
-    redis_url = str(settings.redis_url)
-    redis_timeout = settings.redis_timeout_seconds
-
-    broker = create_redis_broker(redis_url, timeout_s=redis_timeout)
-
-    app.state.job_store = RedisJobStateStore(redis_url, operation_timeout_seconds=redis_timeout)
-
-    app.state.parse_queue = RedisJobQueue(name="parse", model=ParseJobMessage, broker=broker)
-
-    app.state.artifact_storage = FileSystemArtifactStorage(root_path=settings.artifact_storage_path)
-
-    app.state.vllm = VLLMService()
-    vllm_base_url = redact_url(get_vllm_settings().vllm_base_url)
     try:
-        model = await app.state.vllm.get_model()
-    except Exception as exc:
-        logger.warning(
-            "vllm model discovery failed",
-            exc_info=not isinstance(exc, VLLMError),
-            extra={"vllm_base_url": vllm_base_url, **error_fields(exc)},
-        )
-    else:
-        logger.info("vllm model discovered", extra={"vllm_base_url": vllm_base_url, "model": model})
-    # Bounds /extract only. The queue replaces this once the worker lands.
-    app.state.extract_sem = asyncio.Semaphore(settings.extract_concurrency)
-    try:
+        async with _failure_logged_redacted("startup"):
+            settings = config.get_api_settings()
+            setup_logging(settings.log_level)
+            app.state.mineru = MinerUClient(
+                settings.mineru_base_url,
+                settings.mineru_timeout_seconds,
+                settings.mineru_connect_timeout_seconds,
+            )
+
+            app.state.vllm = VLLMService()
+            vllm_base_url = redact_url(get_vllm_settings().vllm_base_url)
+            try:
+                model = await app.state.vllm.get_model()
+            except Exception as exc:
+                logger.warning(
+                    "vllm model discovery failed",
+                    exc_info=not isinstance(exc, VLLMError),
+                    extra={"vllm_base_url": vllm_base_url, **error_fields(exc)},
+                )
+            else:
+                logger.info(
+                    "vllm model discovered",
+                    extra={"vllm_base_url": vllm_base_url, "model": model},
+                )
+
+            if settings.redis_url is not None:
+                redis_url = str(settings.redis_url)
+                redis_timeout = settings.redis_timeout_seconds
+                broker = create_redis_broker(redis_url, timeout_s=redis_timeout)
+                app.state.job_store = RedisJobStateStore(
+                    redis_url,
+                    operation_timeout_seconds=redis_timeout,
+                )
+                app.state.parse_queue = RedisJobQueue(
+                    name="parse",
+                    model=ParseJobMessage,
+                    broker=broker,
+                )
+
+            if settings.artifact_storage_path is not None:
+                app.state.artifact_storage = FileSystemArtifactStorage(
+                    root_path=settings.artifact_storage_path
+                )
+
+            # Bounds /extract only. The queue replaces this once the worker lands.
+            app.state.extract_sem = asyncio.Semaphore(settings.extract_concurrency)
+
         yield
     finally:
-        for client in (
-            getattr(app.state, "mineru", None),
-            getattr(app.state, "vllm", None),
-            getattr(app.state, "job_store", None),
-        ):
-            if client is not None:
-                await client.aclose()
+        async with _failure_logged_redacted("shutdown"):
+            for client in (
+                getattr(app.state, "mineru", None),
+                getattr(app.state, "vllm", None),
+                getattr(app.state, "job_store", None),
+            ):
+                if client is not None:
+                    await client.aclose()
+            if broker is not None:
+                broker.close()
+                broker.client.close()
 
 
 # Uvicorn imports the app before emitting its first log line.
