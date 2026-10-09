@@ -95,6 +95,7 @@ async def _failure_logged_redacted(phase: str) -> AsyncIterator[None]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    broker = None
     try:
         async with _failure_logged_redacted("startup"):
             settings = config.get_api_settings()
