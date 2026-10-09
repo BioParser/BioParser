@@ -296,7 +296,7 @@ def test_running_job_status(
 
     assert response.status_code == 200
     JOB_STATUS_ADAPTER.validate_python(response.json())
-    assert response.json() == {"job_id": job_id, "status": "parsing"}
+    assert response.json() == {"job_id": str(job_id), "status": "parsing"}
 
 
 def test_succeeded_job_status(
@@ -455,7 +455,7 @@ def test_failed_job_status(
     assert response.status_code == 200
     JOB_STATUS_ADAPTER.validate_python(response.json())
     assert response.json() == {
-        "job_id": job_id,
+        "job_id": str(job_id),
         "status": "failed",
         "error": {"code": "parse_failed"},
     }
