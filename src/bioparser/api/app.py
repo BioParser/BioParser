@@ -11,9 +11,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import urlparse
+from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from pydantic import UUID4, ValidationError
+from pydantic import ValidationError
 
 from bioparser.jobqueue import (
     JobQueueError,
@@ -22,11 +23,13 @@ from bioparser.jobqueue import (
     create_redis_broker,
 )
 from bioparser.jobstate import JobState, JobStateError, RedisJobStateStore, SafeError
-from bioparser.parser_names import DEFAULT_PARSER_NAME
 from bioparser.logging_config import error_fields, redact_url, setup_logging
 from bioparser.parser import ParserArtifact
+from bioparser.parser_names import DEFAULT_PARSER_NAME
 from bioparser.services.mineru import MinerUClient
 from bioparser.services.vllm import VLLMService
+from bioparser.services.vllm.config import get_settings as get_vllm_settings
+from bioparser.services.vllm.vllm import VLLMError
 from bioparser.storage import (
     ArtifactMetadata,
     ArtifactNotFoundError,
@@ -41,6 +44,7 @@ from .errors import (
     CONTENT_TOO_LARGE,
     EMPTY_FILE,
     INVALID_CONTENT_LENGTH,
+    INVALID_JOB_ID,
     INVALID_PDF,
     JOB_NOT_FOUND,
     MISSING_FILE,
@@ -71,12 +75,24 @@ from .uploads import (
     validate_pdf_content,
 )
 
-# TODO: logger
+logger = logging.getLogger(__name__)
+
+
+@contextlib.asynccontextmanager
+async def _failure_logged_redacted(phase: str) -> AsyncIterator[None]:
+    try:
+        yield
+    except Exception as exc:
+        logger.critical(
+            "lifespan failed", exc_info=True, extra={"phase": phase, **error_fields(exc)}
+        )
+        raise RuntimeError(f"{phase} failed: {type(exc).__name__}") from None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = config.get_api_settings()
+    setup_logging(settings.log_level)
     app.state.mineru = MinerUClient(
         settings.mineru_base_url,
         settings.mineru_timeout_seconds,
@@ -100,9 +116,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.artifact_storage = FileSystemArtifactStorage(root_path=settings.artifact_storage_path)
 
     app.state.vllm = VLLMService()
-    # Find served model id early to log what we are using
-    with contextlib.suppress(Exception):  # TODO: log this once there is a logger
-        await app.state.vllm.get_model()
+    vllm_base_url = redact_url(get_vllm_settings().vllm_base_url)
+    try:
+        model = await app.state.vllm.get_model()
+    except Exception as exc:
+        logger.warning(
+            "vllm model discovery failed",
+            exc_info=not isinstance(exc, VLLMError),
+            extra={"vllm_base_url": vllm_base_url, **error_fields(exc)},
+        )
+    else:
+        logger.info("vllm model discovered", extra={"vllm_base_url": vllm_base_url, "model": model})
     # Bounds /extract only. The queue replaces this once the worker lands.
     app.state.extract_sem = asyncio.Semaphore(settings.extract_concurrency)
     try:
@@ -116,6 +140,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             if client is not None:
                 await client.aclose()
 
+
+# Uvicorn imports the app before emitting its first log line.
+setup_logging()
+try:
+    setup_logging(config.get_api_settings().log_level)
+except ValidationError as exc:
+    logger.critical(
+        "invalid configuration", extra={"invalid_settings": config.invalid_settings(exc)}
+    )
+    raise
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
@@ -257,9 +291,15 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         503: error_response(REDIS_UNAVAILABLE, STORAGE_UNAVAILABLE, ARTIFACT_INVALID),
     },
 )
-async def job_status(request: Request, job_id: UUID4) -> JobStatusResponse:
+async def job_status(request: Request, job_id: str) -> JobStatusResponse:
     try:
-        record = await request.app.state.job_store.get(job_id)
+        parsed_job_id = UUID(job_id)
+    except ValueError as exc:
+        raise http_error(422, INVALID_JOB_ID) from exc
+    if parsed_job_id.version != 4:
+        raise http_error(422, INVALID_JOB_ID)
+    try:
+        record = await request.app.state.job_store.get(parsed_job_id)
     except JobStateError as exc:
         raise http_error(503, REDIS_UNAVAILABLE) from exc
     if record is None:

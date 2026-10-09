@@ -6,10 +6,10 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx2
+
 from bioparser.jobqueue import JobQueueError, ParseJobMessage
 from bioparser.jobstate import JobState, JobStateError
-from bioparser.storage import ArtifactMetadata, StorageError
-from bioparser.storage import ArtifactNotFoundError
+from bioparser.storage import ArtifactMetadata, ArtifactNotFoundError, StorageError
 
 # What httpx2.MockTransport calls for every request a client sends
 type Handler = Callable[[httpx2.Request], httpx2.Response]
@@ -145,13 +145,13 @@ class StubJobStateStore:
         self.events.append("job_state.create")
         if self.create_error is not None:
             raise self.create_error
-        self.states[state.job_id] = state
+        self.states[str(state.job_id)] = state
 
     async def get(self, job_id: object) -> JobState | None:
         if self.get_error is not None:
             raise self.get_error
         self.events.append("job_state.get")
-        return self.states.get(job_id)
+        return self.states.get(str(job_id))
 
     async def update(self, state: JobState) -> None:
         self.events.append("job_state.update")
