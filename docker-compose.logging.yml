@@ -1,0 +1,103 @@
+# logs: Alloy reads every container's output. Loki stores; Grafana visualizes them.
+# Turned on by the COMPOSE_FILE line in .env. Grafana: http://localhost:3000 (GRAFANA_PORT)
+
+networks:
+  logs:
+    internal: true
+
+services:
+  loki:
+    image: grafana/loki:3.7.8@sha256:1107dd5274e0ada47e42472b7a7e71f3b2a2fe878878108f3e2f9e51528f0193
+    command:
+      - -config.file=/etc/loki/loki.yaml
+      - -config.expand-env=true
+    environment:
+      LOKI_RETENTION_PERIOD: ${LOKI_RETENTION_PERIOD:-168h}
+    volumes:
+      - ./docker/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    networks: [logs]
+    restart: unless-stopped
+    mem_limit: 1g
+    memswap_limit: 1g
+    healthcheck:
+      # The image has no shell or curl; the loki binary checks its own /ready.
+      test: ["CMD", "/usr/bin/loki", "-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  alloy:
+    image: grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --disable-reporting
+    environment:
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME}
+    volumes:
+      - ./docker/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    depends_on:
+      loki:
+        condition: service_healthy
+    networks: [logs]
+    restart: unless-stopped
+    mem_limit: 256m
+    memswap_limit: 256m
+    cap_drop: [ALL]
+    # Alloy runs as root to read the socket
+    cap_add: [DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+
+  grafana:
+    image: grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572
+    environment:
+      # Used once, when the grafana-data volume is new. 
+      # Change pw in Grafana UI or grafana cli.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      # No usage reports or update checks
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      # Keeps plugin versions fixed, but by default Grafana updates its Loki and Logs
+      GF_PLUGINS_PREINSTALL_AUTO_UPDATE: "false"
+      # to add another data source, remove its plugin from this list.
+      GF_PLUGINS_DISABLE_PLUGINS: elasticsearch,grafana-postgresql-datasource,grafana-pyroscope-datasource,influxdb,jaeger,mssql,mysql,opentsdb,prometheus,stackdriver,tempo,zipkin,grafana-exploretraces-app,grafana-metricsdrilldown-app,grafana-pyroscope-app
+      # Keep only warnings and errors.
+      GF_LOG_FILTERS: plugin.loki:warn,middleware.gzip:error
+      # The page you land on after login
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/bioparser-logs.json
+    volumes:
+      - ./docker/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./docker/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      loki:
+        condition: service_healthy
+    # edge: a published port needs a non-internal network
+    networks: [logs, edge]
+    restart: unless-stopped
+    # 512m (Grafana's documented minimum) is too little
+    mem_limit: 1g
+    memswap_limit: 1g
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+volumes:
+  loki-data:
+  alloy-data:
+  grafana-data:

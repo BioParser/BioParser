@@ -1,0 +1,49 @@
+// Sends the stdout and stderr of this Compose project's containers to Loki.
+//
+// discovery.docker lists the containers, loki.source.docker reads each one's
+// output through the Docker API, and loki.write pushes the lines to Loki.
+// Lines are sent unchanged: Loki parses the JSON at query time (| json).
+
+discovery.docker "compose" {
+	host = "unix:///var/run/docker.sock"
+	// A new or recreated container shows up within 15 s (default 1 m).
+	refresh_interval = "15s"
+
+	// Only this project's containers, not every container on the host.
+	filter {
+		name   = "label"
+		values = ["com.docker.compose.project=" + sys.env("COMPOSE_PROJECT_NAME")]
+	}
+}
+
+// Loki indexes labels, so keep them few and low-cardinality. Job ids, checksums
+// and other per-request fields stay in the JSON line.
+discovery.relabel "compose" {
+	targets = []
+
+	// bioparser, mineru, vllm, redis, ...
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "service_name"
+	}
+
+	// Tells replicas of one service apart, e.g. bioparser-bioparser-1
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.+)"
+		target_label  = "container"
+	}
+}
+
+loki.source.docker "compose" {
+	host          = "unix:///var/run/docker.sock"
+	targets       = discovery.docker.compose.targets
+	relabel_rules = discovery.relabel.compose.rules
+	forward_to    = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

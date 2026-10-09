@@ -1,0 +1,48 @@
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  # info logs every query, and Alloy would ship those lines back into Loki
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # Logs older than this are deleted. Compose passes LOKI_RETENTION_PERIOD from .env.
+  retention_period: ${LOKI_RETENTION_PERIOD:-168h}
+  # Log volume histograms in Grafana (Explore and Logs Drilldown)
+  volume_enabled: true
+
+compactor:
+  working_directory: /loki/compactor
+  # Without this, retention_period is ignored and the volume only grows.
+  retention_enabled: true
+  delete_request_store: filesystem
+
+# Groups similar lines into patterns: the Patterns tab in Logs Drilldown
+pattern_ingester:
+  enabled: true
+
+# Loki is on the internal network and cannot reach stats.grafana.org anyway.
+analytics:
+  reporting_enabled: false
