@@ -55,6 +55,10 @@ Stop with `Ctrl+C` or `docker compose down`.
 
 Published ports bind to `127.0.0.1` only. Ports, environment variables, and `test_prompt`: [docs/docker-compose.md](docs/docker-compose.md).
 
+## Running on an OKD-cluster (kubernetes)
+
+The manifest files can be bound [here](manifests/). For more info on running BioParser on an OKD-cluster see [here](manifests/README.md).
+
 ## Local development (uv)
 
 Prerequisites: [uv](https://docs.astral.sh/uv/). The project pins Python 3.13; `uv sync` downloads it if missing.
