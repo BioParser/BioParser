@@ -22,7 +22,7 @@ Required:
 `COMPOSE_FILE`: Compose configuration preference, e.g. `docker-compose.yml:docker-compose.gpu.yml` (GPU) or `docker-compose.yml:docker-compose.cpu.yml` (CPU).  
 `VLLM_MODEL`: Hugging Face repo id, for example `Qwen/Qwen3-0.6B` (already set in `.env.example`).  
 `VLLM_PORT`: host port for vLLM (default `8000`).  
-`BIOPARSER_PORT`: host port for the API (default `8080`).  
+`BIOPARSER_PORT`: host port for the API (default `8080`).
 
 Optional:
 
