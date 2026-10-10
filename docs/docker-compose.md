@@ -7,7 +7,13 @@ Compose runs four services:
 - `redis` is queue and job state storage on port 6379 (accessed inside the Docker network using `redis:6379`).  
 - `bioparser` is FastAPI on host port `BIOPARSER_PORT` (default 8080).  
 
-The README has the default install and start commands. This page covers env vars, networking, and `test_prompt`.
+`docker-compose.logging.yml` adds three services for central logs. The `COMPOSE_FILE` lines in `.env.example` include it:
+
+- `alloy` reads the output of every container in this Compose project through the Docker socket and sends it to Loki.  
+- `loki` stores the logs on the `loki-data` volume for `LOKI_RETENTION_PERIOD` (default 7 days). Only Alloy and Grafana can reach it.  
+- `grafana` shows them on host port `GRAFANA_PORT` (default 3000), user `admin`. It loads only the Loki plugins; to add another data source, remove its plugin from `GF_PLUGINS_DISABLE_PLUGINS` in `docker-compose.logging.yml`. It logs only its own warnings and errors (`GF_LOG_LEVEL`).
+
+The README has the default install and start commands. This page covers env vars, networking, logs, and `test_prompt`.
 
 ## Environment
 
@@ -29,6 +35,12 @@ Optional:
 `HF_TOKEN`: needed for gated or private Hugging Face models.  
 `MINERU_PORT`: host port for MinerU (default `8001`; requires enabling the commented `ports` mapping in `docker-compose.yml`).  
 
+With `docker-compose.logging.yml`:
+
+`GRAFANA_ADMIN_PASSWORD` (required): password of the Grafana user `admin`. Grafana reads it only when the `grafana-data` volume is new; after that, change the password in Grafana.  
+`GRAFANA_PORT`: host port for Grafana (default `3000`).  
+`LOKI_RETENTION_PERIOD`: how long Loki keeps logs (default `168h`, 7 days).  
+
 Inside Compose, the API uses `BIOPARSER_VLLM_BASE_URL=http://vllm:8000/v1` and `BIOPARSER_MINERU_BASE_URL=http://mineru:8000`. On the host, `test_prompt` should use `http://localhost:8000/v1` (the default in `.env.example`).
 
 Weights cache on the host at `~/.cache/huggingface`.
@@ -43,6 +55,24 @@ curl localhost:8080/health
 ```
 
 Stop with `Ctrl+C`, or `docker compose down`.
+
+## Logs
+
+Open `http://localhost:3000` and log in as `admin`. The home page is the **BioParser logs** dashboard: log lines, errors and warnings per service, the health checks that the API, MinerU and vLLM passed, API requests by status code, and the newest errors. Its source is `docker/grafana/provisioning/dashboards/bioparser-logs.json`. Grafana picks up changes to that file within 30 seconds; changes made in the Grafana UI cannot be saved.
+
+**Drilldown → Logs** lists the services and their log volume. **Explore** takes LogQL queries, for example:
+
+```logql
+{service_name="bioparser"}                                      # API lines
+{service_name=~".+"} | detected_level=~"error|critical|fatal"   # errors from every service
+{service_name="bioparser"} | json | status_code >= 500          # failed requests
+```
+
+Lines are stored exactly as the services wrote them. BioParser's own code writes JSON, so `| json` turns keys such as `level`, `logger`, `status_code` and `checksum` into fields to filter on. The only labels are `service_name` (the Compose service) and `container`.
+
+`docker compose logs` still works: Docker keeps its own copy.
+
+Alloy needs the Docker socket to read the logs, and the socket gives full control of Docker. So `alloy` publishes no ports. Loki has no login, so Loki and Alloy are only on the internal network `logs`, which the app containers are not on. To turn central logs off, remove `docker-compose.logging.yml` from `COMPOSE_FILE` and run `docker compose up -d --remove-orphans`.
 
 ## Test prompt
 

@@ -8,7 +8,7 @@ BioParser extracts mammal trait data (for example body length and weight) from b
 
 ## Quick start (Docker Compose)
 
-Runs the full stack: API, MinerU, vLLM, and Redis.
+Runs the full stack: API, MinerU, vLLM, Redis, and central logs (Loki, Alloy, Grafana).
 
 Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and needs the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). A CPU stack is also available.
 
@@ -18,10 +18,12 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
    cp .env.example .env
 ```
 
+   Set `GRAFANA_ADMIN_PASSWORD` in `.env`; Compose does not start without it.
+
    This selects the GPU stack. For CPU, change the `COMPOSE_FILE` line in `.env` to:
 
 ```sh
-   COMPOSE_FILE=docker-compose.yml:docker-compose.cpu.yml
+   COMPOSE_FILE=docker-compose.yml:docker-compose.cpu.yml:docker-compose.logging.yml
 ```
 
 2. Build and start:
@@ -51,9 +53,10 @@ Stop with `Ctrl+C` or `docker compose down`.
 |---|---|
 | API | `http://localhost:8080` (Swagger UI: `/docs`) |
 | vLLM (OpenAI-compatible) | `http://localhost:8000/v1` |
-| MinerU, Redis | not published (internal network only) |
+| Grafana (logs of all services) | `http://localhost:3000` (user `admin`) |
+| MinerU, Redis, Loki, Alloy | not published (internal network only) |
 
-Published ports bind to `127.0.0.1` only. Ports, environment variables, and `test_prompt`: [docs/docker-compose.md](docs/docker-compose.md).
+Published ports bind to `127.0.0.1` only. Ports, environment variables, log queries, and `test_prompt`: [docs/docker-compose.md](docs/docker-compose.md).
 
 ## Local development (uv)
 
@@ -141,7 +144,7 @@ Run them on all files: `uv run pre-commit run --all-files`.
 
 - [Architecture](docs/architecture.md): target design, components, data contracts
 - [API](docs/api.md): HTTP contract, current scope, module layout
-- [Docker Compose](docs/docker-compose.md): services, environment variables, `test_prompt`
+- [Docker Compose](docs/docker-compose.md): services, environment variables, logs, `test_prompt`
 - [Local PDF parser](docs/parser.md): parser backends and the dev viewer
 - [Collaboration practices](docs/collaboration.md): branching, PRs, reviews
 - [Definition of Done](docs/dod.md)
