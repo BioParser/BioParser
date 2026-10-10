@@ -1,4 +1,6 @@
 import logging
+import threading
+import time
 from collections.abc import Generator
 from threading import Event
 from typing import Any
@@ -6,7 +8,8 @@ from typing import Any
 import pytest
 from dramatiq import Broker, Worker
 from dramatiq.brokers.stub import StubBroker
-from dramatiq.middleware.time_limit import TimeLimitExceeded
+from dramatiq.middleware import CurrentMessage, Retries
+from dramatiq.middleware.time_limit import TimeLimit, TimeLimitExceeded
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from bioparser.jobqueue import (
@@ -23,14 +26,13 @@ from bioparser.jobqueue import redis_queue as redis_queue_module
 @pytest.fixture
 def stub_broker() -> Generator[StubBroker]:
     broker = StubBroker(fail_fast_default=False)
-    broker.emit_after("process_boot")
     yield broker
     broker.flush_all()
     broker.close()
 
 
-def _message(job_id: str = "job-1") -> ParseJobMessage:
-    return ParseJobMessage(job_id=job_id, document_id="doc-1", input_pdf_ref="pdf-1")
+def _message(job_id: str = "3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34") -> ParseJobMessage:
+    return ParseJobMessage.model_validate({"job_id": job_id})
 
 
 def _queue(
@@ -202,11 +204,14 @@ def test_rejects_consume_while_already_consuming(stub_broker: StubBroker) -> Non
 def test_consume_can_run_again_after_returning(stub_broker: StubBroker) -> None:
     handler = _Recorder()
     queue = _queue(stub_broker)
-    queue.submit(_message("first"))
+    queue.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e31"))
     queue.consume(handler, until_empty=True)
-    queue.submit(_message("second"))
+    queue.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e32"))
     queue.consume(handler, until_empty=True)
-    assert handler.received == [_message("first"), _message("second")]
+    assert handler.received == [
+        _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e31"),
+        _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e32"),
+    ]
 
 
 def test_consume_returns_when_stop_is_already_set(stub_broker: StubBroker) -> None:
@@ -237,20 +242,20 @@ def test_named_queues_are_independent(stub_broker: StubBroker) -> None:
     extract_handler = _Recorder()
     parse = _queue(stub_broker)
     extract = _queue(stub_broker, name="extract")
-    parse.submit(_message("parse-job"))
+    parse.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e33"))
     extract.consume(extract_handler, until_empty=True)
     parse.consume(parse_handler, until_empty=True)
     assert extract_handler.received == []
-    assert parse_handler.received == [_message("parse-job")]
+    assert parse_handler.received == [_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e33")]
 
 
 def test_malformed_payload_is_poisoned(stub_broker: StubBroker) -> None:
     handler = _Recorder()
     queue = _queue(stub_broker)
     queue._actor.send({"job_id": "only-id"})
-    queue.submit(_message("good"))
+    queue.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35"))
     queue.consume(handler, until_empty=True)
-    assert handler.received == [_message("good")]
+    assert handler.received == [_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35")]
     assert handler.malformed == [{"job_id": "only-id"}]
 
 
@@ -276,8 +281,6 @@ def test_wrong_schema_version_is_poisoned(stub_broker: StubBroker) -> None:
     bad = {
         "schema_version": 99,
         "job_id": "job-1",
-        "document_id": "doc-1",
-        "input_pdf_ref": "pdf-1",
     }
     queue._actor.send(bad)
     queue.consume(handler, until_empty=True)
@@ -292,8 +295,6 @@ def test_malformed_log_names_fields_without_values(
     queue._actor.send(
         {
             "job_id": "job-1",
-            "document_id": "doc-1",
-            "input_pdf_ref": "pdf-1",
             "token": "s3cret",
         }
     )
@@ -311,9 +312,9 @@ def test_malformed_hook_error_still_acks(stub_broker: StubBroker) -> None:
     handler = Boom()
     queue = _queue(stub_broker)
     queue._actor.send({"job_id": "only-id"})
-    queue.submit(_message("good"))
+    queue.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35"))
     queue.consume(handler, until_empty=True)
-    assert handler.received == [_message("good")]
+    assert handler.received == [_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35")]
 
 
 def test_dispatch_without_handler_raises(stub_broker: StubBroker) -> None:
@@ -343,3 +344,88 @@ def test_time_limit_calls_on_failed_after_retries(stub_broker: StubBroker) -> No
     assert len(handler.failed) == 1
     assert handler.failed[0][0] == expected
     assert isinstance(handler.failed[0][1], TimeLimitExceeded)
+
+
+class _Hanging(JobHandler[ParseJobMessage]):
+    """Handler that never finishes on its own."""
+
+    def __init__(self) -> None:
+        self.interrupted = Event()
+        self.failed: list[BaseException] = []
+
+    def handle(self, message: ParseJobMessage) -> None:
+        try:
+            for _ in range(1000):
+                time.sleep(0.01)
+        except TimeLimitExceeded:
+            self.interrupted.set()
+            raise
+
+    def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
+        self.failed.append(exc)
+
+
+def test_consume_enforces_the_time_limit(stub_broker: StubBroker) -> None:
+    """The broker is not booted by the test: consume must do what Dramatiq's CLI would."""
+    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
+    time_limit.manager.interval = 0.05  # type: ignore[union-attr]
+    queue = _queue(stub_broker, time_limit_ms=200, max_retries=0)
+    handler = _Hanging()
+    queue.submit(_message())
+
+    queue.consume(handler, until_empty=True)
+
+    assert handler.interrupted.is_set()
+    assert [type(exc) for exc in handler.failed] == [TimeLimitExceeded]
+
+
+def test_consume_can_run_more_than_once_on_one_broker(stub_broker: StubBroker) -> None:
+    """The boot event starts a thread, and a thread starts only once."""
+    queue = _queue(stub_broker)
+    queue.consume(_Recorder(), until_empty=True)
+
+    queue.consume(_Recorder(), until_empty=True)
+
+
+def test_redis_broker_has_the_middleware_the_queue_relies_on() -> None:
+    broker = create_redis_broker("redis://localhost:6379/0")
+
+    kinds = {type(middleware) for middleware in broker.middleware}
+    RedisJobQueue(name="parse", model=ParseJobMessage, broker=broker)
+
+    assert {TimeLimit, Retries} <= kinds
+    assert CurrentMessage in {type(middleware) for middleware in broker.middleware}
+
+
+def test_queue_options_reach_the_actor(stub_broker: StubBroker) -> None:
+    _queue(stub_broker, time_limit_ms=1234, max_retries=7, min_backoff_ms=99)
+
+    options = stub_broker.get_actor("parse").options
+    assert options["time_limit"] == 1234
+    assert options["max_retries"] == 7
+    assert options["min_backoff"] == 99
+
+
+def test_stop_waits_for_the_running_job_to_finish(stub_broker: StubBroker) -> None:
+    """Shutdown finishes the current job instead of interrupting it."""
+    started, finished = Event(), Event()
+
+    class _Slow(JobHandler[ParseJobMessage]):
+        def handle(self, message: ParseJobMessage) -> None:
+            started.set()
+            time.sleep(0.3)
+            finished.set()
+
+    stop = Event()
+    queue = _queue(stub_broker)
+    queue.submit(_message())
+
+    def stop_once_started() -> None:
+        started.wait(5)
+        stop.set()
+
+    threading.Thread(target=stop_once_started, daemon=True).start()
+
+    queue.consume(_Slow(), stop=stop)
+
+    assert finished.is_set()

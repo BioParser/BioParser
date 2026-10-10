@@ -42,7 +42,7 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: mypy
-        run: uv run mypy .
+        run: uv run mypy
 
   test-unit:
     name: Unit tests

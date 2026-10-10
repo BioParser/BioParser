@@ -12,6 +12,7 @@ Messages that leave the queue without a successful handler run are poisoned.
 """
 
 import logging
+import weakref
 from collections.abc import Iterator
 from contextlib import contextmanager
 from threading import Event, Lock
@@ -28,6 +29,10 @@ from .errors import JobQueueConfigError, JobQueueError, MalformedJob
 from .protocol import JobHandler, JobQueue
 
 LOGGER = logging.getLogger(__name__)
+
+# Brokers that have had `process_boot` emitted. It starts middleware threads, so once only.
+_booted_brokers: weakref.WeakSet[Broker] = weakref.WeakSet()
+_boot_lock = Lock()
 
 DEFAULT_TIME_LIMIT_MS = 600_000
 DEFAULT_MAX_RETRIES = 3
@@ -120,6 +125,7 @@ class RedisJobQueue[T: BaseModel](JobQueue[T]):
         stop: Event | None = None,
     ) -> None:
         with self._bind(handler):
+            _boot_broker(self._broker)
             worker = Worker(
                 self._broker,
                 queues={self._name},
@@ -230,6 +236,19 @@ def _validation_summary(exc: ValidationError) -> str:
         f"{'.'.join(str(part) for part in error['loc']) or '<root>'}: {error['type']}"
         for error in exc.errors(include_url=False, include_input=False)
     )
+
+
+def _boot_broker(broker: Broker) -> None:
+    """Emit the process-level boot event that Dramatiq's own command line would.
+
+    A `Worker` built here is not run by that command line. Without the event the TimeLimit
+    middleware never starts its timer thread, and the time limit is silently not enforced.
+    """
+    with _boot_lock:
+        if broker in _booted_brokers:
+            return
+        broker.emit_after("process_boot")
+        _booted_brokers.add(broker)
 
 
 def _ensure_current_message(broker: Broker) -> None:

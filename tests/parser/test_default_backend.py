@@ -9,9 +9,9 @@ from bioparser.parser import (
     get_parser,
 )
 from bioparser.parser.backend.default.grouping import WordBox, group_words_into_text_blocks
-from bioparser.parser.backend.default.parser import DEFAULT_PARSER_NAME
 from bioparser.parser.checksum import sha256_file
 from bioparser.parser.models import ParserArtifact
+from bioparser.parser_names import DEFAULT_PARSER_NAME
 
 FIXTURE = Path(__file__).parent / "fixtures" / "plos-biology-3000248.pdf"
 

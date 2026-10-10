@@ -23,8 +23,13 @@ class JobStateStore(Protocol):
     async def update(self, state: JobState) -> None:
         """Replace the stored state for state.job_id.
 
-        Implementations must refuse a non-terminal write over a state that
-        already reached a terminal status, so a stale worker cannot reopen
-        a finished job.
+        Implementations must refuse a write whose status is not listed for the
+        stored one in ALLOWED_TRANSITIONS. That covers every write over "done" or
+        "failed", so a stale worker can neither reopen nor rewrite a finished job,
+        and every write that moves a job backwards in the pipeline.
         """
+        ...
+
+    async def aclose(self) -> None:
+        """Release backend resources. In-memory stores do nothing."""
         ...

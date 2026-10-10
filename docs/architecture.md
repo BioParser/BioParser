@@ -130,7 +130,7 @@ sequenceDiagram
     Extractor->>Store: Load parser artifact
     Extractor->>Extractor: Infer and validate canonical observations
     Extractor->>Store: Store canonical observation artifact
-    Extractor->>Redis: Mark job succeeded
+    Extractor->>Redis: Record extraction result
 
     loop Until terminal state
         Client->>API: GET /api/jobs/{job_id}
@@ -151,12 +151,15 @@ The extractor and ETS steps are added without changing PDF submission or job pol
 ```mermaid
 stateDiagram-v2
     [*] --> queued: Upload stored and job enqueued
-    queued --> running: Worker claims job
-    running --> succeeded: Output artifact stored
-    running --> queued: Retryable failure
-    queued --> failed: Retry limit or timeout
-    running --> failed: Permanent failure
-    succeeded --> [*]
+    queued --> parsing: Worker claims job
+    queued --> failed: Unprocessable queue message
+    parsing --> parsed: Parser artifact stored
+    parsing --> parsing: Retry after an unexpected error
+    parsing --> failed: Permanent failure, retry limit, or timeout
+    parsed --> extracting: Extractor claims job (not implemented yet)
+    extracting --> done: Observations stored
+    extracting --> failed: Permanent failure
+    done --> [*]
     failed --> [*]
 ```
 
