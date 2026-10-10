@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
 
+from bioparser.identifiers import ARTIFACT_PATH_MAX_SEGMENT_LENGTH
 from bioparser.storage import (
     ArtifactAlreadyExistsError,
     ArtifactMetadata,
@@ -318,3 +320,26 @@ class TestPathTraversalDefense:
 
         assert storage.exists(artifact_path)
         assert storage.retrieve(artifact_path) == b"nested"
+
+    def test_store_and_retrieve_with_max_length_last_segment(
+        self, storage: FileSystemArtifactStorage
+    ) -> None:
+        artifact_path = "pdf/" + "a" * ARTIFACT_PATH_MAX_SEGMENT_LENGTH
+        meta = ArtifactMetadata(artifact_path=artifact_path, media_type="application/pdf")
+        storage.store(b"%PDF-1.4", meta)
+
+        assert storage.retrieve(artifact_path) == b"%PDF-1.4"
+
+    def test_non_string_path_rejected(self, storage: FileSystemArtifactStorage) -> None:
+        with pytest.raises(InvalidArtifactPathError):
+            storage.retrieve(123)  # type: ignore[arg-type]
+
+    def test_path_traversal_attempt_is_logged(
+        self, storage: FileSystemArtifactStorage, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with (
+            caplog.at_level(logging.WARNING, logger="bioparser.storage.filesystem"),
+            pytest.raises(StoragePathTraversalError),
+        ):
+            storage.retrieve("a/../b")
+        assert "Path traversal attempt blocked" in caplog.text

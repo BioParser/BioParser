@@ -1,9 +1,9 @@
 """Shared shape rules for artifact paths.
 
 An artifact path is the key under which an artifact is stored, for example
-``pdf/<pdf-checksum>`` or ``pdf/<pdf-checksum>/parsed/<backend>/<version>``. Storage, the job
-state and the job queue all validate against the same rules, so a malformed path is rejected at
-whichever boundary it enters.
+``pdf/<pdf-checksum>`` or ``pdf/<pdf-checksum>/parsed/<backend>/<version>``. Storage validates
+against these rules. The job state and the job queue are meant to use the same rules (#127), so a
+malformed path is rejected at whichever boundary it enters.
 
 This module only defines what a well-formed path looks like. It has no dependency on storage,
 so the job modules can use it without importing the storage package.
