@@ -2,7 +2,8 @@ import logging
 import signal
 from threading import Event
 
-from bioparser.jobqueue import JobQueue, ParseJobMessage, RedisJobQueue, create_redis_broker
+from bioparser.jobqueue import JobQueue, ParseJobMessage
+from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobstate import RedisJobStateStore
 from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
@@ -34,14 +35,11 @@ def build_worker(
 ) -> tuple[JobQueue[ParseJobMessage], ParseJobHandler]:
     jobs = RedisJobStateStore(str(settings.redis_url))
     storage = FileSystemArtifactStorage(settings.artifact_storage_path)
-    broker = create_redis_broker(
+    queue: JobQueue[ParseJobMessage] = DramatiqJobQueue.from_redis(
         str(settings.redis_url),
-        timeout_s=settings.redis_timeout_seconds,
-    )
-    queue: JobQueue[ParseJobMessage] = RedisJobQueue(
         name=settings.parse_queue_name,
         model=ParseJobMessage,
-        broker=broker,
+        timeout_s=settings.redis_timeout_seconds,
         time_limit_ms=round(settings.parse_time_limit_seconds * 1000),
         max_retries=settings.parse_max_retries,
         # One thread is supported today. The handler serializes any extra threads.

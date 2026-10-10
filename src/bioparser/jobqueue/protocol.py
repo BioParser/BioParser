@@ -12,7 +12,12 @@ class JobHandler[T: BaseModel](Protocol):
     """
 
     def handle(self, message: T) -> None:
-        """Process one message. Raising retries it up to the queue's retry limit."""
+        """Process one message. Raising retries it up to the queue's retry limit.
+
+        The queue interrupts a call that runs past its time limit by raising
+        `JobTimeLimitExceeded` in this thread, at any point. It is retried like any other
+        failure unless the handler catches it and decides otherwise.
+        """
         ...
 
     def on_malformed(self, payload: object) -> None:

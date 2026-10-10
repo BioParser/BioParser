@@ -4,7 +4,6 @@ import time
 from pathlib import Path
 
 import pytest
-from dramatiq.middleware.time_limit import TimeLimitExceeded
 
 from bioparser.parser.backend.mineru import parser as mineru_parser
 from bioparser.parser.backend.mineru import runtime
@@ -62,6 +61,10 @@ def _fake_tools(
     monkeypatch.setenv("MINERU_FAKE_SERVER_PID", str(server_pid))
     monkeypatch.setenv("PATH", os.environ["PATH"])
     return server_pid
+
+
+class _Interrupt(BaseException):
+    """Stands in for a queue's time-limit interrupt."""
 
 
 def _alive(pid: int) -> bool:
@@ -160,11 +163,11 @@ def test_interrupt_kills_the_cli_and_the_server(
         deadline = time.monotonic() + 5
         while not child_pid.exists() and time.monotonic() < deadline:
             time.sleep(0.05)
-        raise TimeLimitExceeded
+        raise _Interrupt
 
     monkeypatch.setattr(runtime, "_wait_for_cli", interrupted)
 
-    with pytest.raises(TimeLimitExceeded):
+    with pytest.raises(_Interrupt):
         _run(tmp_path, timeout_s=30.0)
 
     _wait_until_gone(int(child_pid.read_text()))

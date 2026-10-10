@@ -13,9 +13,10 @@ from uuid import UUID
 
 import pytest
 from dramatiq.brokers.stub import StubBroker
-from dramatiq.middleware.time_limit import TimeLimit, TimeLimitExceeded
+from dramatiq.middleware.time_limit import TimeLimit
 
-from bioparser.jobqueue import RedisJobQueue
+from bioparser.jobqueue import JobTimeLimitExceeded
+from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobqueue.messages import ParseJobMessage
 from bioparser.jobstate.errors import (
     CorruptJobStateError,
@@ -381,7 +382,7 @@ def test_mineru_cli_failure_is_retried_not_failed_as_invalid_pdf(
     assert jobs.state.status == "parsing"
 
 
-@pytest.mark.parametrize("error", [ParserTimeoutError("too slow"), TimeLimitExceeded()])
+@pytest.mark.parametrize("error", [ParserTimeoutError("too slow"), JobTimeLimitExceeded()])
 def test_parser_timeout_fails_with_timeout_without_retry(error: BaseException) -> None:
     """Both the parser's own limit and the queue's time limit end the job as a timeout."""
 
@@ -481,14 +482,14 @@ def test_on_failed_tolerates_corrupt_state() -> None:
 def test_on_failed_records_timeout() -> None:
     jobs = MemoryJobs(_queued().with_changes(status="parsing"))
     handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()))
-    handler.on_failed(_message(), TimeLimitExceeded())
+    handler.on_failed(_message(), JobTimeLimitExceeded())
     handler.close()
     assert jobs.state is not None
     assert jobs.state.error == SafeError(code="timeout")
 
 
 def test_interrupted_async_call_is_cancelled_not_resumed() -> None:
-    """A TimeLimitExceeded mid-await must not leave a task that resumes on the next call."""
+    """A JobTimeLimitExceeded mid-await must not leave a task that resumes on the next call."""
     handler = _handler(MemoryJobs(_queued()), MemoryStorage(), RecordingParser(_artifact()))
     resumed: list[str] = []
 
@@ -504,11 +505,11 @@ def test_interrupted_async_call_is_cancelled_not_resumed() -> None:
     timer = threading.Timer(
         0.2,
         lambda: ctypes.pythonapi.PyThreadState_SetAsyncExc(
-            ctypes.c_ulong(caller), ctypes.py_object(TimeLimitExceeded)
+            ctypes.c_ulong(caller), ctypes.py_object(JobTimeLimitExceeded)
         ),
     )
     timer.start()
-    with pytest.raises(TimeLimitExceeded):
+    with pytest.raises(JobTimeLimitExceeded):
         handler.run_async(slow())
     timer.join()
     assert handler.run_async(asyncio.sleep(0, result="next")) == "next"
@@ -609,7 +610,7 @@ def _consume(handler: ParseJobHandler, *, max_retries: int, time_limit_ms: int =
     try:
         (time_limit,) = [m for m in broker.middleware if isinstance(m, TimeLimit)]
         time_limit.manager.interval = 0.05  # type: ignore[union-attr]
-        queue = RedisJobQueue(
+        queue = DramatiqJobQueue(
             name="parse",
             model=ParseJobMessage,
             broker=broker,
