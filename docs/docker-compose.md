@@ -11,7 +11,7 @@ Compose runs four services:
 
 - `alloy` reads the output of every container in this Compose project through the Docker socket and sends it to Loki.  
 - `loki` stores the logs on the `loki-data` volume for `LOKI_RETENTION_PERIOD` (default 7 days). Only Alloy and Grafana can reach it.  
-- `grafana` shows them on host port `GRAFANA_PORT` (default 3000), user `admin`. It loads only the Loki plugins; to add another data source, remove its plugin from `GF_PLUGINS_DISABLE_PLUGINS` in `docker-compose.logging.yml`. It does not log every Loki query: `GF_LOG_FILTERS` keeps only the Loki plugin's warnings and errors.  
+- `grafana` shows them on host port `GRAFANA_PORT` (default 3000), user `admin`. It loads only the Loki plugins; to add another data source, remove its plugin from `GF_PLUGINS_DISABLE_PLUGINS` in `docker-compose.logging.yml`. It logs only its own warnings and errors (`GF_LOG_LEVEL`).
 
 The README has the default install and start commands. This page covers env vars, networking, logs, and `test_prompt`.
 

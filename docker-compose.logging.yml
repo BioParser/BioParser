@@ -69,8 +69,10 @@ services:
       GF_PLUGINS_PREINSTALL_AUTO_UPDATE: "false"
       # to add another data source, remove its plugin from this list.
       GF_PLUGINS_DISABLE_PLUGINS: elasticsearch,grafana-postgresql-datasource,grafana-pyroscope-datasource,influxdb,jaeger,mssql,mysql,opentsdb,prometheus,stackdriver,tempo,zipkin,grafana-exploretraces-app,grafana-metricsdrilldown-app,grafana-pyroscope-app
-      # Keep only warnings and errors.
-      GF_LOG_FILTERS: plugin.loki:warn,middleware.gzip:error
+      # Only warnings and errors
+      # gzip also warns about every cached file, so filter set to error
+      GF_LOG_LEVEL: warn
+      GF_LOG_FILTERS: middleware.gzip:error
       # The page you land on after login
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/bioparser-logs.json
     volumes:
