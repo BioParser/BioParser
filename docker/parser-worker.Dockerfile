@@ -115,8 +115,20 @@ COPY --chown=10001:0 --from=mineru-cpu /home/app /home/app
 COPY --from=mineru-gpu /opt/mineru /opt/mineru
 COPY --from=app /app/.venv /app/.venv
 
+# The earlier checks run as root, before these trees are copied together.
+# This runs as uid 10001 and calls the worker's own startup check.
+RUN PYTHONDONTWRITEBYTECODE=1 \
+    /app/.venv/bin/python -c "import bioparser.worker.parse; from bioparser.parser.backend.mineru.runtime import require_mineru_cli; require_mineru_cli()" \
+    && /opt/mineru/bin/python -c "import torch; assert torch.version.cuda, torch.__version__"
+
 FROM runtime AS cpu
 
 COPY --chown=10001:0 --from=mineru-cpu /home/app /home/app
 COPY --from=mineru-cpu /opt/mineru /opt/mineru
 COPY --from=app /app/.venv /app/.venv
+
+# The earlier checks run as root, before these trees are copied together.
+# This runs as uid 10001 and calls the worker's own startup check.
+RUN PYTHONDONTWRITEBYTECODE=1 \
+    /app/.venv/bin/python -c "import bioparser.worker.parse; from bioparser.parser.backend.mineru.runtime import require_mineru_cli; require_mineru_cli()" \
+    && /opt/mineru/bin/python -c "import torch; assert torch.version.cuda is None, torch.__version__"
