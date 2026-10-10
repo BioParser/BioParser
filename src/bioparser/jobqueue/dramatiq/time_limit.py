@@ -58,8 +58,10 @@ class _DeadlineThread(Thread):
     def _expire(self) -> None:
         now = monotonic()
         # Clear under the lock, inject after releasing it. Same gap as Dramatiq's timer:
-        # the injection is only requested here and lands on the thread's next bytecode, so a
-        # handler blocked in a C call can still finish and take the exception on a later job.
+        # the injection is only requested here and lands on the thread's next bytecode.
+        # A handler blocked in a C call can still finish and take it on a later job.
+        # If the thread is idle in its queue wait, the exception is not caught there and
+        # that worker thread stops.
         late: list[int] = []
         with self._lock:
             for thread_id, deadline in self._deadlines.items():

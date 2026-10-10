@@ -15,7 +15,8 @@ import pytest
 from dramatiq.brokers.stub import StubBroker
 from dramatiq.middleware.time_limit import TimeLimit
 
-from bioparser.jobqueue import DramatiqJobQueue, JobTimeLimitExceeded
+from bioparser.jobqueue import JobTimeLimitExceeded
+from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobqueue.messages import ParseJobMessage
 from bioparser.jobstate.errors import (
     CorruptJobStateError,

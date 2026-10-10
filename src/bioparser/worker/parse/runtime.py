@@ -2,7 +2,8 @@ import logging
 import signal
 from threading import Event
 
-from bioparser.jobqueue import DramatiqJobQueue, JobQueue, ParseJobMessage
+from bioparser.jobqueue import JobQueue, ParseJobMessage
+from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobstate import RedisJobStateStore
 from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser

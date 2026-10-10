@@ -13,13 +13,13 @@ from dramatiq.middleware.time_limit import TimeLimit
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from bioparser.jobqueue import (
-    DramatiqJobQueue,
     JobHandler,
     JobQueueConfigError,
     JobQueueError,
     JobTimeLimitExceeded,
     ParseJobMessage,
 )
+from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobqueue.dramatiq import redis_queue as redis_queue_module
 from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
 from bioparser.jobqueue.dramatiq.time_limit import _DeadlineThread
@@ -127,6 +127,10 @@ def test_rejects_non_positive_worker_timeout(stub_broker: StubBroker) -> None:
 def test_rejects_queue_name_starting_with_digit(stub_broker: StubBroker) -> None:
     with pytest.raises(JobQueueConfigError, match="letter"):
         DramatiqJobQueue(name="123name", model=ParseJobMessage, broker=stub_broker)
+
+    assert "123name" not in stub_broker.actors
+    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
+    assert not isinstance(time_limit.manager, _DeadlineThread)
 
 
 def test_rejects_duplicate_queue_name_on_same_broker(stub_broker: StubBroker) -> None:

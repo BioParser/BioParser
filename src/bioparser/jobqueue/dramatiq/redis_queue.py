@@ -12,6 +12,7 @@ Messages that leave the queue without a successful handler run are poisoned.
 """
 
 import logging
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from threading import Event, Lock
@@ -36,6 +37,8 @@ _DEFAULT_BROKER_NAMESPACE = "bioparser"
 _DEFAULT_WORKER_TIMEOUT_MS = 1000
 _DEFAULT_WORKER_THREADS = 1
 _DEFAULT_REDIS_TIMEOUT_S = 5.0
+# The same pattern Dramatiq checks when the actor is declared.
+_QUEUE_NAME_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9._-]*")
 
 
 def _create_redis_broker(
@@ -73,8 +76,11 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         worker_threads: int = _DEFAULT_WORKER_THREADS,
         worker_timeout_ms: int = _DEFAULT_WORKER_TIMEOUT_MS,
     ) -> None:
-        if not name.strip():
-            raise JobQueueConfigError("queue name must be non-empty")
+        if not _QUEUE_NAME_RE.fullmatch(name):
+            raise JobQueueConfigError(
+                "queue name must start with a letter or underscore, "
+                "followed by letters, digits, dots, dashes, or underscores"
+            )
         if max_retries < 0:
             raise JobQueueConfigError("max_retries must be >= 0")
         if time_limit_ms <= 0:
