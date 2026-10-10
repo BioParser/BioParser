@@ -1,11 +1,12 @@
 # Docker Compose
 
-Compose runs four services:
+Compose runs five services:
 
 - `vllm` is a local OpenAI-compatible model server on host port `VLLM_PORT` (default 8000).  
 - `mineru` is the PDF parser service on internal network port 8000; it is not published to the host unless the commented `ports` mapping in `docker-compose.yml` is enabled (`MINERU_PORT`, default 8001).  
 - `redis` is queue and job state storage on port 6379 (accessed inside the Docker network using `redis:6379`).  
 - `bioparser` is FastAPI on host port `BIOPARSER_PORT` (default 8080).  
+- `parser-worker` consumes the `parse` queue. It is not published to the host. The CPU stack builds `bioparser-parser-worker:cpu`. The GPU stack builds `bioparser-parser-worker:gpu` from the same Dockerfile.  
 
 The README has the default install and start commands. This page covers env vars, networking, and `test_prompt`.
 

@@ -14,6 +14,8 @@ DEFAULT_PARSE_MAX_RETRIES = 3
 # stopped and reported before the queue interrupts the thread. Also covers fetching
 # the PDF and storing the artifact. Capped at half the limit for small limits.
 PARSE_TIME_LIMIT_MARGIN_S = 30.0
+# Probe port for GET /health.
+DEFAULT_LIVENESS_PORT = 8081
 
 
 class WorkerSettings(BaseSettings):
@@ -41,6 +43,7 @@ class WorkerSettings(BaseSettings):
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
     parse_time_limit_seconds: float = Field(default=DEFAULT_PARSE_TIME_LIMIT_SECONDS, gt=0)
     parse_max_retries: int = Field(default=DEFAULT_PARSE_MAX_RETRIES, ge=0)
+    liveness_port: int = Field(default=DEFAULT_LIVENESS_PORT, ge=1, le=65535)
 
     @property
     def parse_max_claims(self) -> int:
