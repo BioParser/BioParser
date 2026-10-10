@@ -4,6 +4,7 @@ from typing import Literal, Self
 
 from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from bioparser.identifiers import ArtifactPath
 from bioparser.parser_names import PARSER_BACKENDS
 
 # One linear pipeline. The parse worker owns queued -> parsing -> parsed.
@@ -53,8 +54,8 @@ class JobState(BaseModel):
     job_id: UUID4
     status: JobStatus
     parser: str = Field(min_length=1)
-    pdf_ref: str = Field(min_length=1)
-    parse_result_ref: str | None = Field(default=None, min_length=1)
+    pdf_ref: ArtifactPath
+    parse_result_ref: ArtifactPath | None = None
     error: SafeError | None = None
     # Claims per stage.
     claim_counts: dict[JobStatus, int] = Field(default_factory=dict)
