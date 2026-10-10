@@ -9,6 +9,11 @@ from pathlib import Path
 
 from pydantic import Field, ValidationError
 
+from bioparser.identifiers import (
+    ArtifactPathError,
+    ArtifactPathTraversalError,
+    validate_artifact_path,
+)
 from bioparser.storage.errors import (
     ArtifactAlreadyExistsError,
     ArtifactNotFoundError,
@@ -24,12 +29,6 @@ from bioparser.storage.models import (
 )
 
 logger = logging.getLogger(__name__)
-
-_ARTIFACT_PATH_PATTERN = re.compile(r"[A-Za-z0-9_./-]+")
-_MAX_ARTIFACT_PATH_LENGTH = 512
-# 255-byte filename limit minus the longest suffix we append (".<32 hex>.data" = 38),
-# rounded down for margin.
-_MAX_SEGMENT_LENGTH = 200
 
 
 class FileBlobMetadata(ArtifactMetadata):
@@ -66,35 +65,15 @@ class FileSystemArtifactStorage:
             )
 
     def _validate_artifact_path(self, artifact_path: str) -> None:
-        if not isinstance(artifact_path, str) or not artifact_path.strip():
-            raise InvalidArtifactPathError("Artifact path cannot be empty or whitespace")
-        if artifact_path.startswith("/"):
-            raise InvalidArtifactPathError("Artifact path must not be absolute (no leading '/')")
-        if len(artifact_path) > _MAX_ARTIFACT_PATH_LENGTH:
-            raise InvalidArtifactPathError(
-                f"Artifact path exceeds maximum length of {_MAX_ARTIFACT_PATH_LENGTH} characters: {artifact_path}"
-            )
-
-        segments = artifact_path.split("/")
-        if "" in segments:
-            raise InvalidArtifactPathError(
-                "Artifact path must not have empty segments (leading, trailing or doubled '/')"
-            )
-        if any(seg in (".", "..") for seg in segments):
+        if not isinstance(artifact_path, str):
+            raise InvalidArtifactPathError("Artifact path must be a string")
+        try:
+            validate_artifact_path(artifact_path)
+        except ArtifactPathTraversalError as exc:
             logger.warning("Path traversal attempt blocked: %s", artifact_path)
-            raise StoragePathTraversalError(
-                "Artifact path cannot contain '.' or '..' path segments"
-            )
-        if any(len(seg) > _MAX_SEGMENT_LENGTH for seg in segments):
-            raise InvalidArtifactPathError(
-                f"Artifact path contains a segment exceeding {_MAX_SEGMENT_LENGTH} characters"
-            )
-
-        if not _ARTIFACT_PATH_PATTERN.fullmatch(artifact_path):
-            raise InvalidArtifactPathError(
-                f"Artifact path '{artifact_path}' contains invalid characters. "
-                "Only alphanumeric characters, '/', '.', '_', and '-' are allowed."
-            )
+            raise StoragePathTraversalError(str(exc)) from exc
+        except ArtifactPathError as exc:
+            raise InvalidArtifactPathError(str(exc)) from exc
 
     def _get_metadata_path(self, artifact_path: str) -> Path:
         self._validate_artifact_path(artifact_path)
