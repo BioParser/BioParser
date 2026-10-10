@@ -58,14 +58,14 @@ Stop with `Ctrl+C`, or `docker compose down`.
 
 ## Logs
 
-Open `http://localhost:3000` and log in as `admin`. The home page is the **BioParser logs** dashboard: log lines, errors and warnings per service, API requests by status code, and the newest errors. Its source is `docker/grafana/provisioning/dashboards/bioparser-logs.json`. Grafana picks up changes to that file within 30 seconds; changes made in the Grafana UI cannot be saved.
+Open `http://localhost:3000` and log in as `admin`. The home page is the **BioParser logs** dashboard: log lines, errors and warnings per service, the health checks that the API, MinerU and vLLM passed, API requests by status code, and the newest errors. Its source is `docker/grafana/provisioning/dashboards/bioparser-logs.json`. Grafana picks up changes to that file within 30 seconds; changes made in the Grafana UI cannot be saved.
 
 **Drilldown → Logs** lists the services and their log volume. **Explore** takes LogQL queries, for example:
 
 ```logql
-{service_name="bioparser"}                                # API lines
-{service_name=~".+"} | detected_level=~"error|critical"   # errors from every service
-{service_name="bioparser"} | json | status_code >= 500    # failed requests
+{service_name="bioparser"}                                      # API lines
+{service_name=~".+"} | detected_level=~"error|critical|fatal"   # errors from every service
+{service_name="bioparser"} | json | status_code >= 500          # failed requests
 ```
 
 Lines are stored exactly as the services wrote them. BioParser's own code writes JSON, so `| json` turns keys such as `level`, `logger`, `status_code` and `checksum` into fields to filter on. The only labels are `service_name` (the Compose service) and `container`.

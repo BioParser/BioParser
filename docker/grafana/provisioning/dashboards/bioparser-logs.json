@@ -91,7 +91,7 @@
         "type": "loki",
         "uid": "loki"
       },
-      "description": "Lines that Loki detected as error or critical.",
+      "description": "Lines that Loki detected as error, critical or fatal.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -147,7 +147,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({service_name=~\"$service\"} | detected_level=~\"error|critical\" [$__range]))",
+          "expr": "sum(count_over_time({service_name=~\"$service\"} | detected_level=~\"error|critical|fatal\" [$__range]))",
           "queryType": "instant",
           "refId": "A"
         }
@@ -298,6 +298,93 @@
         "type": "loki",
         "uid": "loki"
       },
+      "description": "Docker's health checks per service and time step (1 minute or more), from the services' own access logs: the API is checked every 30 s, MinerU and vLLM every 10 s. Passing: at least one check passed. Failing: checks were logged but none passed, for example after vLLM's engine died. Empty: no check was logged, so the service was down or not answering, or its lines did not reach Loki. A service without any logged check in the time range has no row; the parser worker and Redis never log one.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "green",
+            "mode": "fixed"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "failing"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "passing"
+                }
+              },
+              "type": "value"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 11,
+      "interval": "1m",
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "showValue": "never",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "(sum by (service_name) (count_over_time({service_name=~\"$service\"} |= `\"path\": \"/health\"` | json | __error__=\"\" | logger=\"uvicorn.access\" | status_code < 300 [$__auto])) > bool 0) or (0 * sum by (service_name) (count_over_time({service_name=~\"$service\"} |= `\"path\": \"/health\"` | json | __error__=\"\" | logger=\"uvicorn.access\" [$__auto])))",
+          "legendFormat": "{{service_name}}",
+          "queryType": "range",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "(sum by (service_name) (count_over_time({service_name=~\"$service\"} |~ `\"GET /health HTTP/[0-9.]+\" 2[0-9]{2}` [$__auto])) > bool 0) or (0 * sum by (service_name) (count_over_time({service_name=~\"$service\"} |~ `\"GET /health HTTP/[0-9.]+\" [0-9]{3}` [$__auto])))",
+          "legendFormat": "{{service_name}}",
+          "queryType": "range",
+          "refId": "B"
+        }
+      ],
+      "title": "Health checks",
+      "type": "state-timeline"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "description": "Log lines per service in each time step.",
       "fieldConfig": {
         "defaults": {
@@ -323,7 +410,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 4
+        "y": 10
       },
       "id": 5,
       "interval": "1m",
@@ -360,7 +447,7 @@
         "type": "loki",
         "uid": "loki"
       },
-      "description": "Error and critical lines per service in each time step.",
+      "description": "Error, critical and fatal lines per service in each time step.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -385,7 +472,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 4
+        "y": 10
       },
       "id": 6,
       "interval": "1m",
@@ -408,7 +495,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum by (service_name) (count_over_time({service_name=~\"$service\"} | detected_level=~\"error|critical\" [$__auto]))",
+          "expr": "sum by (service_name) (count_over_time({service_name=~\"$service\"} | detected_level=~\"error|critical|fatal\" [$__auto]))",
           "legendFormat": "{{service_name}}",
           "queryType": "range",
           "refId": "A"
@@ -422,7 +509,7 @@
         "type": "loki",
         "uid": "loki"
       },
-      "description": "API requests per HTTP status code (uvicorn access log of the bioparser service).",
+      "description": "API requests per HTTP status code (uvicorn access log of the bioparser service), without Docker's health checks on /health.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -447,7 +534,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 12
+        "y": 18
       },
       "id": 7,
       "interval": "1m",
@@ -470,7 +557,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "sum by (status_code) (count_over_time({service_name=\"bioparser\"} | json | __error__=\"\" | logger=\"uvicorn.access\" [$__auto]))",
+          "expr": "sum by (status_code) (count_over_time({service_name=\"bioparser\"} | json | __error__=\"\" | logger=\"uvicorn.access\" | path != \"/health\" [$__auto]))",
           "legendFormat": "{{status_code}}",
           "queryType": "range",
           "refId": "A"
@@ -504,6 +591,21 @@
           "unit": "short"
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "fatal"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "dark-purple",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -585,7 +687,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 12
+        "y": 18
       },
       "id": 8,
       "interval": "1m",
@@ -622,12 +724,12 @@
         "type": "loki",
         "uid": "loki"
       },
-      "description": "Newest warning, error and critical lines first. Click a line for its fields.",
+      "description": "Newest warning, error, critical and fatal lines first. Click a line for its fields.",
       "gridPos": {
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 26
       },
       "id": 9,
       "options": {
@@ -649,7 +751,7 @@
             "uid": "loki"
           },
           "editorMode": "code",
-          "expr": "{service_name=~\"$service\"} | detected_level=~\"warn|error|critical\"",
+          "expr": "{service_name=~\"$service\"} | detected_level=~\"warn|error|critical|fatal\"",
           "maxLines": 200,
           "queryType": "range",
           "refId": "A"
@@ -668,7 +770,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 30
+        "y": 36
       },
       "id": 10,
       "options": {
