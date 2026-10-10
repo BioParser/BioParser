@@ -69,7 +69,7 @@ MinerU backend, one run per PDF in a fresh container. The 105-page file is the 1
 
 
 - **CPU vs GPU:** on a 3-page paper they are close, because model load dominates. The CPU run takes about 3 times as long at 15 pages and about 5 times as long at 105 pages.
-- **Memory:** container RAM grows with page count on both targets. The CPU image used less RAM than the GPU image at every length. Treat the figures as single-run samples, not limits.
+- **Memory:** container RAM grows with page count on both targets, up to MinerU's window of rendered pages (64 by default). A 105-page file is two windows, so its peak is a 64-page batch. `MINERU_PROCESSING_WINDOW_SIZE` lowers that peak. The CPU image used less RAM than the GPU image at every length. Treat the figures as single-run samples, not limits.
 - **Compose limits:** the worker is capped at 12 GB of host RAM, with no extra swap. A paper that exceeds the limit is OOM-killed, and the 105-page runs stayed under 12 GiB.
 - **VRAM:** the worker used about 1 to 2 GiB and it did not grow with length.
 
