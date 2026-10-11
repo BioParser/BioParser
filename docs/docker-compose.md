@@ -7,9 +7,10 @@ Compose runs four services:
 - `redis` is queue and job state storage on port 6379 (accessed inside the Docker network using `redis:6379`).  
 - `bioparser` is FastAPI on host port `BIOPARSER_PORT` (default 8080).  
 
-`docker-compose.logging.yml` adds three services for central logs. The `COMPOSE_FILE` lines in `.env.example` include it:
+`docker-compose.logging.yml` adds four services for central logs. The `COMPOSE_FILE` lines in `.env.example` include it:
 
-- `alloy` reads the output of every container in this Compose project through the Docker socket and sends it to Loki.  
+- `alloy` reads the output of every container in this Compose project through `docker-api` and sends it to Loki.  
+- `docker-api` is the only container with the Docker socket. It passes on the few read-only Docker API calls Alloy needs and refuses everything else. It is built from source: `docker/socket-proxy.Dockerfile`.  
 - `loki` stores the logs on the `loki-data` volume for `LOKI_RETENTION_PERIOD` (default 7 days). Only Alloy and Grafana can reach it.  
 - `grafana` shows them on host port `GRAFANA_PORT` (default 3000), user `admin`. It loads only the Loki plugins; to add another data source, remove its plugin from `GF_PLUGINS_DISABLE_PLUGINS` in `docker-compose.logging.yml`. It logs only its own warnings and errors (`GF_LOG_LEVEL`).
 
@@ -72,7 +73,7 @@ Lines are stored exactly as the services wrote them. BioParser's own code writes
 
 `docker compose logs` still works: Docker keeps its own copy.
 
-Alloy needs the Docker socket to read the logs, and the socket gives full control of Docker. So `alloy` publishes no ports. Loki has no login, so Loki and Alloy are only on the internal network `logs`, which the app containers are not on. To turn central logs off, remove `docker-compose.logging.yml` from `COMPOSE_FILE` and run `docker compose up -d --remove-orphans`.
+The Docker socket gives full control of Docker, and so of the host. Only `docker-api` mounts it. It accepts requests only from `alloy`, only on the internal network `docker-api`, and only to list containers, inspect them and read their logs. Alloy runs as its own user with no capabilities. Loki has no login, so Loki and Alloy are only on the internal network `logs`, which the app containers are not on. To turn central logs off, remove `docker-compose.logging.yml` from `COMPOSE_FILE` and run `docker compose up -d --remove-orphans`.
 
 ## Test prompt
 

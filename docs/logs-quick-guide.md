@@ -102,7 +102,7 @@ Do not turn such values into Loki labels in `docker/alloy/config.alloy`. Every n
 | Login fails after you changed `GRAFANA_ADMIN_PASSWORD` | Grafana reads it only on its first start. Use the old password, or reset it (Everyday tasks). |
 | Grafana shows no logs | Check the time range (top right). Run `docker compose ps`: `loki` must show `(healthy)` and `alloy` must show `Up`. Then read `docker compose logs alloy` for errors. |
 | A new container has no logs yet | Wait 15 seconds. Alloy looks for new containers every 15 seconds. |
-| Some minutes of logs are missing | Loki was down for more than about 4 minutes, so Alloy gave up on some lines. Read them with `docker compose logs <service>`. |
+| Some minutes of logs are missing | Alloy keeps retrying while Loki is down and catches up from Docker's copy when Loki is back. If lines are still missing, read them with `docker compose logs <service>`. |
 | One very long line is missing | Lines over 256 KB are dropped. `docker compose logs alloy` shows `max entry size` or `line too big` for them. |
 | Port 3000 is already in use | Set `GRAFANA_PORT=3001` in `.env`, then run `docker compose up -d grafana`. |
 | Grafana warns `Skipping migration: Already executed, but not recorded in migration log` | Nothing to do. Grafana prints this once, on its first start with a new `grafana-data` volume, then records it and does not show it again. |
@@ -113,3 +113,4 @@ Do not turn such values into Loki labels in `docker/alloy/config.alloy`. Every n
 - **Never log secrets.** Passwords, tokens and API keys must not reach a log line. Everything a container prints is kept for 7 days, and everyone with the Grafana login can read it.
 - **Treat logs as personal data.** They can hold IP addresses. Do not copy them outside the team.
 - **Keep Loki closed.** Loki has no login. Do not publish its port, and do not add other services to the `logs` network.
+- **Keep the Docker socket in `docker-api` only.** Do not mount it into another container, do not add services to the `docker-api` network, and do not widen its `-allow...` rules without a review.

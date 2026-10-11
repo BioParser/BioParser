@@ -54,7 +54,7 @@ Stop with `Ctrl+C` or `docker compose down`.
 | API | `http://localhost:8080` (Swagger UI: `/docs`) |
 | vLLM (OpenAI-compatible) | `http://localhost:8000/v1` |
 | Grafana (logs of all services) | `http://localhost:3000` (user `admin`) |
-| MinerU, Redis, Loki, Alloy | not published (internal network only) |
+| MinerU, Redis, Loki, Alloy, docker-api | not published (internal network only) |
 
 Published ports bind to `127.0.0.1` only. Ports, environment variables, log queries, and `test_prompt`: [docs/docker-compose.md](docs/docker-compose.md).
 

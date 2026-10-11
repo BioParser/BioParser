@@ -4,8 +4,10 @@
 // output through the Docker API, and loki.write pushes the lines to Loki.
 // Lines are sent unchanged: Loki parses the JSON at query time (| json).
 
+// Docker API through the docker-api proxy, which allows only the read calls
+// below; Alloy never holds the socket itself.
 discovery.docker "compose" {
-	host = "unix:///var/run/docker.sock"
+	host = "tcp://docker-api:2375"
 	// A new or recreated container shows up within 15 s (default 1 m).
 	refresh_interval = "15s"
 
@@ -36,7 +38,7 @@ discovery.relabel "compose" {
 }
 
 loki.source.docker "compose" {
-	host          = "unix:///var/run/docker.sock"
+	host          = "tcp://docker-api:2375"
 	targets       = discovery.docker.compose.targets
 	relabel_rules = discovery.relabel.compose.rules
 	forward_to    = [loki.write.local.receiver]
@@ -45,5 +47,10 @@ loki.source.docker "compose" {
 loki.write "local" {
 	endpoint {
 		url = "http://loki:3100/loki/api/v1/push"
+
+		// Retry forever instead of dropping a batch after ~8.5 min. While Loki is
+		// down the queue fills, loki.source.docker stops reading (block_on_overflow
+		// defaults to true) and resumes from Docker's copy when Loki is back.
+		max_backoff_retries = 0
 	}
 }
