@@ -57,7 +57,9 @@ def _create_redis_broker(
             socket_connect_timeout=timeout_s,
         )
     except ValueError as exc:
-        raise JobQueueConfigError(str(exc)) from exc
+        # The ValueError text can hold part of the URL: a password with an
+        # unescaped "/", "#" or "?" ends up in redis-py's port error.
+        raise JobQueueConfigError("invalid Redis URL") from exc
     return RedisBroker(client=client, namespace=namespace)  # type: ignore[no-untyped-call]
 
 

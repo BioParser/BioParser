@@ -98,17 +98,24 @@ class FileSystemArtifactStorage:
         if not metadata_path.is_file():
             raise ArtifactNotFoundError(f"Artifact metadata not found: {artifact_path}")
 
+        # Errors name the cause's type, not its text: OSError text holds absolute
+        # paths and pydantic text holds parts of the file. The cause stays on the
+        # chain (`from exc`), where the log formatter redacts its text.
         try:
             raw_json = metadata_path.read_text(encoding="utf-8")
             return FileBlobMetadata.model_validate_json(raw_json)
         except (ValidationError, ValueError) as exc:
-            logger.error("Corrupted metadata for artifact %s: %s", artifact_path, exc)
+            logger.error(
+                "Corrupted metadata for artifact %s: %s", artifact_path, type(exc).__name__
+            )
             raise StoragePayloadError(
-                f"Corrupted metadata for artifact {artifact_path}: {exc}"
+                f"Corrupted metadata for artifact {artifact_path}: {type(exc).__name__}"
             ) from exc
         except OSError as exc:
             logger.exception("Filesystem OSError reading metadata for %s", artifact_path)
-            raise StorageError(f"Failed to read metadata for {artifact_path}: {exc}") from exc
+            raise StorageError(
+                f"Failed to read metadata for {artifact_path}: {type(exc).__name__}"
+            ) from exc
 
     def _read_content(self, artifact_path: str, meta: FileBlobMetadata) -> bytes:
         data_path = self._get_blob_data_path(artifact_path, meta.blob_id)
@@ -118,7 +125,9 @@ class FileSystemArtifactStorage:
         try:
             content = data_path.read_bytes()
         except OSError as exc:
-            raise StorageError(f"Failed to read artifact {artifact_path}: {exc}") from exc
+            raise StorageError(
+                f"Failed to read artifact {artifact_path}: {type(exc).__name__}"
+            ) from exc
 
         if meta.size_bytes is not None and len(content) != meta.size_bytes:
             raise StoragePayloadError(
@@ -185,7 +194,7 @@ class FileSystemArtifactStorage:
             raise
         except OSError as exc:
             logger.exception("Filesystem OSError writing artifact %s", aid)
-            raise StorageError(f"Failed to write artifact {aid}: {exc}") from exc
+            raise StorageError(f"Failed to write artifact {aid}: {type(exc).__name__}") from exc
         finally:
             if tmp_meta_written:
                 with contextlib.suppress(OSError):

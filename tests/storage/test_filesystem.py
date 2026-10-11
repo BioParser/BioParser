@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
+from pydantic import ValidationError
 
 from bioparser.identifiers import ARTIFACT_PATH_MAX_SEGMENT_LENGTH
 from bioparser.storage import (
@@ -14,6 +16,7 @@ from bioparser.storage import (
     FileSystemArtifactStorage,
     InvalidArtifactPathError,
     StorageConfigurationError,
+    StorageError,
     StoragePathTraversalError,
     StoragePayloadError,
 )
@@ -239,6 +242,94 @@ class TestErrorHandling:
         non_existent = tmp_path / "does_not_exist"
         with pytest.raises(StorageConfigurationError):
             FileSystemArtifactStorage(non_existent, create_root=False)
+
+
+PLANTED_PATH = "/srv/planted/secret/dir"
+
+
+def _raise_os_error_with_planted_path(*_args: object, **_kwargs: object) -> NoReturn:
+    raise PermissionError(13, "Permission denied", PLANTED_PATH)
+
+
+def _assert_names_cause_type_only(
+    error: BaseException, artifact_path: str, cause_type: type[BaseException]
+) -> None:
+    cause = error.__cause__
+    assert isinstance(cause, cause_type)  # `from exc` keeps the cause on the chain
+    assert PLANTED_PATH in str(cause)  # the text that used to be copied
+    message = str(error)
+    assert artifact_path in message
+    assert cause_type.__name__ in message
+    assert PLANTED_PATH not in message
+
+
+class TestErrorMessagesHideCauseText:
+    """Messages keep the artifact path and the cause's type, not the cause's text (#140)."""
+
+    artifact_path = "pdf/dummy_hash/1"
+
+    def _store(self, storage: FileSystemArtifactStorage) -> None:
+        storage.store(
+            b"content",
+            ArtifactMetadata(artifact_path=self.artifact_path, media_type="application/pdf"),
+        )
+
+    def test_metadata_read_error(
+        self, storage: FileSystemArtifactStorage, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._store(storage)
+        monkeypatch.setattr(Path, "read_text", _raise_os_error_with_planted_path)
+
+        with pytest.raises(StorageError) as exc_info:
+            storage.retrieve_metadata(self.artifact_path)
+
+        assert type(exc_info.value) is StorageError
+        _assert_names_cause_type_only(exc_info.value, self.artifact_path, PermissionError)
+
+    def test_content_read_error(
+        self, storage: FileSystemArtifactStorage, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._store(storage)
+        monkeypatch.setattr(Path, "read_bytes", _raise_os_error_with_planted_path)
+
+        with pytest.raises(StorageError) as exc_info:
+            storage.retrieve(self.artifact_path)
+
+        assert type(exc_info.value) is StorageError
+        _assert_names_cause_type_only(exc_info.value, self.artifact_path, PermissionError)
+
+    def test_write_error(
+        self, storage: FileSystemArtifactStorage, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(Path, "write_bytes", _raise_os_error_with_planted_path)
+
+        with pytest.raises(StorageError) as exc_info:
+            self._store(storage)
+
+        assert type(exc_info.value) is StorageError
+        _assert_names_cause_type_only(exc_info.value, self.artifact_path, PermissionError)
+
+    def test_corrupted_metadata_error_and_log_line(
+        self, storage: FileSystemArtifactStorage, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # pydantic quotes the bad value, so the planted path is in its text.
+        meta_path = storage.root_path / f"{self.artifact_path}.meta.json"
+        meta_path.parent.mkdir(parents=True)
+        meta_path.write_text(
+            f'{{"artifact_path": "{self.artifact_path}", "media_type": "application/pdf",'
+            f' "size_bytes": "{PLANTED_PATH}", "blob_id": "b"}}',
+            encoding="utf-8",
+        )
+
+        with (
+            caplog.at_level(logging.ERROR, logger="bioparser.storage.filesystem"),
+            pytest.raises(StoragePayloadError) as exc_info,
+        ):
+            storage.retrieve_metadata(self.artifact_path)
+
+        _assert_names_cause_type_only(exc_info.value, self.artifact_path, ValidationError)
+        assert "Corrupted metadata" in caplog.text
+        assert PLANTED_PATH not in caplog.text
 
 
 class TestPathTraversalDefense:

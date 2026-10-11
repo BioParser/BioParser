@@ -74,6 +74,11 @@ async def _call_with_redis_errors[T](
     retry_timeout=False disables the retry for callers where a timed-out
     write may have actually succeeded server-side, making a retry unsafe
     (see create() below).
+
+    The messages name the Redis error type but not its text, which can hold the
+    host, port or command. The log formatter prints bioparser messages as they
+    are; the original error stays on the chain (`from exc`), where its text is
+    redacted.
     """
     attempts = _MAX_TIMEOUT_ATTEMPTS if retry_timeout else 1
     delay = _RETRY_BASE_DELAY_SECONDS
@@ -83,18 +88,14 @@ async def _call_with_redis_errors[T](
         except RedisTimeoutError as exc:
             if attempt == attempts - 1:
                 raise JobStateConnectionError(
-                    f"could not reach Redis: {type(exc).__name__}: {exc}"
+                    f"could not reach Redis: {type(exc).__name__}"
                 ) from exc
             await asyncio.sleep(delay)
             delay *= 2
         except RedisConnectionError as exc:
-            raise JobStateConnectionError(
-                f"could not reach Redis: {type(exc).__name__}: {exc}"
-            ) from exc
+            raise JobStateConnectionError(f"could not reach Redis: {type(exc).__name__}") from exc
         except RedisError as exc:
-            raise JobStateBackendError(
-                f"Redis rejected the command: {type(exc).__name__}: {exc}"
-            ) from exc
+            raise JobStateBackendError(f"Redis rejected the command: {type(exc).__name__}") from exc
     raise AssertionError(
         "unreachable: loop always returns or raises"
     )  # mypy can't see that the loop always returns or raises
@@ -130,7 +131,9 @@ class RedisJobStateStore:
                 socket_connect_timeout=operation_timeout_seconds,
             )
         except ValueError as exc:
-            raise JobStateError(f"invalid Redis URL: {exc}") from exc
+            # The ValueError text can hold part of the URL: a password with an
+            # unescaped "/", "#" or "?" ends up in redis-py's port error.
+            raise JobStateError("invalid Redis URL") from exc
         self._update_script = self._redis.register_script(_UPDATE_SCRIPT)
 
     def _key(self, job_id: UUID) -> str:
