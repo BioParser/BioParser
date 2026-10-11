@@ -134,6 +134,11 @@ class TestArtifactMetadata:
         with pytest.raises(ValidationError):
             ArtifactMetadata.model_validate({"artifact_path": "a1"})
 
+    @pytest.mark.parametrize("artifact_path", ["", "/abs", "a//b", "a/../b", "has space"])
+    def test_malformed_artifact_path_rejected(self, artifact_path: str) -> None:
+        with pytest.raises(ValidationError):
+            ArtifactMetadata(artifact_path=artifact_path, media_type="application/pdf")
+
     def test_forbid_extra_fields(self) -> None:
         with pytest.raises(ValidationError):
             ArtifactMetadata.model_validate(
