@@ -183,7 +183,7 @@ def test_job_id_must_be_uuid4() -> None:
         _queued(job_id="3f2b8c1e-9a4d-5f6b-8c2e-1d5a7b9c0e34")
 
 
-def test_artifact_refs_are_opaque_strings() -> None:
+def test_artifact_refs_accept_artifact_paths() -> None:
     state = _queued(
         status="parsed",
         pdf_ref="artifacts/doc-1/input.pdf",
@@ -191,6 +191,26 @@ def test_artifact_refs_are_opaque_strings() -> None:
     )
     assert state.pdf_ref == "artifacts/doc-1/input.pdf"
     assert state.parse_result_ref == "artifacts/doc-1/parsed.json"
+
+
+@pytest.mark.parametrize("path", ["", "/abs", "a//b", "a/../b", "has space"])
+def test_malformed_pdf_ref_is_rejected(path: str) -> None:
+    with pytest.raises(ValidationError):
+        _queued(pdf_ref=path)
+
+
+@pytest.mark.parametrize("path", ["", "/abs", "a//b", "a/../b", "has space"])
+def test_malformed_parse_result_ref_is_rejected(path: str) -> None:
+    with pytest.raises(ValidationError):
+        _queued(status="parsed", parse_result_ref=path)
+
+
+def test_stored_uuid_refs_stay_readable() -> None:
+    """Records written before the type change hold UUID strings. They must still load."""
+    raw = _queued(status="parsed", parse_result_ref=RESULT_REF).model_dump_json()
+    restored = JobState.model_validate_json(raw)
+    assert restored.pdf_ref == PDF_REF
+    assert restored.parse_result_ref == RESULT_REF
 
 
 def test_parser_name_is_stored_as_given() -> None:
