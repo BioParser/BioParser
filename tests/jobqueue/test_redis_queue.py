@@ -9,18 +9,20 @@ import pytest
 from dramatiq import Broker, Worker
 from dramatiq.brokers.stub import StubBroker
 from dramatiq.middleware import CurrentMessage, Retries
-from dramatiq.middleware.time_limit import TimeLimit, TimeLimitExceeded
+from dramatiq.middleware.time_limit import TimeLimit
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from bioparser.jobqueue import (
     JobHandler,
     JobQueueConfigError,
     JobQueueError,
+    JobTimeLimitExceeded,
     ParseJobMessage,
-    RedisJobQueue,
-    create_redis_broker,
 )
-from bioparser.jobqueue import redis_queue as redis_queue_module
+from bioparser.jobqueue.dramatiq import DramatiqJobQueue
+from bioparser.jobqueue.dramatiq import redis_queue as redis_queue_module
+from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
+from bioparser.jobqueue.dramatiq.time_limit import _DeadlineThread
 
 
 @pytest.fixture
@@ -37,10 +39,10 @@ def _message(job_id: str = "3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34") -> ParseJobMe
 
 def _queue(
     broker: StubBroker, *, name: str = "parse", **options: Any
-) -> RedisJobQueue[ParseJobMessage]:
+) -> DramatiqJobQueue[ParseJobMessage]:
     """Queue that shuts down promptly: the production worker timeout costs ~2s per consume."""
     options.setdefault("worker_timeout_ms", 50)
-    return RedisJobQueue(name=name, model=ParseJobMessage, broker=broker, **options)
+    return DramatiqJobQueue(name=name, model=ParseJobMessage, broker=broker, **options)
 
 
 class _Recorder(JobHandler[ParseJobMessage]):
@@ -64,8 +66,8 @@ class _Recorder(JobHandler[ParseJobMessage]):
         self.failed.append((message, exc))
 
 
-def test_create_redis_broker_sets_socket_timeouts() -> None:
-    broker = create_redis_broker("redis://localhost:6379/0", timeout_s=2.5)
+def test_redis_broker_sets_socket_timeouts() -> None:
+    broker = _create_redis_broker("redis://localhost:6379/0", timeout_s=2.5)
     try:
         kwargs = broker.client.connection_pool.connection_kwargs
         assert kwargs["socket_timeout"] == 2.5
@@ -74,61 +76,67 @@ def test_create_redis_broker_sets_socket_timeouts() -> None:
         broker.close()
 
 
-def test_create_redis_broker_rejects_non_positive_timeout() -> None:
+def test_redis_broker_rejects_non_positive_timeout() -> None:
     with pytest.raises(JobQueueConfigError, match="timeout_s"):
-        create_redis_broker("redis://localhost:6379/0", timeout_s=0)
+        _create_redis_broker("redis://localhost:6379/0", timeout_s=0)
 
 
-def test_create_redis_broker_rejects_unsupported_url_scheme() -> None:
+def test_redis_broker_rejects_unsupported_url_scheme() -> None:
     with pytest.raises(JobQueueConfigError, match="schemes") as exc_info:
-        create_redis_broker("http://localhost:6379/0")
+        _create_redis_broker("http://localhost:6379/0")
     assert isinstance(exc_info.value.__cause__, ValueError)
 
 
 def test_rejects_empty_queue_name(stub_broker: StubBroker) -> None:
     with pytest.raises(JobQueueConfigError, match="name"):
-        RedisJobQueue(name="", model=ParseJobMessage, broker=stub_broker)
+        DramatiqJobQueue(name="", model=ParseJobMessage, broker=stub_broker)
 
 
 def test_rejects_whitespace_queue_name(stub_broker: StubBroker) -> None:
     with pytest.raises(JobQueueConfigError, match="name"):
-        RedisJobQueue(name="  \t", model=ParseJobMessage, broker=stub_broker)
+        DramatiqJobQueue(name="  \t", model=ParseJobMessage, broker=stub_broker)
 
 
 def test_rejects_negative_max_retries(stub_broker: StubBroker) -> None:
     with pytest.raises(JobQueueConfigError, match="max_retries"):
-        RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker, max_retries=-1)
+        DramatiqJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker, max_retries=-1)
 
 
 def test_rejects_non_positive_time_limit(stub_broker: StubBroker) -> None:
     with pytest.raises(JobQueueConfigError, match="time_limit_ms"):
-        RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker, time_limit_ms=0)
+        DramatiqJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker, time_limit_ms=0)
 
 
 def test_rejects_non_positive_min_backoff(stub_broker: StubBroker) -> None:
     with pytest.raises(JobQueueConfigError, match="min_backoff_ms"):
-        RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker, min_backoff_ms=0)
+        DramatiqJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker, min_backoff_ms=0)
 
 
 def test_rejects_non_positive_worker_threads(stub_broker: StubBroker) -> None:
     with pytest.raises(JobQueueConfigError, match="worker_threads"):
-        RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker, worker_threads=0)
+        DramatiqJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker, worker_threads=0)
 
 
 def test_rejects_non_positive_worker_timeout(stub_broker: StubBroker) -> None:
     with pytest.raises(JobQueueConfigError, match="worker_timeout_ms"):
-        RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker, worker_timeout_ms=0)
+        DramatiqJobQueue(
+            name="parse", model=ParseJobMessage, broker=stub_broker, worker_timeout_ms=0
+        )
 
 
 def test_rejects_queue_name_starting_with_digit(stub_broker: StubBroker) -> None:
     with pytest.raises(JobQueueConfigError, match="letter"):
-        RedisJobQueue(name="123name", model=ParseJobMessage, broker=stub_broker)
+        DramatiqJobQueue(name="123name", model=ParseJobMessage, broker=stub_broker)
+
+    assert "123name" not in stub_broker.actors
+    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
+    assert not isinstance(time_limit.manager, _DeadlineThread)
 
 
 def test_rejects_duplicate_queue_name_on_same_broker(stub_broker: StubBroker) -> None:
-    RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker)
+    DramatiqJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker)
     with pytest.raises(JobQueueConfigError, match="already registered"):
-        RedisJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker)
+        DramatiqJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker)
 
 
 def test_submit_and_consume_round_trip(stub_broker: StubBroker) -> None:
@@ -151,7 +159,7 @@ def test_worker_settings_reach_the_dramatiq_worker(
 
     monkeypatch.setattr(redis_queue_module, "Worker", capture)
     handler = _Recorder()
-    queue = RedisJobQueue(
+    queue = DramatiqJobQueue(
         name="parse",
         model=ParseJobMessage,
         broker=stub_broker,
@@ -298,7 +306,7 @@ def test_malformed_log_names_fields_without_values(
             "token": "s3cret",
         }
     )
-    with caplog.at_level(logging.WARNING, logger="bioparser.jobqueue.redis_queue"):
+    with caplog.at_level(logging.WARNING, logger="bioparser.jobqueue.dramatiq.redis_queue"):
         queue.consume(_Recorder(), until_empty=True)
     assert "s3cret" not in caplog.text
     assert "token: extra_forbidden" in caplog.text
@@ -336,14 +344,14 @@ def test_handler_failure_calls_on_failed_after_retries(stub_broker: StubBroker) 
 
 
 def test_time_limit_calls_on_failed_after_retries(stub_broker: StubBroker) -> None:
-    handler = _Recorder(raises=TimeLimitExceeded())
+    handler = _Recorder(raises=JobTimeLimitExceeded())
     queue = _queue(stub_broker, max_retries=0)
     expected = _message()
     queue.submit(expected)
     queue.consume(handler, until_empty=True)
     assert len(handler.failed) == 1
     assert handler.failed[0][0] == expected
-    assert isinstance(handler.failed[0][1], TimeLimitExceeded)
+    assert isinstance(handler.failed[0][1], JobTimeLimitExceeded)
 
 
 class _Hanging(JobHandler[ParseJobMessage]):
@@ -351,13 +359,15 @@ class _Hanging(JobHandler[ParseJobMessage]):
 
     def __init__(self) -> None:
         self.interrupted = Event()
+        self.calls = 0
         self.failed: list[BaseException] = []
 
     def handle(self, message: ParseJobMessage) -> None:
+        self.calls += 1
         try:
             for _ in range(1000):
                 time.sleep(0.01)
-        except TimeLimitExceeded:
+        except JobTimeLimitExceeded:
             self.interrupted.set()
             raise
 
@@ -376,7 +386,8 @@ def test_consume_enforces_the_time_limit(stub_broker: StubBroker) -> None:
     queue.consume(handler, until_empty=True)
 
     assert handler.interrupted.is_set()
-    assert [type(exc) for exc in handler.failed] == [TimeLimitExceeded]
+    assert handler.calls == 1
+    assert [type(exc) for exc in handler.failed] == [JobTimeLimitExceeded]
 
 
 def test_consume_can_run_more_than_once_on_one_broker(stub_broker: StubBroker) -> None:
@@ -388,10 +399,10 @@ def test_consume_can_run_more_than_once_on_one_broker(stub_broker: StubBroker) -
 
 
 def test_redis_broker_has_the_middleware_the_queue_relies_on() -> None:
-    broker = create_redis_broker("redis://localhost:6379/0")
+    broker = _create_redis_broker("redis://localhost:6379/0")
 
     kinds = {type(middleware) for middleware in broker.middleware}
-    RedisJobQueue(name="parse", model=ParseJobMessage, broker=broker)
+    DramatiqJobQueue(name="parse", model=ParseJobMessage, broker=broker)
 
     assert {TimeLimit, Retries} <= kinds
     assert CurrentMessage in {type(middleware) for middleware in broker.middleware}
@@ -429,3 +440,48 @@ def test_stop_waits_for_the_running_job_to_finish(stub_broker: StubBroker) -> No
     queue.consume(_Slow(), stop=stop)
 
     assert finished.is_set()
+
+
+def test_several_queues_on_one_broker_share_one_job_time_limit(stub_broker: StubBroker) -> None:
+    _queue(stub_broker, name="first")
+    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
+    manager = time_limit.manager
+
+    _queue(stub_broker, name="second")
+
+    assert isinstance(manager, _DeadlineThread)
+    assert time_limit.manager is manager
+
+
+def test_process_boot_after_the_queue_is_built_leaves_the_timer_running() -> None:
+    """Dramatiq's CLI emits process_boot, which starts the manager a second time."""
+    broker = StubBroker()
+    try:
+        DramatiqJobQueue(name="parse", model=ParseJobMessage, broker=broker)
+        (time_limit,) = [m for m in broker.middleware if isinstance(m, TimeLimit)]
+        manager = time_limit.manager
+
+        broker.emit_after("process_boot")
+
+        assert time_limit.manager is manager
+        assert isinstance(manager, _DeadlineThread)
+        assert manager.is_alive()
+    finally:
+        broker.close()
+
+
+def test_queue_refuses_a_broker_whose_time_limit_already_runs() -> None:
+    broker = StubBroker()
+    broker.emit_after("process_boot")  # starts Dramatiq's own timer, which raises its own type
+
+    with pytest.raises(JobQueueConfigError, match="time limit"):
+        DramatiqJobQueue(name="parse", model=ParseJobMessage, broker=broker)
+    broker.close()
+
+
+def test_queue_refuses_a_broker_without_a_time_limit_middleware() -> None:
+    broker = StubBroker(middleware=[])
+
+    with pytest.raises(JobQueueConfigError, match="TimeLimit"):
+        DramatiqJobQueue(name="parse", model=ParseJobMessage, broker=broker)
+    broker.close()

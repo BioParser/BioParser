@@ -43,8 +43,10 @@ def validate_artifact_path(value: str) -> str:
 
     Raises:
         ArtifactPathTraversalError: A segment is ``.`` or ``..``.
-        ArtifactPathError: The path violates any other rule.
+        ArtifactPathError: The path is not a string or violates any other rule.
     """
+    if not isinstance(value, str):
+        raise ArtifactPathError("Artifact path must be a string")
     if not value:
         raise ArtifactPathError("Artifact path cannot be empty")
     if len(value) > ARTIFACT_PATH_MAX_LENGTH:
