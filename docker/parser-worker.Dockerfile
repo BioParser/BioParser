@@ -5,10 +5,10 @@
 # MinerU lives in its own venv, built in a throwaway stage, so its torch stack never
 # touches the app's locked dependencies and uv's download cache never lands in an image
 # layer. The model weights are downloaded once, in the CPU stage, and copied into both
-# targets. The GPU stage only swaps in a CUDA build of that same venv.
+# targets. The GPU target builds its own CUDA virtualenv.
 
-# uv 0.12.9; index digest so amd64 and arm64 both resolve.
-FROM ghcr.io/astral-sh/uv:0.12.9@sha256:8b940d3a9d65bed080436972241af2e21c84b5e8c9193f7014ed71479ee795ff AS uv
+# uv 0.12.23, the same pin as CI. Index digest so amd64 and arm64 both resolve.
+FROM ghcr.io/astral-sh/uv:0.12.23@sha256:61d393e44e249f2e4b526b6c7ddcecce245946826e608e11c93ad4f5bba55b21 AS uv
 
 # python 3.13.15-slim-trixie; index digest so amd64 and arm64 both resolve.
 FROM python:3.13-slim@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285 AS base
