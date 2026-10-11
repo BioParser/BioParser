@@ -5,7 +5,14 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from bioparser.extract.schema import TRAIT_UNITS, Extraction, Observation, to_canonical
+from bioparser.extract.schema import (
+    TRAIT_UNITS,
+    Extraction,
+    ExtractionArtifact,
+    Observation,
+    StoredObservation,
+    to_canonical,
+)
 from bioparser.parser.models import BlockRole, ParserArtifact, TextContent
 from bioparser.services.vllm import VLLMService
 
@@ -148,4 +155,18 @@ async def extract_observations(
         blocks_used=len(rendered.blocks),
         prompt_characters=len(rendered.text),
         truncated=rendered.truncated,
+    )
+
+
+def artifact_from_report(report: ExtractionReport) -> ExtractionArtifact:
+    """The stored artifact for one report. Flags stay on the observations."""
+    return ExtractionArtifact(
+        observations=[
+            StoredObservation.model_validate(item.payload()) for item in report.observations
+        ],
+        ungrounded=report.ungrounded,
+        unit_mismatched=report.unit_mismatched,
+        blocks_used=report.blocks_used,
+        prompt_characters=report.prompt_characters,
+        truncated=report.truncated,
     )

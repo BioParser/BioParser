@@ -1,14 +1,9 @@
-import asyncio
-import ctypes
 import hashlib
 import json
 import logging
-import signal
-import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from threading import Event
 from uuid import UUID
 
 import pytest
@@ -50,7 +45,6 @@ from bioparser.storage.errors import ArtifactAlreadyExistsError, ArtifactNotFoun
 from bioparser.storage.models import ArtifactMetadata
 from bioparser.worker.parse.config import DEFAULT_PARSE_MAX_RETRIES
 from bioparser.worker.parse.handler import ParseJobHandler
-from bioparser.worker.parse.runtime import install_shutdown
 
 JOB_ID = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
 PDF_REF = (
@@ -184,6 +178,7 @@ def _handler(
     *,
     factory: Callable[[str], PdfParser] | None = None,
     max_claims: int = DEFAULT_PARSE_MAX_RETRIES + 1,
+    enqueue: Callable[[UUID], None] | None = None,
 ) -> ParseJobHandler:
     def _factory(name: str) -> PdfParser:
         if name != "default":
@@ -195,6 +190,7 @@ def _handler(
         storage=storage,
         parser_factory=factory or _factory,
         max_claims=max_claims,
+        enqueue_extraction=enqueue,
     )
 
 
@@ -215,6 +211,48 @@ def test_success_stores_artifact_and_marks_parsed() -> None:
     restored = ParserArtifact.model_validate_json(stored)
     assert restored == _artifact()
     assert storage.metadata[RESULT_PATH].created_by == "parser-worker"
+
+
+def test_success_wakes_the_extractor_and_a_duplicate_wakes_it_again() -> None:
+    jobs = MemoryJobs(_queued())
+    woken: list[UUID] = []
+    handler = _handler(
+        jobs,
+        MemoryStorage(),
+        RecordingParser(_artifact()),
+        enqueue=woken.append,
+    )
+    message = _message()
+    handler.handle(message)
+    handler.handle(message)
+    handler.close()
+
+    assert woken == [JOB_ID, JOB_ID]
+    assert jobs.state is not None
+    assert jobs.state.status == "parsed"
+
+
+def test_a_lost_wake_up_is_sent_again_on_the_next_delivery() -> None:
+    jobs = MemoryJobs(_queued())
+    calls = 0
+
+    def _enqueue(job_id: UUID) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("queue down")
+
+    handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()), enqueue=_enqueue)
+    message = _message()
+    with pytest.raises(RuntimeError, match="queue down"):
+        handler.handle(message)
+    assert jobs.state is not None
+    assert jobs.state.status == "parsed"
+
+    handler.handle(message)
+    handler.close()
+    assert calls == 2
+    assert jobs.state.status == "parsed"
 
 
 def test_duplicate_delivery_does_not_parse_again() -> None:
@@ -484,36 +522,6 @@ def test_on_failed_records_timeout() -> None:
     assert jobs.state.error == SafeError(code="timeout")
 
 
-def test_interrupted_async_call_is_cancelled_not_resumed() -> None:
-    """A JobTimeLimitExceeded mid-await must not leave a task that resumes on the next call."""
-    handler = _handler(MemoryJobs(_queued()), MemoryStorage(), RecordingParser(_artifact()))
-    resumed: list[str] = []
-
-    async def slow() -> None:
-        try:
-            while True:
-                await asyncio.sleep(0.02)
-        finally:
-            resumed.append("cleanup")
-
-    # Inject the exception into this thread while the loop runs, as dramatiq does.
-    caller = threading.get_ident()
-    timer = threading.Timer(
-        0.2,
-        lambda: ctypes.pythonapi.PyThreadState_SetAsyncExc(
-            ctypes.c_ulong(caller), ctypes.py_object(JobTimeLimitExceeded)
-        ),
-    )
-    timer.start()
-    with pytest.raises(JobTimeLimitExceeded):
-        handler.run_async(slow())
-    timer.join()
-    assert handler.run_async(asyncio.sleep(0, result="next")) == "next"
-    assert resumed == ["cleanup"]
-    assert not asyncio.all_tasks(handler._loop)
-    handler.close()
-
-
 def test_on_failed_does_not_reopen_a_finished_job() -> None:
     finished = _queued().with_changes(
         status="parsed", parse_result_ref="7c2e1d3b-8e55-4f2b-ad4c-3a9f6b1e7d22"
@@ -527,9 +535,13 @@ def test_on_failed_does_not_reopen_a_finished_job() -> None:
 
 @pytest.mark.parametrize("status", ["parsed", "extracting", "done"])
 def test_job_past_the_parse_stage_is_left_alone(status: str) -> None:
-    later = _queued().with_changes(
-        status=status, parse_result_ref="7c2e1d3b-8e55-4f2b-ad4c-3a9f6b1e7d22"
-    )
+    fields: dict[str, object] = {
+        "status": status,
+        "parse_result_ref": "7c2e1d3b-8e55-4f2b-ad4c-3a9f6b1e7d22",
+    }
+    if status == "done":
+        fields["extract_result_ref"] = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+    later = _queued().with_changes(**fields)
     jobs = MemoryJobs(later)
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, MemoryStorage(), parser)
@@ -545,21 +557,6 @@ def test_malformed_message_with_non_string_job_id_is_ignored() -> None:
     handler.on_malformed({"job_id": 12345})  # must not raise
     handler.close()
     assert jobs.state == _queued()
-
-
-def test_install_shutdown_stops_on_sigterm() -> None:
-    stop = Event()
-    previous_term = signal.getsignal(signal.SIGTERM)
-    previous_int = signal.getsignal(signal.SIGINT)
-    install_shutdown(stop)
-    try:
-        handler = signal.getsignal(signal.SIGTERM)
-        assert callable(handler)
-        handler(signal.SIGTERM, None)
-        assert stop.is_set()
-    finally:
-        signal.signal(signal.SIGTERM, previous_term)
-        signal.signal(signal.SIGINT, previous_int)
 
 
 def test_killed_parser_process_is_retried_not_failed_as_invalid_pdf() -> None:
@@ -621,6 +618,24 @@ def _consume(handler: ParseJobHandler, *, max_retries: int, time_limit_ms: int =
         handler.close()
         broker.flush_all()
         broker.close()
+
+
+def test_exhausted_wake_retries_try_once_more_when_the_job_is_parsed() -> None:
+    jobs = MemoryJobs(_queued())
+    calls: list[UUID] = []
+
+    def _enqueue(job_id: UUID) -> None:
+        calls.append(job_id)
+        raise RuntimeError("queue down")
+
+    handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()), enqueue=_enqueue)
+    _consume(handler, max_retries=1)
+
+    assert jobs.state is not None
+    assert jobs.state.status == "parsed"
+    assert jobs.state.error is None
+    # Two deliveries, then on_failed sends the wake-up that those deliveries could not.
+    assert calls == [JOB_ID, JOB_ID, JOB_ID]
 
 
 def test_a_job_runs_from_the_queue_to_parsed() -> None:

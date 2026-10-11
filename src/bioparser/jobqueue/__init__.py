@@ -1,8 +1,9 @@
 from .errors import JobQueueConfigError, JobQueueError, JobTimeLimitExceeded, MalformedJob
-from .messages import ParseJobMessage
+from .messages import ExtractJobMessage, ParseJobMessage
 from .protocol import JobHandler, JobQueue
 
 __all__ = [
+    "ExtractJobMessage",
     "JobHandler",
     "JobQueue",
     "JobQueueConfigError",

@@ -6,7 +6,7 @@ from threading import Event
 from typing import Any
 
 import pytest
-from dramatiq import Broker, Worker
+from dramatiq import Broker, Message, Worker
 from dramatiq.brokers.stub import StubBroker
 from dramatiq.middleware import CurrentMessage, Retries
 from dramatiq.middleware.time_limit import TimeLimit
@@ -420,6 +420,32 @@ def test_redis_broker_has_the_middleware_the_queue_relies_on() -> None:
 
     assert {TimeLimit, Retries} <= kinds
     assert CurrentMessage in {type(middleware) for middleware in broker.middleware}
+
+
+def test_submit_only_queue_leaves_retries_and_time_limit_to_the_consumer(
+    stub_broker: StubBroker,
+) -> None:
+    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
+    manager = time_limit.manager
+    queue = DramatiqJobQueue(
+        name="extract",
+        model=ParseJobMessage,
+        broker=stub_broker,
+        submit_only=True,
+    )
+    queue.submit(_message())
+
+    assert time_limit.manager is manager
+    assert not isinstance(manager, _DeadlineThread)
+    options = stub_broker.get_actor("extract").options
+    assert "max_retries" not in options
+    assert "time_limit" not in options
+    encoded = stub_broker.queues["extract"].get_nowait()
+    message = Message.decode(encoded)
+    assert "max_retries" not in message.options
+    assert "time_limit" not in message.options
+    with pytest.raises(JobQueueError, match="only submits"):
+        queue.consume(_Recorder(), until_empty=True)
 
 
 def test_queue_options_reach_the_actor(stub_broker: StubBroker) -> None:

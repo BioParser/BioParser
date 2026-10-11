@@ -51,6 +51,7 @@ class WorkerSettings(BaseSettings):
     liveness_port: int = Field(default=DEFAULT_LIVENESS_PORT, ge=1, le=65535)
     mineru_base_url: AnyHttpUrl = AnyHttpUrl("http://mineru:8000")
     mineru_tier: MinerUTier = DEFAULT_TIER
+    extract_queue_name: str = Field(min_length=1)
 
     @property
     def parse_max_claims(self) -> int:
