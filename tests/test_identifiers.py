@@ -101,6 +101,12 @@ def test_dot_segments_raise_traversal_error(path: str) -> None:
         validate_artifact_path(path)
 
 
+@pytest.mark.parametrize("value", [None, 0, 123, b"pdf/abc", ["pdf", "abc"]])
+def test_non_strings_are_rejected(value: object) -> None:
+    with pytest.raises(ArtifactPathError, match="must be a string"):
+        validate_artifact_path(value)  # type: ignore[arg-type]
+
+
 def test_traversal_error_is_an_artifact_path_error_and_value_error() -> None:
     assert issubclass(ArtifactPathTraversalError, ArtifactPathError)
     assert issubclass(ArtifactPathError, ValueError)
