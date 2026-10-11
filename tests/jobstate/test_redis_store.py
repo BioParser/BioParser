@@ -71,7 +71,10 @@ def _in_status(state: JobState, status: str) -> JobState:
     fields: dict[str, object] = {"status": status, "parse_result_ref": None, "error": None}
     if status == "failed":
         fields["error"] = {"code": "parse_failed"}
-    elif status in ("parsed", "extracting", "done"):
+    elif status == "done":
+        fields["parse_result_ref"] = str(uuid.uuid4())
+        fields["extract_result_ref"] = str(uuid.uuid4())
+    elif status in ("parsed", "extracting"):
         fields["parse_result_ref"] = str(uuid.uuid4())
     return state.with_changes(**fields)
 
@@ -197,7 +200,11 @@ async def test_update_refuses_done_over_failed(store: RedisJobStateStore) -> Non
     await store.create(state)
     failed = state.with_changes(status="failed", error={"code": "parse_failed"})
     await store.update(failed)
-    done = state.with_changes(status="done", parse_result_ref=str(uuid.uuid4()))
+    done = state.with_changes(
+        status="done",
+        parse_result_ref=str(uuid.uuid4()),
+        extract_result_ref=str(uuid.uuid4()),
+    )
 
     with pytest.raises(StaleJobStateWriteError):
         await store.update(done)

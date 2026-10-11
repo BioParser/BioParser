@@ -75,6 +75,7 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         min_backoff_ms: int = _DEFAULT_MIN_BACKOFF_MS,
         worker_threads: int = _DEFAULT_WORKER_THREADS,
         worker_timeout_ms: int = _DEFAULT_WORKER_TIMEOUT_MS,
+        submit_only: bool = False,
     ) -> None:
         if not _QUEUE_NAME_RE.fullmatch(name):
             raise JobQueueConfigError(
@@ -93,18 +94,24 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
             raise JobQueueConfigError("worker_timeout_ms must be > 0")
         if name in broker.actors:
             raise JobQueueConfigError(f"queue {name!r} is already registered on this broker")
-        _ensure_current_message(broker)
-        use_job_time_limit(broker)
         self._name = name
         self._model = model
         self._broker = broker
+        self._submit_only = submit_only
         self._max_retries = max_retries
         self._worker_threads = worker_threads
         self._worker_timeout_ms = worker_timeout_ms
         self._handler: JobHandler[T] | None = None
         self._consuming = Lock()
         try:
-            self._actor: Actor[[object], None] = self._register_actor(
+            if submit_only:
+                # Sending needs an actor. The process that consumes this queue name
+                # registers the actor Dramatiq asks for retries and the time limit.
+                self._actor: Actor[[object], None] = self._register_submit_actor()
+                return
+            _ensure_current_message(broker)
+            use_job_time_limit(broker)
+            self._actor = self._register_actor(
                 time_limit_ms=time_limit_ms,
                 max_retries=max_retries,
                 min_backoff_ms=min_backoff_ms,
@@ -139,6 +146,24 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
             worker_timeout_ms=worker_timeout_ms,
         )
 
+    @classmethod
+    def from_redis_submit_only(
+        cls,
+        url: str,
+        *,
+        name: str,
+        model: type[T],
+        timeout_s: float = _DEFAULT_REDIS_TIMEOUT_S,
+        namespace: str = _DEFAULT_BROKER_NAMESPACE,
+    ) -> "DramatiqJobQueue[T]":
+        """A queue that only enqueues. The consumer owns retries and the time limit."""
+        return cls(
+            name=name,
+            model=model,
+            broker=_create_redis_broker(url, timeout_s=timeout_s, namespace=namespace),
+            submit_only=True,
+        )
+
     def submit(self, message: T) -> None:
         payload = message.model_dump(mode="json")
         try:
@@ -153,6 +178,8 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         until_empty: bool = False,
         stop: Event | None = None,
     ) -> None:
+        if self._submit_only:
+            raise JobQueueError(f"queue {self._name!r} only submits")
         with self._bind(handler):
             worker = Worker(
                 self._broker,
@@ -183,6 +210,15 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         finally:
             self._handler = None
             self._consuming.release()
+
+    def _register_submit_actor(self) -> Actor[[object], None]:
+        name = self._name
+
+        @dramatiq.actor(broker=self._broker, actor_name=name, queue_name=name)
+        def publish(_payload: object) -> None:
+            raise JobQueueError(f"queue {name!r} only submits")
+
+        return publish
 
     def _register_actor(
         self, *, time_limit_ms: int, max_retries: int, min_backoff_ms: int

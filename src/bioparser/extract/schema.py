@@ -54,6 +54,39 @@ class Observation(BaseModel):
     quotation: str = Field(min_length=1, max_length=300)
 
 
+EXTRACTION_ARTIFACT_SCHEMA_VERSION: Literal["1"] = "1"
+
+
+class StoredObservation(BaseModel):
+    """One checked measurement as it is stored. The model schema stays `Observation`."""
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    taxon: str = Field(min_length=1, max_length=120)
+    trait: Trait
+    value: float = Field(gt=0, allow_inf_nan=False)
+    unit: Unit
+    evidence_block_id: str = Field(min_length=1, max_length=80)
+    quotation: str = Field(min_length=1, max_length=300)
+    canonical_value: float = Field(gt=0, allow_inf_nan=False)
+    grounded: bool
+    unit_ok: bool
+
+
+class ExtractionArtifact(BaseModel):
+    """Versioned extraction result stored for a job."""
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    schema_version: Literal["1"] = EXTRACTION_ARTIFACT_SCHEMA_VERSION
+    observations: list[StoredObservation] = Field(default_factory=list, max_length=8)
+    ungrounded: int = Field(ge=0)
+    unit_mismatched: int = Field(ge=0)
+    blocks_used: int = Field(ge=0)
+    prompt_characters: int = Field(ge=0)
+    truncated: bool
+
+
 class Extraction(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
     # 8 * ~70 tokens = ~560 tokens; raise --max-model-len before raising this.

@@ -44,6 +44,7 @@ class WorkerSettings(BaseSettings):
     parse_time_limit_seconds: float = Field(default=DEFAULT_PARSE_TIME_LIMIT_SECONDS, gt=0)
     parse_max_retries: int = Field(default=DEFAULT_PARSE_MAX_RETRIES, ge=0)
     liveness_port: int = Field(default=DEFAULT_LIVENESS_PORT, ge=1, le=65535)
+    extract_queue_name: str = Field(min_length=1)
 
     @property
     def parse_max_claims(self) -> int:
