@@ -7,6 +7,8 @@ from bioparser.identifiers import (
     ArtifactPath,
     ArtifactPathError,
     ArtifactPathTraversalError,
+    parse_result_path,
+    pdf_path,
     validate_artifact_path,
 )
 
@@ -127,3 +129,31 @@ def test_pydantic_field_round_trips_json() -> None:
     original = _Holder(path=f"pdf/{CHECKSUM}/parsed/mineru/1.0")
     restored = _Holder.model_validate_json(original.model_dump_json())
     assert restored == original
+
+
+def test_pdf_path_follows_the_convention() -> None:
+    assert pdf_path(CHECKSUM) == f"pdf/{CHECKSUM}"
+
+
+def test_parse_result_path_follows_the_convention() -> None:
+    path = parse_result_path(CHECKSUM, "mineru", "1")
+    assert path == f"pdf/{CHECKSUM}/parsed/mineru/1"
+    assert path.startswith(pdf_path(CHECKSUM) + "/")
+
+
+@pytest.mark.parametrize(
+    "bad", ["", "a/b", "/a", "has space", "a" * (ARTIFACT_PATH_MAX_SEGMENT_LENGTH + 1)]
+)
+def test_builders_reject_a_value_that_is_not_one_segment(bad: str) -> None:
+    with pytest.raises(ArtifactPathError):
+        pdf_path(bad)
+    with pytest.raises(ArtifactPathError):
+        parse_result_path(CHECKSUM, bad, "1")
+    with pytest.raises(ArtifactPathError):
+        parse_result_path(CHECKSUM, "default", bad)
+
+
+@pytest.mark.parametrize("bad", [".", ".."])
+def test_builders_reject_dot_segments(bad: str) -> None:
+    with pytest.raises(ArtifactPathTraversalError):
+        parse_result_path(CHECKSUM, bad, "1")

@@ -1,5 +1,6 @@
 import asyncio
 import ctypes
+import hashlib
 import json
 import logging
 import signal
@@ -15,6 +16,7 @@ import pytest
 from dramatiq.brokers.stub import StubBroker
 from dramatiq.middleware.time_limit import TimeLimit, TimeLimitExceeded
 
+from bioparser.identifiers import parse_result_path
 from bioparser.jobqueue import RedisJobQueue
 from bioparser.jobqueue.messages import ParseJobMessage
 from bioparser.jobstate.errors import (
@@ -43,15 +45,21 @@ from bioparser.parser.models import (
     TextContent,
 )
 from bioparser.parser.protocol import PdfParser
+from bioparser.parser_names import PARSER_VERSIONS
 from bioparser.storage import StoredArtifact
 from bioparser.storage.errors import ArtifactAlreadyExistsError, ArtifactNotFoundError
 from bioparser.storage.models import ArtifactMetadata
 from bioparser.worker.parse.config import DEFAULT_PARSE_MAX_RETRIES
-from bioparser.worker.parse.handler import ParseJobHandler, _parser_artifact_path
+from bioparser.worker.parse.handler import ParseJobHandler
 from bioparser.worker.parse.runtime import install_shutdown
 
 JOB_ID = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
-PDF_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
+PDF_REF = (
+    "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"  # kept as a UUID: the worker doesn't depend on its shape
+)
+PDF_BYTES = b"%PDF-1.4"
+PDF_CHECKSUM = hashlib.sha256(PDF_BYTES).hexdigest()
+RESULT_PATH = parse_result_path(PDF_CHECKSUM, "default", "1")
 
 
 class MemoryJobs:
@@ -79,7 +87,7 @@ class MemoryJobs:
 
 class MemoryStorage:
     def __init__(self) -> None:
-        self.payloads: dict[str, bytes] = {PDF_REF: b"%PDF-1.4"}
+        self.payloads: dict[str, bytes] = {PDF_REF: PDF_BYTES}
         self.metadata: dict[str, ArtifactMetadata] = {}
         self.stores = 0
 
@@ -202,13 +210,12 @@ def test_success_stores_artifact_and_marks_parsed() -> None:
     assert parser.paths == [b"%PDF-1.4"]
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
-    assert jobs.state.parse_result_ref == _parser_artifact_path(JOB_ID)
+    assert jobs.state.parse_result_ref == RESULT_PATH
     assert jobs.state.claims("parsing") == 1
-    assert UUID(_parser_artifact_path(JOB_ID)).version == 5
-    stored = storage.retrieve(_parser_artifact_path(JOB_ID))
+    stored = storage.retrieve(RESULT_PATH)
     restored = ParserArtifact.model_validate_json(stored)
     assert restored == _artifact()
-    assert storage.metadata[_parser_artifact_path(JOB_ID)].created_by == "parser-worker"
+    assert storage.metadata[RESULT_PATH].created_by == "parser-worker"
 
 
 def test_duplicate_delivery_does_not_parse_again() -> None:
@@ -218,13 +225,13 @@ def test_duplicate_delivery_does_not_parse_again() -> None:
     handler = _handler(jobs, storage, parser)
     message = _message()
     handler.handle(message)
-    stored = storage.retrieve(_parser_artifact_path(JOB_ID))
+    stored = storage.retrieve(RESULT_PATH)
     handler.handle(message)
     handler.close()
 
     assert parser.paths == [b"%PDF-1.4"]
     assert storage.stores == 1
-    assert storage.retrieve(_parser_artifact_path(JOB_ID)) == stored
+    assert storage.retrieve(RESULT_PATH) == stored
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
 
@@ -405,7 +412,7 @@ def test_invalid_existing_artifact_fails_the_job() -> None:
     jobs = MemoryJobs(_queued())
     storage = MemoryStorage()
     invalid = b'{"old":true}'
-    storage.payloads[_parser_artifact_path(JOB_ID)] = invalid
+    storage.payloads[RESULT_PATH] = invalid
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, storage, parser)
     handler.handle(_message())
@@ -413,7 +420,7 @@ def test_invalid_existing_artifact_fails_the_job() -> None:
 
     assert parser.paths == []
     assert storage.stores == 0
-    assert storage.retrieve(_parser_artifact_path(JOB_ID)) == invalid
+    assert storage.retrieve(RESULT_PATH) == invalid
     assert jobs.state is not None
     assert jobs.state.status == "failed"
     assert jobs.state.error == SafeError(code="internal_error")
@@ -423,7 +430,7 @@ def test_different_valid_artifact_is_reused_without_parsing() -> None:
     jobs = MemoryJobs(_queued())
     storage = MemoryStorage()
     stored = _artifact().model_copy(update={"checksum": "other"}).model_dump_json().encode()
-    storage.payloads[_parser_artifact_path(JOB_ID)] = stored
+    storage.payloads[RESULT_PATH] = stored
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, storage, parser)
     handler.handle(_message())
@@ -431,17 +438,17 @@ def test_different_valid_artifact_is_reused_without_parsing() -> None:
 
     assert parser.paths == []
     assert storage.stores == 0
-    assert storage.retrieve(_parser_artifact_path(JOB_ID)) == stored
+    assert storage.retrieve(RESULT_PATH) == stored
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
-    assert jobs.state.parse_result_ref == _parser_artifact_path(JOB_ID)
+    assert jobs.state.parse_result_ref == RESULT_PATH
 
 
 def test_identical_existing_artifact_is_reused() -> None:
     jobs = MemoryJobs(_queued().with_changes(status="parsing"))
     storage = MemoryStorage()
     payload = _artifact().model_dump_json().encode()
-    storage.payloads[_parser_artifact_path(JOB_ID)] = payload
+    storage.payloads[RESULT_PATH] = payload
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, storage, parser)
     handler.handle(_message())
@@ -450,7 +457,7 @@ def test_identical_existing_artifact_is_reused() -> None:
     assert storage.stores == 0
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
-    assert jobs.state.parse_result_ref == _parser_artifact_path(JOB_ID)
+    assert jobs.state.parse_result_ref == RESULT_PATH
 
 
 def test_missing_job_state_is_retried() -> None:
@@ -685,3 +692,37 @@ def test_queue_time_limit_fails_the_job_as_timeout_without_retry() -> None:
     assert jobs.state is not None
     assert jobs.state.status == "failed"
     assert jobs.state.error == SafeError(code="timeout")
+
+
+def test_second_job_with_the_same_pdf_reuses_the_artifact() -> None:
+    storage = MemoryStorage()
+    parser = RecordingParser(_artifact())
+    first = MemoryJobs(_queued())
+    handler = _handler(first, storage, parser)
+    handler.handle(_message())
+    handler.close()
+
+    other_id = UUID("9d0c6a52-1b7e-4c3f-a2d8-5e6f7a8b9c01")
+    second = MemoryJobs(_queued().with_changes(job_id=other_id))
+    handler = _handler(second, storage, parser)
+    handler.handle(_message(job_id=str(other_id)))
+    handler.close()
+
+    assert parser.paths == [PDF_BYTES]  # parsed once
+    assert second.state is not None
+    assert second.state.status == "parsed"
+    assert second.state.parse_result_ref == RESULT_PATH
+
+
+def test_each_backend_gets_its_own_result_path() -> None:
+    jobs = MemoryJobs(_queued().with_changes(parser="mineru"))
+    storage = MemoryStorage()
+    parser = RecordingParser(_artifact())
+    handler = _handler(jobs, storage, parser, factory=lambda _name: parser)
+    handler.handle(_message())
+    handler.close()
+
+    assert jobs.state is not None
+    assert jobs.state.parse_result_ref == parse_result_path(
+        PDF_CHECKSUM, "mineru", PARSER_VERSIONS["mineru"]
+    )
