@@ -1,9 +1,11 @@
 import asyncio
+import hashlib
 import json
 import os
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from uuid import UUID
 
 import httpx2
 import pytest
@@ -13,9 +15,10 @@ from bioparser.api.app import app
 from bioparser.jobqueue import ParseJobMessage
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
-from bioparser.jobstate import RedisJobStateStore
+from bioparser.jobstate import JobState, RedisJobStateStore
 from bioparser.parser import ParserArtifact
 from bioparser.parser.models import ParserInfo
+from bioparser.parser_names import DEFAULT_PARSER_NAME
 from bioparser.storage import ArtifactMetadata, FileSystemArtifactStorage
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
@@ -124,26 +127,24 @@ async def test_redis_backed_submission_and_polling(
         job_id = submission["job_id"]
         assert submission == {"job_id": job_id, "status": "queued"}
 
-        queued = await job_store.get(job_id)
+        expected_pdf_ref = f"pdf/{hashlib.sha256(MINIMAL_PDF).hexdigest()}"
+        parsed_job_id = UUID(job_id)
+        queued = await job_store.get(parsed_job_id)
         assert queued is not None
-        assert queued.status == "queued"
+        assert queued == JobState(
+            job_id=parsed_job_id,
+            status="queued",
+            parser=DEFAULT_PARSER_NAME,
+            pdf_ref=expected_pdf_ref,
+        )
         assert artifact_storage.retrieve(queued.pdf_ref) == MINIMAL_PDF
 
         # Redis must contain only typed state and artifact references, never
         # the uploaded PDF payload itself.
-        raw_state = await job_store._redis.get(job_store._key(job_id))
+        raw_state = await job_store._redis.get(job_store._key(parsed_job_id))
         assert raw_state is not None
         assert MINIMAL_PDF not in raw_state
-        assert set(json.loads(raw_state)) == {
-            "schema_version",
-            "job_id",
-            "parser",
-            "status",
-            "pdf_ref",
-            "parse_result_ref",
-            "error",
-            "claim_counts",
-        }
+        assert json.loads(raw_state) == queued.model_dump(mode="json")
 
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
@@ -161,7 +162,7 @@ async def test_redis_backed_submission_and_polling(
 
         # Worker execution is outside this issue, so simulate only its state
         # transitions through the real store and verify the public mappings.
-        running = queued.with_changes(status="parsing")
+        running = queued.with_claim("parsing")
         await job_store.update(running)
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
@@ -177,7 +178,7 @@ async def test_redis_backed_submission_and_polling(
         artifact_storage.store(
             ParserArtifact(
                 schema_version="1",
-                checksum="a" * 64,
+                checksum=hashlib.sha256(MINIMAL_PDF).hexdigest(),
                 parser=ParserInfo(name="test", version="1", configuration={}),
                 pages=[],
             )
@@ -196,3 +197,39 @@ async def test_redis_backed_submission_and_polling(
             "status": "parsed",
             "output_artifact_ref": f"art-result-{job_id}",
         }
+
+
+async def test_same_pdf_can_be_submitted_twice(
+    redis_api_dependencies: tuple[
+        RedisJobStateStore,
+        DramatiqJobQueue[ParseJobMessage],
+        FileSystemArtifactStorage,
+    ],
+) -> None:
+    job_store, parse_queue, artifact_storage = redis_api_dependencies
+
+    async with httpx2.AsyncClient(
+        transport=ASGITransport(app),
+        base_url="http://test",
+    ) as client:
+        responses = [
+            await client.post(
+                "/api/extractions",
+                files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
+            )
+            for _ in range(2)
+        ]
+
+    assert [response.status_code for response in responses] == [202, 202]
+    job_ids = [UUID(response.json()["job_id"]) for response in responses]
+    assert job_ids[0] != job_ids[1]
+
+    states = [await job_store.get(job_id) for job_id in job_ids]
+    assert all(state is not None for state in states)
+    pdf_refs = {state.pdf_ref for state in states if state is not None}
+    assert pdf_refs == {f"pdf/{hashlib.sha256(MINIMAL_PDF).hexdigest()}"}
+    assert artifact_storage.retrieve(pdf_refs.pop()) == MINIMAL_PDF
+
+    recorder = _Recorder()
+    await asyncio.to_thread(parse_queue.consume, recorder, until_empty=True)
+    assert {message.job_id for message in recorder.received} == set(job_ids)
