@@ -8,6 +8,8 @@ BioParser extracts mammal trait data (for example body length and weight) from b
 
 ## Quick start (Docker Compose)
 
+**NOTE:** Make sure to have at least 50GB of available storage space before running BioParser.
+
 Runs the full stack: API, MinerU, vLLM, Redis, and central logs (Loki, Alloy, Grafana).
 
 Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and needs the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). A CPU stack is also available.
