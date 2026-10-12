@@ -30,6 +30,7 @@ from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.config import get_settings as get_vllm_settings
 from bioparser.services.vllm.vllm import VLLMError
 from bioparser.storage import (
+    ArtifactAlreadyExistsError,
     ArtifactMetadata,
     ArtifactNotFoundError,
     CreationInfo,
@@ -264,6 +265,8 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         pdf_ref = await asyncio.to_thread(
             request.app.state.artifact_storage.store, pdf_bytes, artifact_metadata
         )
+    except ArtifactAlreadyExistsError:
+        pdf_ref = artifact_metadata.artifact_path
     except StorageError as exc:
         raise http_error(503, STORAGE_UNAVAILABLE) from exc
 

@@ -2,9 +2,11 @@ import json
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import httpx2
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
+from httpx2 import ASGITransport
 from pydantic import TypeAdapter
 from stubs import StubArtifactStorage, StubJobStateStore, StubParseQueue
 
@@ -119,6 +121,38 @@ def test_submit_pdf(client: TestClient) -> None:
     )
     assert response.status_code == 202
     assert response.json()["status"] == "queued"
+
+
+@pytest.mark.anyio
+async def test_duplicate_pdf_submission_reuses_stored_artifact(
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, job_store, parse_queue, _ = stub_api_adapters
+    artifact_storage = FileSystemArtifactStorage(tmp_path / "artifacts")
+    monkeypatch.setattr(api_app.state, "artifact_storage", artifact_storage)
+
+    async with httpx2.AsyncClient(
+        transport=ASGITransport(api_app),
+        base_url="http://test",
+    ) as client:
+        responses = [
+            await client.post(
+                "/api/extractions",
+                files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
+            )
+            for _ in range(2)
+        ]
+
+    assert [response.status_code for response in responses] == [202, 202]
+    job_ids = [response.json()["job_id"] for response in responses]
+    assert job_ids[0] != job_ids[1]
+    pdf_refs = {job_store.states[job_id].pdf_ref for job_id in job_ids}
+    assert len(pdf_refs) == 1
+    pdf_ref = pdf_refs.pop()
+    assert artifact_storage.retrieve(pdf_ref) == MINIMAL_PDF
+    assert [str(message.job_id) for message in parse_queue.messages] == job_ids
 
 
 def test_submit_missing_file_part(client: TestClient) -> None:
