@@ -16,7 +16,7 @@ from bioparser.api.errors import ErrorResponse
 from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
 from bioparser.jobqueue import JobQueueError
-from bioparser.jobstate import JobState, JobStateError, SafeError
+from bioparser.jobstate import CorruptJobStateError, JobState, JobStateError, SafeError
 from bioparser.parser import ParserArtifact
 from bioparser.parser.models import ParserInfo
 from bioparser.storage import (
@@ -507,6 +507,25 @@ def test_job_status_returns_503_when_redis_unavailable(
     assert response.status_code == 503
     ErrorResponse.model_validate(response.json())
     assert response.json()["detail"]["code"] == "redis_unavailable"
+
+
+def test_job_status_returns_503_when_stored_state_is_unreadable(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+) -> None:
+    job_store = stub_api_adapters[1]
+    job_store.get_error = CorruptJobStateError("invalid stored state")
+
+    response = client.get(f"/api/jobs/{uuid4()}")
+
+    assert response.status_code == 503
+    ErrorResponse.model_validate(response.json())
+    assert response.json() == {
+        "detail": {
+            "code": "job_state_unreadable",
+            "message": "Stored job state is unreadable",
+        }
+    }
 
 
 def test_submit_returns_503_when_redis_unavailable(

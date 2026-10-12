@@ -14,6 +14,7 @@ ErrorCode = Literal[
     "content_too_large",
     "storage_unavailable",
     "artifact_invalid",
+    "job_state_unreadable",
     "redis_unavailable",
     "queue_unavailable",
 ]
@@ -53,6 +54,10 @@ STORAGE_UNAVAILABLE = ErrorDetail(
 ARTIFACT_INVALID = ErrorDetail(
     code="artifact_invalid",
     message="Stored parser artifact is invalid",
+)
+JOB_STATE_UNREADABLE = ErrorDetail(
+    code="job_state_unreadable",
+    message="Stored job state is unreadable",
 )
 
 REDIS_UNAVAILABLE = ErrorDetail(

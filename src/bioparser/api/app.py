@@ -21,7 +21,13 @@ from bioparser.jobqueue import (
     ParseJobMessage,
 )
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue
-from bioparser.jobstate import JobState, JobStateError, RedisJobStateStore, SafeError
+from bioparser.jobstate import (
+    CorruptJobStateError,
+    JobState,
+    JobStateError,
+    RedisJobStateStore,
+    SafeError,
+)
 from bioparser.logging_config import error_fields, redact_url, setup_logging
 from bioparser.parser import ParserArtifact
 from bioparser.parser_names import DEFAULT_PARSER_NAME
@@ -47,6 +53,7 @@ from .errors import (
     INVALID_JOB_ID,
     INVALID_PDF,
     JOB_NOT_FOUND,
+    JOB_STATE_UNREADABLE,
     MISSING_FILE,
     QUEUE_UNAVAILABLE,
     REDIS_UNAVAILABLE,
@@ -304,7 +311,12 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     responses={
         404: error_response(JOB_NOT_FOUND),
         422: error_response(INVALID_JOB_ID),
-        503: error_response(REDIS_UNAVAILABLE, STORAGE_UNAVAILABLE, ARTIFACT_INVALID),
+        503: error_response(
+            REDIS_UNAVAILABLE,
+            JOB_STATE_UNREADABLE,
+            STORAGE_UNAVAILABLE,
+            ARTIFACT_INVALID,
+        ),
     },
 )
 async def job_status(request: Request, job_id: str) -> JobStatusResponse:
@@ -316,6 +328,8 @@ async def job_status(request: Request, job_id: str) -> JobStatusResponse:
         raise http_error(422, INVALID_JOB_ID)
     try:
         record = await request.app.state.job_store.get(parsed_job_id)
+    except CorruptJobStateError as exc:
+        raise http_error(503, JOB_STATE_UNREADABLE) from exc
     except JobStateError as exc:
         raise http_error(503, REDIS_UNAVAILABLE) from exc
     if record is None:
