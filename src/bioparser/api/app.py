@@ -19,9 +19,8 @@ from pydantic import ValidationError
 from bioparser.jobqueue import (
     JobQueueError,
     ParseJobMessage,
-    RedisJobQueue,
-    create_redis_broker,
 )
+from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobstate import JobState, JobStateError, RedisJobStateStore, SafeError
 from bioparser.logging_config import error_fields, redact_url, setup_logging
 from bioparser.parser import ParserArtifact
@@ -95,7 +94,6 @@ async def _failure_logged_redacted(phase: str) -> AsyncIterator[None]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    broker = None
     try:
         async with _failure_logged_redacted("startup"):
             settings = config.get_api_settings()
@@ -125,15 +123,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             if settings.redis_url is not None:
                 redis_url = str(settings.redis_url)
                 redis_timeout = settings.redis_timeout_seconds
-                broker = create_redis_broker(redis_url, timeout_s=redis_timeout)
                 app.state.job_store = RedisJobStateStore(
                     redis_url,
                     operation_timeout_seconds=redis_timeout,
                 )
-                app.state.parse_queue = RedisJobQueue(
+                app.state.parse_queue = DramatiqJobQueue.from_redis(
+                    redis_url,
                     name="parse",
                     model=ParseJobMessage,
-                    broker=broker,
+                    timeout_s=redis_timeout,
                 )
 
             if settings.artifact_storage_path is not None:
@@ -154,9 +152,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ):
                 if client is not None:
                     await client.aclose()
-            if broker is not None:
-                broker.close()
-                broker.client.close()
 
 
 # Uvicorn imports the app before emitting its first log line.

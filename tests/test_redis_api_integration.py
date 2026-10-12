@@ -10,12 +10,9 @@ import pytest
 from httpx2 import ASGITransport
 
 from bioparser.api.app import app
-from bioparser.jobqueue import (
-    PARSE_JOB_SCHEMA_VERSION,
-    ParseJobMessage,
-    RedisJobQueue,
-    create_redis_broker,
-)
+from bioparser.jobqueue import ParseJobMessage
+from bioparser.jobqueue.dramatiq import DramatiqJobQueue
+from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
 from bioparser.jobstate import RedisJobStateStore
 from bioparser.parser import ParserArtifact
 from bioparser.parser.models import ParserInfo
@@ -53,7 +50,7 @@ async def redis_api_dependencies(
 ) -> AsyncGenerator[
     tuple[
         RedisJobStateStore,
-        RedisJobQueue[ParseJobMessage],
+        DramatiqJobQueue[ParseJobMessage],
         FileSystemArtifactStorage,
     ]
 ]:
@@ -74,8 +71,8 @@ async def redis_api_dependencies(
         await job_store.aclose()
         pytest.skip(f"no Redis available at {TEST_REDIS_URL}: {exc}")
 
-    broker = create_redis_broker(TEST_REDIS_URL, namespace=broker_namespace)
-    parse_queue = RedisJobQueue(
+    broker = _create_redis_broker(TEST_REDIS_URL, namespace=broker_namespace)
+    parse_queue = DramatiqJobQueue(
         name=queue_name,
         model=ParseJobMessage,
         broker=broker,
@@ -106,7 +103,7 @@ async def redis_api_dependencies(
 async def test_redis_backed_submission_and_polling(
     redis_api_dependencies: tuple[
         RedisJobStateStore,
-        RedisJobQueue[ParseJobMessage],
+        DramatiqJobQueue[ParseJobMessage],
         FileSystemArtifactStorage,
     ],
 ) -> None:
@@ -158,7 +155,6 @@ async def test_redis_backed_submission_and_polling(
         await asyncio.to_thread(parse_queue.consume, recorder, until_empty=True)
         assert recorder.received == [
             ParseJobMessage(
-                schema_version=PARSE_JOB_SCHEMA_VERSION,
                 job_id=queued.job_id,
             )
         ]

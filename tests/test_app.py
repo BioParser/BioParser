@@ -13,7 +13,7 @@ from bioparser.api.app import app as api_app
 from bioparser.api.errors import ErrorResponse
 from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
-from bioparser.jobqueue import PARSE_JOB_SCHEMA_VERSION, JobQueueError
+from bioparser.jobqueue import JobQueueError
 from bioparser.jobstate import JobState, JobStateError, SafeError
 from bioparser.parser import ParserArtifact
 from bioparser.parser.models import ParserInfo
@@ -49,7 +49,7 @@ def test_submit_and_retrieve_job(
 
     state = job_store.states[record["job_id"]]
     message = parse_queue.messages[0]
-    assert message.schema_version == PARSE_JOB_SCHEMA_VERSION
+    assert message.schema_version == 1
     assert state.pdf_ref in artifact_storage.artifacts
     assert message.job_id == state.job_id
 
