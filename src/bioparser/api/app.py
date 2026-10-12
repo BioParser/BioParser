@@ -255,6 +255,7 @@ def _job_state_response(state: JobState) -> JobStatusResponse:
         400: error_response(MISSING_FILE, EMPTY_FILE, INVALID_PDF, INVALID_CONTENT_LENGTH),
         413: error_response(CONTENT_TOO_LARGE),
         415: error_response(UNSUPPORTED_CONTENT_TYPE),
+        500: error_response(JOB_STATE_UNREADABLE),
         503: error_response(STORAGE_UNAVAILABLE, REDIS_UNAVAILABLE, QUEUE_UNAVAILABLE),
     },
 )
@@ -268,6 +269,11 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         creation_info=creation_info,
     )
 
+    fields = {
+        "job_id": str(job_id),
+        "document_id": document_id,
+    }
+
     try:
         pdf_ref = await asyncio.to_thread(
             request.app.state.artifact_storage.store, pdf_bytes, artifact_metadata
@@ -275,6 +281,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     except ArtifactAlreadyExistsError:
         pdf_ref = artifact_metadata.artifact_path
     except StorageError as exc:
+        logger.error("artifact store failed", extra=fields | error_fields(exc))
         raise http_error(503, STORAGE_UNAVAILABLE) from exc
 
     job_state = JobState(
@@ -283,10 +290,10 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         parser=DEFAULT_PARSER_NAME,
         pdf_ref=pdf_ref,
     )
-
     try:
         await request.app.state.job_store.create(job_state)
     except JobStateError as exc:
+        logger.error("job state create failed", extra=fields | error_fields(exc))
         raise http_error(503, REDIS_UNAVAILABLE) from exc
 
     parse_job_message = ParseJobMessage(
@@ -295,6 +302,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     try:
         await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
     except JobQueueError as exc:
+        logger.error("parse job enqueue failed", extra=fields | error_fields(exc))
         failed_state = job_state.with_changes(
             status="failed",
             error=SafeError(code="internal_error"),
@@ -311,9 +319,9 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     responses={
         404: error_response(JOB_NOT_FOUND),
         422: error_response(INVALID_JOB_ID),
+        500: error_response(JOB_STATE_UNREADABLE),
         503: error_response(
             REDIS_UNAVAILABLE,
-            JOB_STATE_UNREADABLE,
             STORAGE_UNAVAILABLE,
             ARTIFACT_INVALID,
         ),
@@ -328,10 +336,15 @@ async def job_status(request: Request, job_id: str) -> JobStatusResponse:
         raise http_error(422, INVALID_JOB_ID)
     try:
         record = await request.app.state.job_store.get(parsed_job_id)
+
     except CorruptJobStateError as exc:
-        raise http_error(503, JOB_STATE_UNREADABLE) from exc
+        logger.error("job state unreadable", extra={"job_id": str(job_id), **error_fields(exc)})
+        raise http_error(500, JOB_STATE_UNREADABLE) from exc
+
     except JobStateError as exc:
+        logger.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
         raise http_error(503, REDIS_UNAVAILABLE) from exc
+
     if record is None:
         raise http_error(404, JOB_NOT_FOUND)
     if record.status in ("parsed", "done"):

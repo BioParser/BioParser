@@ -509,7 +509,7 @@ def test_job_status_returns_503_when_redis_unavailable(
     assert response.json()["detail"]["code"] == "redis_unavailable"
 
 
-def test_job_status_returns_503_when_stored_state_is_unreadable(
+def test_job_status_returns_500_when_stored_state_is_unreadable(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
 ) -> None:
@@ -518,7 +518,7 @@ def test_job_status_returns_503_when_stored_state_is_unreadable(
 
     response = client.get(f"/api/jobs/{uuid4()}")
 
-    assert response.status_code == 503
+    assert response.status_code == 500
     ErrorResponse.model_validate(response.json())
     assert response.json() == {
         "detail": {
