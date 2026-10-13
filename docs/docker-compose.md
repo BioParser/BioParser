@@ -14,9 +14,9 @@ Compose runs four services:
 - `loki` stores the logs on the `loki-data` volume for `LOKI_RETENTION_PERIOD` (default 7 days). Only Alloy and Grafana can reach it.  
 - `grafana` shows them on host port `GRAFANA_PORT` (default 3000), user `admin`. It loads only the Loki plugins; to add another data source, remove its plugin from `GF_PLUGINS_DISABLE_PLUGINS` in `docker-compose.logging.yml`. It logs only its own warnings and errors (`GF_LOG_LEVEL`).
 
-`docker-compose.traefik.yml` adds a reverse proxy for encrypted HTTPS connections:
+`docker-compose.traefik.yml` adds an encrypted reverse proxy with HTTP Basic Authentication in front of the API:
 
-- `traefik` terminates TLS/HTTPS on host port `TRAEFIK_HTTPS_PORT` (default 443), redirects plaintext HTTP on `TRAEFIK_HTTP_PORT` (default 80) to HTTPS, and routes internally to `http://bioparser:8080`. It uses file-based configuration (`docker/traefik/bioparser.yml`) and requires no Docker socket access.
+- `traefik` terminates TLS/HTTPS on host port `TRAEFIK_HTTPS_PORT` (default 443), enforces Basic Authentication (configured in `docker/traefik/users`), and routes internally to `http://bioparser:8080`. Plain HTTP is disabled so credentials never travel unencrypted. It runs as unprivileged user `65534:65534` (`nobody`), uses file-based configuration (`docker/traefik/bioparser.yml`), and requires no Docker socket access.
 
 The README has the default install and start commands. This page covers env vars, networking, logs, HTTPS, and `test_prompt`.
 
@@ -48,9 +48,8 @@ With `docker-compose.logging.yml`:
 
 With `docker-compose.traefik.yml`:
 
-`TRAEFIK_BIND_ADDRESS`: host interface to bind Traefik to (default `127.0.0.1` for loopback). Set to `0.0.0.0` to expose to the LAN without authentication.  
-`TRAEFIK_HTTP_PORT`: host port for HTTP (default `80`). Auto-redirects to HTTPS.  
-`TRAEFIK_HTTPS_PORT`: host port for HTTPS (default `443`).  
+`TRAEFIK_BIND_ADDRESS`: host interface to bind Traefik to (default `127.0.0.1` for loopback). Set to `0.0.0.0` to expose to the LAN.  
+`TRAEFIK_HTTPS_PORT`: host port for HTTPS (default `443`). Plain HTTP is disabled so credentials are never sent unencrypted.  
 `TRAEFIK_LOG_LEVEL`: log verbosity for Traefik (default `INFO`).  
 
 Inside Compose, the API uses `BIOPARSER_VLLM_BASE_URL=http://vllm:8000/v1` and `BIOPARSER_MINERU_BASE_URL=http://mineru:8000`. On the host, `test_prompt` should use `http://localhost:8000/v1` (the default in `.env.example`).
@@ -88,7 +87,7 @@ The Docker socket gives full control of Docker, and so of the host. Only `docker
 
 ## HTTPS and Traefik
 
-`docker-compose.traefik.yml` runs Traefik as an encrypted reverse proxy in front of the API.
+`docker-compose.traefik.yml` runs Traefik as an encrypted reverse proxy with HTTP Basic Authentication in front of the API.
 
 To enable it, append `:docker-compose.traefik.yml` to `COMPOSE_FILE` in `.env`:
 
@@ -98,30 +97,30 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml:docker-compose.logging.ym
 
 When started:
 
-- Traefik binds to `TRAEFIK_BIND_ADDRESS` (default `127.0.0.1` for loopback security) on ports `TRAEFIK_HTTP_PORT` (default 80) and `TRAEFIK_HTTPS_PORT` (default 443).
-- Plaintext HTTP requests receive an automatic 301/308 redirect to HTTPS on `TRAEFIK_HTTPS_PORT`.
+- Traefik binds to `TRAEFIK_BIND_ADDRESS` (default `127.0.0.1` for loopback security) on HTTPS port `TRAEFIK_HTTPS_PORT` (default 443). Plain HTTP is disabled so credentials are never transmitted unencrypted.
+- All requests require HTTP Basic Authentication defined in `docker/traefik/users` (format: `username:bcrypt_hash`). The default user is `bioparser` with password `bioparser`. Additional users can be added with `htpasswd -nbB <username> <password>`.
 - HTTPS connections are encrypted with TLS and routed internally across the `edge` network to `http://bioparser:8080`.
 - Direct plain HTTP to the API remains accessible on loopback (`http://127.0.0.1:8080`).
 - By default, Traefik generates an internal self-signed TLS certificate (`TRAEFIK DEFAULT CERT`) regenerated on restart, so encrypted connections work immediately without external domain setup. To use custom certificates, define a `tls.certificates` block in `docker/traefik/bioparser.yml` and mount your cert files.
-- Note: On rootless Docker hosts, binding privileged host ports below 1024 requires setting `TRAEFIK_HTTP_PORT=8080` and `TRAEFIK_HTTPS_PORT=8443` in `.env` (or configuring `net.ipv4.ip_unprivileged_port_start=0`).
-- On Docker Desktop for Windows, dynamic file watcher changes may require running `docker compose restart traefik` after modifying `docker/traefik/bioparser.yml`.
+- Note: On rootless Docker hosts, binding privileged host ports below 1024 requires setting `TRAEFIK_HTTPS_PORT=8443` in `.env` (or configuring `net.ipv4.ip_unprivileged_port_start=0`).
+- On Docker Desktop for Windows, dynamic file watcher changes may require running `docker compose restart traefik` after modifying `docker/traefik/bioparser.yml` or `docker/traefik/users`.
 
-Testing the HTTPS connection:
+Testing unauthenticated request (returns 401 Unauthorized):
 
 ```sh
 curl -k https://localhost/health
 ```
 
-(or `curl -k https://localhost:8443/health` if `TRAEFIK_HTTPS_PORT=8443` is configured in `.env`).
-
-Testing HTTP redirection:
+Testing with Basic Authentication:
 
 ```sh
-curl -sI -X GET http://localhost/health
-# Returns HTTP 301 Moved Permanently (or 308 Permanent Redirect) with Location pointing to HTTPS
+curl -k -u bioparser:bioparser https://localhost/health
+# Returns {"status":"healthy"}
 ```
 
-Traefik uses file-based configuration (`docker/traefik/bioparser.yml`) and does not mount the Docker socket, keeping the container isolated with dropped capabilities (`cap_drop: [ALL]`) and `read_only: true`.
+(or `curl -k -u bioparser:bioparser https://localhost:8443/health` if `TRAEFIK_HTTPS_PORT=8443` is configured in `.env`).
+
+Traefik uses file-based configuration (`docker/traefik/bioparser.yml`), runs as unprivileged user `65534:65534` (`nobody`), and does not mount the Docker socket, keeping the container isolated with dropped capabilities (`cap_drop: [ALL]`) and `read_only: true`.
 
 ## Test prompt
 

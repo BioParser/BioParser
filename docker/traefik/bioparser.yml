@@ -9,7 +9,14 @@ http:
       entryPoints:
         - "websecure"
       service: "bioparser"
+      middlewares:
+        - "bioparser-auth"
       tls: {}
+
+  middlewares:
+    bioparser-auth:
+      basicAuth:
+        usersFile: "/etc/traefik/conf.d/users"
 
   services:
     bioparser:

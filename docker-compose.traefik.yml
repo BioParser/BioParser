@@ -3,15 +3,11 @@
 
 services:
   traefik:
-    image: traefik:v3.3.4@sha256:cc11989f418e2cfe5e60fc40c92c1813be847f58eda15eced7d5ac890255ad9e
+    image: traefik:v3.7.14@sha256:575fa15b135078fe5e50aa847987d96dbddd7b093c172429618404df73f3fa7c
+    user: "65534:65534"
     command:
-      # Entry points for HTTP (80) and HTTPS (443)
-      - --entrypoints.web.address=:80
+      # Entry point for HTTPS (443) only -- HTTP disabled to prevent plaintext credential exposure
       - --entrypoints.websecure.address=:443
-      # HTTP to HTTPS global redirect (respects host port mapping when changed)
-      - --entrypoints.web.http.redirections.entrypoint.to=:${TRAEFIK_HTTPS_PORT:-443}
-      - --entrypoints.web.http.redirections.entrypoint.scheme=https
-      - --entrypoints.web.http.redirections.entrypoint.permanent=true
       # Dynamic file provider (avoids mounting Docker socket for least privilege)
       - --providers.file.directory=/etc/traefik/conf.d
       - --providers.file.watch=true
@@ -27,7 +23,6 @@ services:
       - --global.checknewversion=false
       - --global.sendanonymoususage=false
     ports:
-      - "${TRAEFIK_BIND_ADDRESS:-127.0.0.1}:${TRAEFIK_HTTP_PORT:-80}:80"
       - "${TRAEFIK_BIND_ADDRESS:-127.0.0.1}:${TRAEFIK_HTTPS_PORT:-443}:443"
     volumes:
       - ./docker/traefik:/etc/traefik/conf.d:ro
