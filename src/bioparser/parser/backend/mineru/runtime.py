@@ -129,7 +129,7 @@ def run_cli_pipeline(pdf_path: Path, output_dir: Path, timeout_s: float | None =
             cli = _start(cli_command, env, cli_log)
             _wait_for_cli(cli, server, deadline, timeout_s, server_log)
         finally:
-            # Includes the queue's TimeLimitExceeded and shutdown interrupts.
+            # Also covers an interrupt from the queue (its time limit) or a shutdown signal.
             started = [process for process in (cli, server) if process is not None]
             # Signal every group before waiting on any, so a slow reap cannot spare the server.
             for process in started:

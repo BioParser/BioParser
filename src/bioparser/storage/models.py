@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from bioparser.identifiers import ArtifactPath
+
 ARTIFACT_METADATA_SCHEMA_VERSION: Literal["1"] = "1"
 
 
@@ -30,7 +32,7 @@ class ArtifactMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["1"] = ARTIFACT_METADATA_SCHEMA_VERSION
-    artifact_path: str = Field(min_length=1)
+    artifact_path: ArtifactPath
     media_type: str = Field(min_length=1)
     creation_info: CreationInfo = Field(default_factory=CreationInfo)
     content_schema_version: str | None = None
