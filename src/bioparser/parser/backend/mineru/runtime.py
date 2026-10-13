@@ -245,7 +245,10 @@ def _signal_group(process: subprocess.Popen[bytes]) -> None:
     after the leader has exited too.
     """
     try:
-        os.killpg(process.pid, signal.SIGKILL)
+        if hasattr(os, "killpg") and hasattr(signal, "SIGKILL"):
+            os.killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
     except (ProcessLookupError, PermissionError):
         pass
 

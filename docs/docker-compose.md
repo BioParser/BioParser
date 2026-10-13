@@ -14,7 +14,11 @@ Compose runs four services:
 - `loki` stores the logs on the `loki-data` volume for `LOKI_RETENTION_PERIOD` (default 7 days). Only Alloy and Grafana can reach it.  
 - `grafana` shows them on host port `GRAFANA_PORT` (default 3000), user `admin`. It loads only the Loki plugins; to add another data source, remove its plugin from `GF_PLUGINS_DISABLE_PLUGINS` in `docker-compose.logging.yml`. It logs only its own warnings and errors (`GF_LOG_LEVEL`).
 
-The README has the default install and start commands. This page covers env vars, networking, logs, and `test_prompt`.
+`docker-compose.traefik.yml` adds a reverse proxy for encrypted HTTPS connections:
+
+- `traefik` terminates TLS/HTTPS on host port `TRAEFIK_HTTPS_PORT` (default 443), redirects plaintext HTTP on `TRAEFIK_HTTP_PORT` (default 80) to HTTPS, and routes internally to `http://bioparser:8080`. It uses file-based configuration (`docker/traefik/bioparser.yml`) and requires no Docker socket access.
+
+The README has the default install and start commands. This page covers env vars, networking, logs, HTTPS, and `test_prompt`.
 
 ## Environment
 
@@ -41,6 +45,13 @@ With `docker-compose.logging.yml`:
 `GRAFANA_ADMIN_PASSWORD` (required): password of the Grafana user `admin`. Grafana reads it only when the `grafana-data` volume is new; after that, change the password in Grafana.  
 `GRAFANA_PORT`: host port for Grafana (default `3000`).  
 `LOKI_RETENTION_PERIOD`: how long Loki keeps logs (default `168h`, 7 days).  
+
+With `docker-compose.traefik.yml`:
+
+`TRAEFIK_BIND_ADDRESS`: host interface to bind Traefik to (default `127.0.0.1` for loopback). Set to `0.0.0.0` to expose to the LAN without authentication.  
+`TRAEFIK_HTTP_PORT`: host port for HTTP (default `80`). Auto-redirects to HTTPS.  
+`TRAEFIK_HTTPS_PORT`: host port for HTTPS (default `443`).  
+`TRAEFIK_LOG_LEVEL`: log verbosity for Traefik (default `INFO`).  
 
 Inside Compose, the API uses `BIOPARSER_VLLM_BASE_URL=http://vllm:8000/v1` and `BIOPARSER_MINERU_BASE_URL=http://mineru:8000`. On the host, `test_prompt` should use `http://localhost:8000/v1` (the default in `.env.example`).
 
@@ -74,6 +85,43 @@ Lines are stored exactly as the services wrote them. BioParser's own code writes
 `docker compose logs` still works: Docker keeps its own copy.
 
 The Docker socket gives full control of Docker, and so of the host. Only `docker-api` mounts it. It accepts requests only from `alloy`, only on the internal network `docker-api`, and only to list containers, inspect them and read their logs. Alloy runs as its own user with no capabilities. Loki has no login, so Loki and Alloy are only on the internal network `logs`, which the app containers are not on. To turn central logs off, remove `docker-compose.logging.yml` from `COMPOSE_FILE` and run `docker compose up -d --remove-orphans`.
+
+## HTTPS and Traefik
+
+`docker-compose.traefik.yml` runs Traefik as an encrypted reverse proxy in front of the API.
+
+To enable it, append `:docker-compose.traefik.yml` to `COMPOSE_FILE` in `.env`:
+
+```sh
+COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml:docker-compose.logging.yml:docker-compose.traefik.yml
+```
+
+When started:
+
+- Traefik binds to `TRAEFIK_BIND_ADDRESS` (default `127.0.0.1` for loopback security) on ports `TRAEFIK_HTTP_PORT` (default 80) and `TRAEFIK_HTTPS_PORT` (default 443).
+- Plaintext HTTP requests receive an automatic 301/308 redirect to HTTPS on `TRAEFIK_HTTPS_PORT`.
+- HTTPS connections are encrypted with TLS and routed internally across the `edge` network to `http://bioparser:8080`.
+- Direct plain HTTP to the API remains accessible on loopback (`http://127.0.0.1:8080`).
+- By default, Traefik generates an internal self-signed TLS certificate (`TRAEFIK DEFAULT CERT`) regenerated on restart, so encrypted connections work immediately without external domain setup. To use custom certificates, define a `tls.certificates` block in `docker/traefik/bioparser.yml` and mount your cert files.
+- Note: On rootless Docker hosts, binding privileged host ports below 1024 requires setting `TRAEFIK_HTTP_PORT=8080` and `TRAEFIK_HTTPS_PORT=8443` in `.env` (or configuring `net.ipv4.ip_unprivileged_port_start=0`).
+- On Docker Desktop for Windows, dynamic file watcher changes may require running `docker compose restart traefik` after modifying `docker/traefik/bioparser.yml`.
+
+Testing the HTTPS connection:
+
+```sh
+curl -k https://localhost/health
+```
+
+(or `curl -k https://localhost:8443/health` if `TRAEFIK_HTTPS_PORT=8443` is configured in `.env`).
+
+Testing HTTP redirection:
+
+```sh
+curl -sI -X GET http://localhost/health
+# Returns HTTP 301 Moved Permanently (or 308 Permanent Redirect) with Location pointing to HTTPS
+```
+
+Traefik uses file-based configuration (`docker/traefik/bioparser.yml`) and does not mount the Docker socket, keeping the container isolated with dropped capabilities (`cap_drop: [ALL]`) and `read_only: true`.
 
 ## Test prompt
 
