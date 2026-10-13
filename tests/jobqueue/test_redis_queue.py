@@ -13,12 +13,12 @@ from dramatiq.middleware.time_limit import TimeLimit
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from bioparser.jobqueue import (
-        JobHandler,
-        JobQueueConfigError,
-        JobQueueError,
-        JobTimeLimitExceeded,
-        ParseJobMessage,
-        )
+    JobHandler,
+    JobQueueConfigError,
+    JobQueueError,
+    JobTimeLimitExceeded,
+    ParseJobMessage,
+)
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobqueue.dramatiq import redis_queue as redis_queue_module
 from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
@@ -38,8 +38,8 @@ def _message(job_id: str = "3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34") -> ParseJobMe
 
 
 def _queue(
-        broker: StubBroker, *, name: str = "parse", **options: Any
-        ) -> DramatiqJobQueue[ParseJobMessage]:
+    broker: StubBroker, *, name: str = "parse", **options: Any
+) -> DramatiqJobQueue[ParseJobMessage]:
     """Queue that shuts down promptly: the production worker timeout costs ~2s per consume."""
     options.setdefault("worker_timeout_ms", 50)
     return DramatiqJobQueue(name=name, model=ParseJobMessage, broker=broker, **options)
@@ -134,8 +134,8 @@ def test_rejects_non_positive_worker_threads(stub_broker: StubBroker) -> None:
 def test_rejects_non_positive_worker_timeout(stub_broker: StubBroker) -> None:
     with pytest.raises(JobQueueConfigError, match="worker_timeout_ms"):
         DramatiqJobQueue(
-                name="parse", model=ParseJobMessage, broker=stub_broker, worker_timeout_ms=0
-                )
+            name="parse", model=ParseJobMessage, broker=stub_broker, worker_timeout_ms=0
+        )
 
 
 def test_rejects_queue_name_starting_with_digit(stub_broker: StubBroker) -> None:
@@ -163,8 +163,8 @@ def test_submit_and_consume_round_trip(stub_broker: StubBroker) -> None:
 
 
 def test_worker_settings_reach_the_dramatiq_worker(
-        stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
-        ) -> None:
+    stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
     captured: dict[str, Any] = {}
 
     def capture(broker: Broker, **kwargs: Any) -> Worker:
@@ -174,12 +174,12 @@ def test_worker_settings_reach_the_dramatiq_worker(
     monkeypatch.setattr(redis_queue_module, "Worker", capture)
     handler = _Recorder()
     queue = DramatiqJobQueue(
-            name="parse",
-            model=ParseJobMessage,
-            broker=stub_broker,
-            worker_threads=2,
-            worker_timeout_ms=50,
-            )
+        name="parse",
+        model=ParseJobMessage,
+        broker=stub_broker,
+        worker_threads=2,
+        worker_timeout_ms=50,
+    )
     expected = _message()
     queue.submit(expected)
     queue.consume(handler, until_empty=True)
@@ -231,9 +231,9 @@ def test_consume_can_run_again_after_returning(stub_broker: StubBroker) -> None:
     queue.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e32"))
     queue.consume(handler, until_empty=True)
     assert handler.received == [
-            _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e31"),
-            _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e32"),
-            ]
+        _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e31"),
+        _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e32"),
+    ]
 
 
 def test_consume_returns_when_stop_is_already_set(stub_broker: StubBroker) -> None:
@@ -301,9 +301,9 @@ def test_wrong_schema_version_is_poisoned(stub_broker: StubBroker) -> None:
     handler = _Recorder()
     queue = _queue(stub_broker)
     bad = {
-            "schema_version": 99,
-            "job_id": "job-1",
-            }
+        "schema_version": 99,
+        "job_id": "job-1",
+    }
     queue._actor.send(bad)
     queue.consume(handler, until_empty=True)
     assert handler.received == []
@@ -311,15 +311,15 @@ def test_wrong_schema_version_is_poisoned(stub_broker: StubBroker) -> None:
 
 
 def test_malformed_log_names_fields_without_values(
-        stub_broker: StubBroker, caplog: pytest.LogCaptureFixture
-        ) -> None:
+    stub_broker: StubBroker, caplog: pytest.LogCaptureFixture
+) -> None:
     queue = _queue(stub_broker)
     queue._actor.send(
-            {
-                "job_id": "job-1",
-                "token": "s3cret",
-                }
-            )
+        {
+            "job_id": "job-1",
+            "token": "s3cret",
+        }
+    )
     with caplog.at_level(logging.WARNING, logger="bioparser.jobqueue.dramatiq.redis_queue"):
         queue.consume(_Recorder(), until_empty=True)
     assert "s3cret" not in caplog.text
