@@ -1,0 +1,25 @@
+# Traefik dynamic configuration for BioParser API.
+# Defines the routers and services to proxy traffic to the FastAPI app.
+
+http:
+  routers:
+    # Router for encrypted HTTPS traffic
+    bioparser:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - "websecure"
+      service: "bioparser"
+      middlewares:
+        - "bioparser-auth"
+      tls: {}
+
+  middlewares:
+    bioparser-auth:
+      basicAuth:
+        usersFile: "/etc/traefik/conf.d/users"
+
+  services:
+    bioparser:
+      loadBalancer:
+        servers:
+          - url: "http://bioparser:8080"
