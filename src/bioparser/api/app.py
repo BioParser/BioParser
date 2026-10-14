@@ -42,6 +42,7 @@ from bioparser.storage import (
     CreationInfo,
     FileSystemArtifactStorage,
     StorageError,
+    StoragePayloadError,
 )
 
 from . import config
@@ -106,6 +107,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with _failure_logged_redacted("startup"):
             settings = config.get_api_settings()
             setup_logging(settings.log_level)
+            if settings.redis_url is None:
+                raise RuntimeError("BIOPARSER_REDIS_URL is required")
+            if settings.artifact_storage_path is None:
+                raise RuntimeError("BIOPARSER_ARTIFACT_STORAGE_PATH is required")
+
             app.state.mineru = MinerUClient(
                 settings.mineru_base_url,
                 settings.mineru_timeout_seconds,
@@ -128,24 +134,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     extra={"vllm_base_url": vllm_base_url, "model": model},
                 )
 
-            if settings.redis_url is not None:
-                redis_url = str(settings.redis_url)
-                redis_timeout = settings.redis_timeout_seconds
-                app.state.job_store = RedisJobStateStore(
-                    redis_url,
-                    operation_timeout_seconds=redis_timeout,
-                )
-                app.state.parse_queue = DramatiqJobQueue.from_redis(
-                    redis_url,
-                    name="parse",
-                    model=ParseJobMessage,
-                    timeout_s=redis_timeout,
-                )
+            redis_url = str(settings.redis_url)
+            redis_timeout = settings.redis_timeout_seconds
+            app.state.job_store = RedisJobStateStore(
+                redis_url,
+                operation_timeout_seconds=redis_timeout,
+            )
+            app.state.parse_queue = DramatiqJobQueue.from_redis(
+                redis_url,
+                name=settings.parse_queue_name,
+                model=ParseJobMessage,
+                timeout_s=redis_timeout,
+            )
 
-            if settings.artifact_storage_path is not None:
-                app.state.artifact_storage = FileSystemArtifactStorage(
-                    root_path=settings.artifact_storage_path
-                )
+            app.state.artifact_storage = FileSystemArtifactStorage(
+                root_path=settings.artifact_storage_path
+            )
 
             # Bounds /extract only. The queue replaces this once the worker lands.
             app.state.extract_sem = asyncio.Semaphore(settings.extract_concurrency)
@@ -319,11 +323,10 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     responses={
         404: error_response(JOB_NOT_FOUND),
         422: error_response(INVALID_JOB_ID),
-        500: error_response(JOB_STATE_UNREADABLE),
+        500: error_response(JOB_STATE_UNREADABLE, ARTIFACT_INVALID),
         503: error_response(
             REDIS_UNAVAILABLE,
             STORAGE_UNAVAILABLE,
-            ARTIFACT_INVALID,
         ),
     },
 )
@@ -349,17 +352,31 @@ async def job_status(request: Request, job_id: str) -> JobStatusResponse:
         raise http_error(404, JOB_NOT_FOUND)
     if record.status in ("parsed", "done"):
         if record.parse_result_ref is None:
-            raise http_error(503, ARTIFACT_INVALID)
+            logger.error("parser artifact invalid", extra={"job_id": str(job_id)})
+            raise http_error(500, ARTIFACT_INVALID)
+        artifact_fields = {
+            "job_id": str(job_id),
+            "artifact_ref": str(record.parse_result_ref),
+        }
         try:
             payload = await asyncio.to_thread(
                 request.app.state.artifact_storage.retrieve,
                 record.parse_result_ref,
             )
-            ParserArtifact.model_validate(json.loads(payload))
-        except (ArtifactNotFoundError, StorageError) as exc:
+        except (ArtifactNotFoundError, StoragePayloadError) as exc:
+            logger.error(
+                "parser artifact missing or invalid",
+                extra=artifact_fields | error_fields(exc),
+            )
+            raise http_error(500, ARTIFACT_INVALID) from exc
+        except StorageError as exc:
+            logger.warning("parser artifact read failed", extra=artifact_fields | error_fields(exc))
             raise http_error(503, STORAGE_UNAVAILABLE) from exc
+        try:
+            ParserArtifact.model_validate(json.loads(payload))
         except (UnicodeDecodeError, json.JSONDecodeError, ValidationError) as exc:
-            raise http_error(503, ARTIFACT_INVALID) from exc
+            logger.error("parser artifact invalid", extra=artifact_fields | error_fields(exc))
+            raise http_error(500, ARTIFACT_INVALID) from exc
     return _job_state_response(record)
 
 

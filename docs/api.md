@@ -131,8 +131,8 @@ Poll a job.
 |--------|------|
 | 404 | no job with that id |
 | 422 | `job_id` is not a version 4 UUID |
-| 500 | stored job state is unreadable |
-| 503 | Redis or artifact storage is unavailable, or a stored artifact is invalid |
+| 500 | stored job state is unreadable, or the parser artifact is missing or invalid |
+| 503 | Redis or artifact storage is unavailable |
 
 **Error body:**
 
@@ -379,11 +379,12 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 | `extract_concurrency` | `2` | size of the `POST /extract` semaphore |
 | `extract_queue_timeout_seconds` | `5.0` | how long `POST /extract` waits for a semaphore slot before returning `503` |
 | `dependency_check_timeout_seconds` | `1.0` | timeout for each optional readiness dependency check |
-| `artifact_storage_path` | `None` | filesystem artifact root; enables artifact storage when set |
+| `artifact_storage_path` | `None` | required at API startup; filesystem artifact root |
 | `extraction_char_budget` | `8000` | character (not token) budget passed to vLLM extraction |
 | `extraction_max_tokens` | `1024` | max generation tokens passed to vLLM extraction |
-| `redis_url` | `None` | Redis URL for shared job state and the parse queue |
+| `redis_url` | `None` | required at API startup; Redis URL for shared job state and the parse queue |
 | `redis_timeout_seconds` | `5.0` | Redis connect and operation timeout |
+| `parse_queue_name` | `parse` | Redis/Dramatiq queue name shared with the parser worker |
 | `log_level` | `INFO` | level of the `bioparser` loggers (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`; case-insensitive); see [Logging](#logging) |
 
 `DEFAULT_MAX_UPLOAD_BYTES` is also exported as a module-level constant.

@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -375,9 +376,10 @@ def test_succeeded_job_status(
     }
 
 
-def test_succeeded_job_status_returns_503_when_output_is_missing(
+def test_succeeded_job_status_returns_500_when_output_is_missing(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     artifact_storage, job_store = stub_api_adapters[:2]
     job_id = uuid4()
@@ -392,13 +394,52 @@ def test_succeeded_job_status_returns_503_when_output_is_missing(
 
     response = client.get(f"/api/jobs/{job_id}")
 
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "storage_unavailable"
+    assert response.status_code == 500
+    assert response.json()["detail"]["code"] == "artifact_invalid"
+    [record] = [
+        record
+        for record in caplog.records
+        if record.getMessage() == "parser artifact missing or invalid"
+    ]
+    assert record.levelno == logging.ERROR
+    assert vars(record)["job_id"] == str(job_id)
+    assert vars(record)["artifact_ref"] == "art-result-test"
+    assert vars(record)["error"] == "ArtifactNotFoundError"
 
 
-def test_succeeded_job_status_returns_503_for_invalid_output(
+def test_succeeded_job_status_returns_503_when_storage_read_fails(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    artifact_storage, job_store = stub_api_adapters[:2]
+    job_id = uuid4()
+    job_store.states[str(job_id)] = JobState(
+        job_id=job_id,
+        parser="default",
+        status="parsed",
+        pdf_ref="art-pdf-test",
+        parse_result_ref="art-result-test",
+    )
+    artifact_storage.retrieve_error = StorageError("storage unavailable")
+
+    response = client.get(f"/api/jobs/{job_id}")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "storage_unavailable"
+    [record] = [
+        record for record in caplog.records if record.getMessage() == "parser artifact read failed"
+    ]
+    assert record.levelno == logging.WARNING
+    assert vars(record)["job_id"] == str(job_id)
+    assert vars(record)["artifact_ref"] == "art-result-test"
+    assert vars(record)["error"] == "StorageError"
+
+
+def test_succeeded_job_status_returns_500_for_invalid_output(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     artifact_storage, job_store = stub_api_adapters[:2]
     job_id = uuid4()
@@ -418,8 +459,15 @@ def test_succeeded_job_status_returns_503_for_invalid_output(
     )
     response = client.get(f"/api/jobs/{job_id}")
 
-    assert response.status_code == 503
+    assert response.status_code == 500
     assert response.json()["detail"]["code"] == "artifact_invalid"
+    [record] = [
+        record for record in caplog.records if record.getMessage() == "parser artifact invalid"
+    ]
+    assert record.levelno == logging.ERROR
+    assert vars(record)["job_id"] == str(job_id)
+    assert vars(record)["artifact_ref"] == "art-result-test"
+    assert vars(record)["error"] == "ValidationError"
 
 
 def test_succeeded_job_status_reads_parser_artifact_from_filesystem(

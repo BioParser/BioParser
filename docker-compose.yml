@@ -54,6 +54,7 @@ services:
       BIOPARSER_VLLM_BASE_URL: http://vllm:8000/v1
       BIOPARSER_MINERU_BASE_URL: http://mineru:8000
       BIOPARSER_REDIS_URL : ${BIOPARSER_REDIS_URL:-redis://redis:6379/0}
+      BIOPARSER_PARSE_QUEUE_NAME: ${BIOPARSER_PARSE_QUEUE_NAME:-parse}
       BIOPARSER_ARTIFACT_STORAGE_PATH: /var/lib/bioparser/artifacts
     ports:
       - "127.0.0.1:${BIOPARSER_PORT:-8080}:8080"

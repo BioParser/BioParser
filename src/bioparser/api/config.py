@@ -37,6 +37,7 @@ class ApiSettings(BaseSettings):
     # repr=False: the URL can hold the password; keep it out of repr(settings)
     redis_url: AnyUrl | None = Field(default=None, repr=False)
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
+    parse_queue_name: str = Field(default="parse", min_length=1)
 
     @field_validator("log_level", mode="before")
     @classmethod

@@ -66,9 +66,14 @@ class _ProbedVLLM:
         return None
 
 
-def _app(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def _app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path | None = None) -> TestClient:
     """TestClient whose lifespan-built clients are dropped again after the test."""
-    for name in ("mineru", "vllm"):
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/15")
+    monkeypatch.setenv(
+        "BIOPARSER_ARTIFACT_STORAGE_PATH",
+        str((tmp_path or Path("/tmp")) / "bioparser-test-artifacts"),
+    )
+    for name in ("mineru", "vllm", "job_store", "parse_queue", "artifact_storage"):
         monkeypatch.setattr(app.state, name, None, raising=False)
     return TestClient(app)
 
@@ -148,7 +153,11 @@ def test_a_failed_startup_is_logged_redacted_and_handed_on_without_its_chain(
 
 def test_uvicorn_logs_no_password_when_the_vllm_url_is_malformed(tmp_path: Path) -> None:
     """The real path: the uvicorn CLI, as in the Dockerfile, with a "/" in the password."""
-    env = os.environ | {"BIOPARSER_VLLM_BASE_URL": "http://user:canary/rest@127.0.0.1:9/v1"}
+    env = os.environ | {
+        "BIOPARSER_VLLM_BASE_URL": "http://user:canary/rest@127.0.0.1:9/v1",
+        "BIOPARSER_REDIS_URL": "redis://localhost:6379/15",
+        "BIOPARSER_ARTIFACT_STORAGE_PATH": str(tmp_path / "artifacts"),
+    }
     result = subprocess.run(
         [sys.executable, "-m", "uvicorn", "bioparser.api.app:app", "--port", "0"],
         cwd=tmp_path,  # no developer .env
