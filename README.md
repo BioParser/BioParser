@@ -1,5 +1,7 @@
 # BioParser
 
+**Pitch:** https://bioparser.github.io/BioParser/
+
 [![CI](https://github.com/BioParser/BioParser/actions/workflows/ci.yml/badge.svg)](https://github.com/BioParser/BioParser/actions/workflows/ci.yml)
 
 BioParser extracts mammal trait data (for example body length and weight) from born-digital scientific PDFs. Everything runs locally: a PDF parser (pdfplumber or MinerU) splits the article into traceable blocks, and a local LLM served by vLLM extracts observations with evidence.
