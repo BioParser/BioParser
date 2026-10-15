@@ -7,9 +7,16 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from openai import AsyncOpenAI
-from stubs import Handler, StubMinerUClient, StubVLLMService
+from stubs import (
+    Handler,
+    StubArtifactStorage,
+    StubJobStateStore,
+    StubMinerUClient,
+    StubParseQueue,
+    StubVLLMService,
+)
 
-from bioparser.api import config, jobs
+from bioparser.api import config
 from bioparser.api.app import app
 from bioparser.logging_config import HANDLER_NAME
 from bioparser.services.vllm import config as vllm_config
@@ -17,7 +24,24 @@ from bioparser.services.vllm import vllm as vllm_module
 
 
 @pytest.fixture
-def client() -> TestClient:
+def stub_api_adapters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]]:
+    events: list[str] = []
+    artifact_storage = StubArtifactStorage(events)
+    job_store = StubJobStateStore(events)
+    parse_queue = StubParseQueue(events)
+
+    monkeypatch.setattr(app.state, "artifact_storage", artifact_storage, raising=False)
+    monkeypatch.setattr(app.state, "job_store", job_store, raising=False)
+    monkeypatch.setattr(app.state, "parse_queue", parse_queue, raising=False)
+    return artifact_storage, job_store, parse_queue, events
+
+
+@pytest.fixture
+def client(
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+) -> TestClient:
     return TestClient(app)
 
 
@@ -47,8 +71,6 @@ def reset_api_settings_cache() -> Generator[None]:
 
 @pytest.fixture(autouse=True)
 def reset_vllm_settings_cache() -> Generator[None]:
-    """vLLM Settings are cached per process: a test that sets BIOPARSER_VLLM_* must
-    not hand its values (e.g. a canary API key) to the tests after it."""
     if hasattr(vllm_config.get_settings, "cache_clear"):
         vllm_config.get_settings.cache_clear()
     yield
@@ -58,25 +80,16 @@ def reset_vllm_settings_cache() -> Generator[None]:
 
 @pytest.fixture
 def vllm_transport(monkeypatch: pytest.MonkeyPatch) -> Callable[[Handler], None]:
-    """Answer every VLLMService built afterwards with [handler] instead of the network.
-
-    Only the transport is swapped. Base URL, API key and timeouts still come from
-    the configured Settings, so a test sees what production would send and log.
-    """
-
     def install(handler: Handler) -> None:
         def client(**kwargs: Any) -> AsyncOpenAI:
-            transport = httpx2.MockTransport(handler)
-            return AsyncOpenAI(**kwargs, http_client=httpx2.AsyncClient(transport=transport))
+            return AsyncOpenAI(
+                **kwargs,
+                http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)),
+            )
 
         monkeypatch.setattr(vllm_module, "AsyncOpenAI", client)
 
     return install
-
-
-@pytest.fixture(autouse=True)
-def isolated_job_store(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(jobs, "_jobs", {})
 
 
 @pytest.fixture
@@ -93,24 +106,17 @@ def extract_semaphore(
     )
 
 
-TOUCHED_LOGGERS = ("bioparser", "uvicorn", "uvicorn.error", "uvicorn.access")
-
-
 @pytest.fixture(autouse=True)
 def restore_logging() -> Iterator[None]:
-    """setup_logging (run by every lifespan) changes process-global state; undo it.
-
-    Root handlers are not restored wholesale: pytest swaps its own capture
-    handlers on the root logger between test phases, so only ours is removed.
-    """
     root = logging.getLogger()
     root_level = root.level
+    touched = ("bioparser", "uvicorn", "uvicorn.error", "uvicorn.access")
     saved = [
         (logger, logger.level, logger.handlers[:], logger.propagate)
-        for logger in map(logging.getLogger, TOUCHED_LOGGERS)
+        for logger in map(logging.getLogger, touched)
     ]
     yield
-    for handler in [h for h in root.handlers if h.name == HANDLER_NAME]:
+    for handler in [handler for handler in root.handlers if handler.name == HANDLER_NAME]:
         root.removeHandler(handler)
     root.setLevel(root_level)
     for logger, level, handlers, propagate in saved:

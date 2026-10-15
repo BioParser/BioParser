@@ -37,6 +37,9 @@ RUN groupadd --system --gid 10001 app \
 # Non-editable install: the project lives in the venv, so src is not copied
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 
+RUN mkdir -p /var/lib/bioparser/artifacts \
+    && chown -R app:app /var/lib/bioparser/artifacts
+
 USER app:app
 
 EXPOSE 8080

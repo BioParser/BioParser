@@ -12,6 +12,11 @@ ErrorCode = Literal[
     "job_not_found",
     "invalid_job_id",
     "content_too_large",
+    "storage_unavailable",
+    "artifact_invalid",
+    "job_state_unreadable",
+    "redis_unavailable",
+    "queue_unavailable",
 ]
 
 
@@ -41,6 +46,26 @@ CONTENT_TOO_LARGE = ErrorDetail(
     code="content_too_large",
     message="Content Too Large",
 )
+
+STORAGE_UNAVAILABLE = ErrorDetail(
+    code="storage_unavailable",
+    message="Artifact storage is unavailable",
+)
+ARTIFACT_INVALID = ErrorDetail(
+    code="artifact_invalid",
+    message="Stored parser artifact is invalid",
+)
+JOB_STATE_UNREADABLE = ErrorDetail(
+    code="job_state_unreadable",
+    message="Stored job state is unreadable",
+)
+
+REDIS_UNAVAILABLE = ErrorDetail(
+    code="redis_unavailable",
+    message="Job state service is unavailable",
+)
+
+QUEUE_UNAVAILABLE = ErrorDetail(code="queue_unavailable", message="Parse queue is unavailable")
 
 
 def http_error(status_code: int, detail: ErrorDetail) -> HTTPException:
