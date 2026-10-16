@@ -1,4 +1,10 @@
 services:
+  parser-worker:
+    build:
+      dockerfile: docker/parser-worker.Dockerfile
+      target: cpu
+    image: bioparser-parser-worker:cpu
+
   mineru:
     build:
       dockerfile: docker/mineru.Dockerfile

@@ -8,6 +8,18 @@ x-gpu: &gpu
             capabilities: [gpu]
 
 services:
+  parser-worker:
+    <<: *gpu
+    build:
+      dockerfile: docker/parser-worker.Dockerfile
+      target: gpu
+      args:
+        TORCH_BACKEND: cu129
+    image: bioparser-parser-worker:gpu
+    environment:
+      MINERU_DEVICE_MODE: cuda
+      MINERU_VIRTUAL_VRAM_SIZE: "${MINERU_VIRTUAL_VRAM_SIZE:-2}"
+
   mineru:
     <<: *gpu
     build:
