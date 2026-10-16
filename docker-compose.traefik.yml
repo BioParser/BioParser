@@ -1,0 +1,44 @@
+# HTTPS/TLS reverse proxy: Traefik routes encrypted traffic to the bioparser API.
+# Enabled by adding :docker-compose.traefik.yml to COMPOSE_FILE in .env.
+
+services:
+  traefik:
+    image: traefik:v3.7.14@sha256:575fa15b135078fe5e50aa847987d96dbddd7b093c172429618404df73f3fa7c
+    user: "65534:65534"
+    command:
+      # Entry point for HTTPS (443) only -- HTTP disabled to prevent plaintext credential exposure
+      - --entrypoints.websecure.address=:443
+      # Dynamic file provider (avoids mounting Docker socket for least privilege)
+      - --providers.file.directory=/etc/traefik/conf.d
+      - --providers.file.watch=true
+      # Internal health check ping endpoint
+      - --ping=true
+      - --ping.entrypoint=ping
+      - --entrypoints.ping.address=:8082
+      # Logging (JSON format to integrate seamlessly with Loki/Alloy logging stack)
+      - --log.level=${TRAEFIK_LOG_LEVEL:-INFO}
+      - --log.format=json
+      - --accesslog=true
+      - --accesslog.format=json
+      - --global.checknewversion=false
+      - --global.sendanonymoususage=false
+    ports:
+      - "${TRAEFIK_BIND_ADDRESS:-127.0.0.1}:${TRAEFIK_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./docker/traefik:/etc/traefik/conf.d:ro
+    networks:
+      - edge
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 256m
+    memswap_limit: 256m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping", "--ping.entrypoint=ping", "--entrypoints.ping.address=:8082"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

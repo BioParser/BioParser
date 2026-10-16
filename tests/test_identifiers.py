@@ -102,6 +102,10 @@ def test_dot_segments_raise_traversal_error(path: str) -> None:
     with pytest.raises(ArtifactPathTraversalError):
         validate_artifact_path(path)
 
+@pytest.mark.parametrize("value", [None, 0, 123, b"pdf/abc", ["pdf", "abc"]])
+def test_non_strings_are_rejected(value: object) -> None:
+    with pytest.raises(ArtifactPathError, match="must be a string"):
+        validate_artifact_path(value)  # type: ignore[arg-type]
 
 def test_traversal_error_is_an_artifact_path_error_and_value_error() -> None:
     assert issubclass(ArtifactPathTraversalError, ArtifactPathError)
@@ -130,7 +134,6 @@ def test_pydantic_field_round_trips_json() -> None:
     restored = _Holder.model_validate_json(original.model_dump_json())
     assert restored == original
 
-
 def test_pdf_path_follows_the_convention() -> None:
     assert pdf_path(CHECKSUM) == f"pdf/{CHECKSUM}"
 
@@ -139,7 +142,6 @@ def test_parse_result_path_follows_the_convention() -> None:
     path = parse_result_path(CHECKSUM, "mineru", "1")
     assert path == f"pdf/{CHECKSUM}/parsed/mineru/1"
     assert path.startswith(pdf_path(CHECKSUM) + "/")
-
 
 @pytest.mark.parametrize(
     "bad", ["", "a/b", "/a", "has space", "a" * (ARTIFACT_PATH_MAX_SEGMENT_LENGTH + 1)]

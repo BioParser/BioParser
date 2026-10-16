@@ -32,7 +32,9 @@ WORKDIR /app
 
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid 10001 \
-    --no-create-home app
+    --no-create-home app \
+    && mkdir -p /data \
+    && chown app:app /data
 
 # Non-editable install: the project lives in the venv, so src is not copied
 COPY --from=builder --chown=app:app /app/.venv /app/.venv

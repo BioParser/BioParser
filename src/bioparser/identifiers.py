@@ -1,8 +1,8 @@
 """Shared shape rules and the naming convention for artifact paths.
 
 An artifact path is the key under which an artifact is stored. Storage validates against these
-rules. The job state and the job queue use the same rules (#127), so a malformed path is
-rejected at whichever boundary it enters.
+rules. The job state uses the same rules, and the job queue is meant to (#127), so a malformed
+path is rejected at whichever boundary it enters.
 
 Convention (build paths with the functions below, never by string formatting):
 
@@ -10,8 +10,8 @@ Convention (build paths with the functions below, never by string formatting):
 - ``pdf/<pdf-checksum>/parsed/<backend>/<version>``: the parser artifact made from that PDF
   by parser backend ``<backend>`` at backend version ``<version>``.
 
-This module has no dependency on storage, so the job modules can use it without importing the
-storage package.
+This module only defines what a well-formed path looks like and how to build one. It has no
+dependency on storage, so the job modules can use it without importing the storage package.
 """
 
 from __future__ import annotations
@@ -48,8 +48,10 @@ def validate_artifact_path(value: str) -> str:
 
     Raises:
         ArtifactPathTraversalError: A segment is ``.`` or ``..``.
-        ArtifactPathError: The path violates any other rule.
+        ArtifactPathError: The path is not a string or violates any other rule.
     """
+    if not isinstance(value, str):
+        raise ArtifactPathError("Artifact path must be a string")
     if not value:
         raise ArtifactPathError("Artifact path cannot be empty")
     if len(value) > ARTIFACT_PATH_MAX_LENGTH:
@@ -75,10 +77,8 @@ def validate_artifact_path(value: str) -> str:
         )
     return value
 
-
 #: Field type for an artifact path: a ``str`` validated by ``validate_artifact_path``.
 ArtifactPath = Annotated[str, AfterValidator(validate_artifact_path)]
-
 
 def _path_segment(name: str, value: str) -> str:
     """Return ``value`` if it is one valid path segment, so a builder argument cannot add
@@ -101,3 +101,4 @@ def parse_result_path(checksum: str, backend: str, version: str) -> str:
         f"{pdf_path(checksum)}/parsed/"
         f"{_path_segment('backend', backend)}/{_path_segment('version', version)}"
     )
+

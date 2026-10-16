@@ -65,8 +65,6 @@ class FileSystemArtifactStorage:
             )
 
     def _validate_artifact_path(self, artifact_path: str) -> None:
-        if not isinstance(artifact_path, str):
-            raise InvalidArtifactPathError("Artifact path must be a string")
         try:
             validate_artifact_path(artifact_path)
         except ArtifactPathTraversalError as exc:
