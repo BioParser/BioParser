@@ -513,16 +513,20 @@ def test_on_failed_tolerates_corrupt_state() -> None:
     handler.close()
 
 
-def test_on_failed_records_timeout() -> None:
+def test_on_failed_records_timeout(capsys: pytest.CaptureFixture[str]) -> None:
+    setup_logging("INFO")
     jobs = MemoryJobs(_queued().with_changes(status="parsing"))
     handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()))
     handler.on_failed(_message(), JobTimeLimitExceeded())
     handler.close()
     assert jobs.state is not None
     assert jobs.state.error == SafeError(code="timeout")
+    records = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
+    assert any("Marked the job failed (timeout)" in r["msg"] for r in records)
 
 
-def test_on_failed_does_not_reopen_a_finished_job() -> None:
+def test_on_failed_does_not_reopen_a_finished_job(capsys: pytest.CaptureFixture[str]) -> None:
+    setup_logging("INFO")
     finished = _queued().with_changes(
         status="parsed", parse_result_ref="7c2e1d3b-8e55-4f2b-ad4c-3a9f6b1e7d22"
     )
@@ -531,6 +535,9 @@ def test_on_failed_does_not_reopen_a_finished_job() -> None:
     handler.on_failed(_message(), RuntimeError("late"))
     handler.close()
     assert jobs.state == finished
+    records = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
+    assert any("Not marking the job failed (internal_error)" in r["msg"] for r in records)
+    assert not any("Marked the job failed" in r["msg"] for r in records)
 
 
 @pytest.mark.parametrize("status", ["parsed", "extracting", "done"])

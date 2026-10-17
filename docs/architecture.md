@@ -158,7 +158,7 @@ stateDiagram-v2
     parsing --> parsed: Parser artifact stored
     parsing --> parsing: Retry after an unexpected error
     parsing --> failed: Permanent failure, retry limit, or timeout
-    parsed --> extracting: Extractor claims job (not implemented yet)
+    parsed --> extracting: Extractor claims job
     extracting --> done: Observations stored
     extracting --> failed: Permanent failure
     done --> [*]

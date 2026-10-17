@@ -118,8 +118,15 @@ class StageJobHandler[T: JobMessage]:
             "timeout" if isinstance(exc, JobTimeLimitExceeded) else "internal_error"
         )
         with log_context(job_id=str(message.job_id)):
-            LOGGER.error(f"giving up after {type(exc).__name__}. Marking the job failed ({code})")
-            self.run_async(self._mark_failed(message.job_id, code))
+            recorded = self.run_async(self._mark_failed(message.job_id, code))
+            if recorded:
+                LOGGER.error(
+                    f"giving up after {type(exc).__name__}. Marked the job failed ({code})"
+                )
+            else:
+                LOGGER.info(
+                    f"giving up after {type(exc).__name__}. Not marking the job failed ({code})"
+                )
 
     async def run(self, state: JobState) -> None:
         """Do the stage's work. The claim is already stored.
@@ -174,19 +181,22 @@ class StageJobHandler[T: JobMessage]:
             return False
         return True
 
-    async def _mark_failed(self, job_id: UUID, code: SafeErrorCode) -> None:
+    async def _mark_failed(self, job_id: UUID, code: SafeErrorCode) -> bool:
+        """Record `failed` when this stage still owns the job. True when the write lands."""
         match await fetch_job(self._jobs, job_id):
             case CorruptJobRecord():
                 LOGGER.error("stored job state is unreadable. Cannot mark it failed")
-                return
+                return False
             case MissingJobRecord():
                 LOGGER.error("no stored job state exists. Cannot mark it failed")
-                return
+                return False
             case JobState() as state:
                 pass
         if state.status not in self._owned:
-            return
+            return False
         try:
             await self._jobs.update(state.with_changes(status="failed", error=SafeError(code=code)))
         except StaleJobStateWriteError:
             LOGGER.info(f"job already finished or moved on. Not marking it failed ({code})")
+            return False
+        return True

@@ -21,7 +21,7 @@ from bioparser.services.vllm.vllm import VLLMService, VLLMTruncatedError
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
 
 from ..job import CorruptJobRecord, MissingJobRecord, fetch_job
-from ..json_artifact import reusable_json_artifact, store_json_artifact
+from ..json_artifact import _retrieve_or_none, store_json_artifact
 from ..stage import PermanentJobFailure, StageJobHandler
 
 LOGGER = logging.getLogger(__name__)
@@ -81,13 +81,13 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
 
     async def _ensure_extraction_artifact(self, state: JobState) -> str:
         artifact_path = _extraction_artifact_path(state.job_id)
-        if (
-            reusable_json_artifact(
-                self._storage, artifact_path, _is_extraction_artifact, "extraction artifact"
-            )
-            is not None
-        ):
+        stored = _retrieve_or_none(self._storage, artifact_path)
+        if stored is not None and _is_extraction_artifact(stored):
             return artifact_path
+        if stored is not None:
+            # Storage cannot replace an artifact, so an invalid one is permanent.
+            LOGGER.error("stored extraction artifact is invalid and cannot be replaced")
+            raise PermanentJobFailure("internal_error")
         parser_artifact = self._load_parser_artifact(state)
         try:
             report = await self._extract(parser_artifact)
