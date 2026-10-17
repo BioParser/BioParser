@@ -1,6 +1,6 @@
-"""Process liveness for the parser worker.
+"""Process liveness for the workers.
 
-A separate thread serves GET /health. A long parse does not block it. If the
+A separate thread serves GET /health. A long job does not block it. If the
 process is wedged badly enough that this thread cannot answer, the probe fails
 and the platform can restart the container.
 """
