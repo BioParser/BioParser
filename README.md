@@ -12,7 +12,7 @@ BioParser extracts mammal trait data (for example body length and weight) from b
 
 **NOTE:** Make sure to have at least 50GB of available storage space before running BioParser.
 
-Runs the full stack: API, the parser worker, MinerU, vLLM, Redis, and central logs (Loki, Alloy, Grafana).
+Runs the full stack: API, the parser worker, the extractor worker, MinerU, vLLM, Redis, and central logs (Loki, Alloy, Grafana).
 
 Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and needs the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). A CPU stack is also available.
 
@@ -36,7 +36,7 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
    docker compose up --build
 ```
 
-   The first run is slow: the MinerU service and the parser worker each download MinerU models during their image build, and vLLM downloads the model set in `VLLM_MODEL` (default `Qwen/Qwen3-0.6B`). The API starts only after `vllm`, `mineru`, and `redis` pass their health checks. The worker starts after Redis does.
+   The first run is slow: the MinerU service and the parser worker each download MinerU models during their image build, and vLLM downloads the model set in `VLLM_MODEL` (default `Qwen/Qwen3-0.6B`). The extractor image does not download a model; it calls the vLLM service. The API starts only after `vllm`, `mineru`, and `redis` pass their health checks. The parser worker starts after Redis does. The extractor worker starts after `vllm` and Redis do.
 
 3. Check the API:
 
