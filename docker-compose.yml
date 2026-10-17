@@ -41,8 +41,9 @@ services:
     networks: [backend, edge]
 
   bioparser:
-    build: .
-    init: true
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
     depends_on:
       mineru:
         condition: service_healthy
