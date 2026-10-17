@@ -1,12 +1,17 @@
-"""Shared shape rules for artifact paths.
+"""Shared shape rules and the naming convention for artifact paths.
 
-An artifact path is the key under which an artifact is stored, for example
-``pdf/<pdf-checksum>`` or ``pdf/<pdf-checksum>/parsed/<backend>/<version>``. Storage validates
-against these rules. The job state and the job queue are meant to use the same rules (#127), so a
-malformed path is rejected at whichever boundary it enters.
+An artifact path is the key under which an artifact is stored. Storage validates against these
+rules. The job state uses the same rules, and the job queue is meant to (#127), so a malformed
+path is rejected at whichever boundary it enters.
 
-This module only defines what a well-formed path looks like. It has no dependency on storage,
-so the job modules can use it without importing the storage package.
+Convention (build paths with the functions below, never by string formatting):
+
+- ``pdf/<pdf-checksum>``: an uploaded PDF.
+- ``pdf/<pdf-checksum>/parsed/<backend>/<version>``: the parser artifact made from that PDF
+  by parser backend ``<backend>`` at backend version ``<version>``.
+
+This module only defines what a well-formed path looks like and how to build one. It has no
+dependency on storage, so the job modules can use it without importing the storage package.
 """
 
 from __future__ import annotations
@@ -75,3 +80,26 @@ def validate_artifact_path(value: str) -> str:
 
 #: Field type for an artifact path: a ``str`` validated by ``validate_artifact_path``.
 ArtifactPath = Annotated[str, AfterValidator(validate_artifact_path)]
+
+
+def _path_segment(name: str, value: str) -> str:
+    """Return ``value`` if it is one valid path segment, so a builder argument cannot add
+    or remove segments (``"a/b"``, ``".."``, ``""``)."""
+    if not isinstance(value, str) or "/" in value:
+        raise ArtifactPathError(f"{name} must be a single path segment")
+    validate_artifact_path(value)
+    return value
+
+
+def pdf_path(checksum: str) -> str:
+    """Return the artifact path of an uploaded PDF: ``pdf/<checksum>``."""
+    return validate_artifact_path(f"pdf/{_path_segment('checksum', checksum)}")
+
+
+def parse_result_path(checksum: str, backend: str, version: str) -> str:
+    """Return the path of the parser artifact for a PDF:
+    ``pdf/<checksum>/parsed/<backend>/<version>``."""
+    return validate_artifact_path(
+        f"{pdf_path(checksum)}/parsed/"
+        f"{_path_segment('backend', backend)}/{_path_segment('version', version)}"
+    )
