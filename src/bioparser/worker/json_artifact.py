@@ -22,20 +22,12 @@ from .stage import PermanentJobFailure
 LOGGER = logging.getLogger(__name__)
 
 
-def reusable_json_artifact(
-    storage: ArtifactStorage,
-    artifact_path: str,
-    is_valid: Callable[[bytes], bool],
-    kind: str,
-) -> str | None:
-    """Return `artifact_path` when a valid artifact is already stored."""
-    stored = _retrieve_or_none(storage, artifact_path)
-    if stored is None:
+def _retrieve_or_none(storage: ArtifactStorage, artifact_path: str) -> bytes | None:
+    """Return stored bytes, or none when the artifact is missing."""
+    try:
+        return storage.retrieve(artifact_path)
+    except ArtifactNotFoundError:
         return None
-    if is_valid(stored):
-        return artifact_path
-    LOGGER.error(f"stored {kind} is invalid and cannot be replaced")
-    raise PermanentJobFailure("internal_error")
 
 
 def store_json_artifact(
@@ -63,10 +55,3 @@ def store_json_artifact(
             LOGGER.error(f"stored {kind} from another delivery is missing or invalid")
             raise PermanentJobFailure("internal_error") from exc
     return artifact_path
-
-
-def _retrieve_or_none(storage: ArtifactStorage, artifact_path: str) -> bytes | None:
-    try:
-        return storage.retrieve(artifact_path)
-    except ArtifactNotFoundError:
-        return None

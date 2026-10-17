@@ -22,7 +22,7 @@ from bioparser.parser import (
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
 
 from ..job import CorruptJobRecord, MissingJobRecord, fetch_job
-from ..json_artifact import reusable_json_artifact, store_json_artifact
+from ..json_artifact import _retrieve_or_none, store_json_artifact
 from ..stage import PermanentJobFailure, StageJobHandler
 
 LOGGER = logging.getLogger(__name__)
@@ -103,13 +103,13 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
 
     def _ensure_parser_artifact(self, job_id: UUID, parser_name: str, pdf_ref: str) -> str:
         artifact_path = _parser_artifact_path(job_id)
-        if (
-            reusable_json_artifact(
-                self._storage, artifact_path, _is_parser_artifact, "parser artifact"
-            )
-            is not None
-        ):
+        stored = _retrieve_or_none(self._storage, artifact_path)
+        if stored is not None and _is_parser_artifact(stored):
             return artifact_path
+        if stored is not None:
+            # Storage cannot replace an artifact, so an invalid one is permanent.
+            LOGGER.error("stored parser artifact is invalid and cannot be replaced")
+            raise PermanentJobFailure("internal_error")
         artifact = self._parse(parser_name, pdf_ref)
         payload = artifact.model_dump_json().encode()
         return store_json_artifact(
