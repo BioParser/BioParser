@@ -240,8 +240,9 @@ class TestErrorHandling:
 
     def test_uninitialized_root_without_create_root_raises(self, tmp_path: Path) -> None:
         non_existent = tmp_path / "does_not_exist"
-        with pytest.raises(StorageConfigurationError):
+        with pytest.raises(StorageConfigurationError) as exc_info:
             FileSystemArtifactStorage(non_existent, create_root=False)
+        assert "does_not_exist" not in str(exc_info.value)
 
 
 PLANTED_PATH = "/srv/planted/secret/dir"
@@ -434,3 +435,46 @@ class TestPathTraversalDefense:
         ):
             storage.retrieve("a/../b")
         assert "Path traversal attempt blocked" in caplog.text
+
+    def test_path_traversal_log_and_error_leave_the_path_out(
+        self, storage: FileSystemArtifactStorage, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        planted = "planted/../\x1b[2J/home/user/.ssh\nfake log line"
+        with (
+            caplog.at_level(logging.WARNING, logger="bioparser.storage.filesystem"),
+            pytest.raises(StoragePathTraversalError) as exc_info,
+        ):
+            storage.retrieve(planted)
+
+        assert "planted" not in caplog.text
+        assert "planted" not in str(exc_info.value)
+
+    def test_invalid_path_error_leaves_the_path_out(
+        self, storage: FileSystemArtifactStorage
+    ) -> None:
+        with pytest.raises(InvalidArtifactPathError) as exc_info:
+            storage.retrieve("planted/has space\n\x1b[2J")
+
+        assert "planted" not in str(exc_info.value)
+
+    def test_invalid_blob_id_in_metadata_is_left_out_of_the_error(
+        self, storage: FileSystemArtifactStorage
+    ) -> None:
+        artifact_path = "pdf/dummy_hash/1"
+        meta_path = storage.root_path / f"{artifact_path}.meta.json"
+        meta_path.parent.mkdir(parents=True)
+        meta_path.write_text(
+            FileBlobMetadata(
+                artifact_path=artifact_path,
+                media_type="application/pdf",
+                blob_id="planted/../secret",
+            ).model_dump_json(),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(StoragePathTraversalError) as exc_info:
+            storage.retrieve(artifact_path)
+
+        message = str(exc_info.value)
+        assert artifact_path in message
+        assert "planted" not in message

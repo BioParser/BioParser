@@ -101,6 +101,24 @@ def test_dot_segments_raise_traversal_error(path: str) -> None:
         validate_artifact_path(path)
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "planted/has space",
+        "planted/line\nbreak",
+        "planted/\x1b[31mred",
+        "C:\\planted\\absolute",
+        "planted/../escaped",
+        "/planted/absolute",
+        "planted/" + "a" * (ARTIFACT_PATH_MAX_SEGMENT_LENGTH + 1),
+    ],
+)
+def test_error_message_leaves_the_rejected_path_out(path: str) -> None:
+    with pytest.raises(ArtifactPathError) as exc_info:
+        validate_artifact_path(path)
+    assert "planted" not in str(exc_info.value)
+
+
 @pytest.mark.parametrize("value", [None, 0, 123, b"pdf/abc", ["pdf", "abc"]])
 def test_non_strings_are_rejected(value: object) -> None:
     with pytest.raises(ArtifactPathError, match="must be a string"):

@@ -60,15 +60,13 @@ class FileSystemArtifactStorage:
         if create_root:
             self.root_path.mkdir(parents=True, exist_ok=True)
         elif not self.root_path.is_dir():
-            raise StorageConfigurationError(
-                f"Configured storage root directory does not exist: {self.root_path}"
-            )
+            raise StorageConfigurationError("Configured storage root directory does not exist")
 
     def _validate_artifact_path(self, artifact_path: str) -> None:
         try:
             validate_artifact_path(artifact_path)
         except ArtifactPathTraversalError as exc:
-            logger.warning("Path traversal attempt blocked: %s", artifact_path)
+            logger.warning("Path traversal attempt blocked")
             raise StoragePathTraversalError(str(exc)) from exc
         except ArtifactPathError as exc:
             raise InvalidArtifactPathError(str(exc)) from exc
@@ -85,7 +83,7 @@ class FileSystemArtifactStorage:
     def _get_blob_data_path(self, artifact_path: str, blob_id: str) -> Path:
         self._validate_artifact_path(artifact_path)
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", blob_id):
-            raise StoragePathTraversalError(f"Invalid blob ID: {blob_id}")
+            raise StoragePathTraversalError(f"Invalid blob ID in metadata for {artifact_path}")
         content_path = (self.root_path / f"{artifact_path}.{blob_id}.data").resolve()
         if not content_path.is_relative_to(self.root_path) or content_path == self.root_path:
             raise StoragePathTraversalError(
