@@ -45,10 +45,9 @@ updates:
           - "minor"
           - "patch"
 
-  # Base images: Dockerfile and docker/mineru.Dockerfile.
+  # Base images under docker/.
   - package-ecosystem: "docker"
     directories:
-      - "/"
       - "/docker"
     schedule:
       interval: "weekly"
