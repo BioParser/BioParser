@@ -4,7 +4,7 @@ from urllib.request import urlopen
 
 import pytest
 
-from bioparser.worker.parse.health import LivenessServer
+from bioparser.worker.health import LivenessServer
 
 
 def test_health_returns_ok_and_other_paths_do_not() -> None:

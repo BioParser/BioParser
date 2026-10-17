@@ -12,6 +12,8 @@ DEFAULT_EXTRACT_MAX_RETRIES = 3
 # Same budgets as the API test route. A character budget, not a token budget.
 DEFAULT_EXTRACTION_CHAR_BUDGET = 8000
 DEFAULT_EXTRACTION_MAX_TOKENS = 1024
+# Probe port for GET /health.
+DEFAULT_LIVENESS_PORT = 8081
 
 
 class ExtractWorkerSettings(BaseSettings):
@@ -37,6 +39,7 @@ class ExtractWorkerSettings(BaseSettings):
     extract_max_retries: int = Field(default=DEFAULT_EXTRACT_MAX_RETRIES, ge=0)
     extraction_char_budget: int = Field(default=DEFAULT_EXTRACTION_CHAR_BUDGET, ge=50)
     extraction_max_tokens: int = Field(default=DEFAULT_EXTRACTION_MAX_TOKENS, ge=64)
+    liveness_port: int = Field(default=DEFAULT_LIVENESS_PORT, ge=1, le=65535)
 
     @property
     def extract_max_claims(self) -> int:

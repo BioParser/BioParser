@@ -9,6 +9,7 @@ from bioparser.logging_config import setup_logging
 from bioparser.parser.models import ParserArtifact
 from bioparser.services.vllm import VLLMService
 from bioparser.storage.filesystem import FileSystemArtifactStorage
+from bioparser.worker.health import LivenessServer
 from bioparser.worker.process import install_shutdown
 
 from .config import ExtractWorkerSettings
@@ -49,10 +50,15 @@ def build_worker(
 def main() -> None:
     settings = ExtractWorkerSettings()  # type: ignore[call-arg]
     setup_logging(settings.log_level)
-    queue, handler = build_worker(settings)
-    stop = Event()
-    install_shutdown(stop)
+    liveness = LivenessServer(settings.liveness_port)
+    liveness.start()
     try:
-        queue.consume(handler, stop=stop)
+        queue, handler = build_worker(settings)
+        stop = Event()
+        install_shutdown(stop)
+        try:
+            queue.consume(handler, stop=stop)
+        finally:
+            handler.close()
     finally:
-        handler.close()
+        liveness.close()

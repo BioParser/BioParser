@@ -30,7 +30,7 @@ Then open http://localhost:3000 on your laptop.
 
 **Dashboard:** after login you land on **BioParser logs**. It shows log lines, errors and warnings per service, API requests by status code, and the newest errors. Pick services with the **Service** filter at the top. The list is read when the page opens, so reload the page to see a new service. To change the dashboard, edit `docker/grafana/provisioning/dashboards/bioparser-logs.json`; changes made in the Grafana UI cannot be saved.
 
-**Health checks:** under the numbers at the top, the API, MinerU and vLLM each have a row. Docker calls their `/health` address every 10 to 30 seconds, and the panel reads those calls from their logs. Green (passing) means a check passed in that minute, red (failing) means the checks failed, and an empty stretch means no check was logged: the service was down or not answering. The parser worker and Redis do not log health checks, so they have no row.
+**Health checks:** under the numbers at the top, the API, MinerU and vLLM each have a row. Docker calls their `/health` address every 10 to 30 seconds, and the panel reads those calls from their logs. Green (passing) means a check passed in that minute, red (failing) means the checks failed, and an empty stretch means no check was logged: the service was down or not answering. The parser worker, the extractor worker, and Redis do not log health checks, so they have no row.
 
 **Browse:** in the left menu, open **Drilldown → Logs**. You see one row per service (`bioparser`, `mineru`, `vllm`, `redis` and the log services), each with a chart of how many lines it wrote. Click a service to read its lines and filter them by level.
 
