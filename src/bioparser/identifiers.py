@@ -77,8 +77,10 @@ def validate_artifact_path(value: str) -> str:
         )
     return value
 
+
 #: Field type for an artifact path: a ``str`` validated by ``validate_artifact_path``.
 ArtifactPath = Annotated[str, AfterValidator(validate_artifact_path)]
+
 
 def _path_segment(name: str, value: str) -> str:
     """Return ``value`` if it is one valid path segment, so a builder argument cannot add
@@ -101,4 +103,3 @@ def parse_result_path(checksum: str, backend: str, version: str) -> str:
         f"{pdf_path(checksum)}/parsed/"
         f"{_path_segment('backend', backend)}/{_path_segment('version', version)}"
     )
-
