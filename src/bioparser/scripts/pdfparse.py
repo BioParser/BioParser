@@ -38,8 +38,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         artifact = get_parser(args.backend).parse(args.input)
-    except FileNotFoundError as exc:
-        print(str(exc), file=sys.stderr)
+    except FileNotFoundError:
+        print(f"PDF not found: {args.input.expanduser().resolve()}", file=sys.stderr)
         return 1
     except UnsupportedDocumentError as exc:
         print(str(exc), file=sys.stderr)

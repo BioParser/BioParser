@@ -97,3 +97,49 @@ def test_non_positive_operation_timeout_rejected() -> None:
 def test_malformed_redis_url_raises_job_state_error() -> None:
     with pytest.raises(JobStateError):
         RedisJobStateStore("not-a-valid-url")
+
+
+# --- error messages hold the Redis error type, not its text (#140) ------------
+
+PLANTED_URL = "redis://:planted-secret@cache.internal:6380/0"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("redis_error", "expected"),
+    [
+        (RedisTimeoutError(f"Timeout connecting to {PLANTED_URL}"), JobStateConnectionError),
+        (RedisConnectionError(f"Error 111 connecting to {PLANTED_URL}"), JobStateConnectionError),
+        (RedisError(f"NOPERM no permissions on {PLANTED_URL}"), JobStateBackendError),
+    ],
+)
+async def test_error_message_names_redis_error_type_but_not_its_text(
+    redis_error: RedisError, expected: type[JobStateError]
+) -> None:
+    async def fails() -> str:
+        raise redis_error
+
+    with pytest.raises(expected) as exc_info:
+        await _call_with_redis_errors(fails, retry_timeout=False)
+
+    message = str(exc_info.value)
+    assert type(redis_error).__name__ in message
+    assert "planted-secret" not in message
+    assert "cache.internal" not in message
+    assert exc_info.value.__cause__ is redis_error
+
+
+def test_bad_redis_url_error_holds_neither_the_url_nor_the_value_error_text() -> None:
+    # An unescaped "/" in the password ends the host part early, so redis-py's
+    # port error quotes the start of the password.
+    url = "redis://:planted/secret@cache.internal:6379/0"
+
+    with pytest.raises(JobStateError) as exc_info:
+        RedisJobStateStore(url)
+
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, ValueError)
+    assert "planted" in str(cause)  # the text that used to be copied
+    message = str(exc_info.value)
+    assert message == "invalid Redis URL"
+    assert str(cause) not in message
