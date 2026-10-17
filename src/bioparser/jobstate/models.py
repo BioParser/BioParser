@@ -56,6 +56,7 @@ class JobState(BaseModel):
     parser: str = Field(min_length=1)
     pdf_ref: ArtifactPath
     parse_result_ref: ArtifactPath | None = None
+    extract_result_ref: ArtifactPath | None = None
     error: SafeError | None = None
     # Claims per stage.
     claim_counts: dict[JobStatus, int] = Field(default_factory=dict)
@@ -103,21 +104,40 @@ class JobState(BaseModel):
 
     @model_validator(mode="after")
     def _fields_match_status(self) -> Self:
-        has_result = self.parse_result_ref is not None
+        has_parse = self.parse_result_ref is not None
+        has_extract = self.extract_result_ref is not None
         has_error = self.error is not None
-        if self.status in ("parsed", "extracting", "done") and has_result and not has_error:
+        # `failed` may keep the parser artifact. Extraction fails after that artifact exists,
+        # and dropping the reference would hide a successful parse. The extraction artifact
+        # is only recorded on `done`.
+        if (
+            self.status in ("parsed", "extracting")
+            and has_parse
+            and not has_extract
+            and not has_error
+        ):
             return self
-        if self.status == "failed" and has_error and not has_result:
+        if self.status == "done" and has_parse and has_extract and not has_error:
             return self
-        if self.status in ("queued", "parsing") and not has_result and not has_error:
+        if self.status == "failed" and has_error and not has_extract:
+            return self
+        if (
+            self.status in ("queued", "parsing")
+            and not has_parse
+            and not has_extract
+            and not has_error
+        ):
             return self
         if self.status == "failed":
-            required = "an error and no parse_result_ref"
+            required = "an error and no extract_result_ref"
         elif self.status in ("queued", "parsing"):
-            required = "neither a parse_result_ref nor an error"
+            required = "no artifact refs and no error"
+        elif self.status == "done":
+            required = "both artifact refs and no error"
         else:
-            required = "a parse_result_ref and no error"
+            required = "a parse_result_ref, no extract_result_ref, and no error"
         raise ValueError(
             f"status={self.status!r} requires {required}, "
-            f"got parse_result_ref={self.parse_result_ref!r}, error={self.error!r}"
+            f"got parse_result_ref={self.parse_result_ref!r}, "
+            f"extract_result_ref={self.extract_result_ref!r}, error={self.error!r}"
         )

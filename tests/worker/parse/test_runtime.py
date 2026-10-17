@@ -1,33 +1,12 @@
 import json
 import logging
 import runpy
-import signal
 from pathlib import Path
 from threading import Event
 
 import pytest
 
 from bioparser.worker.parse import runtime
-from bioparser.worker.parse.runtime import install_shutdown
-
-
-@pytest.fixture
-def restore_signals() -> object:
-    saved = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
-    yield
-    for sig, handler in saved.items():
-        signal.signal(sig, handler)
-
-
-@pytest.mark.parametrize("sig", [signal.SIGINT, signal.SIGTERM])
-def test_signal_sets_stop_event(restore_signals: None, sig: signal.Signals) -> None:
-    stop = Event()
-    install_shutdown(stop)
-    assert not stop.is_set()
-
-    signal.raise_signal(sig)
-
-    assert stop.is_set()
 
 
 class _LoggingQueue:
@@ -53,6 +32,7 @@ def test_main_logs_json_to_stderr_with_dramatiq_at_warning(
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path))
     monkeypatch.setenv("BIOPARSER_PARSE_QUEUE_NAME", "parse")
+    monkeypatch.setenv("BIOPARSER_EXTRACT_QUEUE_NAME", "extract")
     monkeypatch.delenv("BIOPARSER_LOG_LEVEL", raising=False)
     monkeypatch.setattr(runtime, "build_worker", lambda settings: (_LoggingQueue(), _Handler()))
     monkeypatch.setattr(runtime, "install_shutdown", lambda stop: None)
@@ -73,6 +53,7 @@ def _worker_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path))
     monkeypatch.setenv("BIOPARSER_PARSE_QUEUE_NAME", "parse")
+    monkeypatch.setenv("BIOPARSER_EXTRACT_QUEUE_NAME", "extract")
 
 
 def test_main_refuses_to_start_without_the_mineru_cli(

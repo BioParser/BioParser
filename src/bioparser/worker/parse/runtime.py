@@ -1,8 +1,7 @@
-import logging
-import signal
 from threading import Event
+from uuid import UUID
 
-from bioparser.jobqueue import JobQueue, ParseJobMessage
+from bioparser.jobqueue import ExtractJobMessage, JobQueue, ParseJobMessage
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobstate import RedisJobStateStore
 from bioparser.logging_config import setup_logging
@@ -10,25 +9,11 @@ from bioparser.parser.backend.factory import get_parser
 from bioparser.parser.backend.mineru.runtime import require_mineru_cli
 from bioparser.parser.protocol import PdfParser
 from bioparser.storage.filesystem import FileSystemArtifactStorage
+from bioparser.worker.process import install_shutdown
 
 from .config import WorkerSettings
 from .handler import ParseJobHandler
 from .health import LivenessServer
-
-LOGGER = logging.getLogger(__name__)
-
-
-def install_shutdown(stop: Event) -> None:
-    """Stop the consumer on SIGINT and SIGTERM. The queue joins in-flight work."""
-
-    def _request_stop(signum: int, _frame: object) -> None:
-        LOGGER.info(
-            f"received {signal.Signals(signum).name}. Finishing the current job, then shutting down"
-        )
-        stop.set()
-
-    signal.signal(signal.SIGINT, _request_stop)
-    signal.signal(signal.SIGTERM, _request_stop)
 
 
 def build_worker(
@@ -46,16 +31,27 @@ def build_worker(
         # One thread is supported today. The handler serializes any extra threads.
         worker_threads=1,
     )
+    # Submit-only. The extractor process owns retries and the time limit.
+    extract_queue: JobQueue[ExtractJobMessage] = DramatiqJobQueue.from_redis_submit_only(
+        str(settings.redis_url),
+        name=settings.extract_queue_name,
+        model=ExtractJobMessage,
+        timeout_s=settings.redis_timeout_seconds,
+    )
     parser_timeout_s = settings.parser_timeout_seconds
 
     def parser_factory(name: str) -> PdfParser:
         return get_parser(name, timeout_s=parser_timeout_s)
+
+    def enqueue_extraction(job_id: UUID) -> None:
+        extract_queue.submit(ExtractJobMessage(job_id=job_id))
 
     handler = ParseJobHandler(
         jobs=jobs,
         storage=storage,
         parser_factory=parser_factory,
         max_claims=settings.parse_max_claims,
+        enqueue_extraction=enqueue_extraction,
     )
     return queue, handler
 

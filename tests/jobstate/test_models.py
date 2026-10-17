@@ -8,6 +8,7 @@ from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobStatus
 
 PDF_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
 RESULT_REF = "7c2e1d3b-8e55-4f2b-ad4c-3a9f6b1e7d22"
+EXTRACT_REF = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
 
 
 def _queued(**overrides: object) -> JobState:
@@ -72,14 +73,33 @@ def test_succeeded_job_round_trips_through_json() -> None:
     assert restored.parse_result_ref == RESULT_REF
 
 
-@pytest.mark.parametrize("status", ["extracting", "done"])
-def test_later_stages_require_parse_result_and_reject_error(status: str) -> None:
-    state = _queued(status=status, parse_result_ref=RESULT_REF)
+def test_extracting_requires_parse_result_and_rejects_error() -> None:
+    state = _queued(status="extracting", parse_result_ref=RESULT_REF)
     assert JobState.model_validate_json(state.model_dump_json()) == state
     with pytest.raises(ValidationError):
-        _queued(status=status)
+        _queued(status="extracting")
     with pytest.raises(ValidationError):
-        _queued(status=status, parse_result_ref=RESULT_REF, error=SafeError(code="parse_failed"))
+        _queued(
+            status="extracting",
+            parse_result_ref=RESULT_REF,
+            error=SafeError(code="extraction_failed"),
+        )
+
+
+def test_done_requires_both_artifact_refs() -> None:
+    state = _queued(status="done", parse_result_ref=RESULT_REF, extract_result_ref=EXTRACT_REF)
+    assert JobState.model_validate_json(state.model_dump_json()) == state
+    with pytest.raises(ValidationError):
+        _queued(status="done", parse_result_ref=RESULT_REF)
+    with pytest.raises(ValidationError):
+        _queued(status="done", extract_result_ref=EXTRACT_REF)
+    with pytest.raises(ValidationError):
+        _queued(
+            status="done",
+            parse_result_ref=RESULT_REF,
+            extract_result_ref=EXTRACT_REF,
+            error=SafeError(code="extraction_failed"),
+        )
 
 
 def test_failed_job_round_trips_through_json() -> None:
@@ -112,12 +132,23 @@ def test_failed_job_requires_error() -> None:
         _queued(status="failed")
 
 
-def test_failed_job_rejects_parse_result() -> None:
+def test_failed_job_may_keep_the_parser_artifact() -> None:
+    state = _queued(
+        status="failed",
+        parse_result_ref=RESULT_REF,
+        error=SafeError(code="extraction_failed"),
+    )
+    assert state.parse_result_ref == RESULT_REF
+    assert state.extract_result_ref is None
+
+
+def test_failed_job_rejects_extraction_result() -> None:
     with pytest.raises(ValidationError):
         _queued(
             status="failed",
             parse_result_ref=RESULT_REF,
-            error=SafeError(code="parse_failed"),
+            extract_result_ref=EXTRACT_REF,
+            error=SafeError(code="extraction_failed"),
         )
 
 
@@ -203,6 +234,16 @@ def test_malformed_pdf_ref_is_rejected(path: str) -> None:
 def test_malformed_parse_result_ref_is_rejected(path: str) -> None:
     with pytest.raises(ValidationError):
         _queued(status="parsed", parse_result_ref=path)
+
+
+@pytest.mark.parametrize("path", ["", "/abs", "a//b", "a/../b", "has space"])
+def test_malformed_extract_result_ref_is_rejected(path: str) -> None:
+    with pytest.raises(ValidationError):
+        _queued(
+            status="done",
+            parse_result_ref=RESULT_REF,
+            extract_result_ref=path,
+        )
 
 
 def test_stored_uuid_refs_stay_readable() -> None:
