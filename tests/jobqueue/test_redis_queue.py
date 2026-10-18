@@ -82,9 +82,23 @@ def test_redis_broker_rejects_non_positive_timeout() -> None:
 
 
 def test_redis_broker_rejects_unsupported_url_scheme() -> None:
-    with pytest.raises(JobQueueConfigError, match="schemes") as exc_info:
+    with pytest.raises(JobQueueConfigError, match="invalid Redis URL") as exc_info:
         _create_redis_broker("http://localhost:6379/0")
     assert isinstance(exc_info.value.__cause__, ValueError)
+
+
+def test_create_redis_broker_error_holds_neither_the_url_nor_the_value_error_text() -> None:
+    # An unescaped "/" in the password ends the host part early, so redis-py's
+    # port error quotes the start of the password.
+    with pytest.raises(JobQueueConfigError) as exc_info:
+        _create_redis_broker("redis://:planted/secret@cache.internal:6379/0")
+
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, ValueError)
+    assert "planted" in str(cause)  # the text that used to be copied
+    message = str(exc_info.value)
+    assert message == "invalid Redis URL"
+    assert str(cause) not in message
 
 
 def test_rejects_empty_queue_name(stub_broker: StubBroker) -> None:

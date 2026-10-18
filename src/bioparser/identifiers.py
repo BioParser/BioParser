@@ -62,7 +62,7 @@ def validate_path_segment(value: str) -> str:
         )
     if not _SEGMENT_PATTERN.fullmatch(value):
         raise ArtifactPathError(
-            f"Artifact path segment '{value}' contains invalid characters. "
+            "Artifact path segment contains invalid characters. "
             "Only alphanumeric characters, '.', '_' and '-' are allowed."
         )
     return value
