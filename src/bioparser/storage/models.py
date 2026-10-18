@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from bioparser.identifiers import ArtifactPath
+from bioparser.artifact_paths import ArtifactPath
 
 ARTIFACT_METADATA_SCHEMA_VERSION: Literal["1"] = "1"
 

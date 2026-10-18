@@ -17,8 +17,8 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
+from bioparser.artifact_paths import parse_result_path
 from bioparser.hashing import sha256_bytes
-from bioparser.identifiers import parse_result_path
 from bioparser.jobqueue import JobHandler, JobTimeLimitExceeded, ParseJobMessage
 from bioparser.jobstate import (
     CorruptJobStateError,

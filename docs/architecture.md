@@ -177,7 +177,7 @@ Artifacts across the pipeline (raw PDF uploads, parser outputs, and extractor ob
 are addressed by stable artifact paths using typed Pydantic models:
 
 - `ArtifactMetadata` (`schema_version = "1"`): stores artifact identity and provenance:
-  - `artifact_path`: the artifact's key, a deterministic, path-like string derived by the storing component (API or worker) from the content checksum and pipeline configuration, for example `pdf/<pdf-checksum>` or `pdf/<pdf-checksum>/parsed/<backend>/<version>`. Paths are built with `pdf_path()` and `parse_result_path()` in `bioparser.identifiers`. `<version>` is the parser backend's version from `bioparser.parser_names.PARSER_VERSIONS`.
+  - `artifact_path`: the artifact's key. See [Artifact paths](#artifact-paths).
   - `media_type`: MIME media type (`application/pdf`, `application/json`, etc.).
   - `creation_info`: timestamp (`created_at` in UTC) and creator identifier (`created_by`).
   - `content_schema_version`: explicit schema version of structured content where applicable
@@ -186,6 +186,47 @@ are addressed by stable artifact paths using typed Pydantic models:
 - `StoredArtifact`: composite container bundling raw `content` (`bytes`) and `metadata` (`ArtifactMetadata`).
 
 Queue message envelopes can pass lightweight artifact paths to workers to avoid transmitting large payloads over Redis.
+
+### Artifact paths
+
+An artifact path is the key an artifact is stored under. It is deterministic: the storing
+component (API or worker) builds it from the content checksum and the pipeline
+configuration, so the same input always gives the same path and a stored artifact can be
+reused.
+
+Rules (`validate_artifact_path` in `bioparser.artifact_paths`):
+
+- Segments are separated by a single `/`. No empty segments, and no leading or trailing `/`.
+- No `.` or `..` segments.
+- Each segment is at most 200 characters of `A-Z a-z 0-9 _ . -`.
+- The whole path is at most 512 characters.
+
+Storage and job state both validate paths with these rules. Storage raises
+`StoragePathTraversalError` for a `.` or `..` segment and `InvalidArtifactPathError` for
+any other violation.
+
+Convention:
+
+| Artifact | Path | Builder |
+|---|---|---|
+| Uploaded PDF | `pdf/<pdf-checksum>` | `pdf_path(checksum)` |
+| Parser artifact | `pdf/<pdf-checksum>/parsed/<backend>/<version>` | `parse_result_path(checksum, backend, version)` |
+
+- `<pdf-checksum>` is the sha256 of the PDF bytes, from `bioparser.hashing`.
+- `<backend>` is the parser backend name and `<version>` its version from
+  `bioparser.parser_names.PARSER_VERSIONS`. Bumping a backend's version gives new results
+  a new path, so results from the old version are not reused.
+- Build paths with the builders, never by string formatting. Each builder argument must be
+  a single valid segment, so a value like `a/b` cannot change the shape of the path.
+
+Job state holds artifact paths, typed `ArtifactPath`:
+
+| Field | Type | Set |
+|---|---|---|
+| `pdf_ref` | `ArtifactPath` | Always. The uploaded PDF, set when the job is created. |
+| `parse_result_ref` | `ArtifactPath \| None` | In `parsed`, `extracting` and `done`. `None` in `queued`, `parsing` and `failed`. |
+
+Queue messages carry only `job_id`. Workers read the paths from job state.
 
 ### Artifact storage interface
 
