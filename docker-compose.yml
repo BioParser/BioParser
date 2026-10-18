@@ -86,6 +86,7 @@ services:
     networks: [backend]
 
   redis:
+    # Also pinned in .github/workflows/ci.yml. Dependabot updates only this line.
     image: redis:8.10.2@sha256:2c2dff791878316e3b083188be0d578423b24813cdda5de0e80ea4f7b3e6bfd6
     user: "999:999"
     command:
