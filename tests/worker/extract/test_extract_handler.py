@@ -7,6 +7,7 @@ from stubs import StubVLLMService
 
 from bioparser.extract.extract import ExtractionFailedError, ExtractionReport, extract_observations
 from bioparser.extract.schema import ExtractionArtifact
+from bioparser.identifiers import extract_result_path
 from bioparser.jobqueue import ExtractJobMessage, JobTimeLimitExceeded
 from bioparser.jobstate import JobNotFoundError, JobState, SafeError, StaleJobStateWriteError
 from bioparser.jobstate.models import ALLOWED_TRANSITIONS
@@ -26,10 +27,12 @@ from bioparser.storage import StoredArtifact
 from bioparser.storage.errors import ArtifactAlreadyExistsError, ArtifactNotFoundError
 from bioparser.storage.models import ArtifactMetadata
 from bioparser.worker.extract.config import DEFAULT_EXTRACT_MAX_RETRIES
-from bioparser.worker.extract.handler import ExtractJobHandler, _extraction_artifact_path
+from bioparser.worker.extract.handler import ExtractJobHandler
 
 JOB_ID = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
 PARSE_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
+PDF_CHECKSUM = "abc"
+RESULT_PATH = extract_result_path(PDF_CHECKSUM, "default", "1", "default", "0")
 QUOTE = "Adult body mass averaged 12.5 g in the sampled population."
 
 
@@ -89,7 +92,7 @@ class MemoryStorage:
 def _parser_artifact(text: str = QUOTE) -> ParserArtifact:
     return ParserArtifact(
         schema_version=PARSER_ARTIFACT_SCHEMA_VERSION,
-        checksum="abc",
+        checksum=PDF_CHECKSUM,
         parser=ParserInfo(name="default", version="1", configuration={}),
         pages=[
             Page(
@@ -158,15 +161,13 @@ def test_success_stores_the_report_and_marks_done() -> None:
 
     assert jobs.state is not None
     assert jobs.state.status == "done"
-    assert jobs.state.extract_result_ref == _extraction_artifact_path(JOB_ID)
+    assert jobs.state.extract_result_ref == RESULT_PATH
     assert jobs.state.parse_result_ref == PARSE_REF
     assert jobs.state.claims("extracting") == 1
-    stored = ExtractionArtifact.model_validate_json(
-        storage.retrieve(_extraction_artifact_path(JOB_ID))
-    )
+    stored = ExtractionArtifact.model_validate_json(storage.retrieve(RESULT_PATH))
     assert stored.observations[0].grounded is True
     assert stored.observations[0].quotation == "12.5 g"
-    assert storage.metadata[_extraction_artifact_path(JOB_ID)].created_by == "extractor-worker"
+    assert storage.metadata[RESULT_PATH].created_by == "extractor-worker"
     assert vllm.prompts
 
 
@@ -206,9 +207,7 @@ def test_an_ungrounded_observation_is_stored_flagged() -> None:
     handler.handle(_message())
     handler.close()
 
-    stored = ExtractionArtifact.model_validate_json(
-        storage.retrieve(_extraction_artifact_path(JOB_ID))
-    )
+    stored = ExtractionArtifact.model_validate_json(storage.retrieve(RESULT_PATH))
     assert stored.ungrounded == 1
     assert stored.observations[0].grounded is False
     assert jobs.state is not None
@@ -304,6 +303,46 @@ def test_on_failed_records_timeout_and_keeps_the_parser_artifact() -> None:
     assert jobs.state.status == "failed"
     assert jobs.state.error == SafeError(code="timeout")
     assert jobs.state.parse_result_ref == PARSE_REF
+
+
+def test_second_job_with_the_same_parser_artifact_reuses_the_result() -> None:
+    storage = MemoryStorage()
+    vllm = StubVLLMService()
+    first = MemoryJobs(_parsed())
+    handler = _handler(first, storage, _real_extract(vllm))
+    handler.handle(_message())
+    handler.close()
+
+    other_id = UUID("9d0c6a52-1b7e-4c3f-a2d8-5e6f7a8b9c01")
+    second = MemoryJobs(_parsed().with_changes(job_id=other_id))
+    handler = _handler(second, storage, _real_extract(vllm))
+    handler.handle(ExtractJobMessage(job_id=other_id))
+    handler.close()
+
+    assert len(vllm.prompts) == 1
+    assert storage.stores == 1
+    assert second.state is not None
+    assert second.state.status == "done"
+    assert second.state.extract_result_ref == RESULT_PATH
+
+
+def test_parser_artifact_that_cannot_form_a_path_is_internal_error() -> None:
+    jobs = MemoryJobs(_parsed())
+    storage = MemoryStorage()
+    storage.payloads[PARSE_REF] = (
+        _parser_artifact().model_copy(update={"checksum": "a/b"}).model_dump_json().encode()
+    )
+
+    async def extract(artifact: ParserArtifact) -> ExtractionReport:
+        raise AssertionError("model was called")
+
+    handler = _handler(jobs, storage, extract)
+    handler.handle(_message())
+    handler.close()
+
+    assert jobs.state is not None
+    assert jobs.state.error == SafeError(code="internal_error")
+    assert storage.stores == 0
 
 
 def test_malformed_message_cannot_fail_a_parsed_job() -> None:

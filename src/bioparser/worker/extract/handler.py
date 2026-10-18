@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from uuid import NAMESPACE_DNS, UUID, uuid5
 
 from pydantic import ValidationError
 
@@ -14,6 +13,7 @@ from bioparser.extract.extract import (
     artifact_from_report,
 )
 from bioparser.extract.schema import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
+from bioparser.identifiers import ArtifactPathError, extract_result_path
 from bioparser.jobqueue import ExtractJobMessage
 from bioparser.jobstate import JobState, JobStateStore, JobStatus, StaleJobStateWriteError
 from bioparser.parser.models import ParserArtifact
@@ -27,7 +27,6 @@ from ..stage import PermanentJobFailure, StageJobHandler
 LOGGER = logging.getLogger(__name__)
 
 _EXTRACT_STAGE: frozenset[JobStatus] = frozenset(("parsed", "extracting"))
-_EXTRACTION_ARTIFACT_NAMESPACE = uuid5(NAMESPACE_DNS, "bioparser.extraction-artifact")
 
 Extract = Callable[[ParserArtifact], Awaitable[ExtractionReport]]
 
@@ -80,7 +79,8 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
                 return
 
     async def _ensure_extraction_artifact(self, state: JobState) -> str:
-        artifact_path = _extraction_artifact_path(state.job_id)
+        parser_artifact = self._load_parser_artifact(state)
+        artifact_path = _extraction_artifact_path(parser_artifact)
         stored = _retrieve_or_none(self._storage, artifact_path)
         if stored is not None and _is_extraction_artifact(stored):
             return artifact_path
@@ -88,7 +88,6 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             # Storage cannot replace an artifact, so an invalid one is permanent.
             LOGGER.error("stored extraction artifact is invalid and cannot be replaced")
             raise PermanentJobFailure("internal_error")
-        parser_artifact = self._load_parser_artifact(state)
         try:
             report = await self._extract(parser_artifact)
         except (ExtractionFailedError, VLLMTruncatedError) as exc:
@@ -125,9 +124,25 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             raise PermanentJobFailure("internal_error") from exc
 
 
-def _extraction_artifact_path(job_id: UUID) -> str:
-    """UUID5 of the job id, distinct from the parser artifact path."""
-    return str(uuid5(_EXTRACTION_ARTIFACT_NAMESPACE, str(job_id)))
+def _extraction_artifact_path(artifact: ParserArtifact) -> str:
+    """The conventional path for this parser artifact's extraction result.
+
+    The same PDF, parser, and extractor always give the same path, so a retry or another
+    job with the same parser artifact reuses the stored extraction. One extractor exists,
+    so its name and version are fixed here until a job can choose them. Version ``0`` is
+    that placeholder: a later ``default`` extractor starts at ``1`` and does not reuse these files.
+    """
+    try:
+        return extract_result_path(
+            artifact.checksum,
+            artifact.parser.name,
+            artifact.parser.version,
+            "default",
+            "0",
+        )
+    except ArtifactPathError as exc:
+        LOGGER.error("parser artifact cannot form an extraction path")
+        raise PermanentJobFailure("internal_error") from exc
 
 
 def _is_extraction_artifact(payload: bytes) -> bool:
