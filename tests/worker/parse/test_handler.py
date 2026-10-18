@@ -333,6 +333,19 @@ def test_missing_input_fails_without_retry() -> None:
     assert parser.paths == []
 
 
+def test_parser_without_a_version_is_internal_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("bioparser.worker.parse.handler.PARSER_VERSIONS", {})
+    jobs = MemoryJobs(_queued())
+    parser = RecordingParser(_artifact())
+    handler = _handler(jobs, MemoryStorage(), parser)
+    handler.handle(_message())
+    handler.close()
+
+    assert parser.paths == []
+    assert jobs.state is not None
+    assert jobs.state.error == SafeError(code="internal_error")
+
+
 def test_unavailable_parser_fails_without_retry() -> None:
     jobs = MemoryJobs(_queued().with_changes(parser="mineru"))
     parser = RecordingParser(_artifact())

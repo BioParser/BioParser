@@ -8,7 +8,6 @@ on the calling thread.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import tempfile
 import threading
@@ -18,6 +17,7 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
+from bioparser.hashing import sha256_bytes
 from bioparser.identifiers import parse_result_path
 from bioparser.jobqueue import JobHandler, JobTimeLimitExceeded, ParseJobMessage
 from bioparser.jobstate import (
@@ -295,8 +295,8 @@ def _parse_result_path(pdf: bytes, parser_name: str) -> str:
         version = PARSER_VERSIONS[parser_name]
     except KeyError as exc:
         LOGGER.error(f"parser backend {parser_name!r} has no version")
-        raise _PermanentJobFailure("parse_failed") from exc
-    return parse_result_path(hashlib.sha256(pdf).hexdigest(), parser_name, version)
+        raise _PermanentJobFailure("internal_error") from exc
+    return parse_result_path(sha256_bytes(pdf), parser_name, version)
 
 
 def _parse_pdf(parser: PdfParser, pdf: bytes) -> ParserArtifact:

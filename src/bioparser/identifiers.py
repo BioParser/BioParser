@@ -38,13 +38,42 @@ class ArtifactPathTraversalError(ArtifactPathError):
     """Raised when an artifact path contains a '.' or '..' segment."""
 
 
+def validate_path_segment(value: str) -> str:
+    """Return ``value`` unchanged if it is one well-formed artifact path segment.
+
+    A segment is non-empty, at most ``ARTIFACT_PATH_MAX_SEGMENT_LENGTH`` characters and made
+    only of ASCII letters, digits, ``_``, ``.`` and ``-``. It may not be ``.`` or ``..``. It
+    cannot contain ``/``, so a builder argument cannot add or remove segments.
+
+    Raises:
+        ArtifactPathTraversalError: The segment is ``.`` or ``..``.
+        ArtifactPathError: The segment is not a string or violates any other rule.
+    """
+    if not isinstance(value, str):
+        raise ArtifactPathError("Artifact path segment must be a string")
+    if not value:
+        raise ArtifactPathError("Artifact path segment cannot be empty")
+    if value in (".", ".."):
+        raise ArtifactPathTraversalError("Artifact path cannot contain '.' or '..' path segments")
+    if len(value) > ARTIFACT_PATH_MAX_SEGMENT_LENGTH:
+        raise ArtifactPathError(
+            f"Artifact path contains a segment exceeding {ARTIFACT_PATH_MAX_SEGMENT_LENGTH} "
+            "characters"
+        )
+    if not _SEGMENT_PATTERN.fullmatch(value):
+        raise ArtifactPathError(
+            f"Artifact path segment '{value}' contains invalid characters. "
+            "Only alphanumeric characters, '.', '_' and '-' are allowed."
+        )
+    return value
+
+
 def validate_artifact_path(value: str) -> str:
     """Return ``value`` unchanged if it is a well-formed artifact path.
 
-    A path is one or more segments separated by single ``/`` characters. Each segment is
-    non-empty, at most ``ARTIFACT_PATH_MAX_SEGMENT_LENGTH`` characters and made only of ASCII
-    letters, digits, ``_``, ``.`` and ``-``. A segment may not be ``.`` or ``..``. The whole path
-    is at most ``ARTIFACT_PATH_MAX_LENGTH`` characters and has no leading or trailing ``/``.
+    A path is one or more segments separated by single ``/`` characters, each valid under
+    ``validate_path_segment``. The whole path is at most ``ARTIFACT_PATH_MAX_LENGTH`` characters
+    and has no leading or trailing ``/``.
 
     Raises:
         ArtifactPathTraversalError: A segment is ``.`` or ``..``.
@@ -63,18 +92,8 @@ def validate_artifact_path(value: str) -> str:
         raise ArtifactPathError(
             "Artifact path must not have empty segments (leading, trailing or doubled '/')"
         )
-    if any(segment in (".", "..") for segment in segments):
-        raise ArtifactPathTraversalError("Artifact path cannot contain '.' or '..' path segments")
-    if any(len(segment) > ARTIFACT_PATH_MAX_SEGMENT_LENGTH for segment in segments):
-        raise ArtifactPathError(
-            f"Artifact path contains a segment exceeding {ARTIFACT_PATH_MAX_SEGMENT_LENGTH} "
-            "characters"
-        )
-    if not all(_SEGMENT_PATTERN.fullmatch(segment) for segment in segments):
-        raise ArtifactPathError(
-            f"Artifact path '{value}' contains invalid characters. "
-            "Only alphanumeric characters, '/', '.', '_' and '-' are allowed."
-        )
+    for segment in segments:
+        validate_path_segment(segment)
     return value
 
 
@@ -82,18 +101,9 @@ def validate_artifact_path(value: str) -> str:
 ArtifactPath = Annotated[str, AfterValidator(validate_artifact_path)]
 
 
-def _path_segment(name: str, value: str) -> str:
-    """Return ``value`` if it is one valid path segment, so a builder argument cannot add
-    or remove segments (``"a/b"``, ``".."``, ``""``)."""
-    if not isinstance(value, str) or "/" in value:
-        raise ArtifactPathError(f"{name} must be a single path segment")
-    validate_artifact_path(value)
-    return value
-
-
 def pdf_path(checksum: str) -> str:
     """Return the artifact path of an uploaded PDF: ``pdf/<checksum>``."""
-    return validate_artifact_path(f"pdf/{_path_segment('checksum', checksum)}")
+    return validate_artifact_path(f"pdf/{validate_path_segment(checksum)}")
 
 
 def parse_result_path(checksum: str, backend: str, version: str) -> str:
@@ -101,5 +111,5 @@ def parse_result_path(checksum: str, backend: str, version: str) -> str:
     ``pdf/<checksum>/parsed/<backend>/<version>``."""
     return validate_artifact_path(
         f"{pdf_path(checksum)}/parsed/"
-        f"{_path_segment('backend', backend)}/{_path_segment('version', version)}"
+        f"{validate_path_segment(backend)}/{validate_path_segment(version)}"
     )

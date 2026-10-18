@@ -10,6 +10,7 @@ from bioparser.identifiers import (
     parse_result_path,
     pdf_path,
     validate_artifact_path,
+    validate_path_segment,
 )
 
 CHECKSUM = "f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2"
@@ -163,3 +164,22 @@ def test_builders_reject_a_value_that_is_not_one_segment(bad: str) -> None:
 def test_builders_reject_dot_segments(bad: str) -> None:
     with pytest.raises(ArtifactPathTraversalError):
         parse_result_path(CHECKSUM, bad, "1")
+
+
+@pytest.mark.parametrize("segment", ["a", CHECKSUM, "doc_123.v1-final", "..."])
+def test_valid_segments_are_returned_unchanged(segment: str) -> None:
+    assert validate_path_segment(segment) == segment
+
+
+@pytest.mark.parametrize(
+    "bad", ["", "a/b", "/a", "has space", "a" * (ARTIFACT_PATH_MAX_SEGMENT_LENGTH + 1)]
+)
+def test_malformed_segments_are_rejected(bad: str) -> None:
+    with pytest.raises(ArtifactPathError):
+        validate_path_segment(bad)
+
+
+@pytest.mark.parametrize("bad", [".", ".."])
+def test_dot_segments_are_traversal_errors(bad: str) -> None:
+    with pytest.raises(ArtifactPathTraversalError):
+        validate_path_segment(bad)
