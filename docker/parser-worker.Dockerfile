@@ -7,7 +7,7 @@
 # layer. The model weights are downloaded once, in the CPU stage, and copied into both
 # targets. The GPU target builds its own CUDA virtualenv.
 
-# uv 0.12.23, the same pin as CI. Index digest so amd64 and arm64 both resolve.
+# uv 0.13.1, the same pin as CI. Index digest so amd64 and arm64 both resolve.
 FROM ghcr.io/astral-sh/uv:0.13.1@sha256:4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336 AS uv
 
 # python 3.13.15-slim-trixie; index digest so amd64 and arm64 both resolve.
