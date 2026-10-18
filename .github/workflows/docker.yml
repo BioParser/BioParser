@@ -28,11 +28,10 @@ jobs:
       # build the locally defined Docker images and push them to GHCR
       # API
       - name: Build and push API image
-        # assuming the docker file is in the root with name "Dockerfile"
         run: |
           IMAGE=ghcr.io/bioparser/bioparser/api
           docker buildx build --push \
-            -f Dockerfile \
+            -f docker/api.Dockerfile \
             -t "$IMAGE:${{ github.sha }}" \
             -t "$IMAGE:latest" \
               .
