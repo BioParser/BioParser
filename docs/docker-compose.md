@@ -1,11 +1,12 @@
 # Docker Compose
 
-Compose runs four services:
+Compose runs five services:
 
 - `vllm` is a local OpenAI-compatible model server on host port `VLLM_PORT` (default 8000).  
 - `mineru` is the PDF parser service on internal network port 8000; it is not published to the host unless the commented `ports` mapping in `docker-compose.yml` is enabled (`MINERU_PORT`, default 8001).  
 - `redis` is queue and job state storage on port 6379 (accessed inside the Docker network using `redis:6379`).  
 - `bioparser` is FastAPI on host port `BIOPARSER_PORT` (default 8080).  
+- `parser-worker` consumes the `parse` queue. It is not published to the host. The CPU stack builds `bioparser-parser-worker:cpu`. The GPU stack builds `bioparser-parser-worker:gpu` from the same Dockerfile.  
 
 `docker-compose.logging.yml` adds four services for central logs. The `COMPOSE_FILE` lines in `.env.example` include it:
 
@@ -14,7 +15,11 @@ Compose runs four services:
 - `loki` stores the logs on the `loki-data` volume for `LOKI_RETENTION_PERIOD` (default 7 days). Only Alloy and Grafana can reach it.  
 - `grafana` shows them on host port `GRAFANA_PORT` (default 3000), user `admin`. It loads only the Loki plugins; to add another data source, remove its plugin from `GF_PLUGINS_DISABLE_PLUGINS` in `docker-compose.logging.yml`. It logs only its own warnings and errors (`GF_LOG_LEVEL`).
 
-The README has the default install and start commands. This page covers env vars, networking, logs, and `test_prompt`.
+`docker-compose.traefik.yml` adds an encrypted reverse proxy with HTTP Basic Authentication in front of the API:
+
+- `traefik` terminates TLS/HTTPS on host port `TRAEFIK_HTTPS_PORT` (default 443), enforces Basic Authentication (configured in `docker/traefik/users`), and routes internally to `http://bioparser:8080`. Plain HTTP is disabled so credentials never travel unencrypted. It runs as unprivileged user `65534:65534` (`nobody`), uses file-based configuration (`docker/traefik/bioparser.yml`), and requires no Docker socket access.
+
+The README has the default install and start commands. This page covers env vars, networking, logs, HTTPS, and `test_prompt`.
 
 ## Environment
 
@@ -41,6 +46,12 @@ With `docker-compose.logging.yml`:
 `GRAFANA_ADMIN_PASSWORD` (required): password of the Grafana user `admin`. Grafana reads it only when the `grafana-data` volume is new; after that, change the password in Grafana.  
 `GRAFANA_PORT`: host port for Grafana (default `3000`).  
 `LOKI_RETENTION_PERIOD`: how long Loki keeps logs (default `168h`, 7 days).  
+
+With `docker-compose.traefik.yml`:
+
+`TRAEFIK_BIND_ADDRESS`: host interface to bind Traefik to (default `127.0.0.1` for loopback). Set to `0.0.0.0` to expose to the LAN.  
+`TRAEFIK_HTTPS_PORT`: host port for HTTPS (default `443`). Plain HTTP is disabled so credentials are never sent unencrypted.  
+`TRAEFIK_LOG_LEVEL`: log verbosity for Traefik (default `INFO`).  
 
 Inside Compose, the API uses `BIOPARSER_VLLM_BASE_URL=http://vllm:8000/v1` and `BIOPARSER_MINERU_BASE_URL=http://mineru:8000`. On the host, `test_prompt` should use `http://localhost:8000/v1` (the default in `.env.example`).
 
@@ -74,6 +85,43 @@ Lines are stored exactly as the services wrote them. BioParser's own code writes
 `docker compose logs` still works: Docker keeps its own copy.
 
 The Docker socket gives full control of Docker, and so of the host. Only `docker-api` mounts it. It accepts requests only from `alloy`, only on the internal network `docker-api`, and only to list containers, inspect them and read their logs. Alloy runs as its own user with no capabilities. Loki has no login, so Loki and Alloy are only on the internal network `logs`, which the app containers are not on. To turn central logs off, remove `docker-compose.logging.yml` from `COMPOSE_FILE` and run `docker compose up -d --remove-orphans`.
+
+## HTTPS and Traefik
+
+`docker-compose.traefik.yml` runs Traefik as an encrypted reverse proxy with HTTP Basic Authentication in front of the API.
+
+To enable it, append `:docker-compose.traefik.yml` to `COMPOSE_FILE` in `.env`:
+
+```sh
+COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml:docker-compose.logging.yml:docker-compose.traefik.yml
+```
+
+When started:
+
+- Traefik binds to `TRAEFIK_BIND_ADDRESS` (default `127.0.0.1` for loopback security) on HTTPS port `TRAEFIK_HTTPS_PORT` (default 443). Plain HTTP is disabled so credentials are never transmitted unencrypted.
+- All requests require HTTP Basic Authentication defined in `docker/traefik/users` (format: `username:bcrypt_hash`). The default user is `bioparser` with password `bioparser`. Additional users can be added with `htpasswd -nbB <username> <password>`.
+- HTTPS connections are encrypted with TLS and routed internally across the `edge` network to `http://bioparser:8080`.
+- Direct plain HTTP to the API remains accessible on loopback (`http://127.0.0.1:8080`).
+- By default, Traefik generates an internal self-signed TLS certificate (`TRAEFIK DEFAULT CERT`) regenerated on restart, so encrypted connections work immediately without external domain setup. To use custom certificates, define a `tls.certificates` block in `docker/traefik/bioparser.yml` and mount your cert files.
+- Note: On rootless Docker hosts, binding privileged host ports below 1024 requires setting `TRAEFIK_HTTPS_PORT=8443` in `.env` (or configuring `net.ipv4.ip_unprivileged_port_start=0`).
+- On Docker Desktop for Windows, dynamic file watcher changes may require running `docker compose restart traefik` after modifying `docker/traefik/bioparser.yml` or `docker/traefik/users`.
+
+Testing unauthenticated request (returns 401 Unauthorized):
+
+```sh
+curl -k https://localhost/health
+```
+
+Testing with Basic Authentication:
+
+```sh
+curl -k -u bioparser:bioparser https://localhost/health
+# Returns {"status":"healthy"}
+```
+
+(or `curl -k -u bioparser:bioparser https://localhost:8443/health` if `TRAEFIK_HTTPS_PORT=8443` is configured in `.env`).
+
+Traefik uses file-based configuration (`docker/traefik/bioparser.yml`), runs as unprivileged user `65534:65534` (`nobody`), and does not mount the Docker socket, keeping the container isolated with dropped capabilities (`cap_drop: [ALL]`) and `read_only: true`.
 
 ## Test prompt
 

@@ -25,9 +25,9 @@ from bioparser.parser.models import (
     TextContent,
     TextSpan,
 )
-from bioparser.parser_names import DEFAULT_PARSER_NAME
+from bioparser.parser_names import DEFAULT_PARSER_NAME, PARSER_VERSIONS
 
-DEFAULT_PARSER_VERSION = "1"
+DEFAULT_PARSER_VERSION = PARSER_VERSIONS[DEFAULT_PARSER_NAME]
 
 # Distances below are PDF points (1 pt = 1/72 in) unless noted as a factor.
 WORD_X_TOLERANCE = 1.0  # extract_words: join characters this close in x into one word
