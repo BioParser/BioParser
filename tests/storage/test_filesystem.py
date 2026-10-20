@@ -7,7 +7,7 @@ from typing import NoReturn
 import pytest
 from pydantic import ValidationError
 
-from bioparser.identifiers import ARTIFACT_PATH_MAX_SEGMENT_LENGTH
+from bioparser.artifact_paths import ARTIFACT_PATH_MAX_SEGMENT_LENGTH
 from bioparser.storage import (
     ArtifactAlreadyExistsError,
     ArtifactMetadata,

@@ -16,7 +16,7 @@ import pytest
 from dramatiq.brokers.stub import StubBroker
 from dramatiq.middleware.time_limit import TimeLimit
 
-from bioparser.identifiers import parse_result_path
+from bioparser.artifact_paths import parse_result_path
 from bioparser.jobqueue import JobTimeLimitExceeded
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobqueue.messages import ParseJobMessage

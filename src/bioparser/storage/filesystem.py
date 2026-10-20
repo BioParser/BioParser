@@ -9,7 +9,7 @@ from pathlib import Path
 
 from pydantic import Field, ValidationError
 
-from bioparser.identifiers import (
+from bioparser.artifact_paths import (
     ArtifactPathError,
     ArtifactPathTraversalError,
     validate_artifact_path,

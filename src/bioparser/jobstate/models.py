@@ -4,7 +4,7 @@ from typing import Literal, Self
 
 from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from bioparser.identifiers import ArtifactPath
+from bioparser.artifact_paths import ArtifactPath
 from bioparser.parser_names import PARSER_BACKENDS
 
 # One linear pipeline. The parse worker owns queued -> parsing -> parsed.
