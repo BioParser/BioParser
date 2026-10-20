@@ -8,7 +8,7 @@ from stubs import StubVLLMService
 
 from bioparser.extract.extract import ExtractionFailedError, ExtractionReport, extract_observations
 from bioparser.extract.schema import ExtractionArtifact
-from bioparser.identifiers import extract_result_path
+from bioparser.artifact_paths import extract_result_path
 from bioparser.jobqueue import ExtractJobMessage, JobDeferred, JobTimeLimitExceeded
 from bioparser.jobstate import JobNotFoundError, JobState, SafeError, StaleJobStateWriteError
 from bioparser.jobstate.models import ALLOWED_TRANSITIONS

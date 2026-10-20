@@ -13,7 +13,7 @@ from bioparser.extract.extract import (
     artifact_from_report,
 )
 from bioparser.extract.schema import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
-from bioparser.identifiers import ArtifactPathError, extract_result_path
+from bioparser.artifact_paths import ArtifactPathError, extract_result_path
 from bioparser.jobqueue import ExtractJobMessage, JobDeferred
 from bioparser.jobstate import JobState, JobStateStore, JobStatus, StaleJobStateWriteError
 from bioparser.parser.models import ParserArtifact
