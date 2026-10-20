@@ -59,6 +59,20 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
         self._mineru_tier: MinerUTier = mineru_tier
         self._enqueue_extraction = enqueue_extraction
 
+    def handle(self, message: ParseJobMessage) -> None:
+        """After the delivery, send the extract message when the job is `parsed`.
+
+        A failed send fails this delivery, so the queue tries it again. A failed
+        read does not replace the delivery's own error.
+        """
+        try:
+            super().handle(message)
+        except BaseException:
+            self._wake_without_hiding_the_delivery_error(message.job_id)
+            raise
+        else:
+            self._wake_extractor_if_parsed(message.job_id)
+
     async def run(self, state: JobState) -> None:
         artifact_path = self._ensure_parser_artifact(state.parser, state.pdf_ref)
         # `state` is from before the claim. `update` replaces the whole record, so
@@ -75,37 +89,37 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
                         "another delivery moved the job on while it was parsing. "
                         "Not recording 'parsed'"
                     )
-                    await self._wake_if_parsed(state.job_id)
-                    return
-                self._wake_extractor(state.job_id)
-            case JobState() as latest:
-                self.on_outside(latest)
-            case MissingJobRecord():
+            case MissingJobRecord() | JobState():
                 return
 
     def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
         # The last delivery already failed. A job left at `parsed` cannot be
         # marked failed, so this is the last chance to send the extract wake-up.
         try:
-            self.run_async(self._wake_if_parsed(message.job_id))
+            self._wake_extractor_if_parsed(message.job_id)
         finally:
             super().on_failed(message, exc)
 
-    def on_outside(self, state: JobState) -> None:
-        if state.status == "parsed":
-            self._wake_extractor(state.job_id)
+    def _wake_without_hiding_the_delivery_error(self, job_id: UUID) -> None:
+        try:
+            self._wake_extractor_if_parsed(job_id)
+        except Exception as exc:  # noqa: BLE001 - the wake must not replace the delivery's error
+            LOGGER.error(
+                f"extract message was not sent ({type(exc).__name__}). The delivery's error stands"
+            )
 
-    async def _wake_if_parsed(self, job_id: UUID) -> None:
-        match await fetch_job(self._jobs, job_id):
-            case JobState() as current:
-                self.on_outside(current)
-            case CorruptJobRecord() | MissingJobRecord():
-                return
-
-    def _wake_extractor(self, job_id: UUID) -> None:
+    def _wake_extractor_if_parsed(self, job_id: UUID) -> None:
         if self._enqueue_extraction is None:
             return
-        self._enqueue_extraction(job_id)
+        if self.run_async(self._job_is_parsed(job_id)):
+            self._enqueue_extraction(job_id)
+
+    async def _job_is_parsed(self, job_id: UUID) -> bool:
+        match await fetch_job(self._jobs, job_id):
+            case JobState(status="parsed"):
+                return True
+            case JobState() | CorruptJobRecord() | MissingJobRecord():
+                return False
 
     def _ensure_parser_artifact(self, parser_name: str, pdf_ref: str) -> str:
         """Return the artifact path for the parsed PDF, creating it if needed."""

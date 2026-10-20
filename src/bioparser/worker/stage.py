@@ -50,7 +50,7 @@ class PermanentJobFailure(Exception):
 class StageJobHandler[T: JobMessage]:
     """Claim one stage, then let the subclass finish the job.
 
-    Statuses outside `owned` are left to `on_outside`. A `PermanentJobFailure`
+    A status outside `owned` is left unchanged. A `PermanentJobFailure`
     from `run` is recorded as a safe error. Any other exception is retried.
     `ready` may raise `JobDeferred` before the claim, which sends the message
     again later without using a retry.
@@ -144,10 +144,6 @@ class StageJobHandler[T: JobMessage]:
         """
         raise NotImplementedError
 
-    def on_outside(self, state: JobState) -> None:
-        """The job is not in this stage. The delivery does not change it."""
-        return
-
     async def _handle(self, job_id: UUID) -> None:
         match await fetch_job(self._jobs, job_id):
             case CorruptJobRecord():
@@ -162,7 +158,6 @@ class StageJobHandler[T: JobMessage]:
                 pass
         if state.status not in self._owned:
             LOGGER.info(f"status is already {state.status!r}. Skipping this delivery")
-            self.on_outside(state)
             return
         await self.ready()
         if not await self._mark_running(state):
