@@ -37,6 +37,7 @@ class ArtifactMetadata(BaseModel):
     creation_info: CreationInfo = Field(default_factory=CreationInfo)
     content_schema_version: str | None = None
     size_bytes: int | None = Field(default=None, ge=0)
+    checksum: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="before")
     @classmethod

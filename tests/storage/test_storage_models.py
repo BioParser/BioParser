@@ -69,6 +69,7 @@ class TestArtifactMetadata:
 
         assert meta.content_schema_version is None
         assert meta.size_bytes is None
+        assert meta.checksum is None
         assert isinstance(meta.creation_info, CreationInfo)
         assert meta.created_at == meta.creation_info.created_at
         assert meta.created_by is None
@@ -128,6 +129,14 @@ class TestArtifactMetadata:
                 size_bytes=-1,
             )
 
+    def test_empty_checksum_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            ArtifactMetadata(
+                artifact_path="art-1",
+                media_type="application/pdf",
+                checksum="",
+            )
+
     def test_missing_required_fields_rejected(self) -> None:
         with pytest.raises(ValidationError):
             ArtifactMetadata.model_validate({"media_type": "application/pdf"})
@@ -159,6 +168,7 @@ class TestArtifactMetadata:
             ),
             content_schema_version="1",
             size_bytes=4096,
+            checksum="a" * 64,
         )
         dumped = meta.model_dump_json()
         loaded = ArtifactMetadata.model_validate_json(dumped)
