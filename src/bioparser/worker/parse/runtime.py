@@ -7,7 +7,6 @@ from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobstate import RedisJobStateStore
 from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
-from bioparser.parser.backend.mineru.runtime import require_mineru_cli
 from bioparser.parser.protocol import PdfParser
 from bioparser.storage.filesystem import FileSystemArtifactStorage
 
@@ -49,13 +48,19 @@ def build_worker(
     parser_timeout_s = settings.parser_timeout_seconds
 
     def parser_factory(name: str) -> PdfParser:
-        return get_parser(name, timeout_s=parser_timeout_s)
+        return get_parser(
+            name,
+            timeout_s=parser_timeout_s,
+            mineru_base_url=str(settings.mineru_base_url),
+            mineru_tier=settings.mineru_tier,
+        )
 
     handler = ParseJobHandler(
         jobs=jobs,
         storage=storage,
         parser_factory=parser_factory,
         max_claims=settings.parse_max_claims,
+        mineru_tier=settings.mineru_tier,
     )
     return queue, handler
 
@@ -64,7 +69,6 @@ def main() -> None:
     # Values come from the environment; mypy only sees the required fields.
     settings = WorkerSettings()  # type: ignore[call-arg]
     setup_logging(settings.log_level)
-    require_mineru_cli()
     liveness = LivenessServer(settings.liveness_port)
     liveness.start()
     try:

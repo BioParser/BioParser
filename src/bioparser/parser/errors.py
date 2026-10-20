@@ -14,4 +14,5 @@ class ParserProcessError(RuntimeError):
 
 
 class ParserBackendUnavailableError(RuntimeError):
-    """Raised when the requested backend is unknown or cannot be run."""
+    """Raised when the requested backend is unknown, cannot be run, or as deployed cannot serve
+    the request (a retry would fail the same way)."""

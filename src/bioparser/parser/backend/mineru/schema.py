@@ -12,15 +12,15 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# Pipeline CLI this dump schema is written against. Bump together with
-# ``MINERU_TOOL_SPEC``, the fixture, and the mapper if the dump shape changes.
+from bioparser.services.mineru.client import OCR_MODE, MinerUTier
+
+# MinerU this dump schema is written against. Bump together with the mineru image
+# pin, the fixture, and the mapper if the dump shape changes.
 MINERU_PIPELINE_VERSION = "3.4.5"
-PIPELINE_BACKEND = "pipeline"
-PARSE_METHOD = "auto"
 
 
-def pipeline_configuration() -> dict[str, str | int | float | bool]:
-    return {"backend": PIPELINE_BACKEND, "parse_method": PARSE_METHOD}
+def parse_configuration(tier: MinerUTier) -> dict[str, str | int | float | bool]:
+    return {"tier": tier, "ocr_mode": OCR_MODE}
 
 
 BBox = tuple[float, float, float, float]

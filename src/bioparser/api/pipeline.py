@@ -6,10 +6,10 @@ from typing import Any
 from bioparser.extract.extract import ExtractionFailedError, extract_observations
 from bioparser.logging_config import error_fields, log_context, stopwatch
 from bioparser.parser.backend.mineru.mapper import artifact_from_middle_json
-from bioparser.parser.backend.mineru.parser import MINERU_PARSER_VERSION
-from bioparser.parser.backend.mineru.schema import pipeline_configuration
-from bioparser.parser_names import MINERU_PARSER_NAME
+from bioparser.parser.backend.mineru.schema import parse_configuration
+from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 from bioparser.services.mineru import MinerUError
+from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 from bioparser.services.vllm.vllm import VLLMError, VLLMTruncatedError
 
 # TODO: REDIS
@@ -43,6 +43,7 @@ async def run_pipeline(
     vllm: Any,
     checksum: str,
     content: bytes,
+    tier: MinerUTier = DEFAULT_TIER,
     char_budget: int,
     max_tokens: int,
 ) -> dict[str, Any]:
@@ -60,8 +61,8 @@ async def run_pipeline(
                     middle,
                     checksum=checksum,
                     parser_name=MINERU_PARSER_NAME,
-                    parser_version=MINERU_PARSER_VERSION,
-                    configuration=pipeline_configuration(),
+                    parser_version=PARSER_VERSIONS[MINERU_PARSER_NAME],
+                    configuration=parse_configuration(tier),
                 )
                 fields["pages"] = len(artifact.pages)
         except ValueError as exc:

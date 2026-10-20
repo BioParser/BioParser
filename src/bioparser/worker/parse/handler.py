@@ -38,7 +38,8 @@ from bioparser.parser import (
     PdfParser,
     UnsupportedDocumentError,
 )
-from bioparser.parser_names import PARSER_VERSIONS
+from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
+from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 from bioparser.storage import (
     ArtifactAlreadyExistsError,
     ArtifactMetadata,
@@ -70,11 +71,14 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
         storage: ArtifactStorage,
         parser_factory: Callable[[str], PdfParser],
         max_claims: int,
+        mineru_tier: MinerUTier = DEFAULT_TIER,
     ) -> None:
         self._jobs = jobs
         self._storage = storage
         self._parser_factory = parser_factory
         self._max_claims = max_claims
+        # The tier the worker asks MinerU for. MinerU results are stored per tier.
+        self._mineru_tier: MinerUTier = mineru_tier
         self._loop = asyncio.new_event_loop()
         # One loop serves every callback, so calls from different threads take turns.
         self._loop_lock = threading.Lock()
@@ -206,7 +210,7 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
     def _ensure_parser_artifact(self, job_id: UUID, parser_name: str, pdf_ref: str) -> str:
         """Return the artifact path for the parsed PDF, creating it if needed."""
         pdf = self._retrieve_pdf(pdf_ref)
-        artifact_path = _parse_result_path(pdf, parser_name)
+        artifact_path = _parse_result_path(pdf, parser_name, self._mineru_tier)
         stored = _retrieve_or_none(self._storage, artifact_path)
         if stored is not None and _is_parser_artifact(stored):
             return artifact_path
@@ -285,18 +289,20 @@ def _left_parse_stage(status: JobStatus) -> bool:
     return status not in _PARSE_STAGE
 
 
-def _parse_result_path(pdf: bytes, parser_name: str) -> str:
+def _parse_result_path(pdf: bytes, parser_name: str, mineru_tier: MinerUTier) -> str:
     """The conventional path for this PDF's parser artifact.
 
     The same PDF and parser always give the same path, so a retry or another job with the
-    same PDF reuses the stored artifact.
+    same PDF reuses the stored artifact. MinerU's output also depends on its tier, so each
+    tier has its own path.
     """
     try:
         version = PARSER_VERSIONS[parser_name]
     except KeyError as exc:
         LOGGER.error(f"parser backend {parser_name!r} has no version")
         raise _PermanentJobFailure("internal_error") from exc
-    return parse_result_path(sha256_bytes(pdf), parser_name, version)
+    configuration = mineru_tier if parser_name == MINERU_PARSER_NAME else None
+    return parse_result_path(sha256_bytes(pdf), parser_name, version, configuration)
 
 
 def _parse_pdf(parser: PdfParser, pdf: bytes) -> ParserArtifact:

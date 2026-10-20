@@ -14,6 +14,8 @@ from bioparser.parser import (
     PARSER_BACKENDS,
     ParserArtifact,
     ParserBackendUnavailableError,
+    ParserProcessError,
+    ParserTimeoutError,
     UnsupportedDocumentError,
     get_parser,
 )
@@ -57,6 +59,10 @@ async def _parse_or_http_error(pdf_bytes: bytes, backend: str) -> ParserArtifact
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except UnsupportedDocumentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ParserTimeoutError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except ParserProcessError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 def _load_path(path: Path, backend: str) -> _Document:

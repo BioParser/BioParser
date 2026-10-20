@@ -224,7 +224,7 @@ def test_the_configured_api_key_never_appears_in_logs(
     monkeypatch.setenv("BIOPARSER_VLLM_API_KEY", API_KEY)
     monkeypatch.setenv("BIOPARSER_LOG_LEVEL", "DEBUG")
     caplog.set_level(logging.DEBUG)
-    monkeypatch.setattr(app_module, "MinerUClient", lambda *_args: StubMinerUClient())
+    monkeypatch.setattr(app_module, "MinerUClient", lambda *_args, **_kwargs: StubMinerUClient())
     sent: list[str] = []
 
     def rejects_the_key(request: httpx2.Request) -> httpx2.Response:
