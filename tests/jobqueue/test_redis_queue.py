@@ -9,6 +9,7 @@ import pytest
 from dramatiq import Broker, Message, Worker
 from dramatiq.brokers.stub import StubBroker
 from dramatiq.common import dq_name
+from dramatiq.errors import ActorNotFound
 from dramatiq.middleware import CurrentMessage, Retries
 from dramatiq.middleware.time_limit import TimeLimit
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -21,7 +22,7 @@ from bioparser.jobqueue import (
     JobTimeLimitExceeded,
     ParseJobMessage,
 )
-from bioparser.jobqueue.dramatiq import DramatiqJobQueue
+from bioparser.jobqueue.dramatiq import DramatiqJobQueue, DramatiqJobSubmitter
 from bioparser.jobqueue.dramatiq import redis_queue as redis_queue_module
 from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
 from bioparser.jobqueue.dramatiq.time_limit import _DeadlineThread
@@ -440,30 +441,26 @@ def test_redis_broker_has_the_middleware_the_queue_relies_on() -> None:
     assert CurrentMessage in {type(middleware) for middleware in broker.middleware}
 
 
-def test_submit_only_queue_leaves_retries_and_time_limit_to_the_consumer(
+def test_submitter_leaves_retries_and_time_limit_to_the_consumer(
     stub_broker: StubBroker,
 ) -> None:
     (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
     manager = time_limit.manager
-    queue = DramatiqJobQueue(
-        name="extract",
-        model=ParseJobMessage,
-        broker=stub_broker,
-        submit_only=True,
-    )
-    queue.submit(_message())
+    submitter = DramatiqJobSubmitter(name="extract", broker=stub_broker)
+    with pytest.raises(ActorNotFound):
+        stub_broker.get_actor("extract")
+    submitter.submit(_message())
 
     assert time_limit.manager is manager
     assert not isinstance(manager, _DeadlineThread)
-    options = stub_broker.get_actor("extract").options
-    assert "max_retries" not in options
-    assert "time_limit" not in options
-    encoded = stub_broker.queues["extract"].get_nowait()
-    message = Message.decode(encoded)
+    message = Message.decode(stub_broker.queues["extract"].queue[0])
+    assert message.actor_name == "extract"
     assert "max_retries" not in message.options
     assert "time_limit" not in message.options
-    with pytest.raises(JobQueueError, match="only submits"):
-        queue.consume(_Recorder(), until_empty=True)
+
+    handler = _Recorder()
+    _queue(stub_broker, name="extract").consume(handler, until_empty=True)
+    assert handler.received == [_message()]
 
 
 def test_queue_options_reach_the_actor(stub_broker: StubBroker) -> None:

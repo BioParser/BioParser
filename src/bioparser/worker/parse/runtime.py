@@ -2,7 +2,7 @@ from threading import Event
 from uuid import UUID
 
 from bioparser.jobqueue import ExtractJobMessage, JobQueue, ParseJobMessage
-from bioparser.jobqueue.dramatiq import DramatiqJobQueue
+from bioparser.jobqueue.dramatiq import DramatiqJobQueue, DramatiqJobSubmitter
 from bioparser.jobstate import RedisJobStateStore
 from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
@@ -30,11 +30,10 @@ def build_worker(
         # One thread is supported today. The handler serializes any extra threads.
         worker_threads=1,
     )
-    # Submit-only. The extractor process owns retries and the time limit.
-    extract_queue: JobQueue[ExtractJobMessage] = DramatiqJobQueue.from_redis_submit_only(
+    # The extractor process owns retries and the time limit.
+    extract_queue = DramatiqJobSubmitter.from_redis(
         str(settings.redis_url),
         name=settings.extract_queue_name,
-        model=ExtractJobMessage,
         timeout_s=settings.redis_timeout_seconds,
     )
     parser_timeout_s = settings.parser_timeout_seconds
