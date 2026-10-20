@@ -56,7 +56,7 @@ class MinerUParser:
     def parse(self, path: Path) -> ParserArtifact:
         pdf_path = path.expanduser().resolve()
         if not pdf_path.is_file():
-            raise FileNotFoundError(f"PDF not found: {pdf_path}")
+            raise FileNotFoundError("PDF not found")
 
         try:
             with tempfile.TemporaryDirectory(prefix="bioparser-mineru-") as tmp:
