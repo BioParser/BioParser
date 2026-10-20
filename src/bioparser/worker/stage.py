@@ -17,6 +17,7 @@ from uuid import UUID
 
 from bioparser.jobqueue import JobTimeLimitExceeded
 from bioparser.jobstate import (
+    ALLOWED_TRANSITIONS,
     JobNotFoundError,
     JobState,
     JobStateStore,
@@ -51,6 +52,8 @@ class StageJobHandler[T: JobMessage]:
 
     Statuses outside `owned` are left to `on_outside`. A `PermanentJobFailure`
     from `run` is recorded as a safe error. Any other exception is retried.
+    `ready` may raise `JobDeferred` before the claim, which sends the message
+    again later without using a retry.
     """
 
     def __init__(
@@ -128,6 +131,10 @@ class StageJobHandler[T: JobMessage]:
                     f"giving up after {type(exc).__name__}. Not marking the job failed ({code})"
                 )
 
+    async def ready(self) -> None:
+        """Raise JobDeferred when a dependency is down. The job is unchanged."""
+        return
+
     async def run(self, state: JobState) -> None:
         """Do the stage's work. The claim is already stored.
 
@@ -157,6 +164,7 @@ class StageJobHandler[T: JobMessage]:
             LOGGER.info(f"status is already {state.status!r}. Skipping this delivery")
             self.on_outside(state)
             return
+        await self.ready()
         if not await self._mark_running(state):
             return
         try:
@@ -193,6 +201,12 @@ class StageJobHandler[T: JobMessage]:
             case JobState() as state:
                 pass
         if state.status not in self._owned:
+            return False
+        if "failed" not in ALLOWED_TRANSITIONS[state.status]:
+            LOGGER.error(
+                f"job is {state.status!r}, which cannot be marked failed. "
+                "It waits for another delivery"
+            )
             return False
         try:
             await self._jobs.update(state.with_changes(status="failed", error=SafeError(code=code)))

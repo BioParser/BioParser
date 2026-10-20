@@ -8,9 +8,9 @@ from bioparser.artifact_paths import ArtifactPath
 from bioparser.parser_names import PARSER_BACKENDS
 
 # One linear pipeline. The parse worker owns queued -> parsing -> parsed.
-# A later extraction step owns parsed -> extracting -> done. `failed` ends the stage
-# that is running: only a stage's own worker can fail its job, so `parsed` (a finished
-# stage that nobody owns) has no way to `failed`.
+# The extract worker owns parsed -> extracting -> done. `failed` ends the stage
+# that is running. `parsed` waits for an extract message: it has no transition
+# to `failed`, so a lost wake-up stays retryable.
 JobStatus = Literal["queued", "parsing", "parsed", "extracting", "done", "failed"]
 
 # Every legal status change, keyed by the stored status. A store must refuse any write

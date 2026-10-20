@@ -1,4 +1,10 @@
-__all__ = ["JobQueueConfigError", "JobQueueError", "JobTimeLimitExceeded", "MalformedJob"]
+__all__ = [
+    "JobDeferred",
+    "JobQueueConfigError",
+    "JobQueueError",
+    "JobTimeLimitExceeded",
+    "MalformedJob",
+]
 
 
 class JobQueueError(Exception):
@@ -11,6 +17,14 @@ class JobQueueConfigError(JobQueueError):
 
 class MalformedJob(JobQueueError):
     """Queue payload that cannot be validated as the bound message type."""
+
+
+class JobDeferred(Exception):
+    """The handler cannot run the job yet and has not changed it.
+
+    The queue acknowledges this delivery and sends the message again later.
+    The wait does not use one of the message's retries.
+    """
 
 
 class JobTimeLimitExceeded(BaseException):

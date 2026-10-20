@@ -12,7 +12,12 @@ from bioparser import logging_config
 from bioparser.logging_config import JsonFormatter
 from bioparser.services.vllm import config as vllm_config
 from bioparser.services.vllm import vllm as vllm_module
-from bioparser.services.vllm.vllm import VLLMError, VLLMService, VLLMTruncatedError
+from bioparser.services.vllm.vllm import (
+    VLLMError,
+    VLLMRequestRejectedError,
+    VLLMService,
+    VLLMTruncatedError,
+)
 
 API_KEY = "sk-canary-api-key-7f3a"
 PROMPT = "[b1] canary-prompt-text: adult body mass averaged 12.5 g"
@@ -131,6 +136,48 @@ async def test_a_completion_without_choices_is_a_vllm_error(
 
     [(level, fields)] = _completions(vllm_log)
     assert (level, fields["finish_reason"]) == (logging.WARNING, None)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", [400, 422])
+async def test_a_rejected_request_is_not_an_outage(
+    vllm_log: pytest.LogCaptureFixture,
+    make_service: Callable[[Handler], VLLMService],
+    status: int,
+) -> None:
+    service = make_service(lambda _request: httpx2.Response(status, json={"error": "rejected"}))
+
+    with pytest.raises(VLLMRequestRejectedError):
+        await _generate_json(service)
+
+    [(level, fields)] = _completions(vllm_log)
+    assert level == logging.WARNING
+    assert fields["error"] in {"BadRequestError", "UnprocessableEntityError"}
+    assert fields["latency_ms"] == 250.0
+
+
+def _models(data: list[dict[str, str]] | None = None) -> dict[str, object]:
+    return {"object": "list", "data": [{"id": "stub-model"}] if data is None else data}
+
+
+@pytest.mark.anyio
+async def test_ping_is_true_when_the_server_lists_models(
+    make_service: Callable[[Handler], VLLMService],
+) -> None:
+    service = make_service(lambda _request: httpx2.Response(200, json=_models()))
+
+    assert await service.ping() is True
+    await service.aclose()
+
+
+@pytest.mark.anyio
+async def test_ping_is_false_when_the_server_is_down(
+    make_service: Callable[[Handler], VLLMService],
+) -> None:
+    service = make_service(lambda _request: httpx2.Response(503, json={"error": "down"}))
+
+    assert await service.ping() is False
+    await service.aclose()
 
 
 def _refused(request: httpx2.Request) -> httpx2.Response:

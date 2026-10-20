@@ -24,7 +24,13 @@ from dramatiq.brokers.redis import RedisBroker
 from dramatiq.middleware import CurrentMessage
 from pydantic import BaseModel, ValidationError
 
-from ..errors import JobQueueConfigError, JobQueueError, JobTimeLimitExceeded, MalformedJob
+from ..errors import (
+    JobDeferred,
+    JobQueueConfigError,
+    JobQueueError,
+    JobTimeLimitExceeded,
+    MalformedJob,
+)
 from ..protocol import JobHandler, JobQueue
 from .time_limit import use_job_time_limit
 
@@ -37,6 +43,9 @@ _DEFAULT_BROKER_NAMESPACE = "bioparser"
 _DEFAULT_WORKER_TIMEOUT_MS = 1000
 _DEFAULT_WORKER_THREADS = 1
 _DEFAULT_REDIS_TIMEOUT_S = 5.0
+# A dependency outage waits this long, then a new message runs. The wait does not
+# spend the message's retries, so a restart longer than the retry budget can finish.
+_DEFER_DELAY_MS = 30_000
 # The same pattern Dramatiq checks when the actor is declared.
 _QUEUE_NAME_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9._-]*")
 
@@ -239,6 +248,9 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         def dispatch(payload: object) -> None:
             try:
                 queue._dispatch(payload)
+            except JobDeferred:
+                # A new message, so the wait uses none of this delivery's retries.
+                queue._defer(payload)
             except MalformedJob as exc:
                 LOGGER.warning("malformed message on queue %s: %s", queue._name, exc)
                 queue._notify_malformed(payload)
@@ -249,6 +261,12 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
                 raise
 
         return dispatch
+
+    def _defer(self, payload: object) -> None:
+        try:
+            self._actor.send_with_options(args=(payload,), delay=_DEFER_DELAY_MS)
+        except redis.RedisError as exc:
+            raise JobQueueError(f"could not defer a message on queue {self._name!r}") from exc
 
     def _dispatch(self, payload: object) -> None:
         if not isinstance(payload, dict):

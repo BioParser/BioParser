@@ -14,10 +14,14 @@ from bioparser.extract.extract import (
 )
 from bioparser.extract.schema import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
 from bioparser.identifiers import ArtifactPathError, extract_result_path
-from bioparser.jobqueue import ExtractJobMessage
+from bioparser.jobqueue import ExtractJobMessage, JobDeferred
 from bioparser.jobstate import JobState, JobStateStore, JobStatus, StaleJobStateWriteError
 from bioparser.parser.models import ParserArtifact
-from bioparser.services.vllm.vllm import VLLMService, VLLMTruncatedError
+from bioparser.services.vllm.vllm import (
+    VLLMRequestRejectedError,
+    VLLMService,
+    VLLMTruncatedError,
+)
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
 
 from ..job import CorruptJobRecord, MissingJobRecord, fetch_job
@@ -52,6 +56,12 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         self._storage = storage
         self._extract = extract
         self._vllm = vllm
+
+    async def ready(self) -> None:
+        if self._vllm is None or await self._vllm.ping():
+            return
+        LOGGER.warning("vLLM is not answering. Sending the job again later")
+        raise JobDeferred("vLLM is not answering")
 
     def close(self) -> None:
         if self._vllm is not None and not self._loop.is_closed():
@@ -90,7 +100,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             raise PermanentJobFailure("internal_error")
         try:
             report = await self._extract(parser_artifact)
-        except (ExtractionFailedError, VLLMTruncatedError) as exc:
+        except (ExtractionFailedError, VLLMTruncatedError, VLLMRequestRejectedError) as exc:
             LOGGER.error(
                 f"extraction failed ({type(exc).__name__}). "
                 "Marking the job failed (extraction_failed)"

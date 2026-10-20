@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Awaitable, Callable
 from typing import cast
 from uuid import UUID
@@ -8,7 +9,7 @@ from stubs import StubVLLMService
 from bioparser.extract.extract import ExtractionFailedError, ExtractionReport, extract_observations
 from bioparser.extract.schema import ExtractionArtifact
 from bioparser.identifiers import extract_result_path
-from bioparser.jobqueue import ExtractJobMessage, JobTimeLimitExceeded
+from bioparser.jobqueue import ExtractJobMessage, JobDeferred, JobTimeLimitExceeded
 from bioparser.jobstate import JobNotFoundError, JobState, SafeError, StaleJobStateWriteError
 from bioparser.jobstate.models import ALLOWED_TRANSITIONS
 from bioparser.parser.models import (
@@ -22,7 +23,7 @@ from bioparser.parser.models import (
     TextContent,
 )
 from bioparser.services.vllm import VLLMService
-from bioparser.services.vllm.vllm import VLLMError, VLLMTruncatedError
+from bioparser.services.vllm.vllm import VLLMError, VLLMRequestRejectedError, VLLMTruncatedError
 from bioparser.storage import StoredArtifact
 from bioparser.storage.errors import ArtifactAlreadyExistsError, ArtifactNotFoundError
 from bioparser.storage.models import ArtifactMetadata
@@ -242,6 +243,88 @@ def test_truncated_output_is_permanent() -> None:
 
     assert jobs.state is not None
     assert jobs.state.error == SafeError(code="extraction_failed")
+
+
+def test_a_rejected_request_is_permanent() -> None:
+    jobs = MemoryJobs(_parsed())
+
+    async def extract(artifact: ParserArtifact) -> ExtractionReport:
+        raise VLLMRequestRejectedError("vLLM rejected the request: BadRequestError")
+
+    handler = _handler(jobs, MemoryStorage(), extract)
+    handler.handle(_message())
+    handler.close()
+
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error == SafeError(code="extraction_failed")
+    assert jobs.state.claims("extracting") == 1
+
+
+def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> None:
+    jobs = MemoryJobs(_parsed())
+    vllm = StubVLLMService()
+    vllm.up = False
+    called = False
+
+    async def extract(artifact: ParserArtifact) -> ExtractionReport:
+        nonlocal called
+        called = True
+        raise AssertionError("model was called")
+
+    handler = ExtractJobHandler(
+        jobs=jobs,
+        storage=MemoryStorage(),
+        extract=extract,
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+        vllm=cast(VLLMService, vllm),
+    )
+    with (
+        caplog.at_level(logging.WARNING, logger="bioparser.worker.extract.handler"),
+        pytest.raises(JobDeferred),
+    ):
+        handler.handle(_message())
+    handler.close()
+
+    assert called is False
+    assert "vLLM is not answering" in caplog.text
+    assert jobs.state is not None
+    assert jobs.state.status == "parsed"
+    assert jobs.state.claims("extracting") == 0
+
+
+def test_vllm_answering_still_extracts() -> None:
+    jobs = MemoryJobs(_parsed())
+    storage = MemoryStorage()
+    vllm = StubVLLMService()
+    handler = ExtractJobHandler(
+        jobs=jobs,
+        storage=storage,
+        extract=_real_extract(vllm),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+        vllm=cast(VLLMService, vllm),
+    )
+    handler.handle(_message())
+    handler.close()
+
+    assert jobs.state is not None
+    assert jobs.state.status == "done"
+    assert vllm.prompts
+
+
+def test_on_failed_on_a_parsed_job_says_it_cannot_be_marked_failed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    jobs = MemoryJobs(_parsed())
+    handler = _handler(jobs, MemoryStorage(), _real_extract(StubVLLMService()))
+    with caplog.at_level(logging.INFO, logger="bioparser.worker.stage"):
+        handler.on_failed(_message(), RuntimeError("wake-up failed"))
+    handler.close()
+
+    assert jobs.state is not None
+    assert jobs.state.status == "parsed"
+    assert "cannot be marked failed" in caplog.text
+    assert "already finished or moved on" not in caplog.text
 
 
 def test_vllm_errors_are_retried() -> None:

@@ -8,11 +8,13 @@ from typing import Any
 import pytest
 from dramatiq import Broker, Message, Worker
 from dramatiq.brokers.stub import StubBroker
+from dramatiq.common import dq_name
 from dramatiq.middleware import CurrentMessage, Retries
 from dramatiq.middleware.time_limit import TimeLimit
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from bioparser.jobqueue import (
+    JobDeferred,
     JobHandler,
     JobQueueConfigError,
     JobQueueError,
@@ -343,6 +345,22 @@ def test_dispatch_without_handler_raises(stub_broker: StubBroker) -> None:
     queue = _queue(stub_broker)
     with pytest.raises(JobQueueError, match="no handler"):
         queue._dispatch(_message().model_dump(mode="json"))
+
+
+def test_deferred_message_is_sent_again_without_a_retry(stub_broker: StubBroker) -> None:
+    """Call the actor directly. consume(until_empty=True) waits on the delay queue."""
+    handler = _Recorder(raises=JobDeferred("vLLM is not answering"))
+    queue = _queue(stub_broker, max_retries=0)
+    expected = _message()
+    payload = expected.model_dump(mode="json")
+    with queue._bind(handler):
+        queue._actor.fn(payload)
+
+    assert handler.received == [expected]
+    assert handler.failed == []
+    delayed = Message.decode(stub_broker.queues[dq_name("parse")].get_nowait())
+    assert delayed.args == (payload,)
+    assert delayed.options.get("retries", 0) == 0
 
 
 def test_handler_failure_calls_on_failed_after_retries(stub_broker: StubBroker) -> None:
