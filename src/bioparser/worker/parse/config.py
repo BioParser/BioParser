@@ -1,14 +1,17 @@
 import logging
 from pathlib import Path
 
-from pydantic import AnyUrl, Field, field_validator
+from pydantic import AnyHttpUrl, AnyUrl, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from bioparser.logging_config import parse_level
+from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 
-# MinerU's pipeline backend runs in-process on CPU and can take much longer than
-# the queue's 10 minute default. A shorter limit kills the parse and retries it.
+# MinerU on CPU can take much longer than the queue's 10 minute default. A shorter limit
+# ends the parse as a timeout.
 DEFAULT_PARSE_TIME_LIMIT_SECONDS = 30 * 60
+# mineru-api waits at most an hour for one synchronous parse.
+MAX_PARSE_TIME_LIMIT_SECONDS = 60 * 60
 DEFAULT_PARSE_MAX_RETRIES = 3
 # Head start the parser process limit has over the queue limit, so the process is
 # stopped and reported before the queue interrupts the thread. Also covers fetching
@@ -22,8 +25,8 @@ class WorkerSettings(BaseSettings):
     """Environment configuration for the parser worker.
 
     One job runs at a time. The handler drives an asyncio job-state client and
-    the MinerU CLI from the queue thread, so the process does not raise the
-    queue's worker thread count.
+    blocking calls to the MinerU service from the queue thread, so the process
+    does not raise the queue's worker thread count.
     """
 
     model_config = SettingsConfigDict(
@@ -41,9 +44,13 @@ class WorkerSettings(BaseSettings):
     artifact_storage_path: Path
     parse_queue_name: str = Field(min_length=1)
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
-    parse_time_limit_seconds: float = Field(default=DEFAULT_PARSE_TIME_LIMIT_SECONDS, gt=0)
+    parse_time_limit_seconds: float = Field(
+        default=DEFAULT_PARSE_TIME_LIMIT_SECONDS, gt=0, le=MAX_PARSE_TIME_LIMIT_SECONDS
+    )
     parse_max_retries: int = Field(default=DEFAULT_PARSE_MAX_RETRIES, ge=0)
     liveness_port: int = Field(default=DEFAULT_LIVENESS_PORT, ge=1, le=65535)
+    mineru_base_url: AnyHttpUrl = AnyHttpUrl("http://mineru:8000")
+    mineru_tier: MinerUTier = DEFAULT_TIER
 
     @property
     def parse_max_claims(self) -> int:
@@ -56,7 +63,7 @@ class WorkerSettings(BaseSettings):
 
     @property
     def parser_timeout_seconds(self) -> float:
-        """Limit for the MinerU process, slightly below the queue's time limit."""
+        """Limit for a MinerU parse, slightly below the queue's time limit."""
         limit_s = self.parse_time_limit_seconds
         return limit_s - min(PARSE_TIME_LIMIT_MARGIN_S, limit_s / 2)
 

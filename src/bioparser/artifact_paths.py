@@ -7,6 +7,8 @@ Convention (build paths with the functions below, never by string formatting):
 - ``pdf/<pdf-checksum>``: an uploaded PDF.
 - ``pdf/<pdf-checksum>/parsed/<backend>/<version>``: the parser artifact made from that PDF
   by parser backend ``<backend>`` at backend version ``<version>``.
+- ``pdf/<pdf-checksum>/parsed/<backend>/<version>/<configuration>``: the same, for a backend
+  whose output also depends on its configuration (MinerU: the tier).
 
 This module only defines what a well-formed path looks like and how to build one. It has no
 dependency on storage, so the job modules can use it without importing the storage package.
@@ -104,10 +106,19 @@ def pdf_path(checksum: str) -> str:
     return validate_artifact_path(f"pdf/{validate_path_segment(checksum)}")
 
 
-def parse_result_path(checksum: str, backend: str, version: str) -> str:
+def parse_result_path(
+    checksum: str, backend: str, version: str, configuration: str | None = None
+) -> str:
     """Return the path of the parser artifact for a PDF:
-    ``pdf/<checksum>/parsed/<backend>/<version>``."""
-    return validate_artifact_path(
+    ``pdf/<checksum>/parsed/<backend>/<version>``, then ``/<configuration>`` if given.
+
+    ``configuration`` names the backend setting that changes the output, as one readable
+    segment (MinerU: the tier). Backends without such a setting leave it out.
+    """
+    path = (
         f"{pdf_path(checksum)}/parsed/"
         f"{validate_path_segment(backend)}/{validate_path_segment(version)}"
     )
+    if configuration is not None:
+        path = f"{path}/{validate_path_segment(configuration)}"
+    return validate_artifact_path(path)

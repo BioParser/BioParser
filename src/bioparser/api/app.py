@@ -79,6 +79,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             settings.mineru_base_url,
             settings.mineru_timeout_seconds,
             settings.mineru_connect_timeout_seconds,
+            tier=settings.mineru_tier,
         )
         app.state.vllm = VLLMService()
         # Find the served model
@@ -209,6 +210,7 @@ async def extract(request: Request, file: UploadFile | None = None) -> dict[str,
                 vllm=request.app.state.vllm,
                 checksum=checksum,
                 content=content,
+                tier=settings.mineru_tier,
                 char_budget=settings.extraction_char_budget,
                 max_tokens=settings.extraction_max_tokens,
             )

@@ -115,3 +115,44 @@ def test_log_level_is_read_from_the_environment(
 def test_unknown_log_level_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValidationError, match="log_level"):
         _log_settings(tmp_path, monkeypatch, "verbose")
+
+
+def test_time_limit_is_capped_at_mineru_longest_wait(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError):
+        WorkerSettings(
+            _env_file=None,  # type: ignore[call-arg]
+            redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+            artifact_storage_path=tmp_path,
+            parse_queue_name="parse",
+            parse_time_limit_seconds=3601,
+        )
+
+
+def test_mineru_base_url_must_be_http(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError):
+        WorkerSettings(
+            _env_file=None,  # type: ignore[call-arg]
+            redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+            artifact_storage_path=tmp_path,
+            parse_queue_name="parse",
+            mineru_base_url="mineru:8000",  # type: ignore[arg-type]
+        )
+
+
+def test_mineru_tier_defaults_to_basic_and_must_be_known(tmp_path: Path) -> None:
+    settings = WorkerSettings(
+        _env_file=None,  # type: ignore[call-arg]
+        redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+        artifact_storage_path=tmp_path,
+        parse_queue_name="parse",
+    )
+    assert settings.mineru_tier == "basic"
+
+    with pytest.raises(ValidationError):
+        WorkerSettings(
+            _env_file=None,  # type: ignore[call-arg]
+            redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+            artifact_storage_path=tmp_path,
+            parse_queue_name="parse",
+            mineru_tier="full",  # type: ignore[arg-type]
+        )

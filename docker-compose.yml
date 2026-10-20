@@ -70,20 +70,29 @@ services:
   parser-worker:
     build:
       context: .
-      # dockerfile and image come from the overlay; cpu/gpu.yml
+      dockerfile: docker/parser-worker.Dockerfile
+    image: bioparser-parser-worker
     depends_on:
+      mineru:
+        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
       BIOPARSER_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       BIOPARSER_ARTIFACT_STORAGE_PATH: /data
       BIOPARSER_PARSE_QUEUE_NAME: parse
+      BIOPARSER_MINERU_BASE_URL: http://mineru:8000
+      BIOPARSER_PARSE_TIME_LIMIT_SECONDS: ${BIOPARSER_PARSE_TIME_LIMIT_SECONDS:-1800}
     volumes:
       - artifacts:/data
-    mem_limit: 12g
-    memswap_limit: 12g
+    # MinerU runs in its own service. The default backend (pdfplumber) frees each page
+    # after reading it: 316 MiB peak on a 150-page, 15 MiB PDF (1.5 GiB without that).
+    mem_limit: 2g
+    memswap_limit: 2g
     restart: unless-stopped
     networks: [backend]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
 
   redis:
     # Also pinned in .github/workflows/ci.yml. Dependabot updates only this line.

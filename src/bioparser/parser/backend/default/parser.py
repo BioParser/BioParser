@@ -98,6 +98,8 @@ class DefaultParser:
                     width = float(page.width)
                     height = float(page.height)
                     words = _words_from_page(page)
+                    # Frees the page's parsed objects: without it memory grows by about 10 MiB a page.
+                    page.close()
                     blocks_out: list[ContentBlock] = []
                     grouped = group_words_into_text_blocks(
                         words,
