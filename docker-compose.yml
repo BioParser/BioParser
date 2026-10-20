@@ -23,7 +23,7 @@ services:
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
     volumes:
-      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ${HF_CACHE_DIR:-${USERPROFILE:-${HOME}}/.cache/huggingface}:/root/.cache/huggingface
     ports:
       - "127.0.0.1:${VLLM_PORT:-8000}:8000"
     ipc: host
@@ -57,6 +57,8 @@ services:
       BIOPARSER_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       BIOPARSER_ARTIFACT_STORAGE_PATH: /data
       BIOPARSER_PARSE_QUEUE_NAME: parse
+      BIOPARSER_API_KEY: ${BIOPARSER_API_KEY:-}
+      BIOPARSER_AUTH_DISABLED: ${BIOPARSER_AUTH_DISABLED:-false}
     volumes:
       - artifacts:/data
     ports:

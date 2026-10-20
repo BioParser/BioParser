@@ -13,7 +13,7 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
 from pydantic import ValidationError
 
 from bioparser.jobqueue import (
@@ -46,6 +46,7 @@ from bioparser.storage import (
 )
 
 from . import config
+from .auth import require_api_key
 from .errors import (
     ARTIFACT_INVALID,
     CONTENT_TOO_LARGE,
@@ -59,6 +60,7 @@ from .errors import (
     QUEUE_UNAVAILABLE,
     REDIS_UNAVAILABLE,
     STORAGE_UNAVAILABLE,
+    UNAUTHORIZED,
     UNSUPPORTED_CONTENT_TYPE,
     error_response,
     http_error,
@@ -111,6 +113,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 raise RuntimeError("BIOPARSER_REDIS_URL is required")
             if settings.artifact_storage_path is None:
                 raise RuntimeError("BIOPARSER_ARTIFACT_STORAGE_PATH is required")
+            if settings.auth_disabled:
+                LOGGER.warning("authentication is disabled (BIOPARSER_AUTH_DISABLED=true)")
+            elif not settings.api_key or not settings.api_key.get_secret_value():
+                LOGGER.critical(
+                    "BIOPARSER_API_KEY must be set when BIOPARSER_AUTH_DISABLED is false"
+                )
+                raise RuntimeError(
+                    "BIOPARSER_API_KEY is required when BIOPARSER_AUTH_DISABLED is false"
+                )
 
             app.state.mineru = MinerUClient(
                 settings.mineru_base_url,
@@ -256,8 +267,10 @@ def _job_state_response(state: JobState) -> JobStatusResponse:
 @app.post(
     "/api/extractions",
     status_code=202,
+    dependencies=[Depends(require_api_key)],
     responses={
         400: error_response(MISSING_FILE, EMPTY_FILE, INVALID_PDF, INVALID_CONTENT_LENGTH),
+        401: error_response(UNAUTHORIZED),
         413: error_response(CONTENT_TOO_LARGE),
         415: error_response(UNSUPPORTED_CONTENT_TYPE),
         500: error_response(JOB_STATE_UNREADABLE),
@@ -321,7 +334,9 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
 
 @app.get(
     "/api/jobs/{job_id}",
+    dependencies=[Depends(require_api_key)],
     responses={
+        401: error_response(UNAUTHORIZED),
         404: error_response(JOB_NOT_FOUND),
         422: error_response(INVALID_JOB_ID),
         500: error_response(JOB_STATE_UNREADABLE, ARTIFACT_INVALID),
@@ -381,7 +396,13 @@ async def job_status(request: Request, job_id: str) -> JobStatusResponse:
     return _job_state_response(record)
 
 
-@app.post("/extract")
+@app.post(
+    "/extract",
+    dependencies=[Depends(require_api_key)],
+    responses={
+        401: error_response(UNAUTHORIZED),
+    },
+)
 async def extract(request: Request, file: UploadFile | None = None) -> dict[str, Any]:
     """Runs validate -> mineru -> mapper -> vLLM pipeline for testing,
     synchronously"""

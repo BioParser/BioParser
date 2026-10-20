@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 import httpx2
 import pytest
+from conftest import TEST_API_KEY
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from httpx2 import ASGITransport
@@ -137,6 +138,7 @@ async def test_duplicate_pdf_submission_reuses_stored_artifact(
     async with httpx2.AsyncClient(
         transport=ASGITransport(api_app),
         base_url="http://test",
+        headers={"X-API-Key": TEST_API_KEY},
     ) as client:
         responses = [
             await client.post(

@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx2
 import pytest
+from conftest import TEST_API_KEY
 from fastapi.testclient import TestClient
 from httpx2 import ASGITransport
 from stubs import STUB_JSON, StubMinerUClient, StubVLLMService
@@ -80,6 +81,7 @@ async def test_a_saturated_pipeline_returns_503_instead_of_queueing(
     async with httpx2.AsyncClient(
         transport=ASGITransport(app),
         base_url="http://t",
+        headers={"X-API-Key": TEST_API_KEY},
     ) as http:
 
         async def one(index: int) -> int:
