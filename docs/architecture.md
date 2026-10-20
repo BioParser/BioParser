@@ -39,9 +39,11 @@ flowchart TB
     API -->|ETS JSON| Client
 ```
 
-Redis messages contain identifiers and artifact references, not PDF bytes or complete
-model results. This keeps queue messages small and allows the storage implementation
-to evolve separately.
+Redis holds two things: the job queue and the job state records. Queue messages carry
+only a job ID and a schema version. Each job state record holds that job's artifact
+paths (`pdf_ref`, `parse_result_ref`), which workers and the API read from it. Neither
+holds PDF bytes or model results; those stay in artifact storage. This keeps Redis small
+and lets storage change on its own.
 
 ## Components
 
@@ -185,7 +187,7 @@ are addressed by stable artifact paths using typed Pydantic models:
   - `size_bytes`: payload size in bytes.
 - `StoredArtifact`: composite container bundling raw `content` (`bytes`) and `metadata` (`ArtifactMetadata`).
 
-Queue message envelopes can pass lightweight artifact paths to workers to avoid transmitting large payloads over Redis.
+Queue messages carry no artifact paths. Workers read them from the job state record.
 
 ### Artifact paths
 

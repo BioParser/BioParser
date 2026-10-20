@@ -1,8 +1,6 @@
 """Shared shape rules and the naming convention for artifact paths.
 
-An artifact path is the key under which an artifact is stored. Storage and job state both
-validate against these rules, so a malformed path is rejected at whichever boundary it enters.
-See "Artifact paths" in docs/architecture.md.
+An artifact path is the key under which an artifact is stored. See "Artifact paths" in docs/architecture.md.
 
 Convention (build paths with the functions below, never by string formatting):
 
