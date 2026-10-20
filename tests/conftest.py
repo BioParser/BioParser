@@ -24,6 +24,8 @@ from bioparser.logging_config import HANDLER_NAME
 from bioparser.services.vllm import config as vllm_config
 from bioparser.services.vllm import vllm as vllm_module
 
+TEST_API_KEY = "test-api-key"
+
 
 @pytest.fixture
 def stub_api_adapters(
@@ -44,7 +46,7 @@ def stub_api_adapters(
 def client(
     stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
 ) -> TestClient:
-    return TestClient(app)
+    return TestClient(app, headers={"X-API-Key": TEST_API_KEY})
 
 
 @pytest.fixture
@@ -64,6 +66,13 @@ def inline_pipeline(monkeypatch: pytest.MonkeyPatch) -> Iterator[InlinePipeline]
     monkeypatch.setattr(app.state, "pipeline_pool", pool, raising=False)
     yield inline
     pool.shutdown(wait=True)
+
+
+@pytest.fixture(autouse=True)
+def default_test_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide a default API key in the test suite so general endpoint
+    tests authenticate successfully. Specific auth tests can override this."""
+    monkeypatch.setenv("BIOPARSER_API_KEY", TEST_API_KEY)
 
 
 @pytest.fixture(autouse=True)

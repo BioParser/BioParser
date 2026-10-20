@@ -18,6 +18,7 @@ ErrorCode = Literal[
     "redis_unavailable",
     "queue_unavailable",
     "artifact_not_available",
+    "unauthorized",
 ]
 
 
@@ -47,6 +48,10 @@ CONTENT_TOO_LARGE = ErrorDetail(
     code="content_too_large",
     message="Content Too Large",
 )
+UNAUTHORIZED = ErrorDetail(
+    code="unauthorized",
+    message="Invalid or missing API key",
+)
 
 STORAGE_UNAVAILABLE = ErrorDetail(
     code="storage_unavailable",
@@ -74,8 +79,12 @@ ARTIFACT_NOT_AVAILABLE = ErrorDetail(
 )
 
 
-def http_error(status_code: int, detail: ErrorDetail) -> HTTPException:
-    return HTTPException(status_code=status_code, detail=detail.model_dump())
+def http_error(
+    status_code: int,
+    detail: ErrorDetail,
+    headers: dict[str, str] | None = None,
+) -> HTTPException:
+    return HTTPException(status_code=status_code, detail=detail.model_dump(), headers=headers)
 
 
 def error_response(*details: ErrorDetail) -> dict[str, object]:
