@@ -41,8 +41,9 @@ services:
     networks: [backend, edge]
 
   bioparser:
-    build: .
-    init: true
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
     depends_on:
       mineru:
         condition: service_healthy
@@ -53,21 +54,40 @@ services:
     environment:
       BIOPARSER_VLLM_BASE_URL: http://vllm:8000/v1
       BIOPARSER_MINERU_BASE_URL: http://mineru:8000
-      BIOPARSER_REDIS_URL : ${BIOPARSER_REDIS_URL:-redis://redis:6379/0}
-      BIOPARSER_PARSE_QUEUE_NAME: ${BIOPARSER_PARSE_QUEUE_NAME:-parse}
-      BIOPARSER_ARTIFACT_STORAGE_PATH: /var/lib/bioparser/artifacts
+      BIOPARSER_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      BIOPARSER_ARTIFACT_STORAGE_PATH: /data
+      BIOPARSER_PARSE_QUEUE_NAME: parse
+    volumes:
+      - artifacts:/data
     ports:
       - "127.0.0.1:${BIOPARSER_PORT:-8080}:8080"
-    volumes:
-      - artifact-data:/var/lib/bioparser/artifacts
     # mineru and vllm get a ceiling from the cpu/gpu overlay; this service had
     # none, so it was the one that could take the host down.
     mem_limit: 4g
     memswap_limit: 4g
     networks: [backend, edge]
 
+  parser-worker:
+    build:
+      context: .
+      # dockerfile and image come from the overlay; cpu/gpu.yml
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      BIOPARSER_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      BIOPARSER_ARTIFACT_STORAGE_PATH: /data
+      BIOPARSER_PARSE_QUEUE_NAME: parse
+    volumes:
+      - artifacts:/data
+    mem_limit: 12g
+    memswap_limit: 12g
+    restart: unless-stopped
+    networks: [backend]
+
   redis:
-    image: redis:8.10.2@sha256:6f81e8915c60b065a524e6967e0ad1c639ba6efa84d669f823683ea04d9150ee
+    # Also pinned in .github/workflows/ci.yml. Dependabot updates only this line.
+    image: redis:8.10.2@sha256:2c2dff791878316e3b083188be0d578423b24813cdda5de0e80ea4f7b3e6bfd6
     user: "999:999"
     command:
       - redis-server
@@ -84,7 +104,7 @@ services:
     mem_limit: 768m
     memswap_limit: 768m
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -95,4 +115,4 @@ services:
 volumes:
   mineru-output:
   redis-data:
-  artifact-data:
+  artifacts:

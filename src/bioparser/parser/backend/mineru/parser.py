@@ -15,9 +15,9 @@ from bioparser.parser.errors import (
     UnsupportedDocumentError,
 )
 from bioparser.parser.models import ParserArtifact
-from bioparser.parser_names import MINERU_PARSER_NAME
+from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 
-MINERU_PARSER_VERSION = "1"
+MINERU_PARSER_VERSION = PARSER_VERSIONS[MINERU_PARSER_NAME]
 
 
 def _find_middle_json(output_dir: Path, stem: str) -> Path:
@@ -56,7 +56,7 @@ class MinerUParser:
     def parse(self, path: Path) -> ParserArtifact:
         pdf_path = path.expanduser().resolve()
         if not pdf_path.is_file():
-            raise FileNotFoundError(f"PDF not found: {pdf_path}")
+            raise FileNotFoundError("PDF not found")
 
         try:
             with tempfile.TemporaryDirectory(prefix="bioparser-mineru-") as tmp:

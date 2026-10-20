@@ -13,10 +13,12 @@ import tempfile
 import threading
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from uuid import NAMESPACE_DNS, UUID, uuid5
+from uuid import UUID
 
 from pydantic import ValidationError
 
+from bioparser.artifact_paths import parse_result_path
+from bioparser.hashing import sha256_bytes
 from bioparser.jobqueue import JobHandler, JobTimeLimitExceeded, ParseJobMessage
 from bioparser.jobstate import (
     CorruptJobStateError,
@@ -36,6 +38,7 @@ from bioparser.parser import (
     PdfParser,
     UnsupportedDocumentError,
 )
+from bioparser.parser_names import PARSER_VERSIONS
 from bioparser.storage import (
     ArtifactAlreadyExistsError,
     ArtifactMetadata,
@@ -47,7 +50,6 @@ from bioparser.storage import (
 LOGGER = logging.getLogger(__name__)
 
 _PARSE_STAGE: frozenset[JobStatus] = frozenset(("queued", "parsing"))
-_PARSER_ARTIFACT_NAMESPACE = uuid5(NAMESPACE_DNS, "bioparser.parser-artifact")
 
 
 class _PermanentJobFailure(Exception):
@@ -202,7 +204,9 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
             LOGGER.info(f"job already finished or moved on. Not marking it failed ({code})")
 
     def _ensure_parser_artifact(self, job_id: UUID, parser_name: str, pdf_ref: str) -> str:
-        artifact_path = _parser_artifact_path(job_id)
+        """Return the artifact path for the parsed PDF, creating it if needed."""
+        pdf = self._retrieve_pdf(pdf_ref)
+        artifact_path = _parse_result_path(pdf, parser_name)
         stored = _retrieve_or_none(self._storage, artifact_path)
         if stored is not None and _is_parser_artifact(stored):
             return artifact_path
@@ -212,22 +216,24 @@ class ParseJobHandler(JobHandler[ParseJobMessage]):
                 f"stored parser artifact {artifact_path} is invalid and cannot be replaced through the storage interface"
             )
             raise _PermanentJobFailure("internal_error")
-        artifact = self._parse(job_id, parser_name, pdf_ref)
+        artifact = self._parse(job_id, parser_name, pdf)
         payload = artifact.model_dump_json().encode()
         return self._store_artifact(job_id, artifact.schema_version, payload, artifact_path)
 
-    def _parse(self, job_id: UUID, parser_name: str, pdf_ref: str) -> ParserArtifact:
-        """Fetch the input PDF and parse it. Known failures become `_PermanentJobFailure`."""
+    def _retrieve_pdf(self, pdf_ref: str) -> bytes:
+        try:
+            return self._storage.retrieve(pdf_ref)
+        except ArtifactNotFoundError as exc:
+            LOGGER.error(f"input PDF {pdf_ref} not found in artifact storage")
+            raise _PermanentJobFailure("internal_error") from exc
+
+    def _parse(self, job_id: UUID, parser_name: str, pdf: bytes) -> ParserArtifact:
+        """Parse the input PDF. Known failures become `_PermanentJobFailure`."""
         try:
             parser = self._parser_factory(parser_name)
         except ParserBackendUnavailableError as exc:
             LOGGER.error(f"parser backend {parser_name!r} cannot run: {exc}")
             raise _PermanentJobFailure("parse_failed") from exc
-        try:
-            pdf = self._storage.retrieve(pdf_ref)
-        except ArtifactNotFoundError as exc:
-            LOGGER.error(f"input PDF {pdf_ref} not found in artifact storage")
-            raise _PermanentJobFailure("internal_error") from exc
         try:
             return _parse_pdf(parser, pdf)
         except ParserBackendUnavailableError as exc:
@@ -279,9 +285,18 @@ def _left_parse_stage(status: JobStatus) -> bool:
     return status not in _PARSE_STAGE
 
 
-def _parser_artifact_path(job_id: UUID) -> str:
-    """UUID5 of the job id as the artifact path, so a retry stores the same artifact."""
-    return str(uuid5(_PARSER_ARTIFACT_NAMESPACE, str(job_id)))
+def _parse_result_path(pdf: bytes, parser_name: str) -> str:
+    """The conventional path for this PDF's parser artifact.
+
+    The same PDF and parser always give the same path, so a retry or another job with the
+    same PDF reuses the stored artifact.
+    """
+    try:
+        version = PARSER_VERSIONS[parser_name]
+    except KeyError as exc:
+        LOGGER.error(f"parser backend {parser_name!r} has no version")
+        raise _PermanentJobFailure("internal_error") from exc
+    return parse_result_path(sha256_bytes(pdf), parser_name, version)
 
 
 def _parse_pdf(parser: PdfParser, pdf: bytes) -> ParserArtifact:

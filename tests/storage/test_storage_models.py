@@ -39,7 +39,7 @@ class TestCreationInfo:
         assert info.created_by == "test-worker"
 
     def test_naive_datetime_rejected(self) -> None:
-        naive_dt = datetime(2026, 9, 20, 10, 30)  # noqa: DTZ001
+        naive_dt = datetime(2026, 9, 20, 10, 30)
         with pytest.raises(ValidationError, match="timezone-aware"):
             CreationInfo(created_at=naive_dt)
 
