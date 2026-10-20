@@ -41,6 +41,12 @@ STUB_JSON: dict[str, Any] = {
 }
 
 
+def file_parse_reply(middle: dict[str, Any] = STUB_JSON) -> tuple[int, dict[str, Any]]:
+    """mineru-api's 200 reply to /v1/file_parse for one PDF."""
+    entry = {"name": "a.pdf", "status": "completed", "content": {"middle_json": middle}}
+    return 200, {"task_id": "job_1", "status": "completed", "files": [entry]}
+
+
 class StubMinerUClient:
     """HTTP hop to mineru-api"""
 
