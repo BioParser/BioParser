@@ -13,18 +13,21 @@ Messages that leave the queue without a successful handler run are poisoned.
 
 import logging
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from threading import Event, Lock
+from typing import Any
 
 import dramatiq
 import redis
 from dramatiq import Actor, Broker, Worker
 from dramatiq.brokers.redis import RedisBroker
+from dramatiq.common import compute_backoff, current_millis
 from dramatiq.middleware import CurrentMessage
 from pydantic import BaseModel, ValidationError
 
 from ..errors import (
+    JobDeferralExpired,
     JobDeferred,
     JobQueueConfigError,
     JobQueueError,
@@ -43,11 +46,23 @@ _DEFAULT_BROKER_NAMESPACE = "bioparser"
 _DEFAULT_WORKER_TIMEOUT_MS = 1000
 _DEFAULT_WORKER_THREADS = 1
 _DEFAULT_REDIS_TIMEOUT_S = 5.0
-# A dependency outage waits this long, then a new message runs. The wait does not
-# spend the message's retries, so a restart longer than the retry budget can finish.
-_DEFER_DELAY_MS = 30_000
+# A dependency outage sends a new message instead of using a retry, so a restart
+# longer than the retry budget can still finish. The delay doubles from the
+# minimum up to the cap. Past the deadline the queue stops sending.
+_DEFER_MIN_DELAY_MS = 30_000
+_DEFER_MAX_DELAY_MS = 300_000
+_DEFER_DEADLINE_MS = 3_600_000
+_OPTION_DEFERRED_SINCE = "deferred_since"
+_OPTION_DEFERRALS = "deferrals"
 # The same pattern Dramatiq checks when the actor is declared.
 _QUEUE_NAME_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9._-]*")
+
+
+def _option_int(options: Mapping[str, object], key: str) -> int | None:
+    value = options.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
 
 
 def _require_queue_name(name: str) -> None:
@@ -231,8 +246,31 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         return dispatch
 
     def _defer(self, payload: object) -> None:
+        current = CurrentMessage.get_current_message()
+        options = current.options if current is not None else {}
+        now = current_millis()
+        since = _option_int(options, _OPTION_DEFERRED_SINCE)
+        if since is not None and now - since >= _DEFER_DEADLINE_MS:
+            LOGGER.error(
+                "dependency is still unavailable on queue %s. Not sending it again",
+                self._name,
+            )
+            self._notify_failed(payload, JobDeferralExpired())
+            return
+        deferrals = _option_int(options, _OPTION_DEFERRALS)
+        if deferrals is None or deferrals < 0:
+            deferrals = 0
+        deferrals, delay_ms = compute_backoff(
+            deferrals,
+            factor=_DEFER_MIN_DELAY_MS,
+            max_backoff=_DEFER_MAX_DELAY_MS,
+        )
+        resend_options: dict[str, Any] = {
+            _OPTION_DEFERRED_SINCE: now if since is None else since,
+            _OPTION_DEFERRALS: deferrals,
+        }
         try:
-            self._actor.send_with_options(args=(payload,), delay=_DEFER_DELAY_MS)
+            self._actor.send_with_options(args=(payload,), delay=delay_ms, **resend_options)
         except redis.RedisError as exc:
             raise JobQueueError(f"could not defer a message on queue {self._name!r}") from exc
 

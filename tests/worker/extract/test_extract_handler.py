@@ -9,7 +9,12 @@ from stubs import StubVLLMService
 from bioparser.artifact_paths import extract_result_path
 from bioparser.extract.extract import ExtractionFailedError, ExtractionReport, extract_observations
 from bioparser.extract.schema import ExtractionArtifact
-from bioparser.jobqueue import ExtractJobMessage, JobDeferred, JobTimeLimitExceeded
+from bioparser.jobqueue import (
+    ExtractJobMessage,
+    JobDeferralExpired,
+    JobDeferred,
+    JobTimeLimitExceeded,
+)
 from bioparser.jobstate import JobNotFoundError, JobState, SafeError, StaleJobStateWriteError
 from bioparser.jobstate.models import ALLOWED_TRANSITIONS
 from bioparser.parser.models import (
@@ -374,6 +379,18 @@ def test_a_job_still_parsing_is_left_alone() -> None:
 
     assert called is False
     assert jobs.state == state
+
+
+def test_deferral_expiry_marks_an_extracting_job_failed() -> None:
+    jobs = MemoryJobs(_parsed().with_claim("extracting"))
+    handler = _handler(jobs, MemoryStorage(), _real_extract(StubVLLMService()))
+    handler.on_failed(_message(), JobDeferralExpired())
+    handler.close()
+
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.parse_result_ref == PARSE_REF
 
 
 def test_on_failed_records_timeout_and_keeps_the_parser_artifact() -> None:

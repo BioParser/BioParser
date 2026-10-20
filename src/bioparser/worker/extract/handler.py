@@ -60,7 +60,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
     async def ready(self) -> None:
         if self._vllm is None or await self._vllm.ping():
             return
-        LOGGER.warning("vLLM is not answering. Sending the job again later")
+        LOGGER.warning("vLLM is not answering")
         raise JobDeferred("vLLM is not answering")
 
     def close(self) -> None:

@@ -52,8 +52,9 @@ class StageJobHandler[T: JobMessage]:
 
     A status outside `owned` is left unchanged. A `PermanentJobFailure`
     from `run` is recorded as a safe error. Any other exception is retried.
-    `ready` may raise `JobDeferred` before the claim, which sends the message
-    again later without using a retry.
+    `ready` may raise `JobDeferred` before the claim. The queue sends the
+    message again later without using a retry, and gives up at a deadline.
+    `on_failed` then marks the job failed when its status allows it.
     """
 
     def __init__(
@@ -198,10 +199,7 @@ class StageJobHandler[T: JobMessage]:
         if state.status not in self._owned:
             return False
         if "failed" not in ALLOWED_TRANSITIONS[state.status]:
-            LOGGER.error(
-                f"job is {state.status!r}, which cannot be marked failed. "
-                "It waits for another delivery"
-            )
+            LOGGER.error(f"job is {state.status!r}, which cannot be marked failed.")
             return False
         try:
             await self._jobs.update(state.with_changes(status="failed", error=SafeError(code=code)))

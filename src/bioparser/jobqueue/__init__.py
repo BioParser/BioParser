@@ -1,4 +1,5 @@
 from .errors import (
+    JobDeferralExpired,
     JobDeferred,
     JobQueueConfigError,
     JobQueueError,
@@ -10,6 +11,7 @@ from .protocol import JobHandler, JobQueue
 
 __all__ = [
     "ExtractJobMessage",
+    "JobDeferralExpired",
     "JobDeferred",
     "JobHandler",
     "JobQueue",
