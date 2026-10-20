@@ -235,15 +235,32 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
                 # A new message, so the wait uses none of this delivery's retries.
                 queue._defer(payload)
             except MalformedJob as exc:
+                queue._end_deferral()
                 LOGGER.warning("malformed message on queue %s: %s", queue._name, exc)
                 queue._notify_malformed(payload)
                 raise
             except (Exception, JobTimeLimitExceeded) as exc:
+                # A retry enqueues this same message. Drop the outage clock first.
+                queue._end_deferral()
                 if queue._is_last_retry():
                     queue._notify_failed(payload, exc)
                 raise
+            else:
+                queue._end_deferral()
 
         return dispatch
+
+    def _end_deferral(self) -> None:
+        """This delivery was not deferred, so its outage clock is over.
+
+        A retry enqueues the same message. Without these options the next
+        deferral starts a new hour.
+        """
+        current = CurrentMessage.get_current_message()
+        if current is None:
+            return
+        current.options.pop(_OPTION_DEFERRED_SINCE, None)
+        current.options.pop(_OPTION_DEFERRALS, None)
 
     def _defer(self, payload: object) -> None:
         current = CurrentMessage.get_current_message()

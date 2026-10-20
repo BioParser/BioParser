@@ -54,6 +54,8 @@ class StageJobHandler[T: JobMessage]:
     from `run` is recorded as a safe error. Any other exception is retried.
     `ready` may raise `JobDeferred` before the claim. The queue sends the
     message again later without using a retry, and gives up at a deadline.
+    Any other result drops that outage's clock, so a retry of this message
+    starts a new hour if it has to defer.
     `on_failed` then marks the job failed when its status allows it.
     """
 

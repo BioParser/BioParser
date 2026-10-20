@@ -422,6 +422,72 @@ def test_a_deferral_past_the_deadline_is_not_sent_again(stub_broker: StubBroker)
         stub_broker.queues[dq_name("parse")].get_nowait()
 
 
+def test_a_failed_attempt_starts_a_new_deferral_if_it_defers_later(stub_broker: StubBroker) -> None:
+    class _ThenDefer(_Recorder):
+        def __init__(self) -> None:
+            super().__init__()
+            self._calls = 0
+
+        def handle(self, message: ParseJobMessage) -> None:
+            self.received.append(message)
+            self._calls += 1
+            if self._calls == 1:
+                raise RuntimeError("extract failed")
+            raise JobDeferred("vLLM is not answering")
+
+    handler = _ThenDefer()
+    queue = _queue(stub_broker, max_retries=1)
+    payload = _message().model_dump(mode="json")
+    current = queue._actor.message_with_options(
+        args=(payload,),
+        deferred_since=current_millis() - 3_600_000,
+        deferrals=4,
+    )
+    token = CurrentMessage._MESSAGE.set(current)
+    try:
+        with queue._bind(handler):
+            with pytest.raises(RuntimeError):
+                queue._actor.fn(payload)
+            assert "deferred_since" not in current.options
+            assert "deferrals" not in current.options
+            queue._actor.fn(payload)
+    finally:
+        CurrentMessage._MESSAGE.reset(token)
+
+    assert handler.failed == []
+    delayed = Message.decode(stub_broker.queues[dq_name("parse")].get_nowait())
+    assert delayed.options["deferrals"] == 1
+    assert delayed.options["deferred_since"] >= current_millis() - 5_000
+
+
+def test_a_retry_of_an_attempt_drops_the_deferral_clock(stub_broker: StubBroker) -> None:
+    queue = _queue(stub_broker, max_retries=1, min_backoff_ms=1)
+    payload = _message().model_dump(mode="json")
+    current = queue._actor.message_with_options(
+        args=(payload,),
+        deferred_since=current_millis() - 3_600_000,
+        deferrals=4,
+    )
+    token = CurrentMessage._MESSAGE.set(current)
+    try:
+        with (
+            queue._bind(_Recorder(raises=RuntimeError("extract failed"))),
+            pytest.raises(RuntimeError),
+        ):
+            queue._actor.fn(payload)
+        # Dramatiq retries by enqueueing this same message, so the cleared options travel with it.
+        Retries().after_process_message(  # type: ignore[no-untyped-call]
+            stub_broker, current, exception=RuntimeError("extract failed")
+        )
+    finally:
+        CurrentMessage._MESSAGE.reset(token)
+
+    delayed = Message.decode(stub_broker.queues[dq_name("parse")].get_nowait())
+    assert "deferred_since" not in delayed.options
+    assert "deferrals" not in delayed.options
+    assert delayed.options["retries"] == 1
+
+
 def test_handler_failure_calls_on_failed_after_retries(stub_broker: StubBroker) -> None:
     handler = _Recorder(raises=RuntimeError("parse failed"))
     queue = _queue(stub_broker, max_retries=2, min_backoff_ms=1)
