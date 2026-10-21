@@ -90,9 +90,11 @@ a validated parser artifact, and updates job state. It has no dependency on ETS 
 language model.
 
 The independently deployable extractor worker consumes parser artifacts, runs the local
-model, and stores the result. A field that was not located is stored. The extractor
-checks a range against the slice it names before it returns, and a mismatch fails the
-job. The worker does not drop or repair a field. It may have separate memory and GPU
+model, and stores the result. An extractor returns the whole extraction artifact. A field that
+was not located is stored. Before storing, the worker checks the artifact against its
+schema, checks that it names the extractor and version the job runs, and checks every
+range against the slice it names. A failure fails the job. The worker does not drop or
+repair a field. It may have separate memory and GPU
 requirements.
 Initial milestones define this boundary and evaluate runtimes; production inference
 comes later.
@@ -276,7 +278,7 @@ source coordinates.
 
 A finished extraction stores one observation per measurement. Each paper field keeps the verbatim text and, when it was located, a character range in a parser block. Fields that were not located are still stored.
 
-The stored file checks its shape: the trait code, a required string, and that a range is ordered. The extractor checks a range against the slice it names before it returns. A mismatch fails the job. A missing range is left as the extractor returned it, as are an unresolved name and a unit that cannot be converted. The file does not decide whether a measurement is good enough to show.
+The stored file checks its shape: the trait code, a required string, and that a range is ordered. The worker checks every range against the slice it names before storing, for any extractor. A mismatch fails the job. A missing range is left as the extractor returned it, as are an unresolved name and a unit that cannot be converted. The file does not decide whether a measurement is good enough to show.
 
 The ETS adapter is the quality gate for what a user is shown. It resolves the name, converts the unit, and decides whether a weak field becomes a warning, an empty id, or a dropped row. An extractor may call those same checks while it is still working, and drop or repair a field before storing it. It does not have to. A stored file can be looser than the response, so a new extractor is not forced to meet one quality bar before it can write a result.
 

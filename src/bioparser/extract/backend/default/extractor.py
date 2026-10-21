@@ -6,9 +6,9 @@ from pydantic import ValidationError
 
 from bioparser.extract.backend.default.locate import cited_observations
 from bioparser.extract.backend.default.schema import Extraction
-from bioparser.extract.citations import reject_mismatched_ranges
 from bioparser.extract.errors import ExtractionFailedError, ExtractorProcessError
-from bioparser.extract.models import Observation
+from bioparser.extract.models import ExtractionArtifact
+from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
 from bioparser.parser.models import BlockRole, ParserArtifact, TextContent
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.vllm import VLLMError, VLLMRequestRejectedError, VLLMTruncatedError
@@ -109,7 +109,7 @@ class DefaultExtractor:
     char_budget: int
     max_tokens: int
 
-    async def extract(self, artifact: ParserArtifact) -> list[Observation]:
+    async def extract(self, artifact: ParserArtifact) -> ExtractionArtifact:
         try:
             result = await extract_observations(
                 self.vllm,
@@ -117,10 +117,11 @@ class DefaultExtractor:
                 char_budget=self.char_budget,
                 max_tokens=self.max_tokens,
             )
-            observations = cited_observations(result.output, artifact)
-            # locate drops ambiguous strings; a mismatch here is a bug in range construction.
-            reject_mismatched_ranges(observations, artifact)
-            return observations
+            return ExtractionArtifact(
+                extractor=DEFAULT_EXTRACTOR_NAME,
+                extractor_version=EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME],
+                observations=cited_observations(result.output, artifact),
+            )
         except (VLLMTruncatedError, VLLMRequestRejectedError) as exc:
             raise ExtractionFailedError(f"vLLM could not answer: {type(exc).__name__}") from exc
         except VLLMError as exc:

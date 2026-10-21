@@ -20,7 +20,7 @@ from bioparser.extract.errors import (
     ExtractorBackendUnavailableError,
     ExtractorProcessError,
 )
-from bioparser.extract.models import ExtractionArtifact, Observation
+from bioparser.extract.models import Cited, ExtractionArtifact, Observation, TextRange
 from bioparser.extract.protocol import Extractor
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
 from bioparser.jobqueue import (
@@ -148,15 +148,26 @@ def _message() -> ExtractJobMessage:
     return ExtractJobMessage(job_id=JOB_ID)
 
 
+def _artifact(
+    observations: list[Observation],
+    *,
+    extractor: str = DEFAULT_EXTRACTOR_NAME,
+    extractor_version: str = EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME],
+) -> ExtractionArtifact:
+    return ExtractionArtifact(
+        extractor=extractor, extractor_version=extractor_version, observations=observations
+    )
+
+
 def _real_extract(
     vllm: StubVLLMService,
-) -> Callable[[ParserArtifact], Awaitable[list[Observation]]]:
+) -> Callable[[ParserArtifact], Awaitable[ExtractionArtifact]]:
     service = cast(VLLMService, vllm)
 
-    def extract(artifact: ParserArtifact) -> Awaitable[list[Observation]]:
-        async def run() -> list[Observation]:
+    def extract(artifact: ParserArtifact) -> Awaitable[ExtractionArtifact]:
+        async def run() -> ExtractionArtifact:
             result = await extract_observations(service, artifact, char_budget=8000, max_tokens=256)
-            return cited_observations(result.output, artifact)
+            return _artifact(cited_observations(result.output, artifact))
 
         return run()
 
@@ -164,15 +175,15 @@ def _real_extract(
 
 
 class _CallableExtractor:
-    def __init__(self, extract: Callable[[ParserArtifact], Awaitable[list[Observation]]]) -> None:
+    def __init__(self, extract: Callable[[ParserArtifact], Awaitable[ExtractionArtifact]]) -> None:
         self._extract = extract
 
-    async def extract(self, artifact: ParserArtifact) -> list[Observation]:
+    async def extract(self, artifact: ParserArtifact) -> ExtractionArtifact:
         return await self._extract(artifact)
 
 
 def _factory(
-    extract: Callable[[ParserArtifact], Awaitable[list[Observation]]],
+    extract: Callable[[ParserArtifact], Awaitable[ExtractionArtifact]],
 ) -> Callable[[str], Extractor]:
     def extractor_factory(_name: str) -> Extractor:
         return _CallableExtractor(extract)
@@ -211,7 +222,7 @@ def _registered(vllm: StubVLLMService) -> Callable[[str], Extractor]:
 def _handler(
     jobs: MemoryJobs,
     storage: MemoryStorage,
-    extract: Callable[[ParserArtifact], Awaitable[list[Observation]]],
+    extract: Callable[[ParserArtifact], Awaitable[ExtractionArtifact]],
     *,
     max_claims: int = DEFAULT_EXTRACT_MAX_RETRIES + 1,
 ) -> ExtractJobHandler:
@@ -296,7 +307,7 @@ def test_an_unlocated_value_is_stored_without_a_range() -> None:
 def test_schema_failure_is_permanent() -> None:
     jobs = MemoryJobs(_parsed())
 
-    async def extract(artifact: ParserArtifact) -> list[Observation]:
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         raise ExtractionFailedError("schema")
 
     handler = _handler(jobs, MemoryStorage(), extract)
@@ -351,7 +362,7 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
     vllm.up = False
     called = False
 
-    async def extract(artifact: ParserArtifact) -> list[Observation]:
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         nonlocal called
         called = True
         raise AssertionError("model was called")
@@ -432,7 +443,7 @@ def test_a_missing_parser_artifact_fails_without_retry() -> None:
     storage = MemoryStorage()
     storage.payloads.pop(PARSE_REF)
 
-    async def extract(artifact: ParserArtifact) -> list[Observation]:
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         raise AssertionError("model was called")
 
     handler = _handler(jobs, storage, extract)
@@ -449,7 +460,7 @@ def test_an_invalid_parser_artifact_fails_without_calling_the_model() -> None:
     invalid = b'{"old":true}'
     storage.payloads[PARSE_REF] = invalid
 
-    async def extract(artifact: ParserArtifact) -> list[Observation]:
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         raise AssertionError("model was called")
 
     handler = _handler(jobs, storage, extract)
@@ -470,7 +481,7 @@ def test_a_job_still_parsing_is_left_alone() -> None:
     jobs = MemoryJobs(state)
     called = False
 
-    async def extract(artifact: ParserArtifact) -> list[Observation]:
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         nonlocal called
         called = True
         raise AssertionError("model was called")
@@ -534,7 +545,7 @@ def test_an_invalid_stored_extraction_fails_without_calling_the_model() -> None:
     invalid = b'{"old":true}'
     storage.payloads[RESULT_PATH] = invalid
 
-    async def extract(artifact: ParserArtifact) -> list[Observation]:
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         raise AssertionError("model was called")
 
     handler = _handler(jobs, storage, extract)
@@ -557,7 +568,7 @@ def test_a_parse_path_that_cannot_take_an_extraction_is_internal_error() -> None
     storage = MemoryStorage()
     storage.payloads[ref] = _parser_artifact().model_dump_json().encode()
 
-    async def extract(artifact: ParserArtifact) -> list[Observation]:
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         raise AssertionError("model was called")
 
     handler = _handler(jobs, storage, extract)
@@ -579,7 +590,7 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
     storage.payloads[standard_ref] = _parser_artifact(standard_text).model_dump_json().encode()
     seen: list[str] = []
 
-    async def extract(artifact: ParserArtifact) -> list[Observation]:
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         content = artifact.pages[0].blocks[0].content
         assert isinstance(content, TextContent)
         seen.append(content.text)
@@ -591,7 +602,7 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
             evidence_block_id="b0",
             quotation=content.text,
         )
-        return cited_observations(Extraction(observations=[observation]), artifact)
+        return _artifact(cited_observations(Extraction(observations=[observation]), artifact))
 
     basic = MemoryJobs(_parsed().with_changes(parse_result_ref=basic_ref))
     handler = _handler(basic, storage, extract)
@@ -637,8 +648,8 @@ def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPa
     storage = MemoryStorage()
     seen: list[str] = []
 
-    async def extract(artifact: ParserArtifact) -> list[Observation]:
-        return []
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        return _artifact([], extractor="other", extractor_version="4")
 
     def extractor_factory(name: str) -> Extractor:
         seen.append(name)
@@ -656,6 +667,45 @@ def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPa
     assert seen == ["other"]
     assert jobs.state is not None
     assert jobs.state.extract_result_ref == extract_result_path(PARSE_REF, "other", "4")
+
+
+def _observation_with_range(start: int, end: int, text: str) -> Observation:
+    return Observation(
+        trait="body_mass",
+        verbatimScientificName=Cited(text="Mus musculus"),
+        verbatimTraitValue=Cited(
+            text=text, evidence=TextRange(block_id="b0", start=start, end=end)
+        ),
+        verbatimTraitUnit=Cited(text="g"),
+    )
+
+
+def _failed_with(returned: ExtractionArtifact) -> MemoryStorage:
+    jobs = MemoryJobs(_parsed())
+    storage = MemoryStorage()
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        return returned
+
+    handler = _handler(jobs, storage, extract)
+    handler.handle(_message())
+    handler.close()
+
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error == SafeError(code="extraction_failed")
+    assert RESULT_PATH not in storage.payloads
+    return storage
+
+
+def test_a_range_that_is_not_its_slice_fails_the_job_for_any_extractor() -> None:
+    start = QUOTE.index("12.5")
+    _failed_with(_artifact([_observation_with_range(start + 1, start + 5, "12.5")]))
+
+
+def test_an_artifact_for_another_extractor_fails_the_job() -> None:
+    _failed_with(_artifact([], extractor="other"))
+    _failed_with(_artifact([], extractor_version="2"))
 
 
 def test_registered_extractor_stores_the_resolved_version() -> None:
@@ -702,7 +752,11 @@ def test_artifact_path_uses_the_version_resolved_for_the_run(
     )
     jobs = MemoryJobs(_parsed())
     storage = MemoryStorage()
-    handler = _handler(jobs, storage, _real_extract(StubVLLMService()))
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        return _artifact([], extractor_version="4")
+
+    handler = _handler(jobs, storage, extract)
     handler.handle(_message())
     handler.close()
 
@@ -717,7 +771,7 @@ def test_an_extractor_with_no_version_is_internal_error(monkeypatch: pytest.Monk
     jobs = MemoryJobs(_parsed())
     storage = MemoryStorage()
 
-    async def extract(artifact: ParserArtifact) -> list[Observation]:
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         raise AssertionError("model was called")
 
     handler = _handler(jobs, storage, extract)
@@ -735,7 +789,7 @@ def test_an_extractor_that_cannot_run_is_internal_error() -> None:
     storage = MemoryStorage()
 
     class _Down:
-        async def extract(self, artifact: ParserArtifact) -> list[Observation]:
+        async def extract(self, artifact: ParserArtifact) -> ExtractionArtifact:
             raise ExtractorBackendUnavailableError("cannot run")
 
     handler = ExtractJobHandler(

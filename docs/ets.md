@@ -22,7 +22,9 @@ A cited field stores the printed string. It also stores a range when that string
 {"text": "12.5", "evidence": {"block_id": "b0", "start": 27, "end": 31}}
 ```
 
-`text` is the ETS verbatim value. It is the narrow token, such as `12.5` or `g`, not the sentence around it. `evidence` is a half-open range `[start, end)` in the text of that block. `start` and `end` are Unicode code points, the same indexes as a Python `str`, not UTF-16 code units. `end` is greater than `start`. When the range is present, `text` is exactly that slice. The schema does not open the parsed text. Before the extractor returns, a range is checked against the parsed text. The block must exist, and `text` must be exactly that slice. A mismatch is an error and is not stored. A field with no range is the extractor's choice and is returned unchanged.
+`text` is the ETS verbatim value. It is the narrow token, such as `12.5` or `g`, not the sentence around it. `evidence` is a half-open range `[start, end)` in the text of that block. `start` and `end` are Unicode code points, the same indexes as a Python `str`, not UTF-16 code units. `end` is greater than `start`.
+
+When the range is present, `text` is exactly that slice. The schema does not open the parsed text. Before storing, the worker checks every range against the parsed text, whichever extractor produced it. The block must exist, and `text` must be exactly that slice. A mismatch fails the job and nothing is stored. A field with no range is the extractor's choice and is returned unchanged.
 
 `evidence` may be `null`. The string is still stored. The observation stays, and its other fields can still have ranges. The ETS adapter decides what an ETS row does with a field that was not located. An extractor may apply its own rules before storing, and drop or repair a field so the stored result is better.
 
