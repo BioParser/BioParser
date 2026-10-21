@@ -14,6 +14,6 @@ MINERU_PARSER_NAME = "mineru"
 # Bump a backend's version when its output changes. A new version gets a new parse-result
 # path, so results from the old version are not reused.
 PARSER_VERSIONS: Mapping[str, str] = MappingProxyType(
-    {DEFAULT_PARSER_NAME: "1", MINERU_PARSER_NAME: "1"}
+    {DEFAULT_PARSER_NAME: "1", MINERU_PARSER_NAME: "2"}
 )
 PARSER_BACKENDS = tuple(PARSER_VERSIONS)

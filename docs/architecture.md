@@ -213,11 +213,16 @@ Convention:
 |---|---|---|
 | Uploaded PDF | `pdf/<pdf-checksum>` | `pdf_path(checksum)` |
 | Parser artifact | `pdf/<pdf-checksum>/parsed/<backend>/<version>` | `parse_result_path(checksum, backend, version)` |
+| Parser artifact of a configured backend | `pdf/<pdf-checksum>/parsed/<backend>/<version>/<configuration>` | `parse_result_path(checksum, backend, version, configuration)` |
 
 - `<pdf-checksum>` is the sha256 of the PDF bytes, from `bioparser.hashing`.
 - `<backend>` is the parser backend name and `<version>` its version from
   `bioparser.parser_names.PARSER_VERSIONS`. Bumping a backend's version gives new results
   a new path, so results from the old version are not reused.
+- `<configuration>` is the backend setting that also changes the output, as one readable
+  segment. Today only MinerU has one: its tier (`basic`, `standard`, …), so a MinerU result is
+  stored at `pdf/<pdf-checksum>/parsed/mineru/2/standard`. A different tier never reuses
+  another tier's result. The configuration is not part of the version.
 - Build paths with the builders, never by string formatting. Each builder argument must be
   a single valid segment, so a value like `a/b` cannot change the shape of the path.
 

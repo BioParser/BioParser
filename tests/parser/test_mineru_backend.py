@@ -5,7 +5,6 @@ from typing import Any
 import pytest
 
 from bioparser.parser.backend.mineru.mapper import artifact_from_middle_json
-from bioparser.parser.backend.mineru.parser import MINERU_PARSER_VERSION
 from bioparser.parser.backend.mineru.schema import MINERU_PIPELINE_VERSION
 from bioparser.parser.backend.mineru.tables import (
     HTML_CELL_MAX_OCCUPIED,
@@ -20,7 +19,7 @@ from bioparser.parser.models import (
     TableContent,
     TextContent,
 )
-from bioparser.parser_names import MINERU_PARSER_NAME
+from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mineru-middle.json"
 CHECKSUM = "a" * 64
@@ -61,7 +60,7 @@ def _from_middle(middle: dict[str, Any]) -> ParserArtifact:
         middle,
         checksum=CHECKSUM,
         parser_name=MINERU_PARSER_NAME,
-        parser_version=MINERU_PARSER_VERSION,
+        parser_version=PARSER_VERSIONS[MINERU_PARSER_NAME],
         configuration={"backend": "pipeline"},
     )
 

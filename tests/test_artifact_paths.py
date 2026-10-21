@@ -148,6 +148,11 @@ def test_parse_result_path_follows_the_convention() -> None:
     assert path.startswith(pdf_path(CHECKSUM) + "/")
 
 
+def test_a_configuration_is_one_more_segment_after_the_version() -> None:
+    path = parse_result_path(CHECKSUM, "mineru", "2", "standard")
+    assert path == f"pdf/{CHECKSUM}/parsed/mineru/2/standard"
+
+
 @pytest.mark.parametrize(
     "bad", ["", "a/b", "/a", "has space", "a" * (ARTIFACT_PATH_MAX_SEGMENT_LENGTH + 1)]
 )
@@ -158,12 +163,16 @@ def test_builders_reject_a_value_that_is_not_one_segment(bad: str) -> None:
         parse_result_path(CHECKSUM, bad, "1")
     with pytest.raises(ArtifactPathError):
         parse_result_path(CHECKSUM, "default", bad)
+    with pytest.raises(ArtifactPathError):
+        parse_result_path(CHECKSUM, "mineru", "2", bad)
 
 
 @pytest.mark.parametrize("bad", [".", ".."])
 def test_builders_reject_dot_segments(bad: str) -> None:
     with pytest.raises(ArtifactPathTraversalError):
         parse_result_path(CHECKSUM, bad, "1")
+    with pytest.raises(ArtifactPathTraversalError):
+        parse_result_path(CHECKSUM, "mineru", "2", bad)
 
 
 @pytest.mark.parametrize("segment", ["a", CHECKSUM, "doc_123.v1-final", "..."])

@@ -8,6 +8,8 @@ from bioparser.parser import (
     DEFAULT_PARSER_NAME,
     PARSER_BACKENDS,
     ParserBackendUnavailableError,
+    ParserProcessError,
+    ParserTimeoutError,
     UnsupportedDocumentError,
     get_parser,
 )
@@ -47,6 +49,10 @@ def main(argv: list[str] | None = None) -> int:
     except ParserBackendUnavailableError as exc:
         print(str(exc), file=sys.stderr)
         return 3
+    except (ParserProcessError, ParserTimeoutError) as exc:
+        # The mineru backend is a service: BIOPARSER_MINERU_BASE_URL says where.
+        print(f"{exc} (backend {args.backend!r})", file=sys.stderr)
+        return 4
 
     payload = artifact.model_dump_json(indent=2) + "\n"
     if args.output is None:

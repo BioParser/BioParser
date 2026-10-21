@@ -6,9 +6,11 @@ from pathlib import Path
 from threading import Event
 
 import pytest
+from stubs import fake_mineru, file_parse_reply
 
 from bioparser.worker.parse import runtime
-from bioparser.worker.parse.runtime import install_shutdown
+from bioparser.worker.parse.config import WorkerSettings
+from bioparser.worker.parse.runtime import build_worker, install_shutdown
 
 
 @pytest.fixture
@@ -56,7 +58,6 @@ def test_main_logs_json_to_stderr_with_dramatiq_at_warning(
     monkeypatch.delenv("BIOPARSER_LOG_LEVEL", raising=False)
     monkeypatch.setattr(runtime, "build_worker", lambda settings: (_LoggingQueue(), _Handler()))
     monkeypatch.setattr(runtime, "install_shutdown", lambda stop: None)
-    monkeypatch.setattr(runtime, "require_mineru_cli", lambda: None)
 
     runtime.main()
 
@@ -68,31 +69,6 @@ def test_main_logs_json_to_stderr_with_dramatiq_at_warning(
     assert logging.getLogger("dramatiq").getEffectiveLevel() == logging.WARNING
 
 
-def _worker_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
-    monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path))
-    monkeypatch.setenv("BIOPARSER_PARSE_QUEUE_NAME", "parse")
-
-
-def test_main_refuses_to_start_without_the_mineru_cli(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _worker_env(tmp_path, monkeypatch)
-
-    def _missing() -> None:
-        raise RuntimeError("missing")
-
-    def _must_not_start(settings: object) -> tuple[object, object]:
-        raise AssertionError("started")
-
-    monkeypatch.setattr(runtime, "require_mineru_cli", _missing)
-    monkeypatch.setattr(runtime, "build_worker", _must_not_start)
-
-    with pytest.raises(RuntimeError, match="missing"):
-        runtime.main()
-
-
 def test_python_dash_m_runs_the_worker_main(monkeypatch: pytest.MonkeyPatch) -> None:
     """The container command is `python -m bioparser.worker.parse`."""
     called: list[bool] = []
@@ -101,3 +77,22 @@ def test_python_dash_m_runs_the_worker_main(monkeypatch: pytest.MonkeyPatch) -> 
     runpy.run_module("bioparser.worker.parse", run_name="__main__")
 
     assert called == [True]
+
+
+def test_one_tier_setting_names_the_request_and_the_result_path(tmp_path: Path) -> None:
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%%EOF\n")
+    with fake_mineru(file_parse_reply()) as (url, seen):
+        settings = WorkerSettings(
+            redis_url="redis://127.0.0.1:1/0",  # type: ignore[arg-type]  # never reached
+            artifact_storage_path=tmp_path,
+            parse_queue_name="parse",
+            mineru_base_url=url,  # type: ignore[arg-type]
+            mineru_tier="standard",
+        )
+        _queue, handler = build_worker(settings)
+        artifact = handler._parser_factory("mineru").parse(pdf)
+        handler.close()
+
+    assert "tier=standard&" in seen[0]
+    assert artifact.parser.configuration["tier"] == handler._mineru_tier == "standard"

@@ -4,7 +4,6 @@ import hashlib
 import json
 import logging
 import signal
-import sys
 import threading
 import time
 from collections.abc import Callable
@@ -15,6 +14,7 @@ from uuid import UUID
 import pytest
 from dramatiq.brokers.stub import StubBroker
 from dramatiq.middleware.time_limit import TimeLimit
+from stubs import fake_mineru
 
 from bioparser.artifact_paths import parse_result_path
 from bioparser.jobqueue import JobTimeLimitExceeded
@@ -28,7 +28,6 @@ from bioparser.jobstate.errors import (
 from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobState, SafeError
 from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
-from bioparser.parser.backend.mineru import runtime as mineru_runtime
 from bioparser.parser.errors import (
     ParserBackendUnavailableError,
     ParserProcessError,
@@ -46,7 +45,6 @@ from bioparser.parser.models import (
     TextContent,
 )
 from bioparser.parser.protocol import PdfParser
-from bioparser.parser_names import PARSER_VERSIONS
 from bioparser.storage import StoredArtifact
 from bioparser.storage.errors import ArtifactAlreadyExistsError, ArtifactNotFoundError
 from bioparser.storage.models import ArtifactMetadata
@@ -359,44 +357,22 @@ def test_unavailable_parser_fails_without_retry() -> None:
     assert jobs.state.error == SafeError(code="parse_failed")
 
 
-def test_mineru_cli_failure_is_retried_not_failed_as_invalid_pdf(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A non-zero MinerU exit, through the real runtime, is not a judged document."""
-    executable = tmp_path / "mineru"
-    executable.write_text("#!/bin/sh\necho broken >&2\nexit 1\n")
-    executable.chmod(0o755)
-    server = tmp_path / "mineru-api"
-    server.write_text(
-        f"#!{sys.executable}\n"
-        "import http.server, sys\n"
-        "port = int(sys.argv[sys.argv.index('--port') + 1])\n"
-        "class H(http.server.BaseHTTPRequestHandler):\n"
-        "    def do_GET(self):\n"
-        "        self.send_response(200)\n"
-        "        self.end_headers()\n"
-        "    def log_message(self, *args):\n"
-        "        pass\n"
-        "http.server.HTTPServer(('127.0.0.1', port), H).serve_forever()\n"
-    )
-    server.chmod(0o755)
-    tools = {"mineru": str(executable), "mineru-api": str(server)}
-    monkeypatch.setattr(
-        mineru_runtime,
-        "shutil",
-        type("S", (), {"which": staticmethod(tools.get)})(),
-    )
+def test_a_mineru_failure_is_retried_not_failed_as_invalid_pdf() -> None:
+    """MinerU's catch-all parse_failed, through the real client, is not a judged document."""
+    entry = {"name": "a.pdf", "status": "failed", "error": {"code": "parse_failed"}}
+    reply = (409, {"task_id": "job_1", "status": "failed", "files": [entry]})
 
     jobs = MemoryJobs(_queued().with_changes(parser="mineru"))
-    handler = ParseJobHandler(
-        jobs=jobs,
-        storage=MemoryStorage(),
-        parser_factory=lambda name: get_parser(name, timeout_s=5.0),
-        max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
-    )
-    with pytest.raises(ParserProcessError, match="broken"):
-        handler.handle(_message())
-    handler.close()
+    with fake_mineru(reply) as (url, _seen):
+        handler = ParseJobHandler(
+            jobs=jobs,
+            storage=MemoryStorage(),
+            parser_factory=lambda name: get_parser(name, timeout_s=5.0, mineru_base_url=url),
+            max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
+        )
+        with pytest.raises(ParserProcessError, match="parse_failed"):
+            handler.handle(_message())
+        handler.close()
 
     assert jobs.state is not None
     assert jobs.state.status == "parsing"
@@ -728,6 +704,23 @@ def test_second_job_with_the_same_pdf_reuses_the_artifact() -> None:
     assert second.state.parse_result_ref == RESULT_PATH
 
 
+def test_the_mineru_result_path_has_the_tier_as_its_last_segment() -> None:
+    jobs = MemoryJobs(_queued().with_changes(parser="mineru"))
+    parser = RecordingParser(_artifact())
+    handler = ParseJobHandler(
+        jobs=jobs,
+        storage=MemoryStorage(),
+        parser_factory=lambda _name: parser,
+        max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
+        mineru_tier="standard",
+    )
+    handler.handle(_message())
+    handler.close()
+
+    assert jobs.state is not None
+    assert jobs.state.parse_result_ref == f"pdf/{PDF_CHECKSUM}/parsed/mineru/2/standard"
+
+
 def test_each_backend_gets_its_own_result_path() -> None:
     jobs = MemoryJobs(_queued().with_changes(parser="mineru"))
     storage = MemoryStorage()
@@ -737,6 +730,5 @@ def test_each_backend_gets_its_own_result_path() -> None:
     handler.close()
 
     assert jobs.state is not None
-    assert jobs.state.parse_result_ref == parse_result_path(
-        PDF_CHECKSUM, "mineru", PARSER_VERSIONS["mineru"]
-    )
+    # Without a tier the handler names the default tier's path.
+    assert jobs.state.parse_result_ref == parse_result_path(PDF_CHECKSUM, "mineru", "2", "basic")

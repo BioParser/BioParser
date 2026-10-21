@@ -5,6 +5,7 @@ from pydantic import AnyUrl, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from bioparser.logging_config import parse_level
+from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 
 DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MiB
 
@@ -24,6 +25,7 @@ class ApiSettings(BaseSettings):
     mineru_base_url: str = "http://mineru:8000"
     mineru_timeout_seconds: float = Field(default=600.0, gt=0)
     mineru_connect_timeout_seconds: float = Field(default=5.0, gt=0)
+    mineru_tier: MinerUTier = DEFAULT_TIER
     extract_concurrency: int = Field(default=2, ge=1)
     extract_queue_timeout_seconds: float = Field(default=5.0, gt=0)
     dependency_check_timeout_seconds: float = Field(default=1.0, gt=0)

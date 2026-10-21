@@ -17,7 +17,7 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from stubs import STUB_JSON, Handler, StubMinerUClient, StubVLLMService
+from stubs import STUB_JSON, Handler, StubMinerUClient, StubVLLMService, file_parse_reply
 
 from bioparser import logging_config
 from bioparser.api import config
@@ -233,7 +233,7 @@ def test_the_configured_api_key_never_appears_in_logs(
     monkeypatch.setenv("BIOPARSER_VLLM_API_KEY", API_KEY)
     monkeypatch.setenv("BIOPARSER_LOG_LEVEL", "DEBUG")
     caplog.set_level(logging.DEBUG)
-    monkeypatch.setattr(app_module, "MinerUClient", lambda *_args: StubMinerUClient())
+    monkeypatch.setattr(app_module, "MinerUClient", lambda *_args, **_kwargs: StubMinerUClient())
     sent: list[str] = []
 
     def rejects_the_key(request: httpx2.Request) -> httpx2.Response:
@@ -330,7 +330,7 @@ async def test_every_record_of_a_run_carries_the_checksum(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     setup_logging("INFO")
-    body = json.dumps({"results": {"doc": {"middle_json": json.dumps(STUB_JSON)}}}).encode()
+    body = json.dumps(file_parse_reply()[1]).encode()
     mineru = MinerUClient("http://mineru:8000", 5.0, 1.0)
     mineru._http = httpx2.AsyncClient(
         transport=httpx2.MockTransport(lambda _request: httpx2.Response(200, content=body)),
