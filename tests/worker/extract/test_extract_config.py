@@ -23,6 +23,7 @@ def test_claim_cap_follows_the_retry_count(tmp_path: Path) -> None:
     assert settings.extraction_char_budget == 8000
     assert settings.extraction_max_tokens == 1024
     assert settings.extract_queue_name == "extract"
+    assert settings.liveness_port == 8081
 
 
 def test_extract_queue_name_is_required(tmp_path: Path) -> None:
@@ -31,6 +32,18 @@ def test_extract_queue_name_is_required(tmp_path: Path) -> None:
             _env_file=None,  # type: ignore[call-arg]
             redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
+        )
+
+
+@pytest.mark.parametrize("port", [0, 65536])
+def test_liveness_port_must_be_a_tcp_port(tmp_path: Path, port: int) -> None:
+    with pytest.raises(ValidationError):
+        ExtractWorkerSettings(
+            _env_file=None,  # type: ignore[call-arg]
+            redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+            artifact_storage_path=tmp_path,
+            extract_queue_name="extract",
+            liveness_port=port,
         )
 
 

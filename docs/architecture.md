@@ -303,7 +303,7 @@ flowchart LR
 
 ### Docker Compose
 
-Docker Compose runs FastAPI, Redis, the parser worker, an optional extractor worker, and
+Docker Compose runs FastAPI, Redis, the parser worker, the extractor worker, and
 shared artifact storage. Services use versioned images and environment configuration.
 Model weights come from local infrastructure. Workers do not download from external AI
 services at runtime.
