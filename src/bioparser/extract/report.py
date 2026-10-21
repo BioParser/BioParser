@@ -10,6 +10,8 @@ from bioparser.extract.schema import (
     to_canonical,
 )
 
+# TODO: #177 replaces this file. These types are the demo report until then.
+
 
 @dataclass(frozen=True, slots=True)
 class VerifiedObservation:
