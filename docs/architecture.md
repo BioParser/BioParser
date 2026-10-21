@@ -227,8 +227,8 @@ Convention:
 - The extraction path starts from the job's `parse_result_ref`, so it keeps every segment
   of that parse, including a MinerU tier. The extractor worker runs the extractor named
   `default` and takes its version from `bioparser.extractor_names.EXTRACTOR_VERSIONS` when
-  the extraction runs. That version is `0`, a placeholder so a later `default` extractor at
-  version `1` does not reuse these files. The builders live in `bioparser.artifact_paths`.
+  the extraction runs. That version is `1`. Bumping it gives new results a new path, so
+  results from the old version are not reused. The builders live in `bioparser.artifact_paths`.
 - Build paths with the builders, never by string formatting. Each builder argument must be
   a single valid segment, so a value like `a/b` cannot change the shape of the path.
 

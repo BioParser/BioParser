@@ -160,11 +160,7 @@ async def extract_observations(
 
 @dataclass(frozen=True, slots=True)
 class DefaultExtractor:
-    """The extractor registered as ``default``.
-
-    Version ``0`` in ``EXTRACTOR_VERSIONS`` names this implementation. A later
-    default extractor starts at version ``1``.
-    """
+    """The extractor registered as ``default``."""
 
     vllm: VLLMService
     char_budget: int

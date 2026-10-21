@@ -51,7 +51,7 @@ from bioparser.worker.extract.handler import ExtractJobHandler
 JOB_ID = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
 PARSE_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
 PDF_CHECKSUM = "abc"
-RESULT_PATH = extract_result_path(PARSE_REF, "default", "0")
+RESULT_PATH = extract_result_path(PARSE_REF, "default", "1")
 QUOTE = "Adult body mass averaged 12.5 g in the sampled population."
 
 
@@ -497,7 +497,7 @@ def test_an_invalid_stored_extraction_fails_without_calling_the_model() -> None:
 
 
 def test_a_parse_path_that_cannot_take_an_extraction_is_internal_error() -> None:
-    suffix = "/extracted/default/0"
+    suffix = "/extracted/default/1"
     ref = "/".join(("a" * 200, "b" * 200, "c" * 93))
     assert len(ref) <= ARTIFACT_PATH_MAX_LENGTH
     assert len(ref) + len(suffix) > ARTIFACT_PATH_MAX_LENGTH
@@ -561,8 +561,8 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
     handler.handle(ExtractJobMessage(job_id=other_id))
     handler.close()
 
-    basic_path = extract_result_path(basic_ref, "default", "0")
-    standard_path = extract_result_path(standard_ref, "default", "0")
+    basic_path = extract_result_path(basic_ref, "default", "1")
+    standard_path = extract_result_path(standard_ref, "default", "1")
     assert basic.state is not None and standard.state is not None
     assert basic.state.extract_result_ref == basic_path
     assert standard.state.extract_result_ref == standard_path
@@ -608,7 +608,7 @@ def test_registered_extractor_stores_the_resolved_version() -> None:
 
     version = EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME]
     assert seen == [DEFAULT_EXTRACTOR_NAME]
-    assert version == "0"
+    assert version == "1"
     assert jobs.state is not None
     assert jobs.state.status == "done"
     assert jobs.state.extract_result_ref == extract_result_path(

@@ -145,9 +145,7 @@ def _extraction_artifact_path(parse_result_ref: str, extractor: str) -> str:
 
     The path is the parser artifact's own path plus the extractor, so two parses of one
     PDF, such as two MinerU tiers, do not share a result. The version is whatever
-    ``EXTRACTOR_VERSIONS`` says for this extractor when the job runs. Version ``0`` is the
-    placeholder for ``default``: the real default extractor starts at ``1`` and does not
-    reuse these files.
+    ``EXTRACTOR_VERSIONS`` says for this extractor when the job runs.
     """
     try:
         version = EXTRACTOR_VERSIONS[extractor]

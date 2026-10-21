@@ -19,7 +19,7 @@ def test_default_is_the_registered_extractor() -> None:
     )
 
     assert isinstance(extractor, DefaultExtractor)
-    assert EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME] == "0"
+    assert EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME] == "1"
 
 
 def test_unknown_extractor_name_is_unavailable() -> None:
