@@ -1,21 +1,17 @@
 services:
   mineru:
     build:
-      dockerfile: docker/mineru.Dockerfile
-      args:
-        TORCH_BACKEND: cpu
-    # CPU version
+      target: cpu
+    # CPU version: ONNX small models. The tier is the image's CMD.
     image: bioparser-mineru:cpu
     environment:
-      OMP_NUM_THREADS: "4"
+      MINERU_INTRA_OP_NUM_THREADS: "4"
       MINERU_PDF_RENDER_THREADS: "2"
-      # parse pipeline
-      MINERU_API_MAX_CONCURRENT_REQUESTS: "1"
     mem_limit: 12g
     memswap_limit: 12g # needed for OOM ?
 
   vllm:
-    image: vllm/vllm-openai-cpu:v0.31.0@sha256:495c84fe30f3572b83a78100a1e8ba423dbb77fc532ecefebe114e6b77327bd9
+    image: vllm/vllm-openai-cpu:v0.32.0@sha256:ffaba3989b9b96d95a576143c872a4110ce9800f5199b6a36eb27bdff1cbbe05
     command:
       - ${VLLM_MODEL}
       - --host
@@ -29,8 +25,6 @@ services:
     environment:
       OMP_NUM_THREADS: "8"
       VLLM_CPU_KVCACHE_SPACE: "4"
-      # linux specific
-      LD_PRELOAD: /usr/lib/x86_64-linux-gnu/libtcmalloc_minimal.so.4
     mem_limit: 8g
     healthcheck:
       start_period: 600s

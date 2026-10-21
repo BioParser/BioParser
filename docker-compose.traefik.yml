@@ -3,7 +3,7 @@
 
 services:
   traefik:
-    image: traefik:v3.7.14@sha256:575fa15b135078fe5e50aa847987d96dbddd7b093c172429618404df73f3fa7c
+    image: traefik:v3.7.16@sha256:6d3e069ee484ab1da5adfdda555a75eb9b1545ef09096a0cc7c3043101986a20
     user: "65534:65534"
     command:
       # Entry point for HTTPS (443) only -- HTTP disabled to prevent plaintext credential exposure

@@ -9,15 +9,18 @@ services:
   mineru:
     build:
       context: .
-      # dockerfile comes from the overlay; cpu/gpu.yml
-    init: true
+      dockerfile: docker/mineru.Dockerfile
+      # target and image come from the overlay; cpu/gpu.yml
     environment:
-      MINERU_MODEL_SOURCE: local
-    #ports:
-    #  - "127.0.0.1:${MINERU_PORT:-8001}:8000"
-    volumes:
-      - mineru-output:/home/mineru/output
+      # Parse jobs MinerU runs at once; more wait in its queue. Each running job needs its own
+      # memory: raise the overlay's mem_limit with it.
+      MINERU_API_CONCURRENCY: ${MINERU_API_CONCURRENCY:-1}
+    # Only on the internal network, so it cannot be published. For the host scripts see
+    # docs/parser.md.
+    restart: unless-stopped
     networks: [backend]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
 
   vllm:
     environment:
@@ -54,6 +57,7 @@ services:
     environment:
       BIOPARSER_VLLM_BASE_URL: http://vllm:8000/v1
       BIOPARSER_MINERU_BASE_URL: http://mineru:8000
+      BIOPARSER_MINERU_TIMEOUT_SECONDS: ${BIOPARSER_MINERU_TIMEOUT_SECONDS:-600}
       BIOPARSER_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       BIOPARSER_ARTIFACT_STORAGE_PATH: /data
       BIOPARSER_PARSE_QUEUE_NAME: parse
@@ -145,6 +149,5 @@ services:
     security_opt: [no-new-privileges:true]
 
 volumes:
-  mineru-output:
   redis-data:
   artifacts:
