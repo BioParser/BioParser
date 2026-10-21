@@ -154,10 +154,10 @@ def test_a_configuration_is_one_more_segment_after_the_version() -> None:
     assert path == f"pdf/{CHECKSUM}/parsed/mineru/2/standard"
 
 
-def test_extract_result_path_follows_the_convention() -> None:
-    path = extract_result_path(CHECKSUM, "mineru", "1", "default", "1")
-    assert path == f"pdf/{CHECKSUM}/parsed/mineru/1/extracted/default/1"
-    assert path.startswith(parse_result_path(CHECKSUM, "mineru", "1") + "/")
+def test_extract_result_path_keeps_the_parse_path() -> None:
+    parsed = parse_result_path(CHECKSUM, "mineru", "2", "standard")
+    path = extract_result_path(parsed, "default", "0")
+    assert path == f"{parsed}/extracted/default/0"
 
 
 @pytest.mark.parametrize(
@@ -172,16 +172,15 @@ def test_builders_reject_a_value_that_is_not_one_segment(bad: str) -> None:
         parse_result_path(CHECKSUM, "default", bad)
     with pytest.raises(ArtifactPathError):
         parse_result_path(CHECKSUM, "mineru", "2", bad)
+    parsed = parse_result_path(CHECKSUM, "mineru", "2", "standard")
+    # The parse ref is a whole path, so a value with a slash can be one.
+    if bad != "a/b":
+        with pytest.raises(ArtifactPathError):
+            extract_result_path(bad, "default", "1")
     with pytest.raises(ArtifactPathError):
-        extract_result_path(bad, "default", "1", "default", "1")
+        extract_result_path(parsed, bad, "1")
     with pytest.raises(ArtifactPathError):
-        extract_result_path(CHECKSUM, bad, "1", "default", "1")
-    with pytest.raises(ArtifactPathError):
-        extract_result_path(CHECKSUM, "default", bad, "default", "1")
-    with pytest.raises(ArtifactPathError):
-        extract_result_path(CHECKSUM, "default", "1", bad, "1")
-    with pytest.raises(ArtifactPathError):
-        extract_result_path(CHECKSUM, "default", "1", "default", bad)
+        extract_result_path(parsed, "default", bad)
 
 
 @pytest.mark.parametrize("bad", [".", ".."])
@@ -190,10 +189,11 @@ def test_builders_reject_dot_segments(bad: str) -> None:
         parse_result_path(CHECKSUM, bad, "1")
     with pytest.raises(ArtifactPathTraversalError):
         parse_result_path(CHECKSUM, "mineru", "2", bad)
+    parsed = parse_result_path(CHECKSUM, "mineru", "2")
     with pytest.raises(ArtifactPathTraversalError):
-        extract_result_path(CHECKSUM, bad, "1", "default", "1")
+        extract_result_path(bad, "default", "1")
     with pytest.raises(ArtifactPathTraversalError):
-        extract_result_path(CHECKSUM, "default", "1", bad, "1")
+        extract_result_path(parsed, bad, "1")
 
 
 @pytest.mark.parametrize("segment", ["a", CHECKSUM, "doc_123.v1-final", "..."])

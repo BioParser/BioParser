@@ -214,7 +214,7 @@ Convention:
 | Uploaded PDF | `pdf/<pdf-checksum>` | `pdf_path(checksum)` |
 | Parser artifact | `pdf/<pdf-checksum>/parsed/<backend>/<version>` | `parse_result_path(checksum, backend, version)` |
 | Parser artifact of a configured backend | `pdf/<pdf-checksum>/parsed/<backend>/<version>/<configuration>` | `parse_result_path(checksum, backend, version, configuration)` |
-| Extraction artifact | `pdf/<pdf-checksum>/parsed/<backend>/<version>/extracted/<extractor>/<extractor-version>` | `extract_result_path(checksum, backend, version, extractor, extractor_version)` |
+| Extraction artifact | `<parse-result-path>/extracted/<extractor>/<extractor-version>` | `extract_result_path(parse_result_ref, extractor, extractor_version)` |
 
 - `<pdf-checksum>` is the sha256 of the PDF bytes, from `bioparser.hashing`.
 - `<backend>` is the parser backend name and `<version>` its version from
@@ -224,9 +224,10 @@ Convention:
   segment. Today only MinerU has one: its tier (`basic`, `standard`, …), so a MinerU result is
   stored at `pdf/<pdf-checksum>/parsed/mineru/2/standard`. A different tier never reuses
   another tier's result. The configuration is not part of the version.
-- The extractor worker currently stores results under extractor `default` at version `0`,
-  a placeholder so a later `default` extractor at version `1` does not reuse these files.
-  The builders live in `bioparser.artifact_paths`.
+- The extraction path starts from the job's `parse_result_ref`, so it keeps every segment
+  of that parse, including a MinerU tier. The extractor worker currently stores results under
+  extractor `default` at version `0`, a placeholder so a later `default` extractor at version
+  `1` does not reuse these files. The builders live in `bioparser.artifact_paths`.
 - Build paths with the builders, never by string formatting. Each builder argument must be
   a single valid segment, so a value like `a/b` cannot change the shape of the path.
 

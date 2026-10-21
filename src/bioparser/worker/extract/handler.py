@@ -89,8 +89,12 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
                 return
 
     async def _ensure_extraction_artifact(self, state: JobState) -> str:
-        parser_artifact = self._load_parser_artifact(state)
-        artifact_path = _extraction_artifact_path(parser_artifact)
+        ref = state.parse_result_ref
+        if ref is None:
+            LOGGER.error("job has no parser artifact. Marking the job failed (internal_error)")
+            raise PermanentJobFailure("internal_error")
+        artifact_path = _extraction_artifact_path(ref)
+        parser_artifact = self._load_parser_artifact(ref)
         stored = _retrieve_or_none(self._storage, artifact_path)
         if stored is not None and _is_extraction_artifact(stored):
             return artifact_path
@@ -117,11 +121,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             kind="extraction artifact",
         )
 
-    def _load_parser_artifact(self, state: JobState) -> ParserArtifact:
-        ref = state.parse_result_ref
-        if ref is None:
-            LOGGER.error("job has no parser artifact. Marking the job failed (internal_error)")
-            raise PermanentJobFailure("internal_error")
+    def _load_parser_artifact(self, ref: str) -> ParserArtifact:
         try:
             raw = self._storage.retrieve(ref)
         except ArtifactNotFoundError as exc:
@@ -134,24 +134,18 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             raise PermanentJobFailure("internal_error") from exc
 
 
-def _extraction_artifact_path(artifact: ParserArtifact) -> str:
+def _extraction_artifact_path(parse_result_ref: str) -> str:
     """The conventional path for this parser artifact's extraction result.
 
-    The same PDF, parser, and extractor always give the same path, so a retry or another
-    job with the same parser artifact reuses the stored extraction. One extractor exists,
-    so its name and version are fixed here until a job can choose them. Version ``0`` is
-    that placeholder: a later ``default`` extractor starts at ``1`` and does not reuse these files.
+    The path is the parser artifact's own path plus the extractor, so two parses of one
+    PDF, such as two MinerU tiers, do not share a result. One extractor exists, so its
+    name and version are fixed here until a job can choose them. Version ``0`` is that
+    placeholder: a later ``default`` extractor starts at ``1`` and does not reuse these files.
     """
     try:
-        return extract_result_path(
-            artifact.checksum,
-            artifact.parser.name,
-            artifact.parser.version,
-            "default",
-            "0",
-        )
+        return extract_result_path(parse_result_ref, "default", "0")
     except ArtifactPathError as exc:
-        LOGGER.error("parser artifact cannot form an extraction path")
+        LOGGER.error("parser artifact path cannot form an extraction path")
         raise PermanentJobFailure("internal_error") from exc
 
 
