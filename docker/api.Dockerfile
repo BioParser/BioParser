@@ -1,7 +1,7 @@
 # The BioParser API.
 #   docker build -f docker/api.Dockerfile -t bioparser-api .
 
-# uv 0.13.1, the same pin as CI. Index digest so amd64 and arm64 both resolve.
+# uv 0.13.4, the same pin as CI. Index digest so amd64 and arm64 both resolve.
 FROM ghcr.io/astral-sh/uv:0.13.4@sha256:9f130421e930bfbdc563c00740466603f8723158e90297d07957c2294640262b AS uv
 
 # python 3.13.16-slim-trixie; index digest so amd64 and arm64 both resolve.
