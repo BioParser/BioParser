@@ -159,6 +159,7 @@ def _queued() -> JobState:
         job_id=JOB_ID,
         status="queued",
         parser="default",
+        extractor="default",
         pdf_ref=PDF_REF,
     )
 

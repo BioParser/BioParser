@@ -322,6 +322,7 @@ def test_running_job_status(
     state = JobState(
         job_id=job_id,
         parser="default",
+        extractor="default",
         status="parsing",
         pdf_ref="art-pdf-test",
     )
@@ -344,6 +345,7 @@ def test_succeeded_job_status(
     state = JobState(
         job_id=job_id,
         parser="default",
+        extractor="default",
         status="parsed",
         pdf_ref="pdf/test",
         parse_result_ref="art-result-test",
@@ -386,6 +388,7 @@ def test_succeeded_job_status_returns_500_when_output_is_missing(
     job_store.states[str(job_id)] = JobState(
         job_id=job_id,
         parser="default",
+        extractor="default",
         status="parsed",
         pdf_ref="art-pdf-test",
         parse_result_ref="art-result-test",
@@ -417,6 +420,7 @@ def test_succeeded_job_status_returns_503_when_storage_read_fails(
     job_store.states[str(job_id)] = JobState(
         job_id=job_id,
         parser="default",
+        extractor="default",
         status="parsed",
         pdf_ref="art-pdf-test",
         parse_result_ref="art-result-test",
@@ -446,6 +450,7 @@ def test_succeeded_job_status_returns_500_for_invalid_output(
     job_store.states[str(job_id)] = JobState(
         job_id=job_id,
         parser="default",
+        extractor="default",
         status="parsed",
         pdf_ref="art-pdf-test",
         parse_result_ref="art-result-test",
@@ -498,6 +503,7 @@ def test_succeeded_job_status_reads_parser_artifact_from_filesystem(
     job_store.states[str(job_id)] = JobState(
         job_id=job_id,
         parser="default",
+        extractor="default",
         status="parsed",
         pdf_ref="pdf/input",
         parse_result_ref=output_path,
@@ -523,6 +529,7 @@ def test_failed_job_status(
     state = JobState(
         job_id=job_id,
         parser="default",
+        extractor="default",
         status="failed",
         pdf_ref="art-pdf-test",
         error=SafeError(

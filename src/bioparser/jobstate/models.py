@@ -5,7 +5,7 @@ from typing import Literal, Self
 from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from bioparser.artifact_paths import ArtifactPath
-from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTORS
+from bioparser.extractor_names import EXTRACTORS
 from bioparser.parser_names import PARSER_BACKENDS
 
 # One linear pipeline. The parse worker owns queued -> parsing -> parsed.
@@ -55,9 +55,7 @@ class JobState(BaseModel):
     job_id: UUID4
     status: JobStatus
     parser: str = Field(min_length=1)
-    # Missing on records stored before the field existed. Nothing is deployed, so the
-    # schema version stays 1 and those records read as the default extractor.
-    extractor: str = Field(default=DEFAULT_EXTRACTOR_NAME, min_length=1)
+    extractor: str = Field(min_length=1)
     pdf_ref: ArtifactPath
     parse_result_ref: ArtifactPath | None = None
     extract_result_ref: ArtifactPath | None = None

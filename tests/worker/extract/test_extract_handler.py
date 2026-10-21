@@ -137,6 +137,7 @@ def _parsed() -> JobState:
         job_id=JOB_ID,
         status="parsed",
         parser="default",
+        extractor="default",
         pdf_ref="pdf/abc",
         parse_result_ref=PARSE_REF,
     )
@@ -449,7 +450,9 @@ def test_an_invalid_parser_artifact_fails_without_calling_the_model() -> None:
 
 
 def test_a_job_still_parsing_is_left_alone() -> None:
-    state = JobState(job_id=JOB_ID, status="parsing", parser="default", pdf_ref="pdf/abc")
+    state = JobState(
+        job_id=JOB_ID, status="parsing", parser="default", extractor="default", pdf_ref="pdf/abc"
+    )
     jobs = MemoryJobs(state)
     called = False
 

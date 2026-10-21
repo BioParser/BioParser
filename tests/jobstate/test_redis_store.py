@@ -32,6 +32,7 @@ def _queued(job_id: uuid.UUID, **overrides: object) -> JobState:
         "job_id": job_id,
         "status": "queued",
         "parser": "default",
+        "extractor": "default",
         "pdf_ref": str(uuid.uuid4()),
     }
     fields.update(overrides)
