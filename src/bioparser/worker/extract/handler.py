@@ -86,8 +86,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         if ref is None:
             LOGGER.error("job has no parser artifact. Marking the job failed (internal_error)")
             raise PermanentJobFailure("internal_error")
-        name = state.extractor
-        artifact_path = _extraction_artifact_path(ref, name)
+        artifact_path = _extraction_artifact_path(ref, state.extractor)
         parser_artifact = self._load_parser_artifact(ref)
         stored = _retrieve_or_none(self._storage, artifact_path)
         if stored is not None and _is_extraction_artifact(stored):
@@ -97,10 +96,10 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             LOGGER.error("stored extraction artifact is invalid and cannot be replaced")
             raise PermanentJobFailure("internal_error")
         try:
-            extractor = self._extractor_factory(name)
+            extractor = self._extractor_factory(state.extractor)
             report = await extractor.extract(parser_artifact)
         except ExtractorBackendUnavailableError as exc:
-            LOGGER.error(f"extractor {name!r} cannot run: {exc}")
+            LOGGER.error(f"extractor {state.extractor!r} cannot run: {exc}")
             raise PermanentJobFailure("internal_error") from exc
         except ExtractionFailedError as exc:
             cause = exc.__cause__ or exc
