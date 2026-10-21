@@ -83,7 +83,7 @@ from .uploads import (
     validate_pdf_content,
 )
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 class LifespanError(RuntimeError):
@@ -95,7 +95,7 @@ async def _failure_logged_redacted(phase: str) -> AsyncIterator[None]:
     try:
         yield
     except Exception as exc:
-        logger.critical(
+        LOGGER.critical(
             "lifespan failed", exc_info=True, extra={"phase": phase, **error_fields(exc)}
         )
         raise LifespanError(f"{phase} failed: {type(exc).__name__}") from None
@@ -124,13 +124,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             try:
                 model = await app.state.vllm.get_model()
             except Exception as exc:
-                logger.warning(
+                LOGGER.warning(
                     "vllm model discovery failed",
                     exc_info=not isinstance(exc, VLLMError),
                     extra={"vllm_base_url": vllm_base_url, **error_fields(exc)},
                 )
             else:
-                logger.info(
+                LOGGER.info(
                     "vllm model discovered",
                     extra={"vllm_base_url": vllm_base_url, "model": model},
                 )
@@ -172,7 +172,7 @@ setup_logging()
 try:
     setup_logging(config.get_api_settings().log_level)
 except ValidationError as exc:
-    logger.critical(
+    LOGGER.critical(
         "invalid configuration", extra={"invalid_settings": config.invalid_settings(exc)}
     )
     raise
@@ -286,7 +286,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     except ArtifactAlreadyExistsError:
         pdf_ref = artifact_metadata.artifact_path
     except StorageError as exc:
-        logger.error("artifact store failed", extra=fields | error_fields(exc))
+        LOGGER.error("artifact store failed", extra=fields | error_fields(exc))
         raise http_error(503, STORAGE_UNAVAILABLE) from exc
 
     job_state = JobState(
@@ -298,7 +298,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     try:
         await request.app.state.job_store.create(job_state)
     except JobStateError as exc:
-        logger.error("job state create failed", extra=fields | error_fields(exc))
+        LOGGER.error("job state create failed", extra=fields | error_fields(exc))
         raise http_error(503, REDIS_UNAVAILABLE) from exc
 
     parse_job_message = ParseJobMessage(
@@ -307,7 +307,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     try:
         await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
     except JobQueueError as exc:
-        logger.error("parse job enqueue failed", extra=fields | error_fields(exc))
+        LOGGER.error("parse job enqueue failed", extra=fields | error_fields(exc))
         failed_state = job_state.with_changes(
             status="failed",
             error=SafeError(code="internal_error"),
@@ -342,18 +342,18 @@ async def job_status(request: Request, job_id: str) -> JobStatusResponse:
         record = await request.app.state.job_store.get(parsed_job_id)
 
     except CorruptJobStateError as exc:
-        logger.error("job state unreadable", extra={"job_id": str(job_id), **error_fields(exc)})
+        LOGGER.error("job state unreadable", extra={"job_id": str(job_id), **error_fields(exc)})
         raise http_error(500, JOB_STATE_UNREADABLE) from exc
 
     except JobStateError as exc:
-        logger.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
+        LOGGER.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
         raise http_error(503, REDIS_UNAVAILABLE) from exc
 
     if record is None:
         raise http_error(404, JOB_NOT_FOUND)
     if record.status in ("parsed", "done"):
         if record.parse_result_ref is None:
-            logger.error("parser artifact invalid", extra={"job_id": str(job_id)})
+            LOGGER.error("parser artifact invalid", extra={"job_id": str(job_id)})
             raise http_error(500, ARTIFACT_INVALID)
         artifact_fields = {
             "job_id": str(job_id),
@@ -365,18 +365,18 @@ async def job_status(request: Request, job_id: str) -> JobStatusResponse:
                 record.parse_result_ref,
             )
         except (ArtifactNotFoundError, StoragePayloadError) as exc:
-            logger.error(
+            LOGGER.error(
                 "parser artifact missing or invalid",
                 extra=artifact_fields | error_fields(exc),
             )
             raise http_error(500, ARTIFACT_INVALID) from exc
         except StorageError as exc:
-            logger.warning("parser artifact read failed", extra=artifact_fields | error_fields(exc))
+            LOGGER.warning("parser artifact read failed", extra=artifact_fields | error_fields(exc))
             raise http_error(503, STORAGE_UNAVAILABLE) from exc
         try:
             ParserArtifact.model_validate(json.loads(payload))
         except (UnicodeDecodeError, json.JSONDecodeError, ValidationError) as exc:
-            logger.error("parser artifact invalid", extra=artifact_fields | error_fields(exc))
+            LOGGER.error("parser artifact invalid", extra=artifact_fields | error_fields(exc))
             raise http_error(500, ARTIFACT_INVALID) from exc
     return _job_state_response(record)
 

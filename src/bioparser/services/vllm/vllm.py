@@ -10,7 +10,7 @@ from bioparser.logging_config import stopwatch
 
 from .config import get_settings
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 class VLLMError(RuntimeError):
@@ -77,14 +77,14 @@ class VLLMService:
         try:
             response = await request
         except BaseException as exc:  # observed, never handled: CancelledError included
-            logger.warning(
+            LOGGER.warning(
                 "vllm request failed",
                 extra={"latency_ms": elapsed_ms(), "error": type(exc).__name__},
             )
             raise
         finish_reason = response.choices[0].finish_reason if response.choices else None
         usage = response.usage
-        logger.log(
+        LOGGER.log(
             # "length" means max_tokens cut the answer off; generate_json raises on it
             logging.INFO if finish_reason == "stop" else logging.WARNING,
             "vllm completion finished",

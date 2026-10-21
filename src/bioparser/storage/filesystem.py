@@ -28,7 +28,7 @@ from bioparser.storage.models import (
     StoredArtifact,
 )
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 class FileBlobMetadata(ArtifactMetadata):
@@ -66,7 +66,7 @@ class FileSystemArtifactStorage:
         try:
             validate_artifact_path(artifact_path)
         except ArtifactPathTraversalError as exc:
-            logger.warning("Path traversal attempt blocked")
+            LOGGER.warning("Path traversal attempt blocked")
             raise StoragePathTraversalError(str(exc)) from exc
         except ArtifactPathError as exc:
             raise InvalidArtifactPathError(str(exc)) from exc
@@ -103,14 +103,14 @@ class FileSystemArtifactStorage:
             raw_json = metadata_path.read_text(encoding="utf-8")
             return FileBlobMetadata.model_validate_json(raw_json)
         except (ValidationError, ValueError) as exc:
-            logger.error(
+            LOGGER.error(
                 "Corrupted metadata for artifact %s: %s", artifact_path, type(exc).__name__
             )
             raise StoragePayloadError(
                 f"Corrupted metadata for artifact {artifact_path}: {type(exc).__name__}"
             ) from exc
         except OSError as exc:
-            logger.exception("Filesystem OSError reading metadata for %s", artifact_path)
+            LOGGER.exception("Filesystem OSError reading metadata for %s", artifact_path)
             raise StorageError(
                 f"Failed to read metadata for {artifact_path}: {type(exc).__name__}"
             ) from exc
@@ -144,7 +144,7 @@ class FileSystemArtifactStorage:
 
         metadata_path = self._get_metadata_path(aid)
         if metadata_path.is_file():
-            logger.debug("Artifact already exists: %s", aid)
+            LOGGER.debug("Artifact already exists: %s", aid)
             raise ArtifactAlreadyExistsError(f"Artifact already exists: {aid}")
 
         if metadata.size_bytes is None:
@@ -183,15 +183,15 @@ class FileSystemArtifactStorage:
             try:
                 os.link(tmp_meta_path, metadata_path)
                 committed = True
-                logger.debug("Successfully stored artifact: %s", aid)
+                LOGGER.debug("Successfully stored artifact: %s", aid)
             except FileExistsError as exc:
-                logger.debug("Artifact already exists (race collision): %s", aid)
+                LOGGER.debug("Artifact already exists (race collision): %s", aid)
                 raise ArtifactAlreadyExistsError(f"Artifact already exists: {aid}") from exc
 
         except (ArtifactAlreadyExistsError, StoragePayloadError, InvalidArtifactPathError):
             raise
         except OSError as exc:
-            logger.exception("Filesystem OSError writing artifact %s", aid)
+            LOGGER.exception("Filesystem OSError writing artifact %s", aid)
             raise StorageError(f"Failed to write artifact {aid}: {type(exc).__name__}") from exc
         finally:
             if tmp_meta_written:
