@@ -10,7 +10,7 @@ Unit = Literal["g", "kg", "mm", "cm", "m"]
 
 # Which units are meaningful for which trait. Checked after parsing rather than
 # inside the model: a mismatched pair should cost one observation, not the whole
-# payload. See extract.extract_observations.
+# payload. See bioparser.extract.backend.default.extractor.extract_observations.
 TRAIT_UNITS: dict[Trait, frozenset[Unit]] = {
     "body_mass": frozenset({"g", "kg"}),
     "body_length": frozenset({"mm", "cm", "m"}),

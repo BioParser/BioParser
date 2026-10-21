@@ -3,7 +3,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from bioparser.extract.extract import ExtractionFailedError, extract_observations
+from bioparser.extract.backend.default.extractor import extract_observations
+from bioparser.extract.errors import ExtractionFailedError
 from bioparser.logging_config import error_fields, log_context, stopwatch
 from bioparser.parser.backend.mineru.mapper import artifact_from_middle_json
 from bioparser.parser.backend.mineru.schema import parse_configuration

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from bioparser.extract.extract import ExtractionReport
+    from bioparser.extract.report import ExtractionReport
     from bioparser.parser.models import ParserArtifact
 
 

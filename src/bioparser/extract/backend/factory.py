@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from bioparser.extract.backend.default.extractor import DefaultExtractor
 from bioparser.extract.errors import ExtractorUnavailableError
-from bioparser.extract.extract import DefaultExtractor
 from bioparser.extract.protocol import Extractor
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTORS
 from bioparser.services.vllm import VLLMService

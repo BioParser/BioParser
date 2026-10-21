@@ -8,12 +8,9 @@ from collections.abc import Callable
 from pydantic import ValidationError
 
 from bioparser.artifact_paths import ArtifactPathError, extract_result_path
-from bioparser.extract.errors import ExtractorUnavailableError
-from bioparser.extract.extract import (
-    ExtractionFailedError,
-    artifact_from_report,
-)
+from bioparser.extract.errors import ExtractionFailedError, ExtractorUnavailableError
 from bioparser.extract.protocol import Extractor
+from bioparser.extract.report import artifact_from_report
 from bioparser.extract.schema import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
 from bioparser.jobqueue import ExtractJobMessage, JobDeferred

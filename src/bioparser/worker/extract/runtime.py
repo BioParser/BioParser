@@ -1,6 +1,6 @@
 from threading import Event
 
-from bioparser.extract.factory import get_extractor
+from bioparser.extract.backend.factory import get_extractor
 from bioparser.extract.protocol import Extractor
 from bioparser.jobqueue import ExtractJobMessage, JobQueue
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue

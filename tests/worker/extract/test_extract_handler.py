@@ -11,15 +11,11 @@ from bioparser.artifact_paths import (
     extract_result_path,
     parse_result_path,
 )
-from bioparser.extract.errors import ExtractorUnavailableError
-from bioparser.extract.extract import (
-    ExtractionFailedError,
-    ExtractionReport,
-    VerifiedObservation,
-    extract_observations,
-)
-from bioparser.extract.factory import get_extractor
+from bioparser.extract.backend.default.extractor import extract_observations
+from bioparser.extract.backend.factory import get_extractor
+from bioparser.extract.errors import ExtractionFailedError, ExtractorUnavailableError
 from bioparser.extract.protocol import Extractor
+from bioparser.extract.report import ExtractionReport, VerifiedObservation
 from bioparser.extract.schema import ExtractionArtifact, Observation
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
 from bioparser.jobqueue import (

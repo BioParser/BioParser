@@ -1,18 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from pydantic import ValidationError
 
-from bioparser.extract.schema import (
-    TRAIT_UNITS,
-    Extraction,
-    ExtractionArtifact,
-    Observation,
-    StoredObservation,
-    to_canonical,
-)
+from bioparser.extract.errors import ExtractionFailedError
+from bioparser.extract.report import ExtractionReport, VerifiedObservation
+from bioparser.extract.schema import TRAIT_UNITS, Extraction
 from bioparser.parser.models import BlockRole, ParserArtifact, TextContent
 from bioparser.services.vllm import VLLMService
 
@@ -27,42 +21,6 @@ Return only measurements stated explicitly in the text. For each one, set
 evidence_block_id to the [block_id] shown immediately before the sentence, and
 quotation to the exact substring of that block containing the measurement.
 If the text contains no measurements, return an empty observations list."""
-
-
-class ExtractionFailedError(RuntimeError):
-    """The model answered, but there were problems with the schema"""
-
-
-@dataclass(frozen=True, slots=True)
-class VerifiedObservation:
-    """What the model said, plus what we could check about it.
-
-    Kept separate from Observation so the guided-decoding schema stays exactly
-    the fields the model must emit.
-    """
-
-    observation: Observation
-    # quotation should appear in the block the model cited
-    grounded: bool
-    unit_ok: bool
-
-    def payload(self) -> dict[str, Any]:
-        return {
-            **self.observation.model_dump(),
-            "canonical_value": to_canonical(self.observation.value, self.observation.unit),
-            "grounded": self.grounded,
-            "unit_ok": self.unit_ok,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class ExtractionReport:
-    observations: list[VerifiedObservation]
-    ungrounded: int
-    unit_mismatched: int
-    blocks_used: int
-    prompt_characters: int
-    truncated: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,17 +131,3 @@ class DefaultExtractor:
             char_budget=self.char_budget,
             max_tokens=self.max_tokens,
         )
-
-
-def artifact_from_report(report: ExtractionReport) -> ExtractionArtifact:
-    """The stored artifact for one report. Flags stay on the observations."""
-    return ExtractionArtifact(
-        observations=[
-            StoredObservation.model_validate(item.payload()) for item in report.observations
-        ],
-        ungrounded=report.ungrounded,
-        unit_mismatched=report.unit_mismatched,
-        blocks_used=report.blocks_used,
-        prompt_characters=report.prompt_characters,
-        truncated=report.truncated,
-    )

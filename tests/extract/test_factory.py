@@ -3,9 +3,9 @@ from typing import cast
 import pytest
 from stubs import StubVLLMService
 
+from bioparser.extract.backend.default.extractor import DefaultExtractor
+from bioparser.extract.backend.factory import get_extractor
 from bioparser.extract.errors import ExtractorUnavailableError
-from bioparser.extract.extract import DefaultExtractor
-from bioparser.extract.factory import get_extractor
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
 from bioparser.services.vllm import VLLMService
 
