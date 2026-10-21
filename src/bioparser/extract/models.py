@@ -8,7 +8,11 @@ EXTRACTION_ARTIFACT_SCHEMA_VERSION: Literal["1"] = "1"
 
 
 class TextRange(BaseModel):
-    """Half-open character range in one parser block."""
+    """Half-open character range in one parser block.
+
+    ``start`` and ``end`` are Unicode code points, the same indexes as a Python
+    ``str``. ``end`` is greater than ``start``.
+    """
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
@@ -18,8 +22,8 @@ class TextRange(BaseModel):
 
     @model_validator(mode="after")
     def _ordered(self) -> "TextRange":
-        if self.start < 0 or self.end < self.start:
-            raise ValueError("evidence range is out of order")
+        if self.start < 0 or self.end <= self.start:
+            raise ValueError("evidence range is empty or out of order")
         return self
 
 
@@ -79,4 +83,4 @@ class ExtractionArtifact(BaseModel):
     schema_version: Literal["1"] = EXTRACTION_ARTIFACT_SCHEMA_VERSION
     extractor: str = Field(min_length=1)
     extractor_version: str = Field(min_length=1)
-    observations: list[Observation] = Field(default_factory=list, max_length=8)
+    observations: list[Observation] = Field(default_factory=list)

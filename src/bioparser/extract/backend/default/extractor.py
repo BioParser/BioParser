@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from bioparser.extract.backend.default.locate import cited_observations
 from bioparser.extract.backend.default.schema import Extraction
+from bioparser.extract.citations import reject_mismatched_ranges
 from bioparser.extract.errors import ExtractionFailedError, ExtractorProcessError
 from bioparser.extract.models import Observation
 from bioparser.parser.models import BlockRole, ParserArtifact, TextContent
@@ -116,7 +117,10 @@ class DefaultExtractor:
                 char_budget=self.char_budget,
                 max_tokens=self.max_tokens,
             )
-            return cited_observations(result.output, artifact)
+            observations = cited_observations(result.output, artifact)
+            # locate drops ambiguous strings; a mismatch here is a bug in range construction.
+            reject_mismatched_ranges(observations, artifact)
+            return observations
         except (VLLMTruncatedError, VLLMRequestRejectedError) as exc:
             raise ExtractionFailedError(f"vLLM could not answer: {type(exc).__name__}") from exc
         except VLLMError as exc:

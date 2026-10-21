@@ -97,6 +97,16 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         try:
             extractor = self._extractor_factory(state.extractor)
             observations = await extractor.extract(parser_artifact)
+            try:
+                artifact = ExtractionArtifact(
+                    extractor=state.extractor,
+                    extractor_version=EXTRACTOR_VERSIONS[state.extractor],
+                    observations=observations,
+                )
+            except ValidationError as exc:
+                raise ExtractionFailedError(
+                    "extractor returned observations the artifact schema rejects"
+                ) from exc
         except ExtractorBackendUnavailableError as exc:
             LOGGER.error(f"extractor {state.extractor!r} cannot run: {exc}")
             raise PermanentJobFailure("internal_error") from exc
@@ -107,15 +117,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
                 "Marking the job failed (extraction_failed)"
             )
             raise PermanentJobFailure("extraction_failed") from exc
-        payload = (
-            ExtractionArtifact(
-                extractor=state.extractor,
-                extractor_version=EXTRACTOR_VERSIONS[state.extractor],
-                observations=observations,
-            )
-            .model_dump_json()
-            .encode()
-        )
+        payload = artifact.model_dump_json().encode()
         return store_json_artifact(
             self._storage,
             schema_version=EXTRACTION_ARTIFACT_SCHEMA_VERSION,

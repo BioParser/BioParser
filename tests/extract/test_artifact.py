@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from bioparser.extract.backend.default.schema import Extraction, ModelObservation
 from bioparser.extract.models import Cited, ExtractionArtifact, Observation, TextRange
 
 
@@ -20,6 +21,11 @@ def _observation(**changes: object) -> Observation:
 def test_a_reversed_range_is_rejected() -> None:
     with pytest.raises(ValidationError):
         TextRange(block_id="b0", start=4, end=2)
+
+
+def test_an_empty_range_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        TextRange(block_id="b0", start=4, end=4)
 
 
 def test_empty_text_is_rejected() -> None:
@@ -62,3 +68,33 @@ def test_a_field_without_a_range_is_stored() -> None:
     stored = artifact.model_dump()
     assert stored["observations"][0]["verbatimScientificName"]["evidence"] is None
     assert "canonical_value" not in stored["observations"][0]
+
+
+def test_the_stored_artifact_has_no_observation_cap() -> None:
+    observation = Observation(
+        trait="body_mass",
+        verbatimScientificName=Cited(text="Mus musculus"),
+        verbatimTraitValue=Cited(text="12.5"),
+        verbatimTraitUnit=Cited(text="g"),
+    )
+    artifact = ExtractionArtifact(
+        extractor="default",
+        extractor_version="1",
+        observations=[observation for _ in range(9)],
+    )
+
+    assert len(artifact.observations) == 9
+
+
+def test_the_model_payload_keeps_its_observation_cap() -> None:
+    observation = ModelObservation(
+        taxon="Mus musculus",
+        trait="body_mass",
+        value=12.5,
+        unit="g",
+        evidence_block_id="b0",
+        quotation="12.5 g",
+    )
+
+    with pytest.raises(ValidationError):
+        Extraction(observations=[observation for _ in range(9)])

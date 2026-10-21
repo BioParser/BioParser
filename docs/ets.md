@@ -12,7 +12,7 @@ The artifact records the extractor name and the extractor version once. It does 
 
 - Trait: `trait`, one of `body_mass`, `body_length`, or `tail_length`. The artifact defines this set. A code outside it is rejected.
 - Required fields: `verbatimScientificName`, `verbatimTraitValue`, and `verbatimTraitUnit`. Each has a non-empty string.
-- Optional fields: `verbatimTraitName`, `taxonRank`, `kingdom`, `phylum`, `class`, `order`, `family`, `genus`, `sex`, `lifeStage`, `age`, `morphotype`, `basisOfRecord`, `measurementMethod`, `measurementResolution`, `measurementRemarks`, `aggregateMeasure`, `statisticalMethod`, `individualCount`, `dispersion`, `measurementValue_min`, `measurementValue_max`, and `measurementAccuracy`. An observation that has no value for one stores `null`.
+- Optional fields: `verbatimTraitName`, `taxonRank`, `kingdom`, `phylum`, `class`, `order`, `family`, `genus`, `sex`, `lifeStage`, `age`, `morphotype`, `basisOfRecord`, `measurementMethod`, `measurementResolution`, `measurementRemarks`, `aggregateMeasure`, `statisticalMethod`, `individualCount`, `dispersion`, `measurementValue_min`, `measurementValue_max`, and `measurementAccuracy`. Each is a cited string, including counts and numeric values such as `individualCount` and `measurementValue_min`. An observation that has no value for one stores `null`.
 
 ### Cited fields
 
@@ -22,7 +22,7 @@ A cited field stores the printed string. It also stores a range when that string
 {"text": "12.5", "evidence": {"block_id": "b0", "start": 27, "end": 31}}
 ```
 
-`text` is the ETS verbatim value. It is the narrow token, such as `12.5` or `g`, not the sentence around it. `evidence` is a half-open range `[start, end)` in the text of that block. When the range is present, `text` is exactly that slice. The artifact does not check the slice, because it never opens the parsed text.
+`text` is the ETS verbatim value. It is the narrow token, such as `12.5` or `g`, not the sentence around it. `evidence` is a half-open range `[start, end)` in the text of that block. `start` and `end` are Unicode code points, the same indexes as a Python `str`, not UTF-16 code units. `end` is greater than `start`. When the range is present, `text` is exactly that slice. The schema does not open the parsed text. Before the extractor returns, a range is checked against the parsed text. The block must exist, and `text` must be exactly that slice. A mismatch is an error and is not stored. A field with no range is the extractor's choice and is returned unchanged.
 
 `evidence` may be `null`. The string is still stored. The observation stays, and its other fields can still have ranges. The ETS adapter decides what an ETS row does with a field that was not located. An extractor may apply its own rules before storing, and drop or repair a field so the stored result is better.
 
@@ -43,6 +43,8 @@ The ETS adapter needs three sources:
 - The unit table already used by the extractor. It checks that the printed unit belongs to the trait. The ETS adapter uses the same table to convert mass to grams and length to millimetres. Neither the check nor the converted value is written into the artifact.
 
 `verbatimScientificName` stays the printed span, including forms such as `M. musculus`. The ETS adapter sends that string to the taxonomy source. One confident hit becomes `scientificName` and `taxonID`. No hit, or more than one, leaves `taxonID` empty, copies the printed string into `scientificName`, and sets ETS `warnings`.
+
+The ETS adapter parses cited strings such as `individualCount` and `measurementValue_min` into the numeric ETS columns. The artifact does not.
 
 Until the taxonomy source exists, the ETS adapter copies `verbatimScientificName` and leaves `taxonID` empty. `basisOfRecord` is `literatureData` when the observation did not record one. `references` comes from the job's document. `measurementID` is assigned when the response is built. `occurrenceID` stays empty.
 

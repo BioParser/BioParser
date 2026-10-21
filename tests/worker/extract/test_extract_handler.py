@@ -267,7 +267,7 @@ def test_duplicate_delivery_does_not_call_the_model_again() -> None:
     assert jobs.state.status == "done"
 
 
-def test_an_ungrounded_observation_is_stored_flagged() -> None:
+def test_an_unlocated_value_is_stored_without_a_range() -> None:
     jobs = MemoryJobs(_parsed())
     storage = MemoryStorage()
     vllm = StubVLLMService(

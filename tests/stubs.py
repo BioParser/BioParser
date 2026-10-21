@@ -128,9 +128,6 @@ class StubVLLMService:
     async def ping(self) -> bool:
         return self.up
 
-    async def get_model(self) -> str:
-        return "stub-model"
-
     async def generate_json(
         self,
         prompt: str,
