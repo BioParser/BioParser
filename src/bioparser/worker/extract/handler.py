@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pydantic import ValidationError
 
 from bioparser.artifact_paths import ArtifactPathError, extract_result_path
-from bioparser.extract.errors import ExtractionFailedError, ExtractorUnavailableError
+from bioparser.extract.errors import ExtractionFailedError, ExtractorBackendUnavailableError
 from bioparser.extract.protocol import Extractor
 from bioparser.extract.report import artifact_from_report
 from bioparser.extract.schema import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
@@ -16,11 +16,7 @@ from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
 from bioparser.jobqueue import ExtractJobMessage, JobDeferred
 from bioparser.jobstate import JobState, JobStateStore, JobStatus, StaleJobStateWriteError
 from bioparser.parser.models import ParserArtifact
-from bioparser.services.vllm.vllm import (
-    VLLMRequestRejectedError,
-    VLLMService,
-    VLLMTruncatedError,
-)
+from bioparser.services.vllm.vllm import VLLMService
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
 
 from ..job import CorruptJobRecord, MissingJobRecord, fetch_job
@@ -102,14 +98,14 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             raise PermanentJobFailure("internal_error")
         try:
             extractor = self._extractor_factory(name)
-        except ExtractorUnavailableError as exc:
+            report = await extractor.extract(parser_artifact)
+        except ExtractorBackendUnavailableError as exc:
             LOGGER.error(f"extractor {name!r} cannot run: {exc}")
             raise PermanentJobFailure("internal_error") from exc
-        try:
-            report = await extractor.extract(parser_artifact)
-        except (ExtractionFailedError, VLLMTruncatedError, VLLMRequestRejectedError) as exc:
+        except ExtractionFailedError as exc:
+            cause = exc.__cause__ or exc
             LOGGER.error(
-                f"extraction failed ({type(exc).__name__}). "
+                f"extraction failed ({type(cause).__name__}). "
                 "Marking the job failed (extraction_failed)"
             )
             raise PermanentJobFailure("extraction_failed") from exc

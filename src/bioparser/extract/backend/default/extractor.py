@@ -4,11 +4,12 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
-from bioparser.extract.errors import ExtractionFailedError
+from bioparser.extract.errors import ExtractionFailedError, ExtractorProcessError
 from bioparser.extract.report import ExtractionReport, VerifiedObservation
 from bioparser.extract.schema import TRAIT_UNITS, Extraction
 from bioparser.parser.models import BlockRole, ParserArtifact, TextContent
 from bioparser.services.vllm import VLLMService
+from bioparser.services.vllm.vllm import VLLMError, VLLMRequestRejectedError, VLLMTruncatedError
 
 # Dropping references to cut tokens
 SKIP_ROLES = frozenset({BlockRole.REFERENCE, BlockRole.HEADER, BlockRole.FOOTER})
@@ -125,9 +126,14 @@ class DefaultExtractor:
     max_tokens: int
 
     async def extract(self, artifact: ParserArtifact) -> ExtractionReport:
-        return await extract_observations(
-            self.vllm,
-            artifact,
-            char_budget=self.char_budget,
-            max_tokens=self.max_tokens,
-        )
+        try:
+            return await extract_observations(
+                self.vllm,
+                artifact,
+                char_budget=self.char_budget,
+                max_tokens=self.max_tokens,
+            )
+        except (VLLMTruncatedError, VLLMRequestRejectedError) as exc:
+            raise ExtractionFailedError(f"vLLM could not answer: {type(exc).__name__}") from exc
+        except VLLMError as exc:
+            raise ExtractorProcessError(str(exc)) from exc

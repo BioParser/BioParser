@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-if TYPE_CHECKING:
-    from bioparser.extract.report import ExtractionReport
-    from bioparser.parser.models import ParserArtifact
+from bioparser.extract.report import ExtractionReport
+from bioparser.parser.models import ParserArtifact
 
 
 class Extractor(Protocol):

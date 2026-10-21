@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Awaitable, Callable
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -13,7 +13,11 @@ from bioparser.artifact_paths import (
 )
 from bioparser.extract.backend.default.extractor import extract_observations
 from bioparser.extract.backend.factory import get_extractor
-from bioparser.extract.errors import ExtractionFailedError, ExtractorUnavailableError
+from bioparser.extract.errors import (
+    ExtractionFailedError,
+    ExtractorBackendUnavailableError,
+    ExtractorProcessError,
+)
 from bioparser.extract.protocol import Extractor
 from bioparser.extract.report import ExtractionReport, VerifiedObservation
 from bioparser.extract.schema import ExtractionArtifact, Observation
@@ -168,6 +172,34 @@ def _factory(
     return extractor_factory
 
 
+class _FailingVLLM(StubVLLMService):
+    def __init__(self, error: Exception) -> None:
+        super().__init__()
+        self._error = error
+
+    async def generate_json(
+        self,
+        prompt: str,
+        *,
+        schema: dict[str, Any],
+        system_prompt: str,
+        max_tokens: int,
+    ) -> str:
+        raise self._error
+
+
+def _registered(vllm: StubVLLMService) -> Callable[[str], Extractor]:
+    def extractor_factory(name: str) -> Extractor:
+        return get_extractor(
+            name,
+            vllm=cast(VLLMService, vllm),
+            char_budget=8000,
+            max_tokens=256,
+        )
+
+    return extractor_factory
+
+
 def _handler(
     jobs: MemoryJobs,
     storage: MemoryStorage,
@@ -264,25 +296,31 @@ def test_schema_failure_is_permanent() -> None:
 
 def test_truncated_output_is_permanent() -> None:
     jobs = MemoryJobs(_parsed())
-
-    async def extract(artifact: ParserArtifact) -> ExtractionReport:
-        raise VLLMTruncatedError("cut off")
-
-    handler = _handler(jobs, MemoryStorage(), extract)
+    handler = ExtractJobHandler(
+        jobs=jobs,
+        storage=MemoryStorage(),
+        extractor_factory=_registered(_FailingVLLM(VLLMTruncatedError("cut off"))),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
     handler.handle(_message())
     handler.close()
 
     assert jobs.state is not None
+    assert jobs.state.status == "failed"
     assert jobs.state.error == SafeError(code="extraction_failed")
+    assert jobs.state.claims("extracting") == 1
 
 
 def test_a_rejected_request_is_permanent() -> None:
     jobs = MemoryJobs(_parsed())
-
-    async def extract(artifact: ParserArtifact) -> ExtractionReport:
-        raise VLLMRequestRejectedError("vLLM rejected the request: BadRequestError")
-
-    handler = _handler(jobs, MemoryStorage(), extract)
+    handler = ExtractJobHandler(
+        jobs=jobs,
+        storage=MemoryStorage(),
+        extractor_factory=_registered(
+            _FailingVLLM(VLLMRequestRejectedError("vLLM rejected the request: BadRequestError"))
+        ),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
     handler.handle(_message())
     handler.close()
 
@@ -360,12 +398,13 @@ def test_on_failed_on_a_parsed_job_says_it_cannot_be_marked_failed(
 
 def test_vllm_errors_are_retried() -> None:
     jobs = MemoryJobs(_parsed())
-
-    async def extract(artifact: ParserArtifact) -> ExtractionReport:
-        raise VLLMError("down")
-
-    handler = _handler(jobs, MemoryStorage(), extract)
-    with pytest.raises(VLLMError):
+    handler = ExtractJobHandler(
+        jobs=jobs,
+        storage=MemoryStorage(),
+        extractor_factory=_registered(_FailingVLLM(VLLMError("down"))),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    with pytest.raises(ExtractorProcessError):
         handler.handle(_message())
     handler.close()
 
@@ -650,12 +689,35 @@ def test_an_extractor_with_no_version_is_internal_error(monkeypatch: pytest.Monk
     assert jobs.state.error == SafeError(code="internal_error")
 
 
+def test_an_extractor_that_cannot_run_is_internal_error() -> None:
+    jobs = MemoryJobs(_parsed())
+    storage = MemoryStorage()
+
+    class _Down:
+        async def extract(self, artifact: ParserArtifact) -> ExtractionReport:
+            raise ExtractorBackendUnavailableError("cannot run")
+
+    handler = ExtractJobHandler(
+        jobs=jobs,
+        storage=storage,
+        extractor_factory=lambda _name: _Down(),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    handler.handle(_message())
+    handler.close()
+
+    assert storage.stores == 0
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error == SafeError(code="internal_error")
+
+
 def test_an_unknown_extractor_is_internal_error() -> None:
     jobs = MemoryJobs(_parsed())
     storage = MemoryStorage()
 
     def extractor_factory(name: str) -> Extractor:
-        raise ExtractorUnavailableError(f"Unknown extractor {name!r}.")
+        raise ExtractorBackendUnavailableError(f"Unknown extractor {name!r}.")
 
     handler = ExtractJobHandler(
         jobs=jobs,
