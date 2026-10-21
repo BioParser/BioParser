@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -114,9 +115,12 @@ def test_auth_disabled_allows_requests_without_key(
 def test_startup_fails_when_auth_enabled_and_api_key_missing(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("BIOPARSER_AUTH_DISABLED", "false")
     monkeypatch.setenv("BIOPARSER_API_KEY", "")
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/15")
+    monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path / "artifacts"))
 
     with pytest.raises(RuntimeError, match="startup failed: RuntimeError"), TestClient(app):
         pass
@@ -131,9 +135,14 @@ def test_startup_fails_when_auth_enabled_and_api_key_missing(
 def test_startup_logs_warning_when_auth_disabled(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("BIOPARSER_AUTH_DISABLED", "true")
     monkeypatch.delenv("BIOPARSER_API_KEY", raising=False)
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/15")
+    monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path / "artifacts"))
+    for name in ("mineru", "vllm", "job_store", "parse_queue", "artifact_storage"):
+        monkeypatch.setattr(app.state, name, None, raising=False)
 
     with TestClient(app):
         pass
