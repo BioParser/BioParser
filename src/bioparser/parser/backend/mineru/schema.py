@@ -17,6 +17,8 @@ from bioparser.services.mineru.client import OCR_MODE, MinerUTier
 # MinerU this dump schema is written against. Bump together with the mineru image
 # pin, the fixture, and the mapper if the dump shape changes.
 MINERU_PIPELINE_VERSION = "3.4.5"
+# The mineru image pin. The mapper moves to this version's middle.json next.
+MINERU_VERSION = "4.0.12"
 
 
 def parse_configuration(tier: MinerUTier) -> dict[str, str | int | float | bool]:

@@ -11,23 +11,40 @@ services:
   mineru:
     <<: *gpu
     build:
-      dockerfile: docker/mineru.Dockerfile
-      args:
-        TORCH_BACKEND: cu129 # cuda 12.9 based
+      target: gpu
+    # Standard: small models plus MinerU's VLM; it also serves Advanced. The tier is the
+    # image's CMD.
     image: bioparser-mineru:gpu
+    # Both vLLM engines size their memory from what is free on the card: profile one at a time.
+    depends_on:
+      vllm:
+        condition: service_healthy
     environment:
       # Rasterization is still in CPU (pypdfium2)
       MINERU_PDF_RENDER_THREADS: "4"
       MINERU_DEVICE_MODE: cuda # nvidia gpus
-      # VRAM for mineru; leave space for vllm
-      MINERU_VIRTUAL_VRAM_SIZE: "${MINERU_VIRTUAL_VRAM_SIZE:-2}"
-      MINERU_API_MAX_CONCURRENT_REQUESTS: "2"
-    # Host RAM, not VRAM. (models are using VRAM)
-    mem_limit: 6g
+      # MinerU's VLM takes 6/N of the card, N the VRAM in GB (at least 0.1). Setting
+      # MINERU_VIRTUAL_VRAM_SIZE replaces N: above the card's VRAM it shrinks the share, below it
+      # grows it, below 6 it asks for more than the card. It also scales the small models' batches.
+    # vLLM passes tensors between its processes in shared memory; Docker's default is 64m.
+    shm_size: 4g
+    # Host RAM, not VRAM. MinerU asks for 16 GB of system memory for Standard; one 3.4.5 parse
+    # of a 105-page PDF peaked at 8.5 GiB. Each further job MINERU_API_CONCURRENCY allows
+    # needs as much again.
+    mem_limit: 16g
+    memswap_limit: 16g
+
+  bioparser:
+    environment:
+      BIOPARSER_MINERU_TIER: "${BIOPARSER_MINERU_TIER:-standard}"
+
+  parser-worker:
+    environment:
+      BIOPARSER_MINERU_TIER: "${BIOPARSER_MINERU_TIER:-standard}"
 
   vllm:
     <<: *gpu
-    image: vllm/vllm-openai:v0.31.0@sha256:c1c9f6fd5c109ba7f0546a59f5b2f15fb87f64c77782e90a27b648b42a8e67c3
+    image: vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34
     command:
       - ${VLLM_MODEL}
       - --host

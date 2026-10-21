@@ -9,7 +9,7 @@ from bioparser.parser.protocol import PdfParser
 from bioparser.parser_names import DEFAULT_PARSER_NAME, MINERU_PARSER_NAME, PARSER_BACKENDS
 from bioparser.services.mineru.client import DEFAULT_TIER, MINERU_TIERS, MinerUTier
 
-# Where the host scripts find mineru-api: the loopback port Compose can publish (MINERU_PORT).
+# Where the host scripts find mineru-api: a container run on loopback (docs/parser.md).
 LOCAL_MINERU_BASE_URL = "http://127.0.0.1:8001"
 
 
