@@ -2,24 +2,29 @@ import logging
 import threading
 import time
 from collections.abc import Generator
+from queue import Empty
 from threading import Event
 from typing import Any
 
 import pytest
-from dramatiq import Broker, Worker
+from dramatiq import Broker, Message, Worker
 from dramatiq.brokers.stub import StubBroker
+from dramatiq.common import current_millis, dq_name
+from dramatiq.errors import ActorNotFound
 from dramatiq.middleware import CurrentMessage, Retries
 from dramatiq.middleware.time_limit import TimeLimit
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from bioparser.jobqueue import (
+    JobDeferralExpired,
+    JobDeferred,
     JobHandler,
     JobQueueConfigError,
     JobQueueError,
     JobTimeLimitExceeded,
     ParseJobMessage,
 )
-from bioparser.jobqueue.dramatiq import DramatiqJobQueue
+from bioparser.jobqueue.dramatiq import DramatiqJobQueue, DramatiqJobSubmitter
 from bioparser.jobqueue.dramatiq import redis_queue as redis_queue_module
 from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
 from bioparser.jobqueue.dramatiq.time_limit import _DeadlineThread
@@ -345,6 +350,144 @@ def test_dispatch_without_handler_raises(stub_broker: StubBroker) -> None:
         queue._dispatch(_message().model_dump(mode="json"))
 
 
+def test_deferred_message_is_sent_again_without_a_retry(stub_broker: StubBroker) -> None:
+    """Call the actor directly. consume(until_empty=True) waits on the delay queue."""
+    handler = _Recorder(raises=JobDeferred("vLLM is not answering"))
+    queue = _queue(stub_broker, max_retries=0)
+    expected = _message()
+    payload = expected.model_dump(mode="json")
+    with queue._bind(handler):
+        queue._actor.fn(payload)
+
+    assert handler.received == [expected]
+    assert handler.failed == []
+    delayed = Message.decode(stub_broker.queues[dq_name("parse")].get_nowait())
+    assert delayed.args == (payload,)
+    assert delayed.options.get("retries", 0) == 0
+    assert delayed.options["deferrals"] == 1
+    remaining_ms = delayed.options["eta"] - current_millis()
+    assert 29_000 <= remaining_ms <= 60_000
+
+
+def test_a_later_deferral_waits_longer_without_inheriting_retries(
+    stub_broker: StubBroker,
+) -> None:
+    handler = _Recorder(raises=JobDeferred("vLLM is not answering"))
+    queue = _queue(stub_broker, max_retries=0)
+    payload = _message().model_dump(mode="json")
+    started = current_millis() - 60_000
+    current = queue._actor.message_with_options(
+        args=(payload,),
+        deferred_since=started,
+        deferrals=1,
+        retries=2,
+    )
+    token = CurrentMessage._MESSAGE.set(current)
+    try:
+        with queue._bind(handler):
+            queue._actor.fn(payload)
+    finally:
+        CurrentMessage._MESSAGE.reset(token)
+
+    delayed = Message.decode(stub_broker.queues[dq_name("parse")].get_nowait())
+    assert delayed.options["deferred_since"] == started
+    assert delayed.options["deferrals"] == 2
+    assert delayed.options.get("retries", 0) == 0
+    remaining_ms = delayed.options["eta"] - current_millis()
+    assert 59_000 <= remaining_ms <= 120_000
+
+
+def test_a_deferral_past_the_deadline_is_not_sent_again(stub_broker: StubBroker) -> None:
+    handler = _Recorder(raises=JobDeferred("vLLM is not answering"))
+    queue = _queue(stub_broker, max_retries=0)
+    expected = _message()
+    payload = expected.model_dump(mode="json")
+    current = queue._actor.message_with_options(
+        args=(payload,),
+        deferred_since=current_millis() - 3_600_000,
+        deferrals=4,
+    )
+    token = CurrentMessage._MESSAGE.set(current)
+    try:
+        with queue._bind(handler):
+            queue._actor.fn(payload)
+    finally:
+        CurrentMessage._MESSAGE.reset(token)
+
+    assert handler.received == [expected]
+    assert len(handler.failed) == 1
+    assert handler.failed[0][0] == expected
+    assert isinstance(handler.failed[0][1], JobDeferralExpired)
+    with pytest.raises(Empty):
+        stub_broker.queues[dq_name("parse")].get_nowait()
+
+
+def test_a_failed_attempt_starts_a_new_deferral_if_it_defers_later(stub_broker: StubBroker) -> None:
+    class _ThenDefer(_Recorder):
+        def __init__(self) -> None:
+            super().__init__()
+            self._calls = 0
+
+        def handle(self, message: ParseJobMessage) -> None:
+            self.received.append(message)
+            self._calls += 1
+            if self._calls == 1:
+                raise RuntimeError("extract failed")
+            raise JobDeferred("vLLM is not answering")
+
+    handler = _ThenDefer()
+    queue = _queue(stub_broker, max_retries=1)
+    payload = _message().model_dump(mode="json")
+    current = queue._actor.message_with_options(
+        args=(payload,),
+        deferred_since=current_millis() - 3_600_000,
+        deferrals=4,
+    )
+    token = CurrentMessage._MESSAGE.set(current)
+    try:
+        with queue._bind(handler):
+            with pytest.raises(RuntimeError):
+                queue._actor.fn(payload)
+            assert "deferred_since" not in current.options
+            assert "deferrals" not in current.options
+            queue._actor.fn(payload)
+    finally:
+        CurrentMessage._MESSAGE.reset(token)
+
+    assert handler.failed == []
+    delayed = Message.decode(stub_broker.queues[dq_name("parse")].get_nowait())
+    assert delayed.options["deferrals"] == 1
+    assert delayed.options["deferred_since"] >= current_millis() - 5_000
+
+
+def test_a_retry_of_an_attempt_drops_the_deferral_clock(stub_broker: StubBroker) -> None:
+    queue = _queue(stub_broker, max_retries=1, min_backoff_ms=1)
+    payload = _message().model_dump(mode="json")
+    current = queue._actor.message_with_options(
+        args=(payload,),
+        deferred_since=current_millis() - 3_600_000,
+        deferrals=4,
+    )
+    token = CurrentMessage._MESSAGE.set(current)
+    try:
+        with (
+            queue._bind(_Recorder(raises=RuntimeError("extract failed"))),
+            pytest.raises(RuntimeError),
+        ):
+            queue._actor.fn(payload)
+        # Dramatiq retries by enqueueing this same message, so the cleared options travel with it.
+        Retries().after_process_message(  # type: ignore[no-untyped-call]
+            stub_broker, current, exception=RuntimeError("extract failed")
+        )
+    finally:
+        CurrentMessage._MESSAGE.reset(token)
+
+    delayed = Message.decode(stub_broker.queues[dq_name("parse")].get_nowait())
+    assert "deferred_since" not in delayed.options
+    assert "deferrals" not in delayed.options
+    assert delayed.options["retries"] == 1
+
+
 def test_handler_failure_calls_on_failed_after_retries(stub_broker: StubBroker) -> None:
     handler = _Recorder(raises=RuntimeError("parse failed"))
     queue = _queue(stub_broker, max_retries=2, min_backoff_ms=1)
@@ -420,6 +563,28 @@ def test_redis_broker_has_the_middleware_the_queue_relies_on() -> None:
 
     assert {TimeLimit, Retries} <= kinds
     assert CurrentMessage in {type(middleware) for middleware in broker.middleware}
+
+
+def test_submitter_leaves_retries_and_time_limit_to_the_consumer(
+    stub_broker: StubBroker,
+) -> None:
+    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
+    manager = time_limit.manager
+    submitter = DramatiqJobSubmitter(name="extract", broker=stub_broker)
+    with pytest.raises(ActorNotFound):
+        stub_broker.get_actor("extract")
+    submitter.submit(_message())
+
+    assert time_limit.manager is manager
+    assert not isinstance(manager, _DeadlineThread)
+    message = Message.decode(stub_broker.queues["extract"].queue[0])
+    assert message.actor_name == "extract"
+    assert "max_retries" not in message.options
+    assert "time_limit" not in message.options
+
+    handler = _Recorder()
+    _queue(stub_broker, name="extract").consume(handler, until_empty=True)
+    assert handler.received == [_message()]
 
 
 def test_queue_options_reach_the_actor(stub_broker: StubBroker) -> None:

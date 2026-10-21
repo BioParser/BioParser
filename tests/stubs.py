@@ -119,6 +119,10 @@ class StubVLLMService:
         self.observations = observations
         self.prompts: list[str] = []
         self.system_prompts: list[str] = []
+        self.up = True
+
+    async def ping(self) -> bool:
+        return self.up
 
     async def generate_json(
         self,

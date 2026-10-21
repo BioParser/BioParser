@@ -14,6 +14,13 @@ class JobHandler[T: BaseModel](Protocol):
     def handle(self, message: T) -> None:
         """Process one message. Raising retries it up to the queue's retry limit.
 
+        Raise `JobDeferred` instead when the job was not changed and should run
+        later. That delivery is acknowledged and does not use a retry. The queue
+        sends it again with a longer delay until a deadline, then calls
+        `on_failed` with `JobDeferralExpired` and does not send it again.
+        Any other result drops the deferral clock on this message, so a retry
+        is not charged to the same outage.
+
         The queue interrupts a call that runs past its time limit by raising
         `JobTimeLimitExceeded` in this thread, at any point. It is retried like any other
         failure unless the handler catches it and decides otherwise.

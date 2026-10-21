@@ -7,6 +7,16 @@ from pydantic import ValidationError
 from bioparser.worker.parse.config import WorkerSettings
 
 
+def test_extract_queue_name_is_required(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError):
+        WorkerSettings(
+            _env_file=None,  # type: ignore[call-arg]
+            redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+            artifact_storage_path=tmp_path,
+            parse_queue_name="parse",
+        )
+
+
 def test_queue_name_is_required(tmp_path: Path) -> None:
     with pytest.raises(ValidationError):
         WorkerSettings(
@@ -31,6 +41,7 @@ def test_liveness_port_defaults_to_8081(tmp_path: Path) -> None:
         redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
         artifact_storage_path=tmp_path,
         parse_queue_name="parse",
+        extract_queue_name="extract",
     )
     assert settings.liveness_port == 8081
 
@@ -43,6 +54,7 @@ def test_liveness_port_must_be_a_tcp_port(tmp_path: Path, port: int) -> None:
             redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
             parse_queue_name="parse",
+            extract_queue_name="extract",
             liveness_port=port,
         )
 
@@ -63,6 +75,7 @@ def _settings(tmp_path: Path, limit_s: float) -> WorkerSettings:
         redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
         artifact_storage_path=tmp_path,
         parse_queue_name="parse",
+        extract_queue_name="extract",
         parse_time_limit_seconds=limit_s,
     )
 
@@ -74,6 +87,7 @@ def test_claim_cap_follows_the_retry_count(tmp_path: Path) -> None:
         redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
         artifact_storage_path=tmp_path,
         parse_queue_name="parse",
+        extract_queue_name="extract",
         parse_max_retries=5,
     )
     assert raised.parse_max_claims == 6
@@ -99,6 +113,7 @@ def _log_settings(
         redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
         artifact_storage_path=tmp_path,
         parse_queue_name="parse",
+        extract_queue_name="extract",
     )
 
 
@@ -124,6 +139,7 @@ def test_time_limit_is_capped_at_mineru_longest_wait(tmp_path: Path) -> None:
             redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
             parse_queue_name="parse",
+            extract_queue_name="extract",
             parse_time_limit_seconds=3601,
         )
 
@@ -135,6 +151,7 @@ def test_mineru_base_url_must_be_http(tmp_path: Path) -> None:
             redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
             parse_queue_name="parse",
+            extract_queue_name="extract",
             mineru_base_url="mineru:8000",  # type: ignore[arg-type]
         )
 
@@ -145,6 +162,7 @@ def test_mineru_tier_defaults_to_basic_and_must_be_known(tmp_path: Path) -> None
         redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
         artifact_storage_path=tmp_path,
         parse_queue_name="parse",
+        extract_queue_name="extract",
     )
     assert settings.mineru_tier == "basic"
 
@@ -154,5 +172,6 @@ def test_mineru_tier_defaults_to_basic_and_must_be_known(tmp_path: Path) -> None
             redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
             parse_queue_name="parse",
+            extract_queue_name="extract",
             mineru_tier="full",  # type: ignore[arg-type]
         )

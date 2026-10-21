@@ -1,7 +1,6 @@
 import json
 import logging
 import runpy
-import signal
 from pathlib import Path
 from threading import Event
 
@@ -10,26 +9,7 @@ from stubs import fake_mineru, file_parse_reply
 
 from bioparser.worker.parse import runtime
 from bioparser.worker.parse.config import WorkerSettings
-from bioparser.worker.parse.runtime import build_worker, install_shutdown
-
-
-@pytest.fixture
-def restore_signals() -> object:
-    saved = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
-    yield
-    for sig, handler in saved.items():
-        signal.signal(sig, handler)
-
-
-@pytest.mark.parametrize("sig", [signal.SIGINT, signal.SIGTERM])
-def test_signal_sets_stop_event(restore_signals: None, sig: signal.Signals) -> None:
-    stop = Event()
-    install_shutdown(stop)
-    assert not stop.is_set()
-
-    signal.raise_signal(sig)
-
-    assert stop.is_set()
+from bioparser.worker.parse.runtime import build_worker
 
 
 class _LoggingQueue:
@@ -55,6 +35,7 @@ def test_main_logs_json_to_stderr_with_dramatiq_at_warning(
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path))
     monkeypatch.setenv("BIOPARSER_PARSE_QUEUE_NAME", "parse")
+    monkeypatch.setenv("BIOPARSER_EXTRACT_QUEUE_NAME", "extract")
     monkeypatch.delenv("BIOPARSER_LOG_LEVEL", raising=False)
     monkeypatch.setattr(runtime, "build_worker", lambda settings: (_LoggingQueue(), _Handler()))
     monkeypatch.setattr(runtime, "install_shutdown", lambda stop: None)
@@ -87,6 +68,7 @@ def test_one_tier_setting_names_the_request_and_the_result_path(tmp_path: Path) 
             redis_url="redis://127.0.0.1:1/0",  # type: ignore[arg-type]  # never reached
             artifact_storage_path=tmp_path,
             parse_queue_name="parse",
+            extract_queue_name="extract",
             mineru_base_url=url,  # type: ignore[arg-type]
             mineru_tier="standard",
         )

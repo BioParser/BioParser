@@ -3,7 +3,7 @@ import logging
 from collections.abc import Awaitable
 from typing import Any
 
-from openai import APIError, AsyncOpenAI
+from openai import APIError, AsyncOpenAI, BadRequestError, UnprocessableEntityError
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 from bioparser.logging_config import stopwatch
@@ -21,6 +21,10 @@ class VLLMTruncatedError(VLLMError):
     """Generation hit max_tokens before the model closed the JSON."""
 
 
+class VLLMRequestRejectedError(VLLMError):
+    """vLLM rejected the request. Retrying the same input will fail again."""
+
+
 class VLLMService:
     def __init__(self) -> None:
         settings = get_settings()
@@ -35,6 +39,14 @@ class VLLMService:
         self.model: str | None = None
         self._lock = asyncio.Lock()
         self._discovery_timeout = settings.model_discovery_timeout_seconds
+
+    async def ping(self) -> bool:
+        """True when the server answers a models request. An API error means it is down."""
+        try:
+            await self.client.models.list(timeout=self._discovery_timeout)
+        except APIError:
+            return False
+        return True
 
     async def get_model(self) -> str:
         """Discover the served model id - used once per process"""
@@ -156,6 +168,10 @@ class VLLMService:
                     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 )
             )
+        except (BadRequestError, UnprocessableEntityError) as exc:
+            raise VLLMRequestRejectedError(
+                f"vLLM rejected the request: {type(exc).__name__}"
+            ) from exc
         except APIError as exc:
             # Connection refused, read timeout, 5xx
             raise VLLMError(f"vLLM request failed: {type(exc).__name__}") from exc
