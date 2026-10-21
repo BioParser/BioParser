@@ -52,7 +52,7 @@ _RETRIED_CLIENT_ERRORS = frozenset({408, 429})
 _ERROR_BODY_BYTES = 64 * 1024
 _CODE = re.compile(r"[a-z_]{1,64}")
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 class MinerUError(RuntimeError):
@@ -115,9 +115,9 @@ def _logged() -> Iterator[_Reply]:
         yield reply
     except BaseException as exc:
         fields = _fields(reply, elapsed_ms()) | {"error": type(exc).__name__}
-        logger.warning("mineru-api request failed", extra=fields)
+        LOGGER.warning("mineru-api request failed", extra=fields)
         raise
-    logger.info("mineru-api request completed", extra=_fields(reply, elapsed_ms()))
+    LOGGER.info("mineru-api request completed", extra=_fields(reply, elapsed_ms()))
 
 
 def _fields(reply: _Reply, latency_ms: float) -> dict[str, object]:
@@ -260,7 +260,7 @@ class MinerUClient:
         try:
             await self._http.delete(path, timeout=_CANCEL_TIMEOUT_S)
         except httpx2.HTTPError as exc:
-            logger.warning("mineru-api task cancel failed", extra={"error": type(exc).__name__})
+            LOGGER.warning("mineru-api task cancel failed", extra={"error": type(exc).__name__})
 
 
 class SyncMinerUClient:
@@ -324,7 +324,7 @@ class SyncMinerUClient:
         try:
             self._http.delete(path, timeout=_CANCEL_TIMEOUT_S)
         except httpx2.HTTPError as exc:
-            logger.warning("mineru-api task cancel failed", extra={"error": type(exc).__name__})
+            LOGGER.warning("mineru-api task cancel failed", extra={"error": type(exc).__name__})
 
 
 def wait_until_ready(base_url: str, timeout_s: float) -> None:

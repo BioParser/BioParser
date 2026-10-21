@@ -14,7 +14,7 @@ from bioparser.services.vllm.vllm import VLLMError, VLLMTruncatedError
 
 # TODO: REDIS
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 class PipelineError(RuntimeError):
@@ -30,10 +30,10 @@ def _stage(name: str) -> Iterator[dict[str, object]]:
         yield fields
     except Exception as exc:
         fields |= {"outcome": "error", "duration_ms": elapsed_ms()}
-        logger.exception("pipeline stage failed", extra=fields | error_fields(exc))
+        LOGGER.exception("pipeline stage failed", extra=fields | error_fields(exc))
         raise
     fields |= {"outcome": "ok", "duration_ms": elapsed_ms()}
-    logger.info("pipeline stage completed", extra=fields)
+    LOGGER.info("pipeline stage completed", extra=fields)
 
 
 # REDIS queue worker calls
