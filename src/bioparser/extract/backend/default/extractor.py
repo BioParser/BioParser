@@ -4,9 +4,10 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
+from bioparser.extract.backend.default.locate import cited_observations
+from bioparser.extract.backend.default.schema import Extraction
 from bioparser.extract.errors import ExtractionFailedError, ExtractorProcessError
-from bioparser.extract.report import ExtractionReport, VerifiedObservation
-from bioparser.extract.schema import TRAIT_UNITS, Extraction
+from bioparser.extract.models import Observation
 from bioparser.parser.models import BlockRole, ParserArtifact, TextContent
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.vllm import VLLMError, VLLMRequestRejectedError, VLLMTruncatedError
@@ -25,14 +26,24 @@ If the text contains no measurements, return an empty observations list."""
 
 
 @dataclass(frozen=True, slots=True)
-class RenderedPrompt:
+class Prompt:
+    """Text sent to the model, and the blocks that text was built from."""
+
     text: str
     blocks: dict[str, str]
-    # Was it too long for token budget? -> truncated
+    # Was it too long for the character budget?
     truncated: bool
 
 
-def render_prompt(artifact: ParserArtifact, *, char_budget: int) -> RenderedPrompt:
+@dataclass(frozen=True, slots=True)
+class ModelResult:
+    """One model call: the prompt it was shown, and the payload it returned."""
+
+    output: Extraction
+    prompt: Prompt
+
+
+def render_prompt(artifact: ParserArtifact, *, char_budget: int) -> Prompt:
     parts: list[str] = []
     blocks: dict[str, str] = {}
     used = 0
@@ -58,7 +69,7 @@ def render_prompt(artifact: ParserArtifact, *, char_budget: int) -> RenderedProm
             parts.append(rendered)
             used += cost
 
-    return RenderedPrompt(text="\n\n".join(parts), blocks=blocks, truncated=truncated)
+    return Prompt(text="\n\n".join(parts), blocks=blocks, truncated=truncated)
 
 
 async def extract_observations(
@@ -67,20 +78,13 @@ async def extract_observations(
     *,
     char_budget: int,
     max_tokens: int,
-) -> ExtractionReport:
-    rendered = render_prompt(artifact, char_budget=char_budget)
-    if not rendered.text:
-        return ExtractionReport(
-            observations=[],
-            ungrounded=0,
-            unit_mismatched=0,
-            blocks_used=0,
-            prompt_characters=0,
-            truncated=rendered.truncated,
-        )
+) -> ModelResult:
+    prompt = render_prompt(artifact, char_budget=char_budget)
+    if not prompt.text:
+        return ModelResult(output=Extraction(), prompt=prompt)
 
     raw = await vllm.generate_json(
-        rendered.text,
+        prompt.text,
         schema=Extraction.model_json_schema(),
         system_prompt=SYSTEM_PROMPT,
         max_tokens=max_tokens,
@@ -93,28 +97,7 @@ async def extract_observations(
             f"model output did not match the extraction schema: {', '.join(codes)}"
         ) from exc
 
-    verified: list[VerifiedObservation] = []
-    ungrounded = 0
-    unit_mismatched = 0
-    for observation in parsed.observations:
-        source = rendered.blocks.get(observation.evidence_block_id)
-        grounded = source is not None and observation.quotation in source
-        unit_ok = observation.unit in TRAIT_UNITS[observation.trait]
-        ungrounded += not grounded
-        unit_mismatched += not unit_ok
-        # Every observation is returned, flagged.
-        verified.append(
-            VerifiedObservation(observation=observation, grounded=grounded, unit_ok=unit_ok)
-        )
-
-    return ExtractionReport(
-        observations=verified,
-        ungrounded=ungrounded,
-        unit_mismatched=unit_mismatched,
-        blocks_used=len(rendered.blocks),
-        prompt_characters=len(rendered.text),
-        truncated=rendered.truncated,
-    )
+    return ModelResult(output=parsed, prompt=prompt)
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,14 +108,15 @@ class DefaultExtractor:
     char_budget: int
     max_tokens: int
 
-    async def extract(self, artifact: ParserArtifact) -> ExtractionReport:
+    async def extract(self, artifact: ParserArtifact) -> list[Observation]:
         try:
-            return await extract_observations(
+            result = await extract_observations(
                 self.vllm,
                 artifact,
                 char_budget=self.char_budget,
                 max_tokens=self.max_tokens,
             )
+            return cited_observations(result.output, artifact)
         except (VLLMTruncatedError, VLLMRequestRejectedError) as exc:
             raise ExtractionFailedError(f"vLLM could not answer: {type(exc).__name__}") from exc
         except VLLMError as exc:

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from bioparser.extract.report import ExtractionReport
+from bioparser.extract.models import Observation
 from bioparser.parser.models import ParserArtifact
 
 
 class Extractor(Protocol):
-    """Shared contract for extractors that produce an `ExtractionReport`."""
+    """Shared contract for extractors that read a parser artifact."""
 
-    async def extract(self, artifact: ParserArtifact) -> ExtractionReport: ...
+    async def extract(self, artifact: ParserArtifact) -> list[Observation]: ...

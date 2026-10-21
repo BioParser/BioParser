@@ -90,9 +90,10 @@ a validated parser artifact, and updates job state. It has no dependency on ETS 
 language model.
 
 The independently deployable extractor worker consumes parser artifacts, runs the local
-model, validates canonical observations, rejects candidates without evidence, and stores
-the result. It may have separate memory and GPU requirements. Initial milestones define this
-boundary and evaluate runtimes; production inference comes later.
+model, checks the observation shape, and stores the result. It may drop or repair a field,
+and it may store a field that was not located. It may have separate memory and GPU
+requirements. Initial milestones define this boundary and evaluate runtimes; production
+inference comes later.
 
 Health and readiness for workers
 
@@ -142,7 +143,7 @@ sequenceDiagram
 
     API->>Store: Load canonical observations
     API->>API: Map observations through ETS adapter
-    API-->>Client: ETS JSON with evidence
+    API-->>Client: ETS JSON
 ```
 
 The parser-only path terminates successfully after storing the parser artifact.
@@ -271,20 +272,13 @@ source coordinates.
 
 ### Canonical extraction artifact
 
-The model produces a standard independent candidate with taxon text, trait, value,
-unit, biological qualifiers, statistical context, evidence block and quotation,
-model/prompt versions, and validation status. Candidates without valid evidence are
-not returned as verified observations.
+A finished extraction stores one observation per measurement. Each paper field keeps the verbatim text and, when it was located, a character range in a parser block. Fields that were not located are still stored.
 
-### ETS response
+The stored file checks its shape: the trait code, a required string, and that a range is ordered. It does not decide whether a measurement is good enough to show. A missing range, an unresolved name, and a unit that cannot be converted may all be stored.
 
-The API adapter maps validated observations to an explicit ETS version. Keeping it
-outside the model:
+The ETS adapter is the quality gate for what a user is shown. It resolves the name, converts the unit, and decides whether a weak field becomes a warning, an empty id, or a dropped row. An extractor may call those same checks while it is still working, and drop or repair a field before storing it. It does not have to. A stored file can be looser than the response, so a new extractor is not forced to meet one quality bar before it can write a result.
 
-- prevents model retraining for ETS mapping changes
-- makes mappings reviewable and testable
-- allows other output standards to be added later
-- distinguishes source supported values from normalized or derived fields
+The field list, the evidence rules, and what the ETS adapter derives are in [ets.md](ets.md).
 
 ```mermaid
 flowchart LR
@@ -295,9 +289,9 @@ flowchart LR
 
     PDF -->|PDF parser| Parsed
     Parsed -->|local extraction model| Canonical
-    Canonical -->|deterministic adapter| ETS
+    Canonical -->|ETS adapter| ETS
 
-    Parsed -. block IDs and quotations .-> Canonical
+    Parsed -. block ranges .-> Canonical
     Canonical -. provenance .-> ETS
 ```
 

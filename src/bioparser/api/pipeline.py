@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from bioparser.extract.backend.default.extractor import extract_observations
+from bioparser.extract.demo import demo_response
 from bioparser.extract.errors import ExtractionFailedError
 from bioparser.logging_config import error_fields, log_context, stopwatch
 from bioparser.parser.backend.mineru.mapper import artifact_from_middle_json
@@ -72,16 +73,22 @@ async def run_pipeline(
 
         try:
             with _stage("extract") as fields:
-                report = await extract_observations(
+                result = await extract_observations(
                     vllm, artifact, char_budget=char_budget, max_tokens=max_tokens
                 )
+                body = demo_response(
+                    result.output,
+                    result.prompt,
+                    checksum=checksum,
+                    pages=len(artifact.pages),
+                )
                 fields.update(
-                    blocks_sent=report.blocks_used,
-                    prompt_characters=report.prompt_characters,
-                    truncated=report.truncated,
-                    observations=len(report.observations),
-                    ungrounded_observations=report.ungrounded,
-                    unit_mismatched_observations=report.unit_mismatched,
+                    blocks_sent=body["blocks_sent"],
+                    prompt_characters=body["prompt_characters"],
+                    truncated=body["truncated"],
+                    observations=len(result.output.observations),
+                    ungrounded_observations=body["ungrounded_observations"],
+                    unit_mismatched_observations=body["unit_mismatched_observations"],
                 )
         except VLLMTruncatedError as exc:
             raise PipelineError("Extraction truncated") from exc
@@ -90,13 +97,4 @@ async def run_pipeline(
         except VLLMError as exc:
             raise PipelineError("Extraction backend unavailable") from exc
 
-    return {
-        "checksum": checksum,
-        "pages": len(artifact.pages),
-        "blocks_sent": report.blocks_used,
-        "prompt_characters": report.prompt_characters,
-        "truncated": report.truncated,
-        "ungrounded_observations": report.ungrounded,
-        "unit_mismatched_observations": report.unit_mismatched,
-        "observations": [o.payload() for o in report.observations],
-    }
+    return body

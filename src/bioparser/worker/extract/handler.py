@@ -9,9 +9,8 @@ from pydantic import ValidationError
 
 from bioparser.artifact_paths import ArtifactPathError, extract_result_path
 from bioparser.extract.errors import ExtractionFailedError, ExtractorBackendUnavailableError
+from bioparser.extract.models import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
 from bioparser.extract.protocol import Extractor
-from bioparser.extract.report import artifact_from_report
-from bioparser.extract.schema import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
 from bioparser.extractor_names import EXTRACTOR_VERSIONS
 from bioparser.jobqueue import ExtractJobMessage, JobDeferred
 from bioparser.jobstate import JobState, JobStateStore, JobStatus, StaleJobStateWriteError
@@ -97,7 +96,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             raise PermanentJobFailure("internal_error")
         try:
             extractor = self._extractor_factory(state.extractor)
-            report = await extractor.extract(parser_artifact)
+            observations = await extractor.extract(parser_artifact)
         except ExtractorBackendUnavailableError as exc:
             LOGGER.error(f"extractor {state.extractor!r} cannot run: {exc}")
             raise PermanentJobFailure("internal_error") from exc
@@ -108,7 +107,15 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
                 "Marking the job failed (extraction_failed)"
             )
             raise PermanentJobFailure("extraction_failed") from exc
-        payload = artifact_from_report(report).model_dump_json().encode()
+        payload = (
+            ExtractionArtifact(
+                extractor=state.extractor,
+                extractor_version=EXTRACTOR_VERSIONS[state.extractor],
+                observations=observations,
+            )
+            .model_dump_json()
+            .encode()
+        )
         return store_json_artifact(
             self._storage,
             schema_version=EXTRACTION_ARTIFACT_SCHEMA_VERSION,
