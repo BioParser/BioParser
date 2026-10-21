@@ -2,8 +2,8 @@
 # The model is not in this image.
 #   docker build -f docker/extractor-worker.Dockerfile -t bioparser-extractor-worker .
 
-# uv 0.12.23, the same pin as CI. Index digest so amd64 and arm64 both resolve.
-FROM ghcr.io/astral-sh/uv:0.12.23@sha256:61d393e44e249f2e4b526b6c7ddcecce245946826e608e11c93ad4f5bba55b21 AS uv
+# uv 0.13.1, the same pin as CI. Index digest so amd64 and arm64 both resolve.
+FROM ghcr.io/astral-sh/uv:0.13.1@sha256:4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336 AS uv
 
 # python 3.13.16-slim-trixie; index digest so amd64 and arm64 both resolve.
 FROM python:3.13-slim@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f AS base
@@ -43,21 +43,25 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 FROM base AS runtime
 
+# Numeric user: OpenShift runs the container as a random UID in group 0.
 RUN groupadd --system --gid 10001 app \
-    && useradd --system --uid 10001 --gid 10001 --no-create-home \
+    && useradd --system --uid 10001 --gid 10001 --home-dir /home/app --no-create-home \
         --shell /usr/sbin/nologin app \
-    && mkdir -p /data \
-    && chown app:app /data
+    && install -d -o 10001 -g 0 -m 0770 /home/app /data
 
 ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    HOME=/home/app
 
 WORKDIR /app
 
 # Non-editable install: the project lives in the venv, so src is not copied.
-COPY --from=build --chown=app:app /app/.venv /app/.venv
+COPY --from=build /app/.venv /app/.venv
 
-USER app:app
+USER 10001:10001
+
+# Runs as uid 10001: the worker imports from the copied venv.
+RUN PYTHONDONTWRITEBYTECODE=1 python -c "import bioparser.worker.extract"
 
 # Port matches DEFAULT_LIVENESS_PORT.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
