@@ -158,6 +158,27 @@ async def extract_observations(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class DefaultExtractor:
+    """The extractor registered as ``default``.
+
+    Version ``0`` in ``EXTRACTOR_VERSIONS`` names this implementation. A later
+    default extractor starts at version ``1``.
+    """
+
+    vllm: VLLMService
+    char_budget: int
+    max_tokens: int
+
+    async def extract(self, artifact: ParserArtifact) -> ExtractionReport:
+        return await extract_observations(
+            self.vllm,
+            artifact,
+            char_budget=self.char_budget,
+            max_tokens=self.max_tokens,
+        )
+
+
 def artifact_from_report(report: ExtractionReport) -> ExtractionArtifact:
     """The stored artifact for one report. Flags stay on the observations."""
     return ExtractionArtifact(

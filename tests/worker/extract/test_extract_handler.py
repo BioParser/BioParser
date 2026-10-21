@@ -11,13 +11,17 @@ from bioparser.artifact_paths import (
     extract_result_path,
     parse_result_path,
 )
+from bioparser.extract.errors import ExtractorUnavailableError
 from bioparser.extract.extract import (
     ExtractionFailedError,
     ExtractionReport,
     VerifiedObservation,
     extract_observations,
 )
+from bioparser.extract.factory import get_extractor
+from bioparser.extract.protocol import Extractor
 from bioparser.extract.schema import ExtractionArtifact, Observation
+from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
 from bioparser.jobqueue import (
     ExtractJobMessage,
     JobDeferralExpired,
@@ -151,6 +155,23 @@ def _real_extract(vllm: StubVLLMService) -> Callable[[ParserArtifact], Awaitable
     return extract
 
 
+class _CallableExtractor:
+    def __init__(self, extract: Callable[[ParserArtifact], Awaitable[ExtractionReport]]) -> None:
+        self._extract = extract
+
+    async def extract(self, artifact: ParserArtifact) -> ExtractionReport:
+        return await self._extract(artifact)
+
+
+def _factory(
+    extract: Callable[[ParserArtifact], Awaitable[ExtractionReport]],
+) -> Callable[[str], Extractor]:
+    def extractor_factory(_name: str) -> Extractor:
+        return _CallableExtractor(extract)
+
+    return extractor_factory
+
+
 def _handler(
     jobs: MemoryJobs,
     storage: MemoryStorage,
@@ -161,7 +182,7 @@ def _handler(
     return ExtractJobHandler(
         jobs=jobs,
         storage=storage,
-        extract=extract,
+        extractor_factory=_factory(extract),
         max_claims=max_claims,
     )
 
@@ -289,7 +310,7 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
     handler = ExtractJobHandler(
         jobs=jobs,
         storage=MemoryStorage(),
-        extract=extract,
+        extractor_factory=_factory(extract),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
         vllm=cast(VLLMService, vllm),
     )
@@ -314,7 +335,7 @@ def test_vllm_answering_still_extracts() -> None:
     handler = ExtractJobHandler(
         jobs=jobs,
         storage=storage,
-        extract=_real_extract(vllm),
+        extractor_factory=_factory(_real_extract(vllm)),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
         vllm=cast(VLLMService, vllm),
     )
@@ -559,6 +580,100 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
         .quotation
         == standard_text
     )
+
+
+def test_registered_extractor_stores_the_resolved_version() -> None:
+    jobs = MemoryJobs(_parsed())
+    storage = MemoryStorage()
+    vllm = StubVLLMService()
+    seen: list[str] = []
+
+    def extractor_factory(name: str) -> Extractor:
+        seen.append(name)
+        return get_extractor(
+            name,
+            vllm=cast(VLLMService, vllm),
+            char_budget=8000,
+            max_tokens=256,
+        )
+
+    handler = ExtractJobHandler(
+        jobs=jobs,
+        storage=storage,
+        extractor_factory=extractor_factory,
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    handler.handle(_message())
+    handler.close()
+
+    version = EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME]
+    assert seen == [DEFAULT_EXTRACTOR_NAME]
+    assert version == "0"
+    assert jobs.state is not None
+    assert jobs.state.status == "done"
+    assert jobs.state.extract_result_ref == extract_result_path(
+        PARSE_REF, DEFAULT_EXTRACTOR_NAME, version
+    )
+    assert vllm.prompts
+
+
+def test_artifact_path_uses_the_version_resolved_for_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "bioparser.worker.extract.handler.EXTRACTOR_VERSIONS",
+        {DEFAULT_EXTRACTOR_NAME: "4"},
+    )
+    jobs = MemoryJobs(_parsed())
+    storage = MemoryStorage()
+    handler = _handler(jobs, storage, _real_extract(StubVLLMService()))
+    handler.handle(_message())
+    handler.close()
+
+    assert jobs.state is not None
+    assert jobs.state.extract_result_ref == extract_result_path(
+        PARSE_REF, DEFAULT_EXTRACTOR_NAME, "4"
+    )
+
+
+def test_an_extractor_with_no_version_is_internal_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("bioparser.worker.extract.handler.EXTRACTOR_VERSIONS", {})
+    jobs = MemoryJobs(_parsed())
+    storage = MemoryStorage()
+
+    async def extract(artifact: ParserArtifact) -> ExtractionReport:
+        raise AssertionError("model was called")
+
+    handler = _handler(jobs, storage, extract)
+    handler.handle(_message())
+    handler.close()
+
+    assert storage.stores == 0
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error == SafeError(code="internal_error")
+
+
+def test_an_unknown_extractor_is_internal_error() -> None:
+    jobs = MemoryJobs(_parsed())
+    storage = MemoryStorage()
+
+    def extractor_factory(name: str) -> Extractor:
+        raise ExtractorUnavailableError(f"Unknown extractor {name!r}.")
+
+    handler = ExtractJobHandler(
+        jobs=jobs,
+        storage=storage,
+        extractor_factory=extractor_factory,
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    handler.handle(_message())
+    handler.close()
+
+    assert storage.stores == 0
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error == SafeError(code="internal_error")
 
 
 def test_malformed_message_cannot_fail_a_parsed_job() -> None:
