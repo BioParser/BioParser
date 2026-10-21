@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
+from pydantic import AnyUrl, ValidationError
 
 from bioparser.api import config
 from bioparser.api.app import app
@@ -433,18 +433,24 @@ class _OfflineVLLM:
         return None
 
 
-def test_lifespan_sets_up_logging_once_across_restarts(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lifespan_sets_up_logging_once_across_restarts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr(app_module, "VLLMService", _OfflineVLLM)
     monkeypatch.setenv("BIOPARSER_LOG_LEVEL", "DEBUG")
 
     monkeypatch.setattr(
         config,
         "get_api_settings",
-        lambda: config.ApiSettings(),
+        lambda: config.ApiSettings(
+            redis_url=AnyUrl("redis://localhost:6379/15"),
+            artifact_storage_path=str(tmp_path / "artifacts"),
+            parse_queue_name="parse_test",
+        ),
     )
 
     # The lifespan overwrites these; registering them lets monkeypatch restore them.
-    for name in ("mineru", "vllm"):
+    for name in ("mineru", "vllm", "job_store", "parse_queue", "artifact_storage"):
         monkeypatch.setattr(app.state, name, None, raising=False)
 
     for _ in range(2):  # every TestClient context runs the lifespan again
