@@ -23,7 +23,7 @@ updates:
     cooldown:
       default-days: 7
     ignore:
-      # This rev is the uv release CI and the Docker images pin by hand.
+      # This rev is the uv release CI pins by hand. Bump both manually.
       - dependency-name: "https://github.com/astral-sh/uv-pre-commit"
     groups:
       pre-commit-hooks:
@@ -61,8 +61,6 @@ updates:
         update-types:
           - "version-update:semver-major"
           - "version-update:semver-minor"
-      # The uv image matches the CI and pre-commit pins. Bump those by hand.
-      - dependency-name: "astral-sh/uv"
     groups:
       base-images:
         patterns:
