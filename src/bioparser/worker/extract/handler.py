@@ -12,7 +12,7 @@ from bioparser.extract.errors import ExtractionFailedError, ExtractorBackendUnav
 from bioparser.extract.protocol import Extractor
 from bioparser.extract.report import artifact_from_report
 from bioparser.extract.schema import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
-from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
+from bioparser.extractor_names import EXTRACTOR_VERSIONS
 from bioparser.jobqueue import ExtractJobMessage, JobDeferred
 from bioparser.jobstate import JobState, JobStateStore, JobStatus, StaleJobStateWriteError
 from bioparser.parser.models import ParserArtifact
@@ -86,7 +86,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         if ref is None:
             LOGGER.error("job has no parser artifact. Marking the job failed (internal_error)")
             raise PermanentJobFailure("internal_error")
-        name = DEFAULT_EXTRACTOR_NAME
+        name = state.extractor
         artifact_path = _extraction_artifact_path(ref, name)
         parser_artifact = self._load_parser_artifact(ref)
         stored = _retrieve_or_none(self._storage, artifact_path)

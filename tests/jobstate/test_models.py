@@ -3,6 +3,7 @@ from typing import get_args
 import pytest
 from pydantic import ValidationError
 
+from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.jobstate import JOB_STATE_SCHEMA_VERSION, JobState, SafeError
 from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobStatus
 
@@ -195,6 +196,19 @@ def test_job_state_rejects_unknown_schema_version() -> None:
 
 
 # --- Jobstate fields --------------------------------------------------------
+
+
+def test_stored_job_without_an_extractor_name_reads_as_default() -> None:
+    raw = _queued().model_dump()
+    del raw["extractor"]
+    restored = JobState.model_validate(raw)
+    assert restored.extractor == DEFAULT_EXTRACTOR_NAME
+    assert restored.schema_version == JOB_STATE_SCHEMA_VERSION
+
+
+def test_job_state_rejects_an_unknown_extractor() -> None:
+    with pytest.raises(ValidationError, match="extractor"):
+        _queued(extractor="other")
 
 
 def test_job_state_rejects_unknown_field() -> None:

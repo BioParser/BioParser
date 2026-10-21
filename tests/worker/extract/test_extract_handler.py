@@ -617,6 +617,44 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
     )
 
 
+def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("bioparser.jobstate.models.EXTRACTORS", ("default", "other"))
+    monkeypatch.setattr(
+        "bioparser.worker.extract.handler.EXTRACTOR_VERSIONS",
+        {"other": "4"},
+    )
+    jobs = MemoryJobs(_parsed().with_changes(extractor="other"))
+    storage = MemoryStorage()
+    seen: list[str] = []
+
+    async def extract(artifact: ParserArtifact) -> ExtractionReport:
+        return ExtractionReport(
+            observations=[],
+            ungrounded=0,
+            unit_mismatched=0,
+            blocks_used=0,
+            prompt_characters=0,
+            truncated=False,
+        )
+
+    def extractor_factory(name: str) -> Extractor:
+        seen.append(name)
+        return _CallableExtractor(extract)
+
+    handler = ExtractJobHandler(
+        jobs=jobs,
+        storage=storage,
+        extractor_factory=extractor_factory,
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    handler.handle(_message())
+    handler.close()
+
+    assert seen == ["other"]
+    assert jobs.state is not None
+    assert jobs.state.extract_result_ref == extract_result_path(PARSE_REF, "other", "4")
+
+
 def test_registered_extractor_stores_the_resolved_version() -> None:
     jobs = MemoryJobs(_parsed())
     storage = MemoryStorage()
