@@ -113,10 +113,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with _failure_logged_redacted("startup"):
             settings = config.get_api_settings()
             setup_logging(settings.log_level)
-            if settings.redis_url is None:
-                raise RuntimeError("BIOPARSER_REDIS_URL is required")
-            if settings.artifact_storage_path is None:
-                raise RuntimeError("BIOPARSER_ARTIFACT_STORAGE_PATH is required")
             if settings.auth_disabled:
                 LOGGER.warning("authentication is disabled (BIOPARSER_AUTH_DISABLED=true)")
             elif not settings.api_key or not settings.api_key.get_secret_value():
@@ -126,6 +122,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 raise RuntimeError(
                     "BIOPARSER_API_KEY is required when BIOPARSER_AUTH_DISABLED is false"
                 )
+            if settings.redis_url is None:
+                raise RuntimeError("BIOPARSER_REDIS_URL is required")
+            if settings.artifact_storage_path is None:
+                raise RuntimeError("BIOPARSER_ARTIFACT_STORAGE_PATH is required")
 
             app.state.vllm = VLLMService()
             vllm_base_url = redact_url(get_vllm_settings().vllm_base_url)
