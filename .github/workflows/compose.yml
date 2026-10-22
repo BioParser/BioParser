@@ -1,0 +1,43 @@
+name: GitHub CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker-compose*.yml"
+      - ".env.example"
+      - ".github/workflows/compose.yml"
+  pull_request:
+    paths:
+      - "docker-compose*.yml"
+      - ".env.example"
+      - ".github/workflows/compose.yml"
+
+permissions:
+  contents: read # to fetch code (actions/checkout)
+
+jobs:
+  config:
+    name: Validate Compose
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate Compose files
+        env:
+          # The logging overlay rejects an empty password. .env.example leaves it empty.
+          GRAFANA_ADMIN_PASSWORD: compose-config
+        run: |
+          set -euo pipefail
+          # cpu.yml or gpu.yml supplies the vLLM image. The base file alone does not.
+          validate() {
+            docker compose --env-file .env.example "$@" config --quiet
+          }
+          validate -f docker-compose.yml -f docker-compose.cpu.yml
+          validate -f docker-compose.yml -f docker-compose.gpu.yml
+          validate -f docker-compose.yml -f docker-compose.cpu.yml -f docker-compose.logging.yml
+          validate -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.logging.yml
+          validate -f docker-compose.yml -f docker-compose.cpu.yml -f docker-compose.logging.yml -f docker-compose.traefik.yml
+          validate -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.logging.yml -f docker-compose.traefik.yml
