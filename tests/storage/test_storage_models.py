@@ -129,12 +129,16 @@ class TestArtifactMetadata:
                 size_bytes=-1,
             )
 
-    def test_empty_checksum_rejected(self) -> None:
+    @pytest.mark.parametrize(
+        "checksum",
+        ["", "abc", "a" * 63, "a" * 65, "A" * 64, "g" * 64],
+    )
+    def test_invalid_checksum_rejected(self, checksum: str) -> None:
         with pytest.raises(ValidationError):
             ArtifactMetadata(
                 artifact_path="art-1",
                 media_type="application/pdf",
-                checksum="",
+                checksum=checksum,
             )
 
     def test_missing_required_fields_rejected(self) -> None:
