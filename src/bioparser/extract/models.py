@@ -1,10 +1,15 @@
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from bioparser.ets.vocab import AggregateMeasure, BasisOfRecord, Sex
+
 Trait = Literal["body_mass", "body_length", "tail_length"]
+CanonicalTraitUnit = Literal["g", "mm"]
 
 EXTRACTION_ARTIFACT_SCHEMA_VERSION: Literal["1"] = "1"
+
+_CONFIG = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
 
 class TextRange(BaseModel):
@@ -14,7 +19,7 @@ class TextRange(BaseModel):
     ``str``. ``end`` is greater than ``start``.
     """
 
-    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    model_config = _CONFIG
 
     block_id: str = Field(min_length=1)
     start: int
@@ -27,17 +32,126 @@ class TextRange(BaseModel):
         return self
 
 
-class Cited(BaseModel):
-    """One verbatim ETS field. Evidence is absent when the text was not located."""
+class Citation(BaseModel):
+    """Printed text. On a citation-only column, this text is the ETS value.
 
-    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    A range list, when present, concatenates to ``text``.
+    """
 
+    model_config = _CONFIG
+
+    kind: Literal["citation"] = "citation"
     text: str = Field(min_length=1)
-    evidence: TextRange | None = None
+    evidence: list[TextRange] | None = Field(default=None, min_length=1)
+
+
+class Interpretation(BaseModel):
+    """A value read from one citation. ``passage`` is that citation."""
+
+    model_config = _CONFIG
+
+    kind: Literal["interpretation"] = "interpretation"
+    value: str = Field(min_length=1)
+    passage: Citation
+
+
+class TraitInterpretation(BaseModel):
+    """The trait code. It is not printed, and it is not an ETS column."""
+
+    model_config = _CONFIG
+
+    kind: Literal["interpretation"] = "interpretation"
+    value: Trait
+    passage: Citation
+
+
+class SexInterpretation(BaseModel):
+    """Interpreted sex. The value is an ETS sex token."""
+
+    model_config = _CONFIG
+
+    kind: Literal["interpretation"] = "interpretation"
+    value: Sex
+    passage: Citation
+
+
+class BasisInterpretation(BaseModel):
+    """Interpreted basisOfRecord. The value is an ETS basis token."""
+
+    model_config = _CONFIG
+
+    kind: Literal["interpretation"] = "interpretation"
+    value: BasisOfRecord
+    passage: Citation
+
+
+class AggregateInterpretation(BaseModel):
+    """Interpreted aggregateMeasure. The value is TRUE or FALSE."""
+
+    model_config = _CONFIG
+
+    kind: Literal["interpretation"] = "interpretation"
+    value: AggregateMeasure
+    passage: Citation
+
+
+class TraitUnitInterpretation(BaseModel):
+    """Interpreted traitUnit. The value is grams or millimetres."""
+
+    model_config = _CONFIG
+
+    kind: Literal["interpretation"] = "interpretation"
+    value: CanonicalTraitUnit
+    passage: Citation
+
+
+class Correction(BaseModel):
+    """A narrow citation kept beside an interpretation.
+
+    ``citation`` is the narrow printed token. The interpretation's passage is
+    the wider text its value was read from. Both the citation and the
+    interpretation value are usable.
+    """
+
+    model_config = _CONFIG
+
+    kind: Literal["correction"] = "correction"
+    citation: Citation
+    interpretation: Interpretation
+
+
+# A column with no verbatim sibling. Its check can reject the printed text, so
+# the field is a citation or an interpretation. A citation that already passes
+# is kept. An interpretation supplies a value that can pass. The passage fails
+# the check, so it is not a usable column value. The sex, basis, and aggregate
+# aliases close that value.
+CitationOrInterpretation = Annotated[Citation | Interpretation, Field(discriminator="kind")]
+CitationOrSexInterpretation = Annotated[Citation | SexInterpretation, Field(discriminator="kind")]
+CitationOrBasisInterpretation = Annotated[
+    Citation | BasisInterpretation, Field(discriminator="kind")
+]
+CitationOrAggregateInterpretation = Annotated[
+    Citation | AggregateInterpretation, Field(discriminator="kind")
+]
+# A citation, or a correction that keeps the narrow token beside an
+# interpretation of a wider passage. Both are usable.
+CorrectableCitation = Annotated[Citation | Correction, Field(discriminator="kind")]
 
 
 class Observation(BaseModel):
-    """One measurement. Each paper field is grounded on its own."""
+    """One measurement.
+
+    A citation-only field is printed text. A correctable citation is that citation, or a
+    correction that keeps the narrow citation beside an interpretation. A citation
+    or interpretation has no verbatim sibling. Its check can reject the printed
+    text, so it is a citation or an interpretation of one passage. The passage
+    fails that check, so it is not a usable column value.
+
+    ``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations
+    beside a required verbatim citation. The interpretation is omitted when the
+    printed token is already the value. ``scientificName`` is another name a
+    later taxonomy lookup can try. ``traitUnit`` is ``g`` or ``mm``.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
@@ -46,39 +160,61 @@ class Observation(BaseModel):
         serialize_by_alias=True,
     )
 
-    trait: Trait
-    verbatimScientificName: Cited
-    verbatimTraitValue: Cited
-    verbatimTraitUnit: Cited
-    verbatimTraitName: Cited | None = None
-    taxonRank: Cited | None = None
-    kingdom: Cited | None = None
-    phylum: Cited | None = None
-    taxonClass: Cited | None = Field(default=None, alias="class")
-    order: Cited | None = None
-    family: Cited | None = None
-    genus: Cited | None = None
-    sex: Cited | None = None
-    lifeStage: Cited | None = None
-    age: Cited | None = None
-    morphotype: Cited | None = None
-    basisOfRecord: Cited | None = None
-    measurementMethod: Cited | None = None
-    measurementResolution: Cited | None = None
-    measurementRemarks: Cited | None = None
-    aggregateMeasure: Cited | None = None
-    statisticalMethod: Cited | None = None
-    individualCount: Cited | None = None
-    dispersion: Cited | None = None
-    measurementValue_min: Cited | None = None
-    measurementValue_max: Cited | None = None
-    measurementAccuracy: Cited | None = None
+    trait: TraitInterpretation
+    verbatimTraitName: CorrectableCitation | None = None
+
+    scientificName: Interpretation | None = None
+    verbatimScientificName: Citation
+
+    traitValue: Interpretation | None = None
+    verbatimTraitValue: Citation
+
+    traitUnit: TraitUnitInterpretation | None = None
+    verbatimTraitUnit: Citation
+
+    taxonRank: CorrectableCitation | None = None
+    kingdom: CorrectableCitation | None = None
+    phylum: CorrectableCitation | None = None
+    taxonClass: CorrectableCitation | None = Field(default=None, alias="class")
+    order: CorrectableCitation | None = None
+    family: CorrectableCitation | None = None
+    genus: CorrectableCitation | None = None
+
+    sex: CitationOrSexInterpretation | None = None
+    lifeStage: CorrectableCitation | None = None
+    age: CitationOrInterpretation | None = None
+    morphotype: CorrectableCitation | None = None
+
+    basisOfRecord: CitationOrBasisInterpretation | None = None
+
+    measurementMethod: CorrectableCitation | None = None
+    measurementResolution: CorrectableCitation | None = None
+    measurementRemarks: CorrectableCitation | None = None
+
+    aggregateMeasure: CitationOrAggregateInterpretation | None = None
+    statisticalMethod: CorrectableCitation | None = None
+    individualCount: CitationOrInterpretation | None = None
+    dispersion: CitationOrInterpretation | None = None
+    measurementValue_min: CitationOrInterpretation | None = None
+    measurementValue_max: CitationOrInterpretation | None = None
+    measurementAccuracy: CorrectableCitation | None = None
+
+    @model_validator(mode="after")
+    def _paired_field_has_its_verbatim_citation(self) -> "Observation":
+        for paired, verbatim in (
+            ("scientificName", "verbatimScientificName"),
+            ("traitValue", "verbatimTraitValue"),
+            ("traitUnit", "verbatimTraitUnit"),
+        ):
+            if getattr(self, paired) is not None and getattr(self, verbatim) is None:
+                raise ValueError(f"{verbatim} is required when {paired} is set")
+        return self
 
 
 class ExtractionArtifact(BaseModel):
     """Versioned extraction result stored for a job."""
 
-    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    model_config = _CONFIG
 
     schema_version: Literal["1"] = EXTRACTION_ARTIFACT_SCHEMA_VERSION
     extractor: str = Field(min_length=1)

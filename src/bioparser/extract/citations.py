@@ -6,8 +6,28 @@ The schema cannot do this. It does not open the parser artifact.
 from __future__ import annotations
 
 from bioparser.extract.errors import ExtractionFailedError
-from bioparser.extract.models import Cited, Observation
+from bioparser.extract.models import (
+    AggregateInterpretation,
+    BasisInterpretation,
+    Citation,
+    Correction,
+    Interpretation,
+    Observation,
+    SexInterpretation,
+    TextRange,
+    TraitInterpretation,
+    TraitUnitInterpretation,
+)
 from bioparser.parser.models import ParserArtifact, TextContent
+
+_INTERPRETATIONS = (
+    Interpretation,
+    TraitInterpretation,
+    SexInterpretation,
+    BasisInterpretation,
+    AggregateInterpretation,
+    TraitUnitInterpretation,
+)
 
 
 def reject_mismatched_ranges(
@@ -15,25 +35,65 @@ def reject_mismatched_ranges(
 ) -> None:
     """Reject a claimed range that is not the slice it names.
 
-    A field with no range is the extractor's choice and is left unchanged.
+    A citation with no range list is left unchanged. Several ranges must follow
+    the parser's block order, and their slices must join to the citation text.
+    An interpretation value is not compared with its passage.
     """
-    blocks = _text_by_block_id(parser_artifact)
+    texts, order = _blocks(parser_artifact)
     for observation in observations:
         for name in type(observation).model_fields:
-            value = getattr(observation, name)
-            if not isinstance(value, Cited) or value.evidence is None:
-                continue
-            evidence = value.evidence
-            text = blocks.get(evidence.block_id)
-            if text is None or text[evidence.start : evidence.end] != value.text:
-                raise ExtractionFailedError("cited text does not match its range")
+            _check(getattr(observation, name), texts, order)
 
 
-def _text_by_block_id(parser_artifact: ParserArtifact) -> dict[str, str]:
-    found: dict[str, str] = {}
+def _check(value: object, texts: dict[str, str], order: dict[str, int]) -> None:
+    if isinstance(value, Citation):
+        _check_citation(value, texts, order)
+    elif isinstance(value, _INTERPRETATIONS):
+        _check_citation(value.passage, texts, order)
+    elif isinstance(value, Correction):
+        _check_citation(value.citation, texts, order)
+        _check_citation(value.interpretation.passage, texts, order)
+
+
+def _check_citation(citation: Citation, texts: dict[str, str], order: dict[str, int]) -> None:
+    if citation.evidence is None:
+        return
+    parts: list[str] = []
+    previous: tuple[int, int] | None = None
+    for evidence in citation.evidence:
+        part = _slice(evidence, texts, order)
+        if previous is not None and _out_of_order(previous, evidence, order):
+            raise ExtractionFailedError("cited ranges are out of reading order")
+        previous = (order[evidence.block_id], evidence.end)
+        parts.append(part)
+    if "".join(parts) != citation.text:
+        raise ExtractionFailedError("cited text does not match its range")
+
+
+def _slice(evidence: TextRange, texts: dict[str, str], order: dict[str, int]) -> str:
+    text = texts.get(evidence.block_id)
+    if text is None or evidence.block_id not in order:
+        raise ExtractionFailedError("cited text does not match its range")
+    return text[evidence.start : evidence.end]
+
+
+def _out_of_order(previous: tuple[int, int], evidence: TextRange, order: dict[str, int]) -> bool:
+    previous_block, previous_end = previous
+    position = order[evidence.block_id]
+    return position < previous_block or (
+        position == previous_block and evidence.start < previous_end
+    )
+
+
+def _blocks(parser_artifact: ParserArtifact) -> tuple[dict[str, str], dict[str, int]]:
+    texts: dict[str, str] = {}
+    order: dict[str, int] = {}
+    index = 0
     for page in parser_artifact.pages:
         for block in page.blocks:
-            if block.block_id in found or not isinstance(block.content, TextContent):
+            if block.block_id in texts or not isinstance(block.content, TextContent):
                 continue
-            found[block.block_id] = block.content.text
-    return found
+            texts[block.block_id] = block.content.text
+            order[block.block_id] = index
+            index += 1
+    return texts, order

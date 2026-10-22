@@ -20,7 +20,13 @@ from bioparser.extract.errors import (
     ExtractorBackendUnavailableError,
     ExtractorProcessError,
 )
-from bioparser.extract.models import Cited, ExtractionArtifact, Observation, TextRange
+from bioparser.extract.models import (
+    Citation,
+    ExtractionArtifact,
+    Observation,
+    TextRange,
+    TraitInterpretation,
+)
 from bioparser.extract.protocol import Extractor
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
 from bioparser.jobqueue import (
@@ -251,7 +257,7 @@ def test_success_stores_the_report_and_marks_done() -> None:
     value = stored.observations[0].verbatimTraitValue
     assert value.text == "12.5"
     assert value.evidence is not None
-    assert QUOTE[value.evidence.start : value.evidence.end] == "12.5"
+    assert QUOTE[value.evidence[0].start : value.evidence[0].end] == "12.5"
     assert stored.observations[0].verbatimScientificName.evidence is None
     assert stored.extractor == "default"
     assert stored.extractor_version == "1"
@@ -628,7 +634,7 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
         .verbatimTraitValue
     )
     assert basic_value.evidence is not None
-    assert basic_text[basic_value.evidence.start : basic_value.evidence.end] == "12.5"
+    assert basic_text[basic_value.evidence[0].start : basic_value.evidence[0].end] == "12.5"
     standard_value = (
         ExtractionArtifact.model_validate_json(storage.retrieve(standard_path))
         .observations[0]
@@ -671,12 +677,12 @@ def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPa
 
 def _observation_with_range(start: int, end: int, text: str) -> Observation:
     return Observation(
-        trait="body_mass",
-        verbatimScientificName=Cited(text="Mus musculus"),
-        verbatimTraitValue=Cited(
-            text=text, evidence=TextRange(block_id="b0", start=start, end=end)
+        trait=TraitInterpretation(value="body_mass", passage=Citation(text=text)),
+        verbatimScientificName=Citation(text="Mus musculus"),
+        verbatimTraitValue=Citation(
+            text=text, evidence=[TextRange(block_id="b0", start=start, end=end)]
         ),
-        verbatimTraitUnit=Cited(text="g"),
+        verbatimTraitUnit=Citation(text="g"),
     )
 
 

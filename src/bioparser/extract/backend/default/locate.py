@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from bioparser.extract.backend.default.schema import Extraction, ModelObservation
-from bioparser.extract.models import Cited, Observation, TextRange
+from bioparser.extract.models import Citation, Observation, TextRange, TraitInterpretation
 from bioparser.parser.models import ParserArtifact, TextContent
 
 
@@ -18,7 +18,10 @@ def _observation(observation: ModelObservation, parser_artifact: ParserArtifact)
     block_id = observation.evidence_block_id
     block_text = _block_text(parser_artifact, block_id)
     return Observation(
-        trait=observation.trait,
+        trait=TraitInterpretation(
+            value=observation.trait,
+            passage=_quotation(block_text, block_id, observation.quotation),
+        ),
         verbatimScientificName=_cited(
             block_text, block_id, observation.quotation, observation.taxon
         ),
@@ -29,12 +32,22 @@ def _observation(observation: ModelObservation, parser_artifact: ParserArtifact)
     )
 
 
-def _cited(block_text: str | None, block_id: str, quotation: str, value: str) -> Cited:
+def _cited(block_text: str | None, block_id: str, quotation: str, value: str) -> Citation:
     span = _field_span(block_text, quotation, value)
     if span is None:
-        return Cited(text=value)
+        return Citation(text=value)
     start, end = span
-    return Cited(text=value, evidence=TextRange(block_id=block_id, start=start, end=end))
+    return Citation(text=value, evidence=[TextRange(block_id=block_id, start=start, end=end)])
+
+
+def _quotation(block_text: str | None, block_id: str, quotation: str) -> Citation:
+    if block_text is None:
+        return Citation(text=quotation)
+    span = _unique_span(block_text, quotation, 0)
+    if span is None:
+        return Citation(text=quotation)
+    start, end = span
+    return Citation(text=quotation, evidence=[TextRange(block_id=block_id, start=start, end=end)])
 
 
 def _field_span(block_text: str | None, quotation: str, value: str) -> tuple[int, int] | None:

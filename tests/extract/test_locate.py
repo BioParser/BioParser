@@ -1,7 +1,7 @@
 from bioparser.extract.backend.default.locate import cited_observations
 from bioparser.extract.backend.default.schema import Extraction, ModelObservation
 from bioparser.extract.citations import reject_mismatched_ranges
-from bioparser.extract.models import Cited, Observation
+from bioparser.extract.models import Citation, Observation
 from bioparser.parser.models import (
     PARSER_ARTIFACT_SCHEMA_VERSION,
     BlockKind,
@@ -64,11 +64,12 @@ def _locate(
     return located
 
 
-def _slice(paper: ParserArtifact, field: Cited) -> str:
+def _slice(paper: ParserArtifact, field: Citation) -> str:
     assert field.evidence is not None
-    block = paper.pages[0].blocks[int(field.evidence.block_id[1:])]
+    evidence = field.evidence[0]
+    block = paper.pages[0].blocks[int(evidence.block_id[1:])]
     assert isinstance(block.content, TextContent)
-    return block.content.text[field.evidence.start : field.evidence.end]
+    return block.content.text[evidence.start : evidence.end]
 
 
 def test_a_value_inside_a_unique_sentence_gets_its_range() -> None:
@@ -87,7 +88,7 @@ def test_the_range_is_in_the_whole_block_not_the_sentence() -> None:
     value = _locate(paper).verbatimTraitValue
 
     assert value.evidence is not None
-    assert value.evidence.start == text.index("12.5")
+    assert value.evidence[0].start == text.index("12.5")
 
 
 def test_a_sentence_missing_from_the_block_stores_the_text_without_a_range() -> None:
