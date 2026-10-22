@@ -1,6 +1,7 @@
 """VLLMService logging: one record per completion request, numbers only."""
 
 import itertools
+import json
 import logging
 from collections.abc import Callable
 
@@ -251,3 +252,72 @@ def test_the_api_key_is_masked_when_settings_are_printed() -> None:
     assert API_KEY not in repr(settings)
     assert API_KEY not in str(settings)
     assert settings.vllm_api_key.get_secret_value() == API_KEY
+
+
+@pytest.mark.anyio
+async def test_a_404_clears_the_cached_model_and_rediscovers_it(
+    vllm_transport: Callable[[Handler], None],
+) -> None:
+    model_discoveries = 0
+    requested_models: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal model_discoveries
+
+        if request.url.path.endswith("/models"):
+            model_discoveries += 1
+            model = "old-model" if model_discoveries == 1 else "new-model"
+            return httpx2.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [{"id": model}],
+                },
+            )
+
+        body = json.loads(request.content)
+        requested_models.append(body["model"])
+
+        if body["model"] == "old-model":
+            return httpx2.Response(
+                404,
+                json={
+                    "error": {
+                        "message": "model not found",
+                        "type": "invalid_request_error",
+                        "code": "model_not_found",
+                    }
+                },
+            )
+
+        return httpx2.Response(
+            200,
+            json=_completion() | {"model": "new-model"},
+        )
+
+    vllm_transport(handler)
+    service = VLLMService()
+
+    try:
+        with pytest.raises(VLLMError):
+            await service.generate_json(
+                PROMPT,
+                schema={},
+                system_prompt="sys",
+                max_tokens=64,
+            )
+
+        assert service.model is None
+
+        result = await service.generate_json(
+            PROMPT,
+            schema={},
+            system_prompt="sys",
+            max_tokens=64,
+        )
+    finally:
+        await service.aclose()
+
+    assert result == '{"observations": []}'
+    assert model_discoveries == 2
+    assert requested_models == ["old-model", "new-model"]

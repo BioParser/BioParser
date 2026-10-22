@@ -3,7 +3,7 @@ import logging
 from collections.abc import Awaitable
 from typing import Any
 
-from openai import APIError, AsyncOpenAI, BadRequestError, UnprocessableEntityError
+from openai import APIError, AsyncOpenAI, BadRequestError, NotFoundError, UnprocessableEntityError
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 from bioparser.logging_config import stopwatch
@@ -150,10 +150,11 @@ class VLLMService:
         system_prompt: str,
         max_tokens: int,
     ) -> str:
+        requested_model = await self.get_model()
         try:
             response = await self._logged(
                 self.client.chat.completions.create(
-                    model=await self.get_model(),
+                    model=requested_model,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt},
@@ -168,6 +169,11 @@ class VLLMService:
                     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 )
             )
+        except NotFoundError as exc:
+            async with self._lock:
+                if self.model == requested_model:
+                    self.model = None
+            raise VLLMError(f"vLLM request failed: {type(exc).__name__}") from exc
         except (BadRequestError, UnprocessableEntityError) as exc:
             raise VLLMRequestRejectedError(
                 f"vLLM rejected the request: {type(exc).__name__}"
