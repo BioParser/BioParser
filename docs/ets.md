@@ -4,11 +4,13 @@ BioParser targets ETS v0.10. The vocabulary is published at <https://ecologicalt
 
 The extraction artifact stores what the paper said. It checks the shape of an observation and does not set a quality bar. The ETS adapter is the later step that builds the standardized ETS columns from this file, and it is the quality gate for what a user is shown. It does not write those columns back into the artifact. An extractor may use the same checks to refine a result before storing it, and it may store a looser one.
 
+Keeping the looser result makes the pipeline easier to develop. A missing range, an unresolved name, or a unit that cannot be converted is still in the file, so the model's attempt is still there to read. A debug route or a script can show that file, which is more than the user is shown. The user-facing response is where a row is rewritten or dropped.
+
 ## Stored observation
 
 One observation is one measurement, which is one ETS row.
 
-The artifact records the extractor name and the extractor version once. It does not record a model id or other extractor configuration. Each observation has:
+The artifact records the extractor name and the extractor version once. Each observation has:
 
 - Trait: `trait`, one of `body_mass`, `body_length`, or `tail_length`. The artifact defines this set. A code outside it is rejected.
 - Required fields: `verbatimScientificName`, `verbatimTraitValue`, and `verbatimTraitUnit`. Each has a non-empty string.
