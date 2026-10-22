@@ -44,7 +44,7 @@ def test_an_empty_range_is_rejected() -> None:
 
 def test_empty_text_is_rejected() -> None:
     with pytest.raises(ValidationError):
-        Citation(text="")
+        Citation(text="", evidence=[TextRange(block_id="b0", start=0, end=1)])
 
 
 def test_a_mismatched_unit_is_stored_as_printed() -> None:
@@ -68,7 +68,7 @@ def test_the_trait_is_any_non_empty_string() -> None:
 
 def test_a_citation_without_a_range_is_rejected() -> None:
     with pytest.raises(ValidationError):
-        Citation(text="12.5")
+        Citation.model_validate({"text": "12.5"})
 
     with pytest.raises(ValidationError):
         Citation.model_validate({"text": "12.5", "evidence": []})

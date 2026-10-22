@@ -650,8 +650,8 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
     )
     assert basic_value.evidence is not None
     assert basic_text[basic_value.evidence[0].start : basic_value.evidence[0].end] == "12.5"
-    standard = ExtractionArtifact.model_validate_json(storage.retrieve(standard_path))
-    assert standard.observations == []
+    standard_result = ExtractionArtifact.model_validate_json(storage.retrieve(standard_path))
+    assert standard_result.observations == []
 
 
 def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPatch) -> None:
