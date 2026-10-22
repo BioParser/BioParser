@@ -2,7 +2,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from bioparser.ets.vocab import AggregateMeasure, BasisOfRecord, Sex
+from bioparser.ets_vocab import AggregateMeasure, BasisOfRecord, Sex
 
 Trait = Literal["body_mass", "body_length", "tail_length"]
 CanonicalTraitUnit = Literal["g", "mm"]
