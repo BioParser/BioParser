@@ -301,12 +301,51 @@ def test_a_paired_field_rejects_a_correction() -> None:
         )
 
 
+def test_a_paper_can_state_where_and_when_the_organism_was_recorded() -> None:
+    observation = _observation(
+        occurrenceID=_cite("FMNH 145732"),
+        year=_cite("2008"),
+        decimalLatitude=Interpretation(value="-41.0983423", passage=_cite("41° S")),
+        countryCode=_cite("AR"),
+    )
+
+    assert isinstance(observation.occurrenceID, Citation)
+    assert observation.occurrenceID.text == "FMNH 145732"
+    assert isinstance(observation.year, Citation)
+    assert observation.year.text == "2008"
+    assert isinstance(observation.decimalLatitude, Interpretation)
+    assert observation.decimalLatitude.value == "-41.0983423"
+    assert isinstance(observation.countryCode, Citation)
+    assert observation.eventID is None
+
+    with pytest.raises(ValidationError):
+        Observation.model_validate(
+            {
+                "trait": {
+                    "kind": "interpretation",
+                    "value": "body_mass",
+                    "passage": {"text": "weighed"},
+                },
+                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
+                "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
+                "verbatimTraitUnit": {"kind": "citation", "text": "g"},
+                "measurementID": "1",
+            }
+        )
+
+
 def test_a_trait_unit_outside_grams_or_millimetres_is_rejected() -> None:
     with pytest.raises(ValidationError):
-        Observation(
-            trait=_trait(),
-            verbatimScientificName=_cite("Mus musculus"),
-            verbatimTraitValue=_cite("12.5"),
-            verbatimTraitUnit=_cite("kg"),
-            traitUnit=Citation(text="kg"),
+        Observation.model_validate(
+            {
+                "trait": {
+                    "kind": "interpretation",
+                    "value": "body_mass",
+                    "passage": {"text": "weighed"},
+                },
+                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
+                "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
+                "verbatimTraitUnit": {"kind": "citation", "text": "kg"},
+                "traitUnit": {"kind": "citation", "text": "kg"},
+            }
         )

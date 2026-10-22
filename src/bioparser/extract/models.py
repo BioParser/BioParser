@@ -146,6 +146,8 @@ class Observation(BaseModel):
     beside a required verbatim citation. The interpretation is omitted when the
     printed token is already the value. ``scientificName`` is another name a
     later taxonomy lookup can try. ``traitUnit`` is ``g`` or ``mm``.
+
+    Every other ETS column a paper can state is optional. An extractor leaves it null.
     """
 
     model_config = ConfigDict(
@@ -181,10 +183,13 @@ class Observation(BaseModel):
     morphotype: CorrectableCitation | None = None
 
     basisOfRecord: BasisInterpretation | None = None
+    basisOfRecordDescription: CorrectableCitation | None = None
 
     measurementMethod: CorrectableCitation | None = None
     measurementResolution: CorrectableCitation | None = None
     measurementRemarks: CorrectableCitation | None = None
+    measurementDeterminedBy: CorrectableCitation | None = None
+    measurementDeterminedDate: CitationOrInterpretation | None = None
 
     aggregateMeasure: AggregateInterpretation | None = None
     statisticalMethod: CorrectableCitation | None = None
@@ -193,6 +198,26 @@ class Observation(BaseModel):
     measurementValue_min: CitationOrInterpretation | None = None
     measurementValue_max: CitationOrInterpretation | None = None
     measurementAccuracy: CorrectableCitation | None = None
+
+    occurrenceID: CorrectableCitation | None = None
+
+    eventID: CorrectableCitation | None = None
+    preparations: CorrectableCitation | None = None
+    samplingProtocol: CorrectableCitation | None = None
+    year: CitationOrInterpretation | None = None
+    month: CitationOrInterpretation | None = None
+    day: CitationOrInterpretation | None = None
+    eventDate: CitationOrInterpretation | None = None
+    locationID: CorrectableCitation | None = None
+    habitat: CorrectableCitation | None = None
+    decimalLongitude: CitationOrInterpretation | None = None
+    decimalLatitude: CitationOrInterpretation | None = None
+    elevation: CitationOrInterpretation | None = None
+    geodeticDatum: CorrectableCitation | None = None
+    verbatimLocality: CorrectableCitation | None = None
+    country: CorrectableCitation | None = None
+    countryCode: CitationOrInterpretation | None = None
+    occurrenceRemarks: CorrectableCitation | None = None
 
     @model_validator(mode="after")
     def _paired_field_has_its_verbatim_citation(self) -> "Observation":
