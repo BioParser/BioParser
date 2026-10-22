@@ -16,6 +16,7 @@ from uuid import UUID
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from pydantic import ValidationError
 
+from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.jobqueue import (
     JobQueueError,
     ParseJobMessage,
@@ -293,6 +294,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         job_id=job_id,
         status="queued",
         parser=DEFAULT_PARSER_NAME,
+        extractor=DEFAULT_EXTRACTOR_NAME,
         pdf_ref=pdf_ref,
     )
     try:

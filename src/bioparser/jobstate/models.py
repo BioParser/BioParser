@@ -5,6 +5,7 @@ from typing import Literal, Self
 from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from bioparser.artifact_paths import ArtifactPath
+from bioparser.extractor_names import EXTRACTORS
 from bioparser.parser_names import PARSER_BACKENDS
 
 # One linear pipeline. The parse worker owns queued -> parsing -> parsed.
@@ -54,6 +55,7 @@ class JobState(BaseModel):
     job_id: UUID4
     status: JobStatus
     parser: str = Field(min_length=1)
+    extractor: str = Field(min_length=1)
     pdf_ref: ArtifactPath
     parse_result_ref: ArtifactPath | None = None
     extract_result_ref: ArtifactPath | None = None
@@ -90,6 +92,13 @@ class JobState(BaseModel):
     def known_parser(cls, value: str) -> str:
         if value not in PARSER_BACKENDS:
             raise ValueError(f"must be one of: {', '.join(PARSER_BACKENDS)}")
+        return value
+
+    @field_validator("extractor")
+    @classmethod
+    def known_extractor(cls, value: str) -> str:
+        if value not in EXTRACTORS:
+            raise ValueError(f"must be one of: {', '.join(EXTRACTORS)}")
         return value
 
     @field_validator("claim_counts")

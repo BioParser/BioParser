@@ -16,6 +16,7 @@ def _queued(**overrides: object) -> JobState:
         "job_id": "3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34",
         "status": "queued",
         "parser": "default",
+        "extractor": "default",
         "pdf_ref": PDF_REF,
     }
     fields.update(overrides)
@@ -195,6 +196,18 @@ def test_job_state_rejects_unknown_schema_version() -> None:
 
 
 # --- Jobstate fields --------------------------------------------------------
+
+
+def test_job_state_requires_an_extractor_name() -> None:
+    raw = _queued().model_dump()
+    del raw["extractor"]
+    with pytest.raises(ValidationError):
+        JobState.model_validate(raw)
+
+
+def test_job_state_rejects_an_unknown_extractor() -> None:
+    with pytest.raises(ValidationError, match="extractor"):
+        _queued(extractor="other")
 
 
 def test_job_state_rejects_unknown_field() -> None:

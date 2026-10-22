@@ -12,6 +12,7 @@ import pytest
 from httpx2 import ASGITransport
 
 from bioparser.api.app import app
+from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.jobqueue import ParseJobMessage
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
@@ -135,6 +136,7 @@ async def test_redis_backed_submission_and_polling(
             job_id=parsed_job_id,
             status="queued",
             parser=DEFAULT_PARSER_NAME,
+            extractor=DEFAULT_EXTRACTOR_NAME,
             pdf_ref=expected_pdf_ref,
         )
         assert artifact_storage.retrieve(queued.pdf_ref) == MINIMAL_PDF
