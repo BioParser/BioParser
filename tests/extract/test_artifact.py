@@ -3,6 +3,8 @@ from pydantic import ValidationError
 
 from bioparser.extract.backend.default.schema import Extraction, ModelObservation
 from bioparser.extract.models import (
+    AggregateInterpretation,
+    BasisInterpretation,
     Citation,
     Correction,
     ExtractionArtifact,
@@ -144,6 +146,47 @@ def test_a_copied_field_keeps_the_narrow_citation() -> None:
     assert stage.citation.text == "adult"
     assert stage.interpretation.value == "adult"
     assert stage.interpretation.passage.text == "adult males"
+
+
+def test_basis_and_aggregate_are_interpretations_only() -> None:
+    observation = _observation(
+        basisOfRecord=BasisInterpretation(value="FossilSpecimen", passage=_cite("fossil")),
+        aggregateMeasure=AggregateInterpretation(value="TRUE", passage=_cite("mean of 12")),
+    )
+
+    assert observation.basisOfRecord is not None
+    assert observation.basisOfRecord.value == "FossilSpecimen"
+    assert observation.aggregateMeasure is not None
+    assert observation.aggregateMeasure.value == "TRUE"
+
+    with pytest.raises(ValidationError):
+        Observation.model_validate(
+            {
+                "trait": {
+                    "kind": "interpretation",
+                    "value": "body_mass",
+                    "passage": {"text": "weighed"},
+                },
+                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
+                "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
+                "verbatimTraitUnit": {"kind": "citation", "text": "g"},
+                "basisOfRecord": {"kind": "citation", "text": "LivingSpecimen"},
+            }
+        )
+    with pytest.raises(ValidationError):
+        Observation.model_validate(
+            {
+                "trait": {
+                    "kind": "interpretation",
+                    "value": "body_mass",
+                    "passage": {"text": "weighed"},
+                },
+                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
+                "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
+                "verbatimTraitUnit": {"kind": "citation", "text": "g"},
+                "aggregateMeasure": {"kind": "citation", "text": "TRUE"},
+            }
+        )
 
 
 def test_a_verbatim_field_rejects_a_choice() -> None:

@@ -123,16 +123,9 @@ class Correction(BaseModel):
 # A column with no verbatim sibling. Its check can reject the printed text, so
 # the field is a citation or an interpretation. A citation that already passes
 # is kept. An interpretation supplies a value that can pass. The passage fails
-# the check, so it is not a usable column value. The sex, basis, and aggregate
-# aliases close that value.
+# the check, so it is not a usable column value. The sex alias closes that value.
 CitationOrInterpretation = Annotated[Citation | Interpretation, Field(discriminator="kind")]
 CitationOrSexInterpretation = Annotated[Citation | SexInterpretation, Field(discriminator="kind")]
-CitationOrBasisInterpretation = Annotated[
-    Citation | BasisInterpretation, Field(discriminator="kind")
-]
-CitationOrAggregateInterpretation = Annotated[
-    Citation | AggregateInterpretation, Field(discriminator="kind")
-]
 # A citation, or a correction that keeps the narrow token beside an
 # interpretation of a wider passage. Both are usable.
 CorrectableCitation = Annotated[Citation | Correction, Field(discriminator="kind")]
@@ -145,7 +138,9 @@ class Observation(BaseModel):
     correction that keeps the narrow citation beside an interpretation. A citation
     or interpretation has no verbatim sibling. Its check can reject the printed
     text, so it is a citation or an interpretation of one passage. The passage
-    fails that check, so it is not a usable column value.
+    fails that check, so it is not a usable column value. ``basisOfRecord`` and
+    ``aggregateMeasure`` are interpretations only. A paper does not print those
+    tokens.
 
     ``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations
     beside a required verbatim citation. The interpretation is omitted when the
@@ -185,13 +180,13 @@ class Observation(BaseModel):
     age: CitationOrInterpretation | None = None
     morphotype: CorrectableCitation | None = None
 
-    basisOfRecord: CitationOrBasisInterpretation | None = None
+    basisOfRecord: BasisInterpretation | None = None
 
     measurementMethod: CorrectableCitation | None = None
     measurementResolution: CorrectableCitation | None = None
     measurementRemarks: CorrectableCitation | None = None
 
-    aggregateMeasure: CitationOrAggregateInterpretation | None = None
+    aggregateMeasure: AggregateInterpretation | None = None
     statisticalMethod: CorrectableCitation | None = None
     individualCount: CitationOrInterpretation | None = None
     dispersion: CitationOrInterpretation | None = None
