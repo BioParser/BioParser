@@ -20,8 +20,8 @@ from bioparser.ets.units import CanonicalTraitValue, TargetUnit, convert_trait_v
 from bioparser.ets.vocab import BasisOfRecord, Sex, match_aggregate, match_basis, match_sex
 from bioparser.extract.models import (
     Citation,
+    CitationOrCorrection,
     CitationOrInterpretation,
-    CorrectableCitation,
     Correction,
     Interpretation,
     Observation,
@@ -209,7 +209,7 @@ def _parse_trait_value(observation: Observation) -> CanonicalTraitValue | DropRe
     return convert_trait_value_to_canonical(observation.trait.value, value, unit)
 
 
-def _cited(value: CorrectableCitation | None) -> str | None:
+def _cited(value: CitationOrCorrection | None) -> str | None:
     if value is None:
         return None
     if isinstance(value, Correction):
