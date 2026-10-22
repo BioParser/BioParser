@@ -11,7 +11,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from bioparser.ets_vocab import BasisOfRecord, Sex
+from bioparser.ets.vocab import BasisOfRecord, Sex
 
 _DECIMAL = re.compile(r"^(?:0|[1-9]\d*)(?:\.\d+)?$|^\.\d+$")
 _MEASUREMENT_ID = re.compile(r"^[1-9]\d*$")
@@ -63,8 +63,8 @@ class EtsRow(BaseModel):
     age: float | None = Field(default=None, allow_inf_nan=False)
     morphotype: str | None = None
 
-    # Where the measurement came from.
-    basisOfRecord: BasisOfRecord
+    # Where the measurement came from. None when the stored token is not an ETS value.
+    basisOfRecord: BasisOfRecord | None = None
     basisOfRecordDescription: str | None = None
 
     # How the value was measured.

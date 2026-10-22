@@ -4,8 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-UnlocatedField = Literal[
-    "trait",
+TextField = Literal[
     "traitValue",
     "traitUnit",
     "verbatimScientificName",
@@ -72,15 +71,6 @@ NumericField = Literal[
 DateField = Literal["measurementDeterminedDate", "eventDate"]
 
 
-class Unlocated(BaseModel):
-    """A stored field whose printed text has no range."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["unlocated"] = "unlocated"
-    field: UnlocatedField
-
-
 class NotNumeric(BaseModel):
     """A printed number that is not the ETS numeric type."""
 
@@ -96,16 +86,7 @@ class NotInVocabulary(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["not_in_vocabulary"] = "not_in_vocabulary"
-    field: Literal["sex", "basisOfRecord", "countryCode"]
-
-
-class NotLogical(BaseModel):
-    """aggregateMeasure was printed as something other than TRUE or FALSE."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["not_logical"] = "not_logical"
-    field: Literal["aggregateMeasure"] = "aggregateMeasure"
+    field: Literal["sex", "basisOfRecord", "aggregateMeasure", "countryCode"]
 
 
 class NotADate(BaseModel):
@@ -117,7 +98,7 @@ class NotADate(BaseModel):
     field: DateField
 
 
-Warning = Unlocated | NotNumeric | NotInVocabulary | NotLogical | NotADate
+Warning = NotNumeric | NotInVocabulary | NotADate
 
 
 def format_warning(warning: Warning) -> str:

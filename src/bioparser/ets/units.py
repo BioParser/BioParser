@@ -5,27 +5,25 @@ from decimal import Decimal
 from typing import Literal
 
 from bioparser.ets.numbers import canonical_decimal
-from bioparser.extract.models import Trait
 
 Unit = Literal["g", "kg", "mm", "cm", "m"]
 TargetUnit = Literal["g", "mm"]
-UnitProblem = Literal["unit_unknown", "unit_not_for_trait", "value_not_numeric"]
+UnitProblem = Literal["trait_unknown", "unit_unknown", "unit_not_for_trait", "value_not_numeric"]
 
-# Mass is grams. Length is millimetres.
-TRAIT_UNITS: dict[Trait, frozenset[Unit]] = {
+# Mass is grams. Length is millimetres. This list is the trait check until a thesaurus exists.
+TRAIT_UNITS: dict[str, frozenset[Unit]] = {
     "body_mass": frozenset({"g", "kg"}),
     "body_length": frozenset({"mm", "cm", "m"}),
     "tail_length": frozenset({"mm", "cm", "m"}),
 }
 
-_FACTOR: dict[Unit, Decimal] = {
+_FACTOR: dict[str, Decimal] = {
     "g": Decimal(1),
     "kg": Decimal(1000),
     "mm": Decimal(1),
     "cm": Decimal(10),
     "m": Decimal(1000),
 }
-_KNOWN: frozenset[str] = frozenset(_FACTOR)
 
 
 @dataclass(frozen=True)
@@ -37,12 +35,15 @@ class CanonicalTraitValue:
 
 
 def convert_trait_value_to_canonical(
-    trait: Trait, value: str, unit: str
+    trait: str, value: str, unit: str
 ) -> CanonicalTraitValue | UnitProblem:
-    """Verbatim trait value in grams or millimetres, or why it cannot be converted."""
-    if unit not in _KNOWN:
+    """Resolved trait value in grams or millimetres, or why it cannot be converted."""
+    allowed = TRAIT_UNITS.get(trait)
+    if allowed is None:
+        return "trait_unknown"
+    if unit not in _FACTOR:
         return "unit_unknown"
-    if unit not in TRAIT_UNITS[trait]:
+    if unit not in allowed:
         return "unit_not_for_trait"
     rendered = canonical_decimal(value)
     if rendered is None:

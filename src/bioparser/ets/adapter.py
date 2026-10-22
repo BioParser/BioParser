@@ -1,26 +1,63 @@
 """Assemble ETS rows from assessments. The quality rules live in assess."""
 
-from bioparser.ets.assess import Dropped, Kept, assess
+from pydantic import BaseModel, ConfigDict, Field
+
+from bioparser.ets.assess import Dropped, DropReason, Kept, assess
 from bioparser.ets.models import EtsRow
 from bioparser.ets.warnings import format_warning
 from bioparser.extract.models import ExtractionArtifact
 
 
-def to_ets(artifact: ExtractionArtifact, *, references: str) -> list[EtsRow]:
+class MappedRow(BaseModel):
+    """One kept row and the observation it was built from."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_index: int = Field(ge=0)
+    row: EtsRow
+
+
+class Drop(BaseModel):
+    """One observation that did not become a row."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_index: int = Field(ge=0)
+    reason: DropReason
+
+
+class EtsResult(BaseModel):
+    """Rows for the observations that were kept, and a reason for each one that was not."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    rows: list[MappedRow]
+    drops: list[Drop]
+
+
+def to_ets(artifact: ExtractionArtifact, *, references: str) -> EtsResult:
     """Map one stored artifact to ETS v0.10 rows.
 
-    A dropped observation is absent. The artifact is not modified.
+    ``source_index`` is the position in ``artifact.observations``. ``measurementID``
+    counts only the kept rows. The artifact is not modified.
     """
     if references == "":
         raise ValueError("references is empty")
-    rows: list[EtsRow] = []
-    for observation in artifact.observations:
+    rows: list[MappedRow] = []
+    drops: list[Drop] = []
+    for index, observation in enumerate(artifact.observations):
         verdict = assess(observation)
         if isinstance(verdict, Dropped):
+            drops.append(Drop(source_index=index, reason=verdict.drop))
             continue
-        rows.append(_row(verdict, references=references, measurement_id=str(len(rows) + 1)))
-    _require_unique_ids(rows)
-    return rows
+        rows.append(
+            MappedRow(
+                source_index=index,
+                row=_row(verdict, references=references, measurement_id=str(len(rows) + 1)),
+            )
+        )
+    _require_unique_ids([item.row for item in rows])
+    return EtsResult(rows=rows, drops=drops)
 
 
 def _require_unique_ids(rows: list[EtsRow]) -> None:
@@ -38,7 +75,7 @@ def _row(
     return EtsRow.model_validate(
         {
             "verbatimTraitName": verdict.cited["verbatimTraitName"],
-            "scientificName": verdict.cited["verbatimScientificName"],
+            "scientificName": verdict.scientific_name,
             "verbatimScientificName": verdict.cited["verbatimScientificName"],
             "traitValue": verdict.trait_value,
             "verbatimTraitValue": verdict.cited["verbatimTraitValue"],

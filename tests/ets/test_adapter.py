@@ -7,36 +7,35 @@ from bioparser.ets.dates import parse_date
 from bioparser.ets.models import EtsRow
 from bioparser.ets.warnings import NotNumeric
 from bioparser.extract.models import (
-    AggregateInterpretation,
-    BasisInterpretation,
     Citation,
+    Correction,
     ExtractionArtifact,
     Interpretation,
     Observation,
     TextRange,
-    TraitInterpretation,
-    TraitUnitInterpretation,
 )
 
 _DOCUMENT_ID = "abc123"
 
 
-def _cited(text: str, *, located: bool = True, start: int = 0) -> Citation:
-    if not located:
-        return Citation(text=text)
+def _cited(text: str, *, start: int = 0) -> Citation:
     return Citation(
         text=text, evidence=[TextRange(block_id="b0", start=start, end=start + len(text))]
     )
 
 
+def _read(value: str, passage: str, *, start: int) -> Interpretation:
+    return Interpretation(value=value, passage=_cited(passage, start=start))
+
+
 def _observation(**changes: object) -> Observation:
     observation = Observation(
-        trait=TraitInterpretation(value="body_mass", passage=_cited("body mass", start=10)),
+        trait=_read("body_mass", "body mass", start=10),
         verbatimScientificName=_cited("M. musculus", start=0),
         verbatimTraitValue=_cited("12.5", start=20),
         verbatimTraitUnit=_cited("kg", start=25),
         individualCount=_cited("25", start=30),
-        measurementValue_min=_cited("1.5", start=40),
+        measurementValueMin=_cited("1.5", start=40),
     )
     if not changes:
         return observation
@@ -73,11 +72,13 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     artifact = _artifact(observation)
     before = artifact.model_dump()
 
-    rows = to_ets(artifact, references=_DOCUMENT_ID)
+    result = to_ets(artifact, references=_DOCUMENT_ID)
 
     assert artifact.model_dump() == before
-    assert len(rows) == 1
-    row = rows[0]
+    assert result.drops == []
+    assert len(result.rows) == 1
+    assert result.rows[0].source_index == 0
+    row = result.rows[0].row
     dumped = row.model_dump()
     assert dumped["traitValue"] == "12500"
     assert dumped["traitUnit"] == "g"
@@ -100,67 +101,116 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     assert set(dumped) == aliases
 
 
-def test_a_stored_converted_pair_is_not_converted_again() -> None:
-    observation = _observation(
-        traitValue=Interpretation(value="12500", passage=_cited("12.5 kg", start=20)),
-        traitUnit=TraitUnitInterpretation(value="g", passage=_cited("12.5 kg", start=20)),
+def test_a_stored_name_replaces_the_verbatim_citation() -> None:
+    observation = _observation(scientificName=_read("Mus musculus", "M. musculus", start=0))
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.scientificName == "Mus musculus"
+    assert row.verbatimScientificName == "M. musculus"
+
+
+def test_each_stored_trait_part_is_used_on_its_own() -> None:
+    both = _observation(
+        traitValue=_read("12500", "12.5 kg", start=20),
+        traitUnit=_read("g", "12.5 kg", start=20),
     )
+    value_only = _observation(traitValue=_read("2", "12.5 kg", start=20))
+    unit_only = _observation(traitUnit=_read("g", "kg", start=25))
+    neither = _observation()
 
-    rows = to_ets(_artifact(observation), references=_DOCUMENT_ID)
+    rows = [
+        to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+        for observation in (both, value_only, unit_only, neither)
+    ]
 
-    assert rows[0].traitValue == "12500"
-    assert rows[0].traitUnit == "g"
+    assert (rows[0].traitValue, rows[0].traitUnit) == ("12500", "g")
+    assert (rows[1].traitValue, rows[1].traitUnit) == ("2000", "g")
+    assert (rows[2].traitValue, rows[2].traitUnit) == ("12.5", "g")
+    assert (rows[3].traitValue, rows[3].traitUnit) == ("12500", "g")
+    assert rows[2].verbatimTraitValue == "12.5"
+    assert rows[2].verbatimTraitUnit == "kg"
+
+
+def test_a_correction_supplies_the_column_and_the_citation_stays_stored() -> None:
+    observation = _observation(
+        lifeStage=Correction(
+            citation=_cited("juv.", start=50),
+            interpretation=_read("juvenile", "juvenile males", start=50),
+        )
+    )
+    before = observation.lifeStage
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.lifeStage == "juvenile"
+    assert observation.lifeStage == before
+    assert isinstance(before, Correction)
+    assert before.citation.text == "juv."
 
 
 def test_length_converts_to_millimetres() -> None:
     observation = _observation(
-        trait=TraitInterpretation(value="tail_length", passage=_cited("tail", start=10)),
+        trait=_read("tail_length", "tail", start=10),
         verbatimTraitValue=_cited("2", start=20),
         verbatimTraitUnit=_cited("cm", start=25),
     )
 
-    rows = to_ets(_artifact(observation), references=_DOCUMENT_ID)
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
-    assert rows[0].traitValue == "20"
-    assert rows[0].traitUnit == "mm"
-    assert rows[0].traitName is None
+    assert row.traitValue == "20"
+    assert row.traitUnit == "mm"
+    assert row.traitName is None
 
 
 def test_basis_and_aggregate_are_read_from_a_passage() -> None:
     observation = _observation(
-        basisOfRecord=BasisInterpretation(
-            value="FossilSpecimen", passage=_cited("fossil", start=50)
-        ),
-        aggregateMeasure=AggregateInterpretation(
-            value="TRUE", passage=_cited("mean of 12", start=60)
-        ),
+        basisOfRecord=_read("FossilSpecimen", "fossil", start=50),
+        aggregateMeasure=_read("TRUE", "mean of 12", start=60),
     )
 
-    rows = to_ets(_artifact(observation), references=_DOCUMENT_ID)
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
-    assert rows[0].basisOfRecord == "FossilSpecimen"
-    assert rows[0].aggregateMeasure is True
+    assert row.basisOfRecord == "FossilSpecimen"
+    assert row.aggregateMeasure is True
+
+
+def test_a_vocabulary_miss_leaves_the_column_empty() -> None:
+    observation = _observation(
+        sex=_cited("M", start=70),
+        basisOfRecord=_read("fossil", "fossil", start=50),
+        aggregateMeasure=_read("yes", "mean of 12", start=60),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.sex is None
+    assert row.basisOfRecord is None
+    assert row.aggregateMeasure is None
+    assert "not_in_vocabulary:sex" in row.warnings
+    assert "not_in_vocabulary:basisOfRecord" in row.warnings
+    assert "not_in_vocabulary:aggregateMeasure" in row.warnings
 
 
 def test_a_paper_can_state_occurrence_place_and_time() -> None:
     observation = _observation(
         occurrenceID=_cited("FMNH 145732", start=70),
-        year=Interpretation(value="1963", passage=_cited("collected in 1963", start=80)),
-        countryCode=Interpretation(value="DE", passage=_cited("Germany", start=100)),
+        year=_read("1963", "collected in 1963", start=80),
+        countryCode=_read("DE", "Germany", start=100),
         eventDate=_cited("8 Mar 1963", start=110),
         measurementDeterminedDate=_cited("March 8, 1963", start=140),
         month=_cited("13", start=130),
     )
 
-    rows = to_ets(_artifact(observation), references=_DOCUMENT_ID)
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
-    assert rows[0].occurrenceID == "FMNH 145732"
-    assert rows[0].year == 1963
-    assert rows[0].countryCode == "DE"
-    assert rows[0].eventDate == "1963-03-08"
-    assert rows[0].measurementDeterminedDate == "1963-03-08"
-    assert rows[0].month is None
-    assert "not_numeric:month" in rows[0].warnings
+    assert row.occurrenceID == "FMNH 145732"
+    assert row.year == 1963
+    assert row.countryCode == "DE"
+    assert row.eventDate == "1963-03-08"
+    assert row.measurementDeterminedDate == "1963-03-08"
+    assert row.month is None
+    assert "not_numeric:month" in row.warnings
 
 
 def test_a_numeric_date_is_kept_when_one_number_cannot_be_a_month() -> None:
@@ -170,18 +220,10 @@ def test_a_numeric_date_is_kept_when_one_number_cannot_be_a_month() -> None:
 
 
 def test_an_empty_observation_list_returns_no_rows() -> None:
-    assert to_ets(_artifact(), references=_DOCUMENT_ID) == []
+    result = to_ets(_artifact(), references=_DOCUMENT_ID)
 
-
-def test_a_field_with_no_range_stays_on_the_row() -> None:
-    observation = _observation(verbatimTraitValue=_cited("12.5", located=False))
-
-    rows = to_ets(_artifact(observation), references=_DOCUMENT_ID)
-
-    assert len(rows) == 1
-    assert rows[0].verbatimTraitValue == "12.5"
-    assert "unlocated:verbatimTraitValue" in rows[0].warnings
-    assert "evidence" not in rows[0].model_dump()
+    assert result.rows == []
+    assert result.drops == []
 
 
 def test_a_unit_that_does_not_belong_to_the_trait_drops_that_row() -> None:
@@ -190,18 +232,30 @@ def test_a_unit_that_does_not_belong_to_the_trait_drops_that_row() -> None:
     before = bad.model_dump()
 
     verdict = assess(bad)
-    rows = to_ets(_artifact(bad, good), references=_DOCUMENT_ID)
+    result = to_ets(_artifact(bad, good), references=_DOCUMENT_ID)
 
     assert bad.model_dump() == before
     assert isinstance(verdict, Dropped)
     assert verdict.drop == "unit_not_for_trait"
-    assert len(rows) == 1
-    assert rows[0].verbatimTraitUnit == "kg"
-    assert rows[0].traitValue == "12500"
-    assert rows[0].measurementID == "1"
+    assert [(drop.source_index, drop.reason) for drop in result.drops] == [
+        (0, "unit_not_for_trait")
+    ]
+    assert result.rows[0].source_index == 1
+    assert result.rows[0].row.verbatimTraitUnit == "kg"
+    assert result.rows[0].row.traitValue == "12500"
+    assert result.rows[0].row.measurementID == "1"
 
 
-def test_a_rejected_artifact_never_reaches_the_adapter() -> None:
+def test_an_unknown_trait_drops_the_row() -> None:
+    observation = _observation(trait=_read("wing_length", "wing", start=10))
+
+    verdict = assess(observation)
+
+    assert isinstance(verdict, Dropped)
+    assert verdict.drop == "trait_unknown"
+
+
+def test_a_citation_without_a_range_is_rejected() -> None:
     with pytest.raises(ValidationError):
         ExtractionArtifact.model_validate(
             {
@@ -212,8 +266,8 @@ def test_a_rejected_artifact_never_reaches_the_adapter() -> None:
                     {
                         "trait": {
                             "kind": "interpretation",
-                            "value": "wing_length",
-                            "passage": {"kind": "citation", "text": "wing"},
+                            "value": "body_mass",
+                            "passage": {"kind": "citation", "text": "body mass"},
                         },
                         "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
                         "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
@@ -244,13 +298,13 @@ def test_an_unknown_unit_is_a_drop_reason_without_changing_the_observation() -> 
 
 def test_a_negative_age_is_parsed_and_reversed_bounds_drop_the_row() -> None:
     observation = _observation(
-        age=_cited("-1", located=False),
-        measurementValue_min=_cited("4", start=40),
-        measurementValue_max=_cited("2", start=50),
+        age=_cited("-1", start=60),
+        measurementValueMin=_cited("4", start=40),
+        measurementValueMax=_cited("2", start=50),
     )
 
     verdict = assess(observation)
-    rows = to_ets(_artifact(observation, _observation()), references=_DOCUMENT_ID)
+    result = to_ets(_artifact(observation, _observation()), references=_DOCUMENT_ID)
 
     assert isinstance(verdict, Dropped)
     assert verdict.drop == "bounds_reversed"
@@ -260,8 +314,9 @@ def test_a_negative_age_is_parsed_and_reversed_bounds_drop_the_row() -> None:
     assert not any(
         isinstance(warning, NotNumeric) and warning.field == "age" for warning in verdict.warnings
     )
-    assert len(rows) == 1
-    assert rows[0].verbatimTraitUnit == "kg"
+    assert result.drops[0].source_index == 0
+    assert result.rows[0].source_index == 1
+    assert result.rows[0].row.verbatimTraitUnit == "kg"
 
 
 def test_an_empty_document_id_is_rejected() -> None:
