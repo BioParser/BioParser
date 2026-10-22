@@ -3,25 +3,20 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 
 from pydantic import ValidationError
 
 from bioparser.artifact_paths import ArtifactPathError, extract_result_path
-from bioparser.extract.extract import (
-    ExtractionFailedError,
-    ExtractionReport,
-    artifact_from_report,
-)
+from bioparser.extract.errors import ExtractionFailedError, ExtractorBackendUnavailableError
+from bioparser.extract.protocol import Extractor
+from bioparser.extract.report import artifact_from_report
 from bioparser.extract.schema import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
+from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
 from bioparser.jobqueue import ExtractJobMessage, JobDeferred
 from bioparser.jobstate import JobState, JobStateStore, JobStatus, StaleJobStateWriteError
 from bioparser.parser.models import ParserArtifact
-from bioparser.services.vllm.vllm import (
-    VLLMRequestRejectedError,
-    VLLMService,
-    VLLMTruncatedError,
-)
+from bioparser.services.vllm.vllm import VLLMService
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
 
 from ..job import CorruptJobRecord, MissingJobRecord, fetch_job
@@ -32,8 +27,6 @@ LOGGER = logging.getLogger(__name__)
 
 _EXTRACT_STAGE: frozenset[JobStatus] = frozenset(("parsed", "extracting"))
 
-Extract = Callable[[ParserArtifact], Awaitable[ExtractionReport]]
-
 
 class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
     """Read a parser artifact, run the extractor, and store the result."""
@@ -43,7 +36,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         *,
         jobs: JobStateStore,
         storage: ArtifactStorage,
-        extract: Extract,
+        extractor_factory: Callable[[str], Extractor],
         max_claims: int,
         vllm: VLLMService | None = None,
     ) -> None:
@@ -54,7 +47,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             max_claims=max_claims,
         )
         self._storage = storage
-        self._extract = extract
+        self._extractor_factory = extractor_factory
         self._vllm = vllm
 
     async def ready(self) -> None:
@@ -93,7 +86,8 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         if ref is None:
             LOGGER.error("job has no parser artifact. Marking the job failed (internal_error)")
             raise PermanentJobFailure("internal_error")
-        artifact_path = _extraction_artifact_path(ref)
+        name = DEFAULT_EXTRACTOR_NAME
+        artifact_path = _extraction_artifact_path(ref, name)
         parser_artifact = self._load_parser_artifact(ref)
         stored = _retrieve_or_none(self._storage, artifact_path)
         if stored is not None and _is_extraction_artifact(stored):
@@ -103,10 +97,15 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             LOGGER.error("stored extraction artifact is invalid and cannot be replaced")
             raise PermanentJobFailure("internal_error")
         try:
-            report = await self._extract(parser_artifact)
-        except (ExtractionFailedError, VLLMTruncatedError, VLLMRequestRejectedError) as exc:
+            extractor = self._extractor_factory(name)
+            report = await extractor.extract(parser_artifact)
+        except ExtractorBackendUnavailableError as exc:
+            LOGGER.error(f"extractor {name!r} cannot run: {exc}")
+            raise PermanentJobFailure("internal_error") from exc
+        except ExtractionFailedError as exc:
+            cause = exc.__cause__ or exc
             LOGGER.error(
-                f"extraction failed ({type(exc).__name__}). "
+                f"extraction failed ({type(cause).__name__}). "
                 "Marking the job failed (extraction_failed)"
             )
             raise PermanentJobFailure("extraction_failed") from exc
@@ -134,16 +133,20 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             raise PermanentJobFailure("internal_error") from exc
 
 
-def _extraction_artifact_path(parse_result_ref: str) -> str:
+def _extraction_artifact_path(parse_result_ref: str, extractor: str) -> str:
     """The conventional path for this parser artifact's extraction result.
 
     The path is the parser artifact's own path plus the extractor, so two parses of one
-    PDF, such as two MinerU tiers, do not share a result. One extractor exists, so its
-    name and version are fixed here until a job can choose them. Version ``0`` is that
-    placeholder: a later ``default`` extractor starts at ``1`` and does not reuse these files.
+    PDF, such as two MinerU tiers, do not share a result. The version is whatever
+    ``EXTRACTOR_VERSIONS`` says for this extractor when the job runs.
     """
     try:
-        return extract_result_path(parse_result_ref, "default", "0")
+        version = EXTRACTOR_VERSIONS[extractor]
+    except KeyError as exc:
+        LOGGER.error(f"extractor {extractor!r} has no version")
+        raise PermanentJobFailure("internal_error") from exc
+    try:
+        return extract_result_path(parse_result_ref, extractor, version)
     except ArtifactPathError as exc:
         LOGGER.error("parser artifact path cannot form an extraction path")
         raise PermanentJobFailure("internal_error") from exc

@@ -1,12 +1,11 @@
-from collections.abc import Awaitable
 from threading import Event
 
-from bioparser.extract.extract import ExtractionReport, extract_observations
+from bioparser.extract.backend.factory import get_extractor
+from bioparser.extract.protocol import Extractor
 from bioparser.jobqueue import ExtractJobMessage, JobQueue
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobstate import RedisJobStateStore
 from bioparser.logging_config import setup_logging
-from bioparser.parser.models import ParserArtifact
 from bioparser.services.vllm import VLLMService
 from bioparser.storage.filesystem import FileSystemArtifactStorage
 from bioparser.worker.health import LivenessServer
@@ -34,13 +33,18 @@ def build_worker(
     char_budget = settings.extraction_char_budget
     max_tokens = settings.extraction_max_tokens
 
-    def extract(artifact: ParserArtifact) -> Awaitable[ExtractionReport]:
-        return extract_observations(vllm, artifact, char_budget=char_budget, max_tokens=max_tokens)
+    def extractor_factory(name: str) -> Extractor:
+        return get_extractor(
+            name,
+            vllm=vllm,
+            char_budget=char_budget,
+            max_tokens=max_tokens,
+        )
 
     handler = ExtractJobHandler(
         jobs=jobs,
         storage=storage,
-        extract=extract,
+        extractor_factory=extractor_factory,
         max_claims=settings.extract_max_claims,
         vllm=vllm,
     )
