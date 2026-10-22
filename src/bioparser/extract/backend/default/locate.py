@@ -3,49 +3,56 @@
 from __future__ import annotations
 
 from bioparser.extract.backend.default.schema import Extraction, ModelObservation
-from bioparser.extract.models import Citation, Observation, TextRange, TraitInterpretation
+from bioparser.extract.models import Citation, Interpretation, Observation, TextRange
 from bioparser.parser.models import ParserArtifact, TextContent
 
 
 def cited_observations(
     extraction: Extraction, parser_artifact: ParserArtifact
 ) -> list[Observation]:
-    """The quotation only locates each verbatim field."""
-    return [_observation(item, parser_artifact) for item in extraction.observations]
+    """The quotation only locates each verbatim field.
+
+    A measurement whose fields cannot all be located is dropped. The artifact
+    requires a range on every citation.
+    """
+    located = (_observation(item, parser_artifact) for item in extraction.observations)
+    return [observation for observation in located if observation is not None]
 
 
-def _observation(observation: ModelObservation, parser_artifact: ParserArtifact) -> Observation:
+def _observation(
+    observation: ModelObservation, parser_artifact: ParserArtifact
+) -> Observation | None:
     block_id = observation.evidence_block_id
     block_text = _block_text(parser_artifact, block_id)
+    quotation = observation.quotation
+    passage = _quotation(block_text, block_id, quotation)
+    name = _cited(block_text, block_id, quotation, observation.taxon)
+    value = _cited(block_text, block_id, quotation, _number_text(observation.value))
+    unit = _cited(block_text, block_id, quotation, observation.unit)
+    if passage is None or name is None or value is None or unit is None:
+        return None
     return Observation(
-        trait=TraitInterpretation(
-            value=observation.trait,
-            passage=_quotation(block_text, block_id, observation.quotation),
-        ),
-        verbatimScientificName=_cited(
-            block_text, block_id, observation.quotation, observation.taxon
-        ),
-        verbatimTraitValue=_cited(
-            block_text, block_id, observation.quotation, _number_text(observation.value)
-        ),
-        verbatimTraitUnit=_cited(block_text, block_id, observation.quotation, observation.unit),
+        trait=Interpretation(value=observation.trait, passage=passage),
+        verbatimScientificName=name,
+        verbatimTraitValue=value,
+        verbatimTraitUnit=unit,
     )
 
 
-def _cited(block_text: str | None, block_id: str, quotation: str, value: str) -> Citation:
+def _cited(block_text: str | None, block_id: str, quotation: str, value: str) -> Citation | None:
     span = _field_span(block_text, quotation, value)
     if span is None:
-        return Citation(text=value)
+        return None
     start, end = span
     return Citation(text=value, evidence=[TextRange(block_id=block_id, start=start, end=end)])
 
 
-def _quotation(block_text: str | None, block_id: str, quotation: str) -> Citation:
+def _quotation(block_text: str | None, block_id: str, quotation: str) -> Citation | None:
     if block_text is None:
-        return Citation(text=quotation)
+        return None
     span = _unique_span(block_text, quotation, 0)
     if span is None:
-        return Citation(text=quotation)
+        return None
     start, end = span
     return Citation(text=quotation, evidence=[TextRange(block_id=block_id, start=start, end=end)])
 

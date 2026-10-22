@@ -23,9 +23,9 @@ from bioparser.extract.errors import (
 from bioparser.extract.models import (
     Citation,
     ExtractionArtifact,
+    Interpretation,
     Observation,
     TextRange,
-    TraitInterpretation,
 )
 from bioparser.extract.protocol import Extractor
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
@@ -59,7 +59,23 @@ JOB_ID = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
 PARSE_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
 PDF_CHECKSUM = "abc"
 RESULT_PATH = extract_result_path(PARSE_REF, "default", "1")
-QUOTE = "Adult body mass averaged 12.5 g in the sampled population."
+QUOTE = "Mus musculus adults averaged 12.5 kg in the sampled population."
+
+
+def _stub() -> StubVLLMService:
+    """A model answer whose name, value and unit each occur once in the quotation."""
+    return StubVLLMService(
+        observations=[
+            {
+                "taxon": "Mus musculus",
+                "trait": "body_mass",
+                "value": 12.5,
+                "unit": "kg",
+                "evidence_block_id": "b0",
+                "quotation": QUOTE,
+            }
+        ]
+    )
 
 
 class MemoryJobs:
@@ -243,7 +259,7 @@ def _handler(
 def test_success_stores_the_report_and_marks_done() -> None:
     jobs = MemoryJobs(_parsed())
     storage = MemoryStorage()
-    vllm = StubVLLMService()
+    vllm = _stub()
     handler = _handler(jobs, storage, _real_extract(vllm))
     handler.handle(_message())
     handler.close()
@@ -258,7 +274,7 @@ def test_success_stores_the_report_and_marks_done() -> None:
     assert value.text == "12.5"
     assert value.evidence is not None
     assert QUOTE[value.evidence[0].start : value.evidence[0].end] == "12.5"
-    assert stored.observations[0].verbatimScientificName.evidence is None
+    assert stored.observations[0].verbatimScientificName.text == "Mus musculus"
     assert stored.extractor == "default"
     assert stored.extractor_version == "1"
     assert "model" not in stored.model_dump()
@@ -270,7 +286,7 @@ def test_success_stores_the_report_and_marks_done() -> None:
 def test_duplicate_delivery_does_not_call_the_model_again() -> None:
     jobs = MemoryJobs(_parsed())
     storage = MemoryStorage()
-    vllm = StubVLLMService()
+    vllm = _stub()
     handler = _handler(jobs, storage, _real_extract(vllm))
     message = _message()
     handler.handle(message)
@@ -284,7 +300,7 @@ def test_duplicate_delivery_does_not_call_the_model_again() -> None:
     assert jobs.state.status == "done"
 
 
-def test_an_unlocated_value_is_stored_without_a_range() -> None:
+def test_an_unlocated_observation_is_not_stored() -> None:
     jobs = MemoryJobs(_parsed())
     storage = MemoryStorage()
     vllm = StubVLLMService(
@@ -293,7 +309,7 @@ def test_an_unlocated_value_is_stored_without_a_range() -> None:
                 "taxon": "Mus musculus",
                 "trait": "body_mass",
                 "value": 12.5,
-                "unit": "g",
+                "unit": "kg",
                 "evidence_block_id": "b0",
                 "quotation": "not in the paper",
             }
@@ -304,8 +320,7 @@ def test_an_unlocated_value_is_stored_without_a_range() -> None:
     handler.close()
 
     stored = ExtractionArtifact.model_validate_json(storage.retrieve(RESULT_PATH))
-    assert stored.observations[0].verbatimTraitValue.text == "12.5"
-    assert stored.observations[0].verbatimTraitValue.evidence is None
+    assert stored.observations == []
     assert jobs.state is not None
     assert jobs.state.status == "done"
 
@@ -364,7 +379,7 @@ def test_a_rejected_request_is_permanent() -> None:
 
 def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> None:
     jobs = MemoryJobs(_parsed())
-    vllm = StubVLLMService()
+    vllm = _stub()
     vllm.up = False
     called = False
 
@@ -397,7 +412,7 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
 def test_vllm_answering_still_extracts() -> None:
     jobs = MemoryJobs(_parsed())
     storage = MemoryStorage()
-    vllm = StubVLLMService()
+    vllm = _stub()
     handler = ExtractJobHandler(
         jobs=jobs,
         storage=storage,
@@ -417,7 +432,7 @@ def test_on_failed_on_a_parsed_job_says_it_cannot_be_marked_failed(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     jobs = MemoryJobs(_parsed())
-    handler = _handler(jobs, MemoryStorage(), _real_extract(StubVLLMService()))
+    handler = _handler(jobs, MemoryStorage(), _real_extract(_stub()))
     with caplog.at_level(logging.INFO, logger="bioparser.worker.stage"):
         handler.on_failed(_message(), RuntimeError("wake-up failed"))
     handler.close()
@@ -502,7 +517,7 @@ def test_a_job_still_parsing_is_left_alone() -> None:
 
 def test_deferral_expiry_marks_an_extracting_job_failed() -> None:
     jobs = MemoryJobs(_parsed().with_claim("extracting"))
-    handler = _handler(jobs, MemoryStorage(), _real_extract(StubVLLMService()))
+    handler = _handler(jobs, MemoryStorage(), _real_extract(_stub()))
     handler.on_failed(_message(), JobDeferralExpired())
     handler.close()
 
@@ -514,7 +529,7 @@ def test_deferral_expiry_marks_an_extracting_job_failed() -> None:
 
 def test_on_failed_records_timeout_and_keeps_the_parser_artifact() -> None:
     jobs = MemoryJobs(_parsed().with_claim("extracting"))
-    handler = _handler(jobs, MemoryStorage(), _real_extract(StubVLLMService()))
+    handler = _handler(jobs, MemoryStorage(), _real_extract(_stub()))
     handler.on_failed(_message(), JobTimeLimitExceeded())
     handler.close()
 
@@ -526,7 +541,7 @@ def test_on_failed_records_timeout_and_keeps_the_parser_artifact() -> None:
 
 def test_second_job_with_the_same_parser_artifact_reuses_the_result() -> None:
     storage = MemoryStorage()
-    vllm = StubVLLMService()
+    vllm = _stub()
     first = MemoryJobs(_parsed())
     handler = _handler(first, storage, _real_extract(vllm))
     handler.handle(_message())
@@ -587,8 +602,8 @@ def test_a_parse_path_that_cannot_take_an_extraction_is_internal_error() -> None
 
 
 def test_two_mineru_tiers_get_two_extractions() -> None:
-    basic_text = "Basic tier recorded 12.5 g."
-    standard_text = "Standard tier recorded 40.0 g."
+    basic_text = "Mus musculus basic tier recorded 12.5 kg."
+    standard_text = "Mus musculus standard tier recorded 40.0 kg."
     basic_ref = parse_result_path(PDF_CHECKSUM, "mineru", "2", "basic")
     standard_ref = parse_result_path(PDF_CHECKSUM, "mineru", "2", "standard")
     storage = MemoryStorage()
@@ -604,7 +619,7 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
             taxon="Mus musculus",
             trait="body_mass",
             value=12.5,
-            unit="g",
+            unit="kg",
             evidence_block_id="b0",
             quotation=content.text,
         )
@@ -635,13 +650,8 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
     )
     assert basic_value.evidence is not None
     assert basic_text[basic_value.evidence[0].start : basic_value.evidence[0].end] == "12.5"
-    standard_value = (
-        ExtractionArtifact.model_validate_json(storage.retrieve(standard_path))
-        .observations[0]
-        .verbatimTraitValue
-    )
-    assert standard_value.text == "12.5"
-    assert standard_value.evidence is None
+    standard = ExtractionArtifact.model_validate_json(storage.retrieve(standard_path))
+    assert standard.observations == []
 
 
 def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -675,14 +685,16 @@ def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPa
     assert jobs.state.extract_result_ref == extract_result_path(PARSE_REF, "other", "4")
 
 
+def _range(start: int, end: int, text: str) -> Citation:
+    return Citation(text=text, evidence=[TextRange(block_id="b0", start=start, end=end)])
+
+
 def _observation_with_range(start: int, end: int, text: str) -> Observation:
     return Observation(
-        trait=TraitInterpretation(value="body_mass", passage=Citation(text=text)),
-        verbatimScientificName=Citation(text="Mus musculus"),
-        verbatimTraitValue=Citation(
-            text=text, evidence=[TextRange(block_id="b0", start=start, end=end)]
-        ),
-        verbatimTraitUnit=Citation(text="g"),
+        trait=Interpretation(value="body_mass", passage=_range(0, len(QUOTE), QUOTE)),
+        verbatimScientificName=_range(0, 12, "Mus musculus"),
+        verbatimTraitValue=_range(start, end, text),
+        verbatimTraitUnit=_range(QUOTE.index("kg"), QUOTE.index("kg") + 2, "kg"),
     )
 
 
@@ -717,7 +729,7 @@ def test_an_artifact_for_another_extractor_fails_the_job() -> None:
 def test_registered_extractor_stores_the_resolved_version() -> None:
     jobs = MemoryJobs(_parsed())
     storage = MemoryStorage()
-    vllm = StubVLLMService()
+    vllm = _stub()
     seen: list[str] = []
 
     def extractor_factory(name: str) -> Extractor:
@@ -838,7 +850,7 @@ def test_an_unknown_extractor_is_internal_error() -> None:
 def test_malformed_message_cannot_fail_a_parsed_job() -> None:
     """`parsed` has no transition to `failed`. The job stays for a valid wake-up."""
     jobs = MemoryJobs(_parsed())
-    handler = _handler(jobs, MemoryStorage(), _real_extract(StubVLLMService()))
+    handler = _handler(jobs, MemoryStorage(), _real_extract(_stub()))
     handler.on_malformed({"job_id": str(JOB_ID), "extra": "nope"})
     handler.close()
 

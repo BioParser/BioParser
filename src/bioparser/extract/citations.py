@@ -7,27 +7,13 @@ from __future__ import annotations
 
 from bioparser.extract.errors import ExtractionFailedError
 from bioparser.extract.models import (
-    AggregateInterpretation,
-    BasisInterpretation,
     Citation,
     Correction,
     Interpretation,
     Observation,
-    SexInterpretation,
     TextRange,
-    TraitInterpretation,
-    TraitUnitInterpretation,
 )
 from bioparser.parser.models import ParserArtifact, TextContent
-
-_INTERPRETATIONS = (
-    Interpretation,
-    TraitInterpretation,
-    SexInterpretation,
-    BasisInterpretation,
-    AggregateInterpretation,
-    TraitUnitInterpretation,
-)
 
 
 def reject_mismatched_ranges(
@@ -35,7 +21,7 @@ def reject_mismatched_ranges(
 ) -> None:
     """Reject a claimed range that is not the slice it names.
 
-    A citation with no range list is left unchanged. Several ranges must follow
+    Every citation has a range list. Several ranges must follow
     the parser's block order, and their slices must join to the citation text.
     An interpretation value is not compared with its passage.
     """
@@ -48,7 +34,7 @@ def reject_mismatched_ranges(
 def _check(value: object, texts: dict[str, str], order: dict[str, int]) -> None:
     if isinstance(value, Citation):
         _check_citation(value, texts, order)
-    elif isinstance(value, _INTERPRETATIONS):
+    elif isinstance(value, Interpretation):
         _check_citation(value.passage, texts, order)
     elif isinstance(value, Correction):
         _check_citation(value.citation, texts, order)
@@ -56,8 +42,6 @@ def _check(value: object, texts: dict[str, str], order: dict[str, int]) -> None:
 
 
 def _check_citation(citation: Citation, texts: dict[str, str], order: dict[str, int]) -> None:
-    if citation.evidence is None:
-        return
     parts: list[str] = []
     previous: tuple[int, int] | None = None
     for evidence in citation.evidence:

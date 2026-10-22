@@ -13,7 +13,7 @@ from bioparser.parser.models import (
     TextContent,
 )
 
-SENTENCE = "Adult body mass averaged 12.5 g in the sampled population."
+SENTENCE = "Mus musculus adults averaged 12.5 kg in the sampled population."
 
 
 def _paper(*texts: str) -> ParserArtifact:
@@ -47,7 +47,7 @@ def _locate(
     quotation: str = SENTENCE,
     block_id: str = "b0",
     value: float = 12.5,
-    unit: str = "g",
+    unit: str = "kg",
     taxon: str = "Mus musculus",
 ) -> Observation:
     observation = ModelObservation.model_validate(
@@ -91,36 +91,41 @@ def test_the_range_is_in_the_whole_block_not_the_sentence() -> None:
     assert value.evidence[0].start == text.index("12.5")
 
 
-def test_a_sentence_missing_from_the_block_stores_the_text_without_a_range() -> None:
-    paper = _paper("Nothing about mass here.")
-
-    located = _locate(paper)
-
-    assert located.verbatimTraitValue.text == "12.5"
-    assert located.verbatimTraitValue.evidence is None
-    assert located.verbatimScientificName.evidence is None
-
-
-def test_a_sentence_that_occurs_twice_is_not_located() -> None:
-    paper = _paper(f"{SENTENCE} {SENTENCE}")
-
-    assert _locate(paper).verbatimTraitValue.evidence is None
-
-
-def test_a_value_that_occurs_twice_in_the_sentence_is_not_located() -> None:
-    sentence = "Males weighed 12.5 g and females 12.5 g."
-    paper = _paper(sentence)
-
-    assert _locate(paper, quotation=sentence).verbatimTraitValue.evidence is None
+def _locate_all(paper: ParserArtifact, **changes: object) -> list[Observation]:
+    observation = ModelObservation.model_validate(
+        {
+            "taxon": "Mus musculus",
+            "trait": "body_mass",
+            "value": 12.5,
+            "unit": "kg",
+            "evidence_block_id": "b0",
+            "quotation": SENTENCE,
+            **changes,
+        }
+    )
+    return cited_observations(Extraction(observations=[observation]), paper)
 
 
-def test_a_block_that_does_not_exist_stores_the_text_without_a_range() -> None:
-    paper = _paper(SENTENCE)
+def test_a_sentence_missing_from_the_block_drops_the_observation() -> None:
+    assert _locate_all(_paper("Nothing about mass here.")) == []
 
-    located = _locate(paper, block_id="b9")
 
-    assert located.verbatimTraitValue.text == "12.5"
-    assert located.verbatimTraitValue.evidence is None
+def test_a_sentence_that_occurs_twice_drops_the_observation() -> None:
+    assert _locate_all(_paper(f"{SENTENCE} {SENTENCE}")) == []
+
+
+def test_a_value_that_occurs_twice_in_the_sentence_drops_the_observation() -> None:
+    sentence = "Mus musculus males weighed 12.5 kg and females 12.5 kg."
+
+    assert _locate_all(_paper(sentence), quotation=sentence) == []
+
+
+def test_a_block_that_does_not_exist_drops_the_observation() -> None:
+    assert _locate_all(_paper(SENTENCE), evidence_block_id="b9") == []
+
+
+def test_one_unlocated_field_drops_the_observation() -> None:
+    assert _locate_all(_paper(SENTENCE), taxon="M. musculus") == []
 
 
 def test_each_field_is_located_on_its_own() -> None:

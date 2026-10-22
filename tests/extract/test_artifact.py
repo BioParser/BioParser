@@ -3,27 +3,22 @@ from pydantic import ValidationError
 
 from bioparser.extract.backend.default.schema import Extraction, ModelObservation
 from bioparser.extract.models import (
-    AggregateInterpretation,
-    BasisInterpretation,
     Citation,
     Correction,
     ExtractionArtifact,
     Interpretation,
     Observation,
     TextRange,
-    Trait,
-    TraitInterpretation,
-    TraitUnitInterpretation,
 )
 
 
-def _trait(value: Trait = "body_mass") -> TraitInterpretation:
-    return TraitInterpretation(value=value, passage=Citation(text="weighed 12.5 g"))
+def _trait(value: str = "body_mass") -> Interpretation:
+    return Interpretation(value=value, passage=_cite("weighed 12.5 g"))
 
 
 def _cite(text: str, start: int | None = None, end: int | None = None) -> Citation:
     if start is None or end is None:
-        return Citation(text=text)
+        start, end = 0, len(text)
     return Citation(text=text, evidence=[TextRange(block_id="b0", start=start, end=end)])
 
 
@@ -65,32 +60,18 @@ def test_a_mismatched_unit_is_stored_as_printed() -> None:
     assert "unit_ok" not in stored
 
 
-def test_an_unknown_trait_is_rejected() -> None:
+def test_the_trait_is_any_non_empty_string() -> None:
+    observation = _observation(trait=_trait("wing_length"))
+
+    assert observation.trait.value == "wing_length"
+
+
+def test_a_citation_without_a_range_is_rejected() -> None:
     with pytest.raises(ValidationError):
-        Observation.model_validate(
-            {
-                "trait": {
-                    "kind": "interpretation",
-                    "value": "wing_length",
-                    "passage": {"text": "wing"},
-                },
-                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
-                "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
-                "verbatimTraitUnit": {"kind": "citation", "text": "g"},
-            }
-        )
+        Citation(text="12.5")
 
-
-def test_a_field_without_a_range_is_stored() -> None:
-    artifact = ExtractionArtifact(
-        extractor="default",
-        extractor_version="1",
-        observations=[_observation(verbatimScientificName=_cite("Mus musculus"))],
-    )
-
-    stored = artifact.model_dump()
-    assert stored["observations"][0]["verbatimScientificName"]["evidence"] is None
-    assert "canonical_value" not in stored["observations"][0]
+    with pytest.raises(ValidationError):
+        Citation.model_validate({"text": "12.5", "evidence": []})
 
 
 def test_the_stored_artifact_has_no_observation_cap() -> None:
@@ -150,8 +131,8 @@ def test_a_copied_field_keeps_the_narrow_citation() -> None:
 
 def test_basis_and_aggregate_are_interpretations_only() -> None:
     observation = _observation(
-        basisOfRecord=BasisInterpretation(value="FossilSpecimen", passage=_cite("fossil")),
-        aggregateMeasure=AggregateInterpretation(value="TRUE", passage=_cite("mean of 12")),
+        basisOfRecord=Interpretation(value="FossilSpecimen", passage=_cite("fossil")),
+        aggregateMeasure=Interpretation(value="TRUE", passage=_cite("mean of 12")),
     )
 
     assert observation.basisOfRecord is not None
@@ -231,11 +212,11 @@ def test_a_scientific_name_can_expand_the_printed_citation() -> None:
 def test_a_paired_value_is_a_choice() -> None:
     observation = _observation(
         traitValue=Interpretation(value="12500", passage=_cite("weighed 12.5 kg")),
-        traitUnit=TraitUnitInterpretation(value="g", passage=_cite("kg")),
+        traitUnit=Interpretation(value="g", passage=_cite("kg")),
     )
 
     assert isinstance(observation.traitValue, Interpretation)
-    assert isinstance(observation.traitUnit, TraitUnitInterpretation)
+    assert isinstance(observation.traitUnit, Interpretation)
     assert observation.verbatimTraitValue.text == "12.5"
 
 
@@ -334,7 +315,7 @@ def test_a_paper_can_state_where_and_when_the_organism_was_recorded() -> None:
         )
 
 
-def test_a_trait_unit_outside_grams_or_millimetres_is_rejected() -> None:
+def test_a_trait_unit_must_be_an_interpretation() -> None:
     with pytest.raises(ValidationError):
         Observation.model_validate(
             {

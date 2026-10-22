@@ -2,8 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from bioparser.extract.models import Trait
-
+Trait = Literal["body_mass", "body_length", "tail_length"]
 # A closed set, so guided decoding cannot emit "grams", "g." or "gramme". Free
 # text here makes values incomparable and there is no way to repair it later.
 Unit = Literal["g", "kg", "mm", "cm", "m"]
