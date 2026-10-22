@@ -72,13 +72,13 @@ class Correction(BaseModel):
 CitationOrInterpretation = Annotated[Citation | Interpretation, Field(discriminator="kind")]
 # A citation, or a correction that keeps the narrow token beside an
 # interpretation of a wider passage. The interpretation is the column value.
-CorrectableCitation = Annotated[Citation | Correction, Field(discriminator="kind")]
+CitationOrCorrection = Annotated[Citation | Correction, Field(discriminator="kind")]
 
 
 class Observation(BaseModel):
     """One measurement.
 
-    A citation-only field is printed text. A correctable citation is that citation, or a
+    A citation-only field is printed text. A citation or correction is that citation, or a
     correction that keeps the narrow citation beside an interpretation. A citation
     or interpretation has no verbatim sibling. Its check can reject the printed
     text, so it is a citation or an interpretation of one passage. The passage
@@ -101,7 +101,7 @@ class Observation(BaseModel):
     model_config = _CONFIG
 
     trait: Interpretation
-    verbatimTraitName: CorrectableCitation | None = None
+    verbatimTraitName: CitationOrCorrection | None = None
 
     scientificName: Interpretation | None = None
     verbatimScientificName: Citation
@@ -112,55 +112,55 @@ class Observation(BaseModel):
     traitUnit: Interpretation | None = None
     verbatimTraitUnit: Citation
 
-    taxonRank: CorrectableCitation | None = None
-    kingdom: CorrectableCitation | None = None
-    phylum: CorrectableCitation | None = None
-    taxonClass: CorrectableCitation | None = None
-    order: CorrectableCitation | None = None
-    family: CorrectableCitation | None = None
-    genus: CorrectableCitation | None = None
+    taxonRank: CitationOrCorrection | None = None
+    kingdom: CitationOrCorrection | None = None
+    phylum: CitationOrCorrection | None = None
+    taxonClass: CitationOrCorrection | None = None
+    order: CitationOrCorrection | None = None
+    family: CitationOrCorrection | None = None
+    genus: CitationOrCorrection | None = None
 
     sex: CitationOrInterpretation | None = None
-    lifeStage: CorrectableCitation | None = None
+    lifeStage: CitationOrCorrection | None = None
     age: CitationOrInterpretation | None = None
-    morphotype: CorrectableCitation | None = None
+    morphotype: CitationOrCorrection | None = None
 
     basisOfRecord: Interpretation | None = None
-    basisOfRecordDescription: CorrectableCitation | None = None
+    basisOfRecordDescription: CitationOrCorrection | None = None
 
-    measurementMethod: CorrectableCitation | None = None
-    measurementResolution: CorrectableCitation | None = None
-    measurementRemarks: CorrectableCitation | None = None
-    measurementDeterminedBy: CorrectableCitation | None = None
+    measurementMethod: CitationOrCorrection | None = None
+    measurementResolution: CitationOrCorrection | None = None
+    measurementRemarks: CitationOrCorrection | None = None
+    measurementDeterminedBy: CitationOrCorrection | None = None
     measurementDeterminedDate: CitationOrInterpretation | None = None
 
     aggregateMeasure: Interpretation | None = None
-    statisticalMethod: CorrectableCitation | None = None
+    statisticalMethod: CitationOrCorrection | None = None
     individualCount: CitationOrInterpretation | None = None
     dispersion: CitationOrInterpretation | None = None
     measurementValueMin: CitationOrInterpretation | None = None
     measurementValueMax: CitationOrInterpretation | None = None
-    measurementAccuracy: CorrectableCitation | None = None
+    measurementAccuracy: CitationOrCorrection | None = None
 
-    occurrenceID: CorrectableCitation | None = None
+    occurrenceID: CitationOrCorrection | None = None
 
-    eventID: CorrectableCitation | None = None
-    preparations: CorrectableCitation | None = None
-    samplingProtocol: CorrectableCitation | None = None
+    eventID: CitationOrCorrection | None = None
+    preparations: CitationOrCorrection | None = None
+    samplingProtocol: CitationOrCorrection | None = None
     year: CitationOrInterpretation | None = None
     month: CitationOrInterpretation | None = None
     day: CitationOrInterpretation | None = None
     eventDate: CitationOrInterpretation | None = None
-    locationID: CorrectableCitation | None = None
-    habitat: CorrectableCitation | None = None
+    locationID: CitationOrCorrection | None = None
+    habitat: CitationOrCorrection | None = None
     decimalLongitude: CitationOrInterpretation | None = None
     decimalLatitude: CitationOrInterpretation | None = None
     elevation: CitationOrInterpretation | None = None
-    geodeticDatum: CorrectableCitation | None = None
-    verbatimLocality: CorrectableCitation | None = None
-    country: CorrectableCitation | None = None
+    geodeticDatum: CitationOrCorrection | None = None
+    verbatimLocality: CitationOrCorrection | None = None
+    country: CitationOrCorrection | None = None
     countryCode: CitationOrInterpretation | None = None
-    occurrenceRemarks: CorrectableCitation | None = None
+    occurrenceRemarks: CitationOrCorrection | None = None
 
 
 class ExtractionArtifact(BaseModel):
