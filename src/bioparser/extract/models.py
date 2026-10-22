@@ -54,8 +54,8 @@ class Correction(BaseModel):
     """A narrow citation kept beside an interpretation.
 
     ``citation`` is the narrow printed token. The interpretation's passage is
-    the wider text its value was read from. Both the citation and the
-    interpretation value are usable.
+    the wider text its value was read from. The adapter uses the
+    interpretation value. The citation stays for tracing and highlighting.
     """
 
     model_config = _CONFIG
@@ -71,7 +71,7 @@ class Correction(BaseModel):
 # the check, so it is not a usable column value.
 CitationOrInterpretation = Annotated[Citation | Interpretation, Field(discriminator="kind")]
 # A citation, or a correction that keeps the narrow token beside an
-# interpretation of a wider passage. Both are usable.
+# interpretation of a wider passage. The interpretation is the column value.
 CorrectableCitation = Annotated[Citation | Correction, Field(discriminator="kind")]
 
 

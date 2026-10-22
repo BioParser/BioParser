@@ -12,6 +12,13 @@ def cited_observations(
 ) -> list[Observation]:
     """The quotation only locates each verbatim field.
 
+    The model does not give character offsets. It names one block and quotes a
+    sentence from it. The sentence is a locator and is not stored. A field gets
+    a range when the sentence occurs once in the block and the field string
+    occurs once inside the sentence, and ``text`` is exactly that slice. The
+    trait is an interpretation whose passage is the sentence. Another extractor
+    may find ranges another way. The artifact does not record how.
+
     A measurement whose fields cannot all be located is dropped. The artifact
     requires a range on every citation.
     """

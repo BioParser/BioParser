@@ -282,7 +282,7 @@ The stored file checks its shape: the trait code, a required string, and that a 
 
 The ETS adapter is the quality gate for what a user is shown. It resolves the name, converts the unit, and decides whether a weak field becomes a warning, an empty id, or a dropped row. An extractor may call those same checks while it is still working, and drop or repair a field before storing it. It does not have to. The stored file can hold a value the response rejects, such as a unit that does not fit the trait.
 
-The field list, the evidence rules, and what the ETS adapter derives are in [ets.md](ets.md).
+The field list and the evidence rules are in [extraction-artifact.md](extraction-artifact.md). What the ETS adapter derives is in [ets-adapter.md](ets-adapter.md).
 
 ```mermaid
 flowchart LR
