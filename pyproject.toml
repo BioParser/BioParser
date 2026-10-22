@@ -49,8 +49,8 @@ src = ["src"]
 line-length = 100
 
 [tool.ruff.lint]
-# ANN requires annotations on functions.
-extend-select = ["ANN"]
+# ANN requires annotations. B is bugbear. UP rewrites syntax for Python 3.13.
+extend-select = ["ANN", "B", "UP"]
 ignore = [
   "ANN002", # *args
   "ANN003", # **kwargs
