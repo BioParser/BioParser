@@ -6,18 +6,18 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from bioparser.ets.dates import parse_date
-from bioparser.ets.numbers import parse_count, parse_decimal, parse_integer, parse_signed_decimal
-from bioparser.ets.units import CanonicalTraitValue, TargetUnit, convert_trait_value_to_canonical
-from bioparser.ets.vocab import BasisOfRecord, Sex, match_aggregate, match_basis, match_sex
-from bioparser.ets.warnings import (
+from bioparser.ets.notices import (
     DateField,
     NotADate,
+    Notice,
     NotInVocabulary,
     NotNumeric,
     NumericField,
     TextField,
-    Warning,
 )
+from bioparser.ets.numbers import parse_count, parse_decimal, parse_integer, parse_signed_decimal
+from bioparser.ets.units import CanonicalTraitValue, TargetUnit, convert_trait_value_to_canonical
+from bioparser.ets.vocab import BasisOfRecord, Sex, match_aggregate, match_basis, match_sex
 from bioparser.extract.models import (
     Citation,
     CitationOrInterpretation,
@@ -72,12 +72,12 @@ _CITED: dict[str, TextField] = {
 class _Fields(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    warnings: tuple[Warning, ...]
+    warnings: tuple[Notice, ...]
     scientific_name: str
     sex: Sex | None
     age: float | None
     aggregate_measure: bool | None
-    basis_of_record: BasisOfRecord | None
+    basis_of_record: BasisOfRecord
     individual_count: int | None
     dispersion: float | None
     measurement_value_min: float | None
@@ -112,7 +112,7 @@ Assessment = Kept | Dropped
 
 def assess(observation: Observation) -> Assessment:
     """Run the quality rules once. measurementID and references are not decided here."""
-    warnings: list[Warning] = []
+    warnings: list[Notice] = []
 
     # Free-text columns. A correction contributes its interpretation. A citation contributes its text.
     cited = {ets_name: _cited(getattr(observation, name)) for name, ets_name in _CITED.items()}
@@ -122,7 +122,7 @@ def assess(observation: Observation) -> Assessment:
         else observation.verbatimScientificName.text
     )
 
-    # Closed tokens. A missing basis becomes literatureData. A miss stays empty.
+    # Closed tokens. A missing or unmatched basis becomes literatureData.
     sex = _sex(observation.sex, warnings)
     aggregate_measure = _aggregate(observation.aggregateMeasure, warnings)
     basis_of_record = _basis(observation.basisOfRecord, warnings)
@@ -217,7 +217,7 @@ def _cited(value: CorrectableCitation | None) -> str | None:
     return value.text
 
 
-def _sex(value: CitationOrInterpretation | None, warnings: list[Warning]) -> Sex | None:
+def _sex(value: CitationOrInterpretation | None, warnings: list[Notice]) -> Sex | None:
     if value is None:
         return None
     matched = match_sex(_text(value))
@@ -226,17 +226,17 @@ def _sex(value: CitationOrInterpretation | None, warnings: list[Warning]) -> Sex
     return matched
 
 
-def _basis(value: Interpretation | None, warnings: list[Warning]) -> BasisOfRecord | None:
+def _basis(value: Interpretation | None, warnings: list[Notice]) -> BasisOfRecord:
     if value is None:
         return "literatureData"
     matched = match_basis(value.value)
     if matched is None:
         warnings.append(NotInVocabulary(field="basisOfRecord"))
-        return None
+        return "literatureData"
     return matched
 
 
-def _aggregate(value: Interpretation | None, warnings: list[Warning]) -> bool | None:
+def _aggregate(value: Interpretation | None, warnings: list[Notice]) -> bool | None:
     if value is None:
         return None
     matched = match_aggregate(value.value)
@@ -247,7 +247,7 @@ def _aggregate(value: Interpretation | None, warnings: list[Warning]) -> bool | 
 
 
 def _parse_individual_count(
-    value: CitationOrInterpretation | None, warnings: list[Warning]
+    value: CitationOrInterpretation | None, warnings: list[Notice]
 ) -> int | None:
     if value is None:
         return 1
@@ -259,7 +259,7 @@ def _parse_individual_count(
 
 
 def _parse_dispersion(
-    value: CitationOrInterpretation | None, warnings: list[Warning]
+    value: CitationOrInterpretation | None, warnings: list[Notice]
 ) -> float | None:
     if value is None:
         return 0.0
@@ -273,7 +273,7 @@ def _parse_dispersion(
 def _parse_decimal(
     value: CitationOrInterpretation | None,
     field: NumericField,
-    warnings: list[Warning],
+    warnings: list[Notice],
     *,
     signed: bool,
 ) -> float | None:
@@ -290,7 +290,7 @@ def _parse_decimal(
 def _parse_integer(
     value: CitationOrInterpretation | None,
     field: NumericField,
-    warnings: list[Warning],
+    warnings: list[Notice],
     *,
     low: int,
     high: int,
@@ -305,7 +305,7 @@ def _parse_integer(
 
 
 def _parse_date(
-    value: CitationOrInterpretation | None, field: DateField, warnings: list[Warning]
+    value: CitationOrInterpretation | None, field: DateField, warnings: list[Notice]
 ) -> str | None:
     if value is None:
         return None
@@ -319,7 +319,7 @@ def _parse_date(
 def _parse_coordinate(
     value: CitationOrInterpretation | None,
     field: NumericField,
-    warnings: list[Warning],
+    warnings: list[Notice],
     *,
     low: float,
     high: float,
@@ -337,7 +337,7 @@ _COUNTRY_CODE = re.compile(r"^[A-Z]{2}$")
 
 
 def _parse_country_code(
-    value: CitationOrInterpretation | None, warnings: list[Warning]
+    value: CitationOrInterpretation | None, warnings: list[Notice]
 ) -> str | None:
     if value is None:
         return None

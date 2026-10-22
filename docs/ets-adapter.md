@@ -53,15 +53,15 @@ The adapter resolves the value and the unit each on its own, then converts once.
 
 A stored `traitValue` is in the effective unit, which is `traitUnit` when stored and the printed unit otherwise. An extractor that changes the scale of a value must also store the unit.
 
-A trait outside the unit table drops the row. Until a thesaurus exists, that table is `body_mass`, `body_length`, and `tail_length`. A unit that is unknown or not valid for the trait drops the row. A value that is not a positive decimal drops the row.
+A trait outside the unit table drops the row with `trait_unknown`. Until a thesaurus exists, that table is `body_mass`, `body_length`, and `tail_length`. An unknown unit drops the row with `unit_unknown`, and a unit that is not valid for the trait drops it with `unit_not_for_trait`. A value that is not a positive decimal drops the row with `value_not_numeric`.
 
 ### Citation and interpretation columns
 
 - A free-text column that accepts a citation or a correction uses the interpretation value when the extractor stored a correction, and the printed citation otherwise. The narrow citation of a correction is not used for the column. It stays in the artifact for tracing and for UI highlighting, where a precise range is better than a whole passage.
 - A column that accepts a citation or an interpretation (`individualCount`, `measurementValueMin`, dates, coordinates, and the like) is parsed or matched by the adapter. A citation is parsed from its text. An interpretation uses its `value`, and its passage is only the grounding. The adapter parses a number into the numeric ETS column. The artifact does not store the parsed number.
-- A closed-vocabulary column (`sex`, `basisOfRecord`, `aggregateMeasure`) is matched against the ETS values. A value that does not match adds a warning and leaves the column empty. A `countryCode` that is not two uppercase letters does the same.
+- `sex` and `aggregateMeasure` are matched against the ETS values. A value that does not match adds a warning and leaves the column empty. A `countryCode` that is not two uppercase letters does the same. A `basisOfRecord` that does not match adds a warning and becomes `literatureData`.
 - A date is written as `YYYY-MM-DD`. A year-first number or a written month is converted. A numeric day and month is converted when one number is greater than 12, so that number is the day. When both are 12 or less, the date is left empty.
-- A minimum greater than the maximum drops the row.
+- A minimum greater than the maximum drops the row with `bounds_reversed`.
 
 ### Defaults and assigned columns
 
@@ -77,7 +77,7 @@ A trait outside the unit table drops the row. Until a thesaurus exists, that tab
 
 A warning means the row was built with something missing or doubtful. A drop means no row was built.
 
-A dropped observation must not disappear silently. The adapter returns, with the rows, a list of drops. Each has the source index of the observation in the artifact and a reason. It also keeps each row's source index, so a row can be traced back to its observation. The index is not derived from `measurementID`, which counts only kept rows.
+A dropped observation must not disappear silently. The adapter returns, with the rows, a list of drops. Each has the source index of the observation in the artifact and a reason: `trait_unknown`, `unit_unknown`, `unit_not_for_trait`, `value_not_numeric`, or `bounds_reversed`. It also keeps each row's source index, so a row can be traced back to its observation. The index is not derived from `measurementID`, which counts only kept rows.
 
 ## Open decisions
 

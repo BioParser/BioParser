@@ -4,9 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+# Free-text columns copied onto the row. taxonClass is written as class.
 TextField = Literal[
-    "traitValue",
-    "traitUnit",
     "verbatimScientificName",
     "verbatimTraitValue",
     "verbatimTraitUnit",
@@ -18,41 +17,24 @@ TextField = Literal[
     "order",
     "family",
     "genus",
-    "sex",
     "lifeStage",
-    "age",
     "morphotype",
-    "basisOfRecord",
     "basisOfRecordDescription",
     "measurementMethod",
     "measurementResolution",
     "measurementRemarks",
     "measurementDeterminedBy",
-    "measurementDeterminedDate",
-    "aggregateMeasure",
     "statisticalMethod",
-    "individualCount",
-    "dispersion",
-    "measurementValue_min",
-    "measurementValue_max",
     "measurementAccuracy",
     "occurrenceID",
     "eventID",
     "preparations",
     "samplingProtocol",
-    "year",
-    "month",
-    "day",
-    "eventDate",
     "locationID",
     "habitat",
-    "decimalLongitude",
-    "decimalLatitude",
-    "elevation",
     "geodeticDatum",
     "verbatimLocality",
     "country",
-    "countryCode",
     "occurrenceRemarks",
 ]
 NumericField = Literal[
@@ -98,9 +80,9 @@ class NotADate(BaseModel):
     field: DateField
 
 
-Warning = NotNumeric | NotInVocabulary | NotADate
+Notice = NotNumeric | NotInVocabulary | NotADate
 
 
-def format_warning(warning: Warning) -> str:
+def format_warning(notice: Notice) -> str:
     """The ETS warnings column is one character string. This is one code in it."""
-    return f"{warning.kind}:{warning.field}"
+    return f"{notice.kind}:{notice.field}"

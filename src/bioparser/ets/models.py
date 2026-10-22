@@ -63,8 +63,8 @@ class EtsRow(BaseModel):
     age: float | None = Field(default=None, allow_inf_nan=False)
     morphotype: str | None = None
 
-    # Where the measurement came from. None when the stored token is not an ETS value.
-    basisOfRecord: BasisOfRecord | None = None
+    # Where the measurement came from.
+    basisOfRecord: BasisOfRecord
     basisOfRecordDescription: str | None = None
 
     # How the value was measured.

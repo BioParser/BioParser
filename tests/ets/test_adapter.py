@@ -5,7 +5,7 @@ from bioparser.ets.adapter import to_ets
 from bioparser.ets.assess import Dropped, assess
 from bioparser.ets.dates import parse_date
 from bioparser.ets.models import EtsRow
-from bioparser.ets.warnings import NotNumeric
+from bioparser.ets.notices import NotNumeric
 from bioparser.extract.models import (
     Citation,
     Correction,
@@ -185,7 +185,7 @@ def test_a_vocabulary_miss_leaves_the_column_empty() -> None:
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
     assert row.sex is None
-    assert row.basisOfRecord is None
+    assert row.basisOfRecord == "literatureData"
     assert row.aggregateMeasure is None
     assert "not_in_vocabulary:sex" in row.warnings
     assert "not_in_vocabulary:basisOfRecord" in row.warnings

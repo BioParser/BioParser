@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from bioparser.ets.assess import Dropped, DropReason, Kept, assess
 from bioparser.ets.models import EtsRow
-from bioparser.ets.warnings import format_warning
+from bioparser.ets.notices import format_warning
 from bioparser.extract.models import ExtractionArtifact
 
 

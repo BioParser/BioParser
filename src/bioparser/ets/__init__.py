@@ -5,7 +5,7 @@ The helpers judge an observation. They do not write that judgment back.
 
 from bioparser.ets.adapter import Drop, EtsResult, MappedRow, to_ets
 from bioparser.ets.assess import Assessment, Dropped, Kept, assess
-from bioparser.ets.warnings import Warning
+from bioparser.ets.notices import Notice
 
 ETS_VERSION: str = "0.10"
 
@@ -17,7 +17,7 @@ __all__ = [
     "EtsResult",
     "Kept",
     "MappedRow",
-    "Warning",
+    "Notice",
     "assess",
     "to_ets",
 ]
