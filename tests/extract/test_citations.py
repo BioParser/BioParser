@@ -41,7 +41,7 @@ def _paper(*texts: str) -> ParserArtifact:
         texts = (BASE,)
     return ParserArtifact(
         schema_version=PARSER_ARTIFACT_SCHEMA_VERSION,
-        checksum="abc",
+        checksum="a" * 64,
         parser=ParserInfo(name="default", version="1", configuration={}),
         pages=[
             Page(

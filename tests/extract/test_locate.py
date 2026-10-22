@@ -19,7 +19,7 @@ SENTENCE = "Mus musculus adults averaged 12.5 kg in the sampled population."
 def _paper(*texts: str) -> ParserArtifact:
     return ParserArtifact(
         schema_version=PARSER_ARTIFACT_SCHEMA_VERSION,
-        checksum="abc",
+        checksum="a" * 64,
         parser=ParserInfo(name="default", version="1", configuration={}),
         pages=[
             Page(
