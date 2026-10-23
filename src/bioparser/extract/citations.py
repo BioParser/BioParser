@@ -21,8 +21,9 @@ def reject_mismatched_ranges(
 ) -> None:
     """Reject a claimed range that is not the slice it names.
 
-    Every citation has a range list. Several ranges must follow
-    the parser's block order, and their slices must join to the citation text.
+    Every citation has a range list. A range must stay inside its block.
+    Several ranges must follow the parser's block order, and their slices
+    must join to the citation text.
     An interpretation value is not compared with its passage.
     """
     texts, order = _blocks(parser_artifact)
@@ -56,7 +57,9 @@ def _check_citation(citation: Citation, texts: dict[str, str], order: dict[str, 
 
 def _slice(evidence: TextRange, texts: dict[str, str], order: dict[str, int]) -> str:
     text = texts.get(evidence.block_id)
-    if text is None or evidence.block_id not in order:
+    # Python slicing stops at the end of the string, so a range past the block
+    # would otherwise look like a shorter slice.
+    if text is None or evidence.block_id not in order or evidence.end > len(text):
         raise ExtractionFailedError("cited text does not match its range")
     return text[evidence.start : evidence.end]
 

@@ -84,6 +84,17 @@ def test_a_range_into_a_missing_block_is_rejected() -> None:
         reject_mismatched_ranges([observation], _paper())
 
 
+def test_a_range_past_the_end_of_the_block_is_rejected() -> None:
+    observation = _observation(
+        verbatimTraitValue=Citation(
+            text="12.5", evidence=[TextRange(block_id="b0", start=13, end=10_000)]
+        )
+    )
+
+    with pytest.raises(ExtractionFailedError):
+        reject_mismatched_ranges([observation], _paper())
+
+
 def test_a_range_whose_text_differs_from_the_slice_is_rejected() -> None:
     observation = _observation(
         verbatimTraitValue=Citation(
