@@ -39,8 +39,8 @@ _PHRASE: dict[str, str] = {
 
 
 @dataclass(frozen=True)
-class MeasurementSummary:
-    """Dispersion and bounds. They stay in the printed unit until scale_summary."""
+class MeasurementStatistics:
+    """Dispersion and bounds. They stay in the printed unit until scale_statistics."""
 
     dispersion: float | None
     measurement_value_min: float | None
@@ -50,12 +50,12 @@ class MeasurementSummary:
     bounds_kind: BoundsKind | None
 
 
-def read_summary(
+def read_statistics(
     observation: Observation,
     *,
     stored_phrase: str | None,
     warnings: list[Notice],
-) -> MeasurementSummary:
+) -> MeasurementStatistics:
     """Parse the choices and the numbers. Scaling waits for the trait factor.
 
     A missing dispersion is 0. A number left in the printed unit, a declared
@@ -77,7 +77,7 @@ def read_summary(
         bounds_kind=bounds_kind,
         warnings=warnings,
     )
-    return MeasurementSummary(
+    return MeasurementStatistics(
         dispersion=dispersion,
         measurement_value_min=minimum,
         measurement_value_max=maximum,
@@ -87,31 +87,31 @@ def read_summary(
     )
 
 
-def scale_summary(
+def scale_statistics(
     observation: Observation,
-    summary: MeasurementSummary,
+    statistics: MeasurementStatistics,
     factor: Decimal,
-) -> MeasurementSummary:
+) -> MeasurementStatistics:
     """The same factor as the trait value. Variance uses the square of that factor."""
-    return MeasurementSummary(
+    return MeasurementStatistics(
         dispersion=_scale_dispersion(
-            observation, summary.dispersion, summary.dispersion_kind, factor
+            observation, statistics.dispersion, statistics.dispersion_kind, factor
         ),
         measurement_value_min=_scale_bound(
             observation.measurementValueMin,
-            summary.measurement_value_min,
-            summary.bounds_kind,
+            statistics.measurement_value_min,
+            statistics.bounds_kind,
             factor,
         ),
         measurement_value_max=_scale_bound(
             observation.measurementValueMax,
-            summary.measurement_value_max,
-            summary.bounds_kind,
+            statistics.measurement_value_max,
+            statistics.bounds_kind,
             factor,
         ),
-        phrase=summary.phrase,
-        dispersion_kind=summary.dispersion_kind,
-        bounds_kind=summary.bounds_kind,
+        phrase=statistics.phrase,
+        dispersion_kind=statistics.dispersion_kind,
+        bounds_kind=statistics.bounds_kind,
     )
 
 
