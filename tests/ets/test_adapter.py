@@ -219,6 +219,36 @@ def test_a_numeric_date_is_kept_when_one_number_cannot_be_a_month() -> None:
     assert parse_date("08/03/1963") is None
 
 
+def test_a_written_date_keeps_a_comma_an_ordinal_and_september() -> None:
+    assert parse_date("8 March, 1963") == "1963-03-08"
+    assert parse_date("8 Mar, 1963") == "1963-03-08"
+    assert parse_date("8. March 1963") == "1963-03-08"
+    assert parse_date("8th March 1963") == "1963-03-08"
+    assert parse_date("March 8th, 1963") == "1963-03-08"
+    assert parse_date("8 Sept 1963") == "1963-09-08"
+    assert parse_date("8 Sept. 1963") == "1963-09-08"
+    assert parse_date("8 September 1963") == "1963-09-08"
+
+
+def test_a_zero_padded_number_is_normalized() -> None:
+    observation = _observation(
+        verbatimTraitValue=_cited("08.5", start=20),
+        verbatimTraitUnit=_cited("g", start=25),
+        month=_cited("03", start=130),
+        day=_cited("08", start=140),
+        individualCount=_cited("03", start=30),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.traitValue == "8.5"
+    assert row.traitUnit == "g"
+    assert row.month == 3
+    assert row.day == 8
+    assert row.individualCount == 3
+    assert row.warnings == ""
+
+
 def test_an_empty_observation_list_returns_no_rows() -> None:
     result = to_ets(_artifact(), references=_DOCUMENT_ID)
 

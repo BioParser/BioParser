@@ -3,17 +3,17 @@
 import re
 from decimal import Decimal
 
-# No exponent and no leading zero. "." is the only decimal separator.
-_NON_NEGATIVE = re.compile(r"^(?:0|[1-9]\d*)(?:\.\d+)?$|^\.\d+$")
-_SIGNED = re.compile(r"^[+-]?(?:0|[1-9]\d*)(?:\.\d+)?$|^[+-]?\.\d+$")
-_COUNT = re.compile(r"^[1-9]\d*$")
-_INTEGER = re.compile(r"^[+-]?(?:0|[1-9]\d*)$")
+# No exponent. A leading zero is allowed and removed by the parser. "." is the only decimal separator.
+_NON_NEGATIVE = re.compile(r"^(?:\d+(?:\.\d+)?|\.\d+)$")
+_SIGNED = re.compile(r"^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$")
+_COUNT = re.compile(r"^0*[1-9]\d*$")
+_INTEGER = re.compile(r"^[+-]?\d+$")
 
 
 def canonical_decimal(text: str) -> str | None:
     """Positive decimal without an exponent, or None when the text is not one.
 
-    Trailing zeros after the decimal point are removed.
+    A leading zero is removed. Trailing zeros after the decimal point are removed.
     """
     if _NON_NEGATIVE.fullmatch(text) is None:
         return None
@@ -27,7 +27,7 @@ def canonical_decimal(text: str) -> str | None:
 
 
 def parse_integer(text: str) -> int | None:
-    """Integer without a leading zero, or None when the text is not one."""
+    """Integer, or None when the text is not one. A leading zero is removed."""
     if _INTEGER.fullmatch(text) is None:
         return None
     return int(text)
