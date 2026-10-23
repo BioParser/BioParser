@@ -8,10 +8,10 @@ from collections.abc import Callable
 from pydantic import ValidationError
 
 from bioparser.artifact_paths import ArtifactPathError, extract_result_path
+from bioparser.extract.citations import reject_mismatched_ranges
 from bioparser.extract.errors import ExtractionFailedError, ExtractorBackendUnavailableError
+from bioparser.extract.models import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
 from bioparser.extract.protocol import Extractor
-from bioparser.extract.report import artifact_from_report
-from bioparser.extract.schema import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
 from bioparser.extractor_names import EXTRACTOR_VERSIONS
 from bioparser.jobqueue import ExtractJobMessage, JobDeferred
 from bioparser.jobstate import JobState, JobStateStore, JobStatus, StaleJobStateWriteError
@@ -97,7 +97,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             raise PermanentJobFailure("internal_error")
         try:
             extractor = self._extractor_factory(state.extractor)
-            report = await extractor.extract(parser_artifact)
+            artifact = _validated(await extractor.extract(parser_artifact), state, parser_artifact)
         except ExtractorBackendUnavailableError as exc:
             LOGGER.error(f"extractor {state.extractor!r} cannot run: {exc}")
             raise PermanentJobFailure("internal_error") from exc
@@ -108,7 +108,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
                 "Marking the job failed (extraction_failed)"
             )
             raise PermanentJobFailure("extraction_failed") from exc
-        payload = artifact_from_report(report).model_dump_json().encode()
+        payload = artifact.model_dump_json().encode()
         return store_json_artifact(
             self._storage,
             schema_version=EXTRACTION_ARTIFACT_SCHEMA_VERSION,
@@ -130,6 +130,27 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         except ValidationError as exc:
             LOGGER.error("parser artifact is invalid. Marking the job failed (internal_error)")
             raise PermanentJobFailure("internal_error") from exc
+
+
+def _validated(
+    returned: ExtractionArtifact, state: JobState, parser_artifact: ParserArtifact
+) -> ExtractionArtifact:
+    """The last check before storing. It holds for every extractor.
+
+    The artifact must match the schema, name the extractor and version this job
+    runs (they also fix its storage path), and every range must be the slice it names.
+    """
+    try:
+        artifact = ExtractionArtifact.model_validate(returned.model_dump())
+    except ValidationError as exc:
+        raise ExtractionFailedError("extractor returned an artifact the schema rejects") from exc
+    if (
+        artifact.extractor != state.extractor
+        or artifact.extractor_version != EXTRACTOR_VERSIONS.get(state.extractor)
+    ):
+        raise ExtractionFailedError("extractor returned an artifact for another extractor")
+    reject_mismatched_ranges(artifact.observations, parser_artifact)
+    return artifact
 
 
 def _extraction_artifact_path(parse_result_ref: str, extractor: str) -> str:
