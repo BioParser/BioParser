@@ -8,6 +8,7 @@ from bioparser.parser.errors import (
     UnsupportedDocumentError,
 )
 from bioparser.parser.models import ParserArtifact
+from bioparser.parser.pdf_bytes import parse_pdf_bytes
 from bioparser.parser.protocol import PdfParser
 from bioparser.parser_names import DEFAULT_PARSER_NAME, MINERU_PARSER_NAME, PARSER_BACKENDS
 
@@ -24,4 +25,5 @@ __all__ = [
     "PdfParser",
     "UnsupportedDocumentError",
     "get_parser",
+    "parse_pdf_bytes",
 ]

@@ -1,6 +1,7 @@
 """Logging in the API layer: vLLM model discovery at startup, and pipeline stages."""
 
 import copy
+import dataclasses
 import importlib
 import itertools
 import json
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import traceback
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -17,24 +19,44 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from stubs import STUB_JSON, Handler, StubMinerUClient, StubVLLMService, file_parse_reply
+from stubs import (
+    LOCATABLE_OBSERVATION,
+    LOCATABLE_TEXT,
+    STUB_JSON,
+    Handler,
+    StubParser,
+    StubVLLMService,
+    fake_mineru,
+    file_parse_reply,
+    stub_parser_artifact,
+)
 
 from bioparser import logging_config
+from bioparser import pipeline as pipeline_module
 from bioparser.api import config
-from bioparser.api import pipeline as pipeline_module
 from bioparser.api.app import app
-from bioparser.api.pipeline import PipelineError, run_pipeline
+from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
+from bioparser.hashing import sha256_bytes
 from bioparser.logging_config import JsonFormatter, setup_logging
-from bioparser.services.mineru import MinerUClient, MinerUError
+from bioparser.parser.errors import ParserProcessError
+from bioparser.parser_names import DEFAULT_PARSER_NAME, MINERU_PARSER_NAME
+from bioparser.pipeline import PipelineError, PipelineOptions, run_pipeline
 from bioparser.services.vllm import config as vllm_config
-from bioparser.services.vllm.vllm import VLLMService
 
 # bioparser.api re-exports the FastAPI instance as `app`, which shadows the
 # submodule of the same name; import_module returns the module itself.
 app_module = importlib.import_module("bioparser.api.app")
 
 PDF = b"%PDF-1.4\n%%EOF\n"
-CHECKSUM = "ab" * 32
+OPTIONS = PipelineOptions(
+    parser=DEFAULT_PARSER_NAME,
+    extractor=DEFAULT_EXTRACTOR_NAME,
+    parser_timeout_s=60.0,
+    mineru_base_url="http://127.0.0.1:9",
+    mineru_tier="basic",
+    char_budget=4000,
+    max_tokens=256,
+)
 API_KEY = "sk-canary-api-key-7f3a"
 MODELS = {"object": "list", "data": [{"id": "stub-model"}]}
 
@@ -73,7 +95,14 @@ def _app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path | None = None) -> TestC
         "BIOPARSER_ARTIFACT_STORAGE_PATH",
         str((tmp_path or Path("/tmp")) / "bioparser-test-artifacts"),
     )
-    for name in ("mineru", "vllm", "job_store", "parse_queue", "artifact_storage"):
+    for name in (
+        "vllm",
+        "job_store",
+        "parse_queue",
+        "artifact_storage",
+        "pipeline_pool",
+        "extract_sem",
+    ):
         monkeypatch.setattr(app.state, name, None, raising=False)
     return TestClient(app)
 
@@ -233,7 +262,9 @@ def test_the_configured_api_key_never_appears_in_logs(
     monkeypatch.setenv("BIOPARSER_VLLM_API_KEY", API_KEY)
     monkeypatch.setenv("BIOPARSER_LOG_LEVEL", "DEBUG")
     caplog.set_level(logging.DEBUG)
-    monkeypatch.setattr(app_module, "MinerUClient", lambda *_args, **_kwargs: StubMinerUClient())
+    # Threads, not child processes, so the patched OpenAI client below applies to the run
+    monkeypatch.setattr(app_module, "_new_pipeline_pool", lambda *_: ThreadPoolExecutor(1))
+    monkeypatch.setattr(pipeline_module, "get_parser", lambda *_args, **_kwargs: StubParser())
     sent: list[str] = []
 
     def rejects_the_key(request: httpx2.Request) -> httpx2.Response:
@@ -250,7 +281,8 @@ def test_the_configured_api_key_never_appears_in_logs(
         response = client.post("/extract", files={"file": ("paper.pdf", PDF, "application/pdf")})
 
     assert response.status_code == 502
-    assert sent == [f"Bearer {API_KEY}"] * 2  # discovery at startup, then the completion
+    # discovery at startup; then the run's own discovery and its completion
+    assert sent == [f"Bearer {API_KEY}"] * 3
     logs = _rendered(caplog.records) + capsys.readouterr().err
     assert '"exc_info"' in logs  # the traceback path really ran
     assert API_KEY not in logs
@@ -273,72 +305,70 @@ def _stage_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
     return [record for record in caplog.records if record.name == pipeline_module.__name__]
 
 
-async def _run(mineru: object, vllm: object) -> dict[str, Any]:
-    return await run_pipeline(
-        mineru=mineru,
-        vllm=vllm,
-        checksum=CHECKSUM,
-        content=PDF,
-        char_budget=4000,
-        max_tokens=256,
-    )
+def _run(
+    monkeypatch: pytest.MonkeyPatch,
+    parser: object,
+    vllm: object,
+    options: PipelineOptions = OPTIONS,
+) -> object:
+    """run_pipeline() with [parser] as the parser backend (None: the real factory) and [vllm]."""
+    if parser is not None:
+        monkeypatch.setattr(pipeline_module, "get_parser", lambda *_args, **_kwargs: parser)
+    monkeypatch.setattr(pipeline_module, "VLLMService", lambda: vllm)
+    return run_pipeline(PDF, options)
 
 
-@pytest.mark.anyio
-async def test_each_stage_logs_its_duration_and_results(
-    pipeline_log: pytest.LogCaptureFixture,
+def test_each_stage_logs_its_duration_and_results(
+    pipeline_log: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    await _run(StubMinerUClient(), StubVLLMService())
+    _run(
+        monkeypatch,
+        StubParser(stub_parser_artifact(LOCATABLE_TEXT)),
+        StubVLLMService([LOCATABLE_OBSERVATION]),
+    )
 
     records = _stage_records(pipeline_log)
     assert [(vars(r)["stage"], vars(r)["outcome"], vars(r)["duration_ms"]) for r in records] == [
         ("parse", "ok", 250.0),
-        ("map", "ok", 250.0),
         ("extract", "ok", 250.0),
     ]
     assert {r.levelno for r in records} == {logging.INFO}
-    _parse, mapped, extracted = map(vars, records)
-    assert mapped["pages"] == 1
-    assert (extracted["observations"], extracted["ungrounded_observations"]) == (1, 0)
+    parsed, extracted = map(vars, records)
+    assert parsed["pages"] == 1
+    assert extracted["observations"] == 1
 
 
-class _UnreachableMinerU(StubMinerUClient):
-    async def parse(self, *, filename: str, content: bytes) -> dict[str, Any]:
-        raise MinerUError("mineru-api unreachable: ConnectError") from httpx2.ConnectError("")
+def _unreachable_mineru() -> ParserProcessError:
+    error = ParserProcessError("mineru-api unreachable: ConnectError")
+    error.__cause__ = httpx2.ConnectError("")
+    return error
 
 
-@pytest.mark.anyio
-async def test_a_pipeline_failure_names_the_stage_and_the_cause(
-    pipeline_log: pytest.LogCaptureFixture,
+def test_a_pipeline_failure_names_the_stage_and_the_cause(
+    pipeline_log: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with pytest.raises(PipelineError, match="Parsing failed"):
-        await _run(_UnreachableMinerU(), StubVLLMService())
+        _run(monkeypatch, StubParser(error=_unreachable_mineru()), StubVLLMService())
 
     [record] = _stage_records(pipeline_log)
     assert record.levelno == logging.ERROR
     assert {key: vars(record)[key] for key in ("stage", "outcome", "error", "cause")} == {
         "stage": "parse",
         "outcome": "error",
-        "error": "MinerUError",
+        "error": "ParserProcessError",
         "cause": "ConnectError",
     }
     assert record.exc_info is not None
 
 
-@pytest.mark.anyio
-async def test_every_record_of_a_run_carries_the_checksum(
-    capsys: pytest.CaptureFixture[str],
+def test_every_record_of_a_run_carries_the_checksum(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     setup_logging("INFO")
-    body = json.dumps(file_parse_reply()[1]).encode()
-    mineru = MinerUClient("http://mineru:8000", 5.0, 1.0)
-    mineru._http = httpx2.AsyncClient(
-        transport=httpx2.MockTransport(lambda _request: httpx2.Response(200, content=body)),
-        base_url="http://mineru:8000",
-    )
-
-    await _run(mineru, StubVLLMService())
-    await mineru.aclose()
+    # The real MinerU parser, so a record from another logger is in the run too
+    with fake_mineru(file_parse_reply()) as (url, _seen):
+        options = dataclasses.replace(OPTIONS, parser=MINERU_PARSER_NAME, mineru_base_url=url)
+        _run(monkeypatch, None, StubVLLMService(), options)
     logging.getLogger("bioparser.tests").warning("after the run")
 
     *during, after = map(json.loads, capsys.readouterr().err.splitlines())
@@ -346,9 +376,8 @@ async def test_every_record_of_a_run_carries_the_checksum(
         "mineru-api request completed",  # from the MinerU client, not the pipeline
         "pipeline stage completed",
         "pipeline stage completed",
-        "pipeline stage completed",
     ]
-    assert {record["checksum"] for record in during} == {CHECKSUM}
+    assert {record["checksum"] for record in during} == {sha256_bytes(PDF)}
     assert "checksum" not in after
 
 
@@ -359,59 +388,58 @@ class _CutOffVLLM(StubVLLMService):
         return '{"observations": [{"quotation": "canary-quote'  # stopped mid-string
 
 
-class _MangledMinerU(StubMinerUClient):
-    async def parse(self, *, filename: str, content: bytes) -> dict[str, Any]:
-        middle = copy.deepcopy(STUB_JSON)
-        middle["pages"][0]["blocks"][0]["content"] = ["canary-paper-text"]
-        return middle
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("mineru", "vllm", "stage"),
-    [
-        (StubMinerUClient(), _CutOffVLLM(), "extract"),
-        (_MangledMinerU(), StubVLLMService(), "map"),
-    ],
-    ids=["model-output", "paper-text"],
-)
-async def test_a_failure_traceback_quotes_neither_paper_text_nor_model_output(
-    pipeline_log: pytest.LogCaptureFixture, mineru: object, vllm: object, stage: str
+def test_a_failure_traceback_quotes_no_model_output(
+    pipeline_log: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with pytest.raises(PipelineError):
-        await _run(mineru, vllm)
+        _run(monkeypatch, StubParser(), _CutOffVLLM())
 
     [failure] = [r for r in _stage_records(pipeline_log) if r.levelno == logging.ERROR]
     rendered = JsonFormatter().format(failure)
-    assert vars(failure)["stage"] == stage
+    assert vars(failure)["stage"] == "extract"
     assert "ValidationError" in rendered  # the traceback is there ...
     assert "canary" not in rendered  # ... without pydantic quoting its input
 
 
-def _paper(text: str) -> dict[str, Any]:
-    """middle.json with one text block holding [text]."""
+def test_a_failure_traceback_quotes_no_paper_text(
+    pipeline_log: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
     middle = copy.deepcopy(STUB_JSON)
-    middle["pages"][0]["blocks"][0]["content"][0]["content"] = text
-    return middle
+    middle["pages"][0]["blocks"][0]["content"] = ["canary-paper-text"]
+    with fake_mineru(file_parse_reply(middle)) as (url, _seen):
+        options = dataclasses.replace(OPTIONS, parser=MINERU_PARSER_NAME, mineru_base_url=url)
+        with pytest.raises(PipelineError):
+            _run(monkeypatch, None, StubVLLMService(), options)
+
+    [failure] = [r for r in _stage_records(pipeline_log) if r.levelno == logging.ERROR]
+    rendered = JsonFormatter().format(failure)
+    assert vars(failure)["stage"] == "parse"
+    assert "ValidationError" in rendered  # the traceback is there ...
+    assert "canary" not in rendered  # ... without pydantic quoting its input
 
 
-@pytest.mark.anyio
-async def test_a_vllm_error_body_quoting_the_prompt_stays_out_of_the_traceback(
-    pipeline_log: pytest.LogCaptureFixture, vllm_transport: Callable[[Handler], None]
+def test_a_vllm_error_body_quoting_the_prompt_stays_out_of_the_traceback(
+    pipeline_log: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    vllm_transport: Callable[[Handler], None],
 ) -> None:
     def echoes_the_request(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/models"):
+            return httpx2.Response(200, json=MODELS)
         # A validation error from a FastAPI server (vLLM is one) quotes the request body
         body = request.content.decode()
         return httpx2.Response(400, json={"object": "error", "message": f"invalid: {body}"})
 
     vllm_transport(echoes_the_request)
-    vllm = VLLMService()
-    vllm.model = "stub-model"  # skip model discovery
-    try:
-        with pytest.raises(PipelineError, match="Extraction backend unavailable"):
-            await _run(StubMinerUClient(_paper("canary-paper-text: body mass 12.5 g")), vllm)
-    finally:
-        await vllm.aclose()
+    monkeypatch.setattr(
+        pipeline_module,
+        "get_parser",
+        lambda *_args, **_kwargs: StubParser(
+            stub_parser_artifact("canary-paper-text: body mass 12.5 g")
+        ),
+    )
+    with pytest.raises(PipelineError, match="Extraction request rejected"):
+        run_pipeline(PDF, OPTIONS)  # the real VLLMService, on the patched transport
 
     [failure] = [r for r in _stage_records(pipeline_log) if r.levelno == logging.ERROR]
     rendered = JsonFormatter().format(failure)
@@ -419,12 +447,11 @@ async def test_a_vllm_error_body_quoting_the_prompt_stays_out_of_the_traceback(
     assert "canary" not in rendered  # ... but not what the server quoted back
 
 
-@pytest.mark.anyio
-async def test_a_schema_failure_names_the_pydantic_error_codes(
-    pipeline_log: pytest.LogCaptureFixture,
+def test_a_schema_failure_names_the_pydantic_error_codes(
+    pipeline_log: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with pytest.raises(PipelineError, match="did not match the schema"):
-        await _run(StubMinerUClient(), _CutOffVLLM())
+        _run(monkeypatch, StubParser(), _CutOffVLLM())
 
     [failure] = [r for r in _stage_records(pipeline_log) if r.levelno == logging.ERROR]
     # pydantic's own message is redacted; its error codes (never input) survive in ours

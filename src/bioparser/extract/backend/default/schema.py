@@ -7,8 +7,8 @@ Trait = Literal["body_mass", "body_length", "tail_length"]
 # text here makes values incomparable and there is no way to repair it later.
 Unit = Literal["g", "kg", "mm", "cm", "m"]
 
-# Which units are meaningful for which trait. The demo response flags a
-# mismatched pair. The stored artifact keeps the printed unit.
+# Which units are meaningful for which trait. The stored artifact keeps the
+# printed unit, so a mismatched pair is not an error there.
 TRAIT_UNITS: dict[Trait, frozenset[Unit]] = {
     "body_mass": frozenset({"g", "kg"}),
     "body_length": frozenset({"mm", "cm", "m"}),

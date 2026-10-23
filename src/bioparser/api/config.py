@@ -24,7 +24,6 @@ class ApiSettings(BaseSettings):
     max_upload_bytes: int = Field(default=DEFAULT_MAX_UPLOAD_BYTES, ge=1)
     mineru_base_url: str = "http://mineru:8000"
     mineru_timeout_seconds: float = Field(default=600.0, gt=0)
-    mineru_connect_timeout_seconds: float = Field(default=5.0, gt=0)
     mineru_tier: MinerUTier = DEFAULT_TIER
     extract_concurrency: int = Field(default=2, ge=1)
     extract_queue_timeout_seconds: float = Field(default=5.0, gt=0)

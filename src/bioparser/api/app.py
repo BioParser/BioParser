@@ -1,22 +1,24 @@
 import asyncio
 import contextlib
-import hashlib
-import json
 import logging
+import multiprocessing
 import os
 import socket
 import tempfile
 import uuid
 from collections.abc import AsyncIterator
+from concurrent.futures import Executor, ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
-from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from pydantic import ValidationError
 
+from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
+from bioparser.hashing import sha256_bytes
 from bioparser.jobqueue import (
     JobQueueError,
     ParseJobMessage,
@@ -30,25 +32,21 @@ from bioparser.jobstate import (
     SafeError,
 )
 from bioparser.logging_config import error_fields, redact_url, setup_logging
-from bioparser.parser import ParserArtifact
 from bioparser.parser_names import DEFAULT_PARSER_NAME
-from bioparser.services.mineru import MinerUClient
+from bioparser.pipeline import PipelineError, PipelineOptions, run_pipeline
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.config import get_settings as get_vllm_settings
 from bioparser.services.vllm.vllm import VLLMError
 from bioparser.storage import (
     ArtifactAlreadyExistsError,
     ArtifactMetadata,
-    ArtifactNotFoundError,
     CreationInfo,
     FileSystemArtifactStorage,
     StorageError,
-    StoragePayloadError,
 )
 
 from . import config
 from .errors import (
-    ARTIFACT_INVALID,
     CONTENT_TOO_LARGE,
     EMPTY_FILE,
     INVALID_CONTENT_LENGTH,
@@ -65,7 +63,6 @@ from .errors import (
     http_error,
 )
 from .middleware import TypedRequestBodyLimitMiddleware
-from .pipeline import PipelineError, run_pipeline
 from .schema import (
     FailedJobResponse,
     HealthResponse,
@@ -113,13 +110,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             if settings.artifact_storage_path is None:
                 raise RuntimeError("BIOPARSER_ARTIFACT_STORAGE_PATH is required")
 
-            app.state.mineru = MinerUClient(
-                settings.mineru_base_url,
-                settings.mineru_timeout_seconds,
-                settings.mineru_connect_timeout_seconds,
-                tier=settings.mineru_tier,
-            )
-
             app.state.vllm = VLLMService()
             vllm_base_url = redact_url(get_vllm_settings().vllm_base_url)
             try:
@@ -153,19 +143,41 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 root_path=settings.artifact_storage_path
             )
 
-            # Bounds /extract only. The queue replaces this once the worker lands.
+            # /extract runs the whole pipeline in these processes, never on this event loop.
+            # The semaphore holds one slot per process, so the pool never queues work.
+            app.state.pipeline_pool = _new_pipeline_pool(
+                settings.extract_concurrency, settings.log_level
+            )
             app.state.extract_sem = asyncio.Semaphore(settings.extract_concurrency)
 
         yield
     finally:
         async with _failure_logged_redacted("shutdown"):
+            pool = getattr(app.state, "pipeline_pool", None)
+            if pool is not None:
+                # A running child cannot be stopped; the shutdown does not wait for it.
+                pool.shutdown(wait=False, cancel_futures=True)
             for client in (
-                getattr(app.state, "mineru", None),
                 getattr(app.state, "vllm", None),
                 getattr(app.state, "job_store", None),
             ):
                 if client is not None:
                     await client.aclose()
+
+
+def _pipeline_start_method() -> str:
+    """forkserver: forking this threaded process is unsafe. Windows has no forkserver, so spawn."""
+    return "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
+
+
+def _new_pipeline_pool(workers: int, log_level: int) -> Executor:
+    """Processes for /extract."""
+    return ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=multiprocessing.get_context(_pipeline_start_method()),
+        initializer=setup_logging,
+        initargs=(log_level,),
+    )
 
 
 # Uvicorn imports the app before emitting its first log line.
@@ -185,37 +197,68 @@ app.add_middleware(
 )
 
 
-async def _validated_upload(request: Request, file: UploadFile | None) -> tuple[str, bytes]:
+async def _validated_upload(request: Request, file: UploadFile | None) -> bytes:
     validate_content_length(request.headers.get("content-length"))
     file = require_file(file)
     validate_content_type(file)
     content = await read_upload(file)
     validate_pdf_content(content)
-    # If we use sha256 as digest then same files get same digest
-    # Can be used as job id etc
-    return hashlib.sha256(content).hexdigest(), content
+    return content
 
 
-@asynccontextmanager
-async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
-    """Used for /extract sync runs
+async def _start_pipeline(
+    app: FastAPI, content: bytes, options: PipelineOptions
+) -> tuple[asyncio.Future[ExtractionArtifact], Executor]:
+    """Take a pipeline slot and start one run. Returns the run and the pool it runs in.
 
-    /api/extractions should use async runs when redis implemented
+    503 when no slot frees up in time.
+
+    The run, not the request, frees the slot: a client that goes away cannot stop a running
+    child, and the pool must not queue the next run behind it.
     """
+    sem: asyncio.Semaphore = app.state.extract_sem
     timeout = config.get_api_settings().extract_queue_timeout_seconds
     try:
         async with asyncio.timeout(timeout):
-            await app.state.extract_sem.acquire()
+            await sem.acquire()
     except TimeoutError as exc:
         raise HTTPException(
             status_code=503,
             detail="Pipeline is saturated, retry shortly",
             headers={"Retry-After": "30"},
         ) from exc
+    loop = asyncio.get_running_loop()
+    pool: Executor = app.state.pipeline_pool
     try:
-        yield
-    finally:
-        app.state.extract_sem.release()
+        try:
+            run = loop.run_in_executor(pool, run_pipeline, content, options)
+        except BrokenProcessPool:
+            # An earlier child died, for example out of memory, and the pool takes no more work.
+            pool = _replace_pipeline_pool(app, pool)
+            run = loop.run_in_executor(pool, run_pipeline, content, options)
+    except BaseException:
+        sem.release()
+        raise
+    run.add_done_callback(lambda finished: _free_slot(sem, finished))
+    return run, pool
+
+
+def _free_slot(sem: asyncio.Semaphore, finished: asyncio.Future[ExtractionArtifact]) -> None:
+    sem.release()
+    if not finished.cancelled():
+        finished.exception()  # read: a run whose client went away logs no "never retrieved"
+
+
+def _replace_pipeline_pool(app: FastAPI, broken: Executor) -> Executor:
+    """Put a new pool in place of a broken one, unless another request already did."""
+    if app.state.pipeline_pool is broken:
+        settings = config.get_api_settings()
+        app.state.pipeline_pool = _new_pipeline_pool(
+            settings.extract_concurrency, settings.log_level
+        )
+        broken.shutdown(wait=False, cancel_futures=True)
+    pool: Executor = app.state.pipeline_pool
+    return pool
 
 
 def _job_state_response(state: JobState) -> JobStatusResponse:
@@ -266,7 +309,10 @@ def _job_state_response(state: JobState) -> JobStatusResponse:
     },
 )
 async def submit_job(request: Request, file: UploadFile | None = None) -> QueuedJobResponse:
-    document_id, pdf_bytes = await _validated_upload(request, file)
+    pdf_bytes = await _validated_upload(request, file)
+    # The same PDF always gets the same id. hashlib releases the GIL, so a thread keeps the
+    # hashing of up to max_upload_bytes off the event loop.
+    document_id = await asyncio.to_thread(sha256_bytes, pdf_bytes)
     job_id = uuid.uuid4()
     creation_info = CreationInfo(created_by="api-upload")
     artifact_metadata = ArtifactMetadata(
@@ -326,11 +372,8 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     responses={
         404: error_response(JOB_NOT_FOUND),
         422: error_response(INVALID_JOB_ID),
-        500: error_response(JOB_STATE_UNREADABLE, ARTIFACT_INVALID),
-        503: error_response(
-            REDIS_UNAVAILABLE,
-            STORAGE_UNAVAILABLE,
-        ),
+        500: error_response(JOB_STATE_UNREADABLE),
+        503: error_response(REDIS_UNAVAILABLE),
     },
 )
 async def job_status(request: Request, job_id: str) -> JobStatusResponse:
@@ -353,55 +396,45 @@ async def job_status(request: Request, job_id: str) -> JobStatusResponse:
 
     if record is None:
         raise http_error(404, JOB_NOT_FOUND)
-    if record.status in ("parsed", "done"):
-        if record.parse_result_ref is None:
-            LOGGER.error("parser artifact invalid", extra={"job_id": str(job_id)})
-            raise http_error(500, ARTIFACT_INVALID)
-        artifact_fields = {
-            "job_id": str(job_id),
-            "artifact_ref": str(record.parse_result_ref),
-        }
-        try:
-            payload = await asyncio.to_thread(
-                request.app.state.artifact_storage.retrieve,
-                record.parse_result_ref,
-            )
-        except (ArtifactNotFoundError, StoragePayloadError) as exc:
-            LOGGER.error(
-                "parser artifact missing or invalid",
-                extra=artifact_fields | error_fields(exc),
-            )
-            raise http_error(500, ARTIFACT_INVALID) from exc
-        except StorageError as exc:
-            LOGGER.warning("parser artifact read failed", extra=artifact_fields | error_fields(exc))
-            raise http_error(503, STORAGE_UNAVAILABLE) from exc
-        try:
-            ParserArtifact.model_validate(json.loads(payload))
-        except (UnicodeDecodeError, json.JSONDecodeError, ValidationError) as exc:
-            LOGGER.error("parser artifact invalid", extra=artifact_fields | error_fields(exc))
-            raise http_error(500, ARTIFACT_INVALID) from exc
+    # One Redis read. The worker validated the artifact before it recorded the ref, so this
+    # route does not read it again: that cost grows with the paper and ran on the event loop.
     return _job_state_response(record)
 
 
-@app.post("/extract")
-async def extract(request: Request, file: UploadFile | None = None) -> dict[str, Any]:
-    """Runs validate -> mineru -> mapper -> vLLM pipeline for testing,
-    synchronously"""
-    checksum, content = await _validated_upload(request, file)
+@app.post(
+    "/extract",
+    responses={
+        502: {"description": "The pipeline gave no result. `detail` names the failed step."},
+        503: {"description": "Every pipeline process is busy. Retry after `Retry-After`."},
+    },
+)
+async def extract(request: Request, file: UploadFile | None = None) -> ExtractionArtifact:
+    """Dev route: a queued job's pipeline in one request, without the queue and the workers.
+
+    The same parser, extractor and settings as a job from `POST /api/extractions`. Nothing is
+    stored. The response is the extraction artifact that the job stores.
+    """
+    content = await _validated_upload(request, file)
     settings = config.get_api_settings()
-    async with _extract_slot(request.app):
-        try:
-            return await run_pipeline(
-                mineru=request.app.state.mineru,
-                vllm=request.app.state.vllm,
-                checksum=checksum,
-                content=content,
-                tier=settings.mineru_tier,
-                char_budget=settings.extraction_char_budget,
-                max_tokens=settings.extraction_max_tokens,
-            )
-        except PipelineError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+    options = PipelineOptions(
+        parser=DEFAULT_PARSER_NAME,
+        extractor=DEFAULT_EXTRACTOR_NAME,
+        parser_timeout_s=settings.mineru_timeout_seconds,
+        mineru_base_url=settings.mineru_base_url,
+        mineru_tier=settings.mineru_tier,
+        char_budget=settings.extraction_char_budget,
+        max_tokens=settings.extraction_max_tokens,
+    )
+    run, pool = await _start_pipeline(request.app, content, options)
+    try:
+        # Shielded: a client that goes away must not cancel the run that holds the slot.
+        return await asyncio.shield(run)
+    except PipelineError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except BrokenProcessPool as exc:
+        LOGGER.error("pipeline process died", extra=error_fields(exc))
+        _replace_pipeline_pool(request.app, pool)
+        raise HTTPException(status_code=502, detail="Pipeline process died") from exc
 
 
 @app.get("/health")
