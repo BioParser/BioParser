@@ -3,7 +3,6 @@ import contextlib
 import dataclasses
 import importlib
 import json
-import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,12 +12,21 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from httpx2 import ASGITransport
-from stubs import InlinePipeline, StubParser, StubVLLMService, fake_mineru, file_parse_reply
+from stubs import (
+    LOCATABLE_OBSERVATION,
+    LOCATABLE_TEXT,
+    InlinePipeline,
+    StubParser,
+    StubVLLMService,
+    fake_mineru,
+    file_parse_reply,
+    stub_parser_artifact,
+)
 
 from bioparser import pipeline as pipeline_module
 from bioparser.api import config
 from bioparser.api.app import app
-from bioparser.extract.schema import ExtractionArtifact
+from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.parser.errors import (
     ParserProcessError,
@@ -85,82 +93,59 @@ def test_extract_runs_the_parser_and_extractor_of_a_queued_job(
     assert body["schema_version"] == "1"
 
 
-def test_a_grounded_observation_is_flagged_grounded(
+def _citation(text: str, start: int) -> dict[str, Any]:
+    evidence = [{"block_id": "stub-p1-b0000", "start": start, "end": start + len(text)}]
+    return {"kind": "citation", "text": text, "evidence": evidence}
+
+
+def test_a_located_observation_is_returned_with_its_ranges(
     client: TestClient, inline_pipeline: InlinePipeline
 ) -> None:
-    body = _extract(client)
+    inline_pipeline.parser = StubParser(stub_parser_artifact(LOCATABLE_TEXT))
+    inline_pipeline.vllm = StubVLLMService([LOCATABLE_OBSERVATION])
 
-    assert body["ungrounded"] == 0
-    assert body["observations"][0]["grounded"] is True
-    assert body["observations"][0]["unit_ok"] is True
-    assert body["observations"][0]["canonical_value"] == 12.5  # grams
+    [observation] = _extract(client)["observations"]
 
-
-class HallucinatingVLLM(StubVLLMService):
-    async def generate_json(
-        self, prompt: str, *, schema: dict[str, Any], system_prompt: str, max_tokens: int
-    ) -> str:
-        return json.dumps(
-            {
-                "observations": [
-                    {
-                        "taxon": "Mus musculus",
-                        "trait": "body_mass",
-                        "value": 99.9,
-                        "unit": "g",
-                        "evidence_block_id": "no-such-block",
-                        "quotation": "never appeared in the paper",
-                    }
-                ]
-            }
-        )
+    assert observation["trait"]["value"] == "body_mass"
+    assert observation["verbatimScientificName"] == _citation("Mus musculus", 0)
+    assert observation["verbatimTraitValue"] == _citation("12.5", 30)
+    assert observation["verbatimTraitUnit"] == _citation("g", 35)
 
 
-def test_an_ungrounded_observation_is_returned_flagged_not_silently(
+def test_a_quotation_the_paper_does_not_contain_is_dropped(
     client: TestClient, inline_pipeline: InlinePipeline
 ) -> None:
     """A quotation the paper does not contain must not look like evidence."""
-    inline_pipeline.vllm = HallucinatingVLLM()
+    hallucinated = LOCATABLE_OBSERVATION | {
+        "quotation": "Mus musculus weighed 99.9 g",
+        "value": 99.9,
+    }
+    inline_pipeline.parser = StubParser(stub_parser_artifact(LOCATABLE_TEXT))
+    inline_pipeline.vllm = StubVLLMService([hallucinated])
 
-    body = _extract(client)
-
-    assert body["ungrounded"] == 1
-    assert body["observations"][0]["grounded"] is False
-
-
-class MismatchedUnitVLLM(StubVLLMService):
-    async def generate_json(
-        self, prompt: str, *, schema: dict[str, Any], system_prompt: str, max_tokens: int
-    ) -> str:
-        match = re.search(r"\[([^\]]+)\]", prompt)
-        return json.dumps(
-            {
-                "observations": [
-                    {
-                        "taxon": "Mus musculus",
-                        "trait": "body_mass",
-                        "value": 12.5,
-                        "unit": "mm",  # a mass in millimetres
-                        "evidence_block_id": match.group(1) if match else "x",
-                        "quotation": "12.5 g",
-                    }
-                ]
-            }
-        )
-
-
-def test_a_unit_the_trait_cannot_take_is_flagged(
-    client: TestClient, inline_pipeline: InlinePipeline
-) -> None:
-    inline_pipeline.vllm = MismatchedUnitVLLM()
-
-    body = _extract(client)
-
-    assert body["unit_mismatched"] == 1
-    assert body["observations"][0]["unit_ok"] is False
+    assert _extract(client)["observations"] == []
 
 
 # --- failures ----------------------------------------------------------------
+
+
+@dataclasses.dataclass
+class OtherExtractor:
+    """Returns an artifact for another extractor, which the extractor worker refuses."""
+
+    async def extract(self, artifact: Any) -> ExtractionArtifact:
+        return ExtractionArtifact(extractor="other", extractor_version="1")
+
+
+def test_an_artifact_the_extractor_worker_refuses_is_not_returned(
+    client: TestClient, inline_pipeline: InlinePipeline, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pipeline_module, "get_extractor", lambda *_a, **_k: OtherExtractor())
+
+    response = client.post("/extract", files={"file": ("a.pdf", PDF, "application/pdf")})
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Extraction failed its checks"
 
 
 class FreeTextUnitVLLM(StubVLLMService):
@@ -227,15 +212,17 @@ def test_run_pipeline_asks_mineru_for_the_configured_tier(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # The real MinerU parser against a mineru-api on loopback, for a job whose parser is mineru
-    monkeypatch.setattr(pipeline_module, "VLLMService", StubVLLMService)
+    vllm = StubVLLMService()
+    monkeypatch.setattr(pipeline_module, "VLLMService", lambda: vllm)
     with fake_mineru(file_parse_reply()) as (url, seen):
         options = dataclasses.replace(
             OPTIONS, parser="mineru", mineru_base_url=url, mineru_tier="standard"
         )
-        extraction = run_pipeline(PDF, options)
+        run_pipeline(PDF, options)
 
     assert "tier=standard&" in seen[0]
-    assert extraction.observations[0].grounded is True
+    # The extractor read the MinerU parse
+    assert "Adult body mass averaged 12.5 g" in vllm.prompts[0]
 
 
 # --- backpressure and the event loop ----------------------------------------

@@ -20,6 +20,8 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from stubs import (
+    LOCATABLE_OBSERVATION,
+    LOCATABLE_TEXT,
     STUB_JSON,
     Handler,
     StubParser,
@@ -319,7 +321,11 @@ def _run(
 def test_each_stage_logs_its_duration_and_results(
     pipeline_log: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _run(monkeypatch, StubParser(), StubVLLMService())
+    _run(
+        monkeypatch,
+        StubParser(stub_parser_artifact(LOCATABLE_TEXT)),
+        StubVLLMService([LOCATABLE_OBSERVATION]),
+    )
 
     records = _stage_records(pipeline_log)
     assert [(vars(r)["stage"], vars(r)["outcome"], vars(r)["duration_ms"]) for r in records] == [
@@ -329,7 +335,7 @@ def test_each_stage_logs_its_duration_and_results(
     assert {r.levelno for r in records} == {logging.INFO}
     parsed, extracted = map(vars, records)
     assert parsed["pages"] == 1
-    assert (extracted["observations"], extracted["ungrounded_observations"]) == (1, 0)
+    assert extracted["observations"] == 1
 
 
 def _unreachable_mineru() -> ParserProcessError:

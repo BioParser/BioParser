@@ -159,7 +159,9 @@ Does not read or write the job store or artifact storage. It will be removed wit
 - Runs [`bioparser.pipeline.run_pipeline()`](#bioparserpipeline): the parser that
   `POST /api/extractions` records on a job (`DEFAULT_PARSER_NAME`), then the job's extractor
   (`DEFAULT_EXTRACTOR_NAME`), built by the same factories and with the same settings as in
-  the workers. The response is the extraction artifact that the extractor worker stores.
+  the workers. The response is the extraction artifact that the extractor worker stores,
+  after the same check (`bioparser.extract.checks.checked_artifact`). Its format:
+  [extraction-artifact.md](extraction-artifact.md).
 - **Event loop:** the run happens in a child process (a `ProcessPoolExecutor` with
   `config.extract_concurrency` processes). The API's event loop does not parse the PDF or
   validate a parser artifact, so other routes keep answering during a run.
@@ -173,21 +175,21 @@ Does not read or write the job store or artifact storage. It will be removed wit
 ```json
 {
   "schema_version": "1",
-  "observations": [...],
-  "ungrounded": 0,
-  "unit_mismatched": 0,
-  "blocks_used": 340,
-  "prompt_characters": 7421,
-  "truncated": false
+  "extractor": "default",
+  "extractor_version": "1",
+  "observations": [...]
 }
 ```
+
+An observation is in the response only when the extractor located its fields in the
+parser artifact; an observation whose quotation the paper does not contain is dropped.
 
 **Failure:**
 
 | Status | When |
 |--------|------|
 | 400 / 415 | same upload validation failures as `POST /api/extractions` |
-| 502 | a pipeline step failed; `detail` names it: `Parsing failed`, `Parsing timed out`, `The PDF could not be parsed`, `Extraction did not match the schema`, `Extraction truncated`, `Extraction request rejected`, `Extraction backend unavailable`, or `Pipeline process died` |
+| 502 | a pipeline step failed; `detail` names it: `Parsing failed`, `Parsing timed out`, `The PDF could not be parsed`, `Extraction did not match the schema`, `Extraction failed its checks`, `Extraction truncated`, `Extraction request rejected`, `Extraction backend unavailable`, or `Pipeline process died` |
 | 503 | every pipeline process is busy and the queue timeout elapsed |
 
 `502` and `503` bodies use FastAPI's default `{"detail": "<message>"}` shape (a
@@ -360,7 +362,8 @@ tier, and the extraction budgets.
 
 - Raises `PipelineError` with a safe message when a step fails; `app.py` turns that into
   the endpoint's `502`.
-- On success, returns the `ExtractionArtifact` that the extractor worker would store.
+- On success, returns the `ExtractionArtifact` that the extractor worker would store, after
+  the worker's check (`checked_artifact`).
 - Builds its own `VLLMService` for each run, because each run has its own event loop.
 
 ### `config.py`
@@ -421,7 +424,7 @@ What is logged:
 | Logger | Message | Level | Fields |
 |---|---|---|---|
 | `bioparser.api.app` | `vllm model discovered` / `vllm model discovery failed` | INFO / WARNING | `vllm_base_url` (credentials, query and fragment removed), then `model`, or `error` and `cause` |
-| `bioparser.pipeline` | `pipeline stage completed` / `pipeline stage failed` | INFO / ERROR | `stage` (`parse`, `extract`), `outcome` (`ok` or `error`), `duration_ms`, then results (`pages`; `observations`, `blocks_sent`, `truncated`, ...), or `error`, `cause` and the traceback |
+| `bioparser.pipeline` | `pipeline stage completed` / `pipeline stage failed` | INFO / ERROR | `stage` (`parse`, `extract`), `outcome` (`ok` or `error`), `duration_ms`, then results (`pages`; `observations`), or `error`, `cause` and the traceback |
 | `bioparser.services.mineru.client` | `mineru-api request completed` / `mineru-api request failed` | INFO / WARNING | `status_code`, `bytes_read`, `latency_ms`, then `error` on failure |
 | `bioparser.services.vllm.vllm` | `vllm completion finished` / `vllm request failed` | INFO if `finish_reason` is `stop`, else WARNING | `model`, `latency_ms`, `finish_reason`, `prompt_tokens`, `completion_tokens`, or `latency_ms` and `error` |
 

@@ -19,7 +19,7 @@ from bioparser.parser import (
     PdfParser,
     UnsupportedDocumentError,
 )
-from bioparser.parser.protocol import parse_pdf_bytes
+from bioparser.parser.pdf_bytes import parse_pdf_bytes
 from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage

@@ -2,8 +2,8 @@
 
 ``POST /extract`` runs it in a child process, so the API's event loop never parses a PDF or
 validates a parser artifact. The parser and the extractor come from the same factories, with
-the same names and settings, as in the workers. A dev request and a queued job of the same
-PDF give the same extraction artifact.
+the same names and settings, as in the workers, and the extraction artifact passes the same
+check. A dev request and a queued job of the same PDF give the same extraction artifact.
 
 Kept outside ``bioparser.api``: importing that package builds the FastAPI app, which a
 child process does not need.
@@ -17,14 +17,17 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 
+from pydantic import ValidationError
+
 from bioparser.extract.backend.factory import get_extractor
+from bioparser.extract.checks import checked_artifact
 from bioparser.extract.errors import (
     ExtractionFailedError,
     ExtractorBackendUnavailableError,
     ExtractorProcessError,
 )
-from bioparser.extract.report import artifact_from_report
-from bioparser.extract.schema import ExtractionArtifact
+from bioparser.extract.models import ExtractionArtifact
+from bioparser.extractor_names import EXTRACTOR_VERSIONS
 from bioparser.hashing import sha256_bytes
 from bioparser.logging_config import error_fields, log_context, stopwatch
 from bioparser.parser.backend.factory import get_parser
@@ -35,7 +38,7 @@ from bioparser.parser.errors import (
     UnsupportedDocumentError,
 )
 from bioparser.parser.models import ParserArtifact
-from bioparser.parser.protocol import parse_pdf_bytes
+from bioparser.parser.pdf_bytes import parse_pdf_bytes
 from bioparser.services.mineru.client import MinerUTier
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.vllm import VLLMRequestRejectedError, VLLMTruncatedError
@@ -96,14 +99,7 @@ def run_pipeline(pdf: bytes, options: PipelineOptions) -> ExtractionArtifact:
         try:
             with _stage("extract") as fields:
                 extraction = asyncio.run(_extract(artifact, options))
-                fields.update(
-                    blocks_sent=extraction.blocks_used,
-                    prompt_characters=extraction.prompt_characters,
-                    truncated=extraction.truncated,
-                    observations=len(extraction.observations),
-                    ungrounded_observations=extraction.ungrounded,
-                    unit_mismatched_observations=extraction.unit_mismatched,
-                )
+                fields["observations"] = len(extraction.observations)
         except ExtractionFailedError as exc:
             raise PipelineError(_extraction_failure(exc)) from exc
         except (ExtractorProcessError, ExtractorBackendUnavailableError) as exc:
@@ -123,7 +119,10 @@ def _parse(pdf: bytes, options: PipelineOptions) -> ParserArtifact:
 
 
 async def _extract(artifact: ParserArtifact, options: PipelineOptions) -> ExtractionArtifact:
-    """The extractor worker's extractor for ``options.extractor``, and the artifact it stores."""
+    """The extractor worker's extractor for ``options.extractor``, and the artifact it stores.
+
+    The worker checks the artifact before it stores it, so this run checks it too.
+    """
     # One client per run: each asyncio.run() has its own event loop.
     vllm = VLLMService()
     try:
@@ -133,7 +132,12 @@ async def _extract(artifact: ParserArtifact, options: PipelineOptions) -> Extrac
             char_budget=options.char_budget,
             max_tokens=options.max_tokens,
         )
-        return artifact_from_report(await extractor.extract(artifact))
+        return checked_artifact(
+            await extractor.extract(artifact),
+            artifact,
+            extractor=options.extractor,
+            version=EXTRACTOR_VERSIONS.get(options.extractor),
+        )
     finally:
         await vllm.aclose()
 
@@ -143,4 +147,7 @@ def _extraction_failure(exc: ExtractionFailedError) -> str:
         return "Extraction truncated"
     if isinstance(exc.__cause__, VLLMRequestRejectedError):
         return "Extraction request rejected"
-    return "Extraction did not match the schema"
+    if isinstance(exc.__cause__, ValidationError):
+        return "Extraction did not match the schema"
+    # A wrong extractor name or version, or a range that is not the slice it names
+    return "Extraction failed its checks"

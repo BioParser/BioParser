@@ -16,7 +16,7 @@ from uuid import UUID
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from pydantic import ValidationError
 
-from bioparser.extract.schema import ExtractionArtifact
+from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.hashing import sha256_bytes
 from bioparser.jobqueue import (

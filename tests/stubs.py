@@ -116,6 +116,17 @@ def fake_mineru(
 
 
 STUB_TEXT = "Adult body mass averaged 12.5 g in the sampled population."
+# The quotation holds the taxon, the value and the unit once each, so the default extractor
+# locates all of them. Use it with stub_parser_artifact(LOCATABLE_TEXT).
+LOCATABLE_TEXT = "Mus musculus: adult body mass 12.5 g."
+LOCATABLE_OBSERVATION: dict[str, Any] = {
+    "taxon": "Mus musculus",
+    "trait": "body_mass",
+    "value": 12.5,
+    "unit": "g",
+    "evidence_block_id": "stub-p1-b0000",
+    "quotation": "Mus musculus: adult body mass 12.5 g",
+}
 
 
 def stub_parser_artifact(text: str = STUB_TEXT) -> ParserArtifact:

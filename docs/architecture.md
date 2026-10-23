@@ -93,9 +93,14 @@ language model. The `mineru` backend sends the PDF to a separate MinerU service,
 holds the layout models and is the only parser part that needs a GPU.
 
 The independently deployable extractor worker consumes parser artifacts, runs the local
-model, validates canonical observations, rejects candidates without evidence, and stores
-the result. It may have separate memory and GPU requirements. Initial milestones define this
-boundary and evaluate runtimes; production inference comes later.
+model, and stores the result. An extractor returns the whole extraction artifact. An
+extractor drops what it cannot ground. Before storing, the worker checks the artifact against its
+schema, checks that it names the extractor and version the job runs, and checks every
+range against the slice it names. A failure fails the job. The worker does not drop or
+repair a field. It may have separate memory and GPU
+requirements.
+Initial milestones define this boundary and evaluate runtimes; production inference
+comes later.
 
 Health and readiness for workers
 
@@ -145,7 +150,7 @@ sequenceDiagram
 
     API->>Store: Load canonical observations
     API->>API: Map observations through ETS adapter
-    API-->>Client: ETS JSON with evidence
+    API-->>Client: ETS JSON
 ```
 
 The parser-only path terminates successfully after storing the parser artifact.
@@ -274,20 +279,13 @@ source coordinates.
 
 ### Canonical extraction artifact
 
-The model produces a standard independent candidate with taxon text, trait, value,
-unit, biological qualifiers, statistical context, evidence block and quotation,
-model/prompt versions, and validation status. Candidates without valid evidence are
-not returned as verified observations.
+A finished extraction stores one observation per measurement. Each paper field keeps the printed text and a character range in a parser block. A field that cannot be located is not stored, and an observation missing a required field is dropped by its extractor.
 
-### ETS response
+The stored file checks its shape: the trait code, a required string, and that a range is ordered. The worker checks every range against the slice it names before storing, for any extractor. A mismatch fails the job. An unresolved name and a unit that cannot be converted are stored as printed. The file does not decide whether a measurement is good enough to show.
 
-The API adapter maps validated observations to an explicit ETS version. Keeping it
-outside the model:
+The ETS adapter is the quality gate for what a user is shown. It resolves the name, converts the unit, and decides whether a weak field becomes a warning, an empty id, or a dropped row. An extractor may call those same checks while it is still working, and drop or repair a field before storing it. It does not have to. The stored file can hold a value the response rejects, such as a unit that does not fit the trait.
 
-- prevents model retraining for ETS mapping changes
-- makes mappings reviewable and testable
-- allows other output standards to be added later
-- distinguishes source supported values from normalized or derived fields
+The field list and the evidence rules are in [extraction-artifact.md](extraction-artifact.md). What the ETS adapter derives is in [ets-adapter.md](ets-adapter.md).
 
 ```mermaid
 flowchart LR
@@ -298,9 +296,9 @@ flowchart LR
 
     PDF -->|PDF parser| Parsed
     Parsed -->|local extraction model| Canonical
-    Canonical -->|deterministic adapter| ETS
+    Canonical -->|ETS adapter| ETS
 
-    Parsed -. block IDs and quotations .-> Canonical
+    Parsed -. block ranges .-> Canonical
     Canonical -. provenance .-> ETS
 ```
 
