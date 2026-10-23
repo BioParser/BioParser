@@ -57,28 +57,23 @@ A trait outside the unit table drops the row with `trait_unknown`. Until a thesa
 
 ### Range and dispersion
 
-The minimum, the maximum, and the dispersion share the trait's unit. ETS gives the minimum and the maximum no unit of their own, and it does not convert `dispersion`. The observation records which statistic each number is. That choice selects the factor. A separate unit for those numbers is not stored. One unit covers the measurement.
+The minimum, the maximum, and the dispersion share the trait's unit. ETS gives the minimum and the maximum no unit of their own, and it does not convert `dispersion`. The stored choice of statistic selects the conversion factor.
 
 | Stored choice | ETS column | Conversion |
 |---|---|---|
-| Trait value | `traitValue`, `traitUnit` | Grams or millimetres |
-| `centralKind` `mean` or `median` | No column. It is part of the `statisticalMethod` phrase | None |
-| `dispersionKind` `standardDeviation` or `standardError`, with a dispersion number | `dispersion` | The same factor as the trait value |
-| `dispersionKind` `variance`, with a dispersion number | `dispersion` | The square of that factor |
-| `boundsKind` `range` or `confidenceInterval`, with a minimum and a maximum | `measurementValue_min`, `measurementValue_max` | The same factor as the trait value |
+| `dispersionKind` `standardDeviation` or `standardError` | `dispersion` | Same factor as the trait value |
+| `dispersionKind` `variance` | `dispersion` | Square of that factor |
+| `boundsKind` `range` or `confidenceInterval` | `measurementValue_min`, `measurementValue_max` | Same factor as the trait value |
 
-A dispersion kind and a bounds kind can both be set. ETS allows a dispersion metric and a range together.
+A dispersion kind and a bounds kind can both be set, since ETS allows a dispersion metric and a range together. `centralKind` has no column and no conversion. It only feeds the `statisticalMethod` phrase.
 
 `statisticalMethod` stays one free-text phrase. A stored phrase is copied. When no phrase is stored, the adapter writes one from `centralKind` and `dispersionKind`. The bounds kind is not part of the phrase, because the minimum and the maximum are their own columns. `mean`, `standardDeviation`, and `range` become `mean and standard deviation`.
 
-- A dispersion number with no usable `dispersionKind` stays in the printed unit, and the row warns `not_converted:dispersion`.
-- A `dispersionKind` with no dispersion number warns `unspecified:dispersion`, and `dispersion` is 0. An unrecognized choice with no number does the same.
-- No dispersion number and no kind leaves `dispersion` at 0, with no warning.
-- A bounds choice with either side absent warns `unspecified:measurementValue_min` or `unspecified:measurementValue_max`. A matched choice still converts the side that is stored.
-- A stored minimum or maximum with no usable `boundsKind` stays in the printed unit and warns `not_converted:measurementValue_min` or `not_converted:measurementValue_max`. An absent choice and an unrecognized choice both do this.
-- No bounds choice and no minimum or maximum leaves those columns empty, with no warning. A single specimen stores none of these choices, so the minimum and the maximum stay empty and `dispersion` is 0.
-- An unrecognized `centralKind` warns `not_in_vocabulary:statisticalMethod` when the phrase is written from the choices. A stored phrase is copied, and that choice adds no warning.
-- A minimum greater than the maximum, after that conversion, drops the row with `bounds_reversed`.
+- An unrecognized `centralKind` warns `not_in_vocabulary:statisticalMethod` when the phrase is written from the choices. A stored phrase adds no warning.
+- A number with no usable kind stays in the printed unit and warns `not_converted:dispersion`, `not_converted:measurementValue_min`, or `not_converted:measurementValue_max`. An absent choice and an unrecognized choice both do this.
+- A kind with no number warns `unspecified:dispersion` and `dispersion` takes the default (see [Defaults](#defaults-and-assigned-columns)). A bounds kind with either side absent warns `unspecified:measurementValue_min` or `unspecified:measurementValue_max`, and that column stays empty. A matched choice still converts the side that is stored.
+- No number and no kind leaves the column at its default with no warning. A single specimen stores none of these choices.
+- A minimum greater than the maximum, after conversion, drops the row with `bounds_reversed`.
 
 ### Citation and interpretation columns
 
@@ -90,7 +85,7 @@ A dispersion kind and a bounds kind can both be set. ETS allows a dispersion met
 ### Defaults and assigned columns
 
 - `basisOfRecord` is `literatureData` when the observation did not record one. `aggregateMeasure` stays empty.
-- A missing `individualCount` is `1` and a missing `dispersion` is `0`. ETS defines those defaults.
+- A missing `individualCount` is `1`. A missing `dispersion` is `0`. ETS defines those defaults. The `0` means the measurement did not report a dispersion. It is not a measured dispersion of zero. The minimum and the maximum have no default, so they stay empty.
 - `measurementID` is assigned when the rows are built.
 - `references` comes from the job's document.
 - `warnings` collects what the adapter found while building the row.
