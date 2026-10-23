@@ -69,7 +69,7 @@ A dispersion kind and a bounds kind can both be set, since ETS allows a dispersi
 
 `statisticalMethod` stays one free-text phrase. A stored phrase is copied. When no phrase is stored, the adapter writes one from `centralKind` and `dispersionKind`. The bounds kind is not part of the phrase, because the minimum and the maximum are their own columns. `mean`, `standardDeviation`, and `range` become `mean and standard deviation`.
 
-- An unrecognized `centralKind` warns `not_in_vocabulary:statisticalMethod` when the phrase is written from the choices. A stored phrase adds no warning.
+- An unrecognized `centralKind` warns `not_in_vocabulary:statisticalMethod` only when no phrase is stored and the choices write none. A stored phrase, or a phrase written from `dispersionKind`, adds no warning.
 - A number with no usable kind stays in the printed unit and warns `not_converted:dispersion`, `not_converted:measurementValue_min`, or `not_converted:measurementValue_max`. An absent choice and an unrecognized choice both do this.
 - A kind with no number warns `unspecified:dispersion` and `dispersion` takes the default (see [Defaults](#defaults-and-assigned-columns)). A bounds kind with either side absent warns `unspecified:measurementValue_min` or `unspecified:measurementValue_max`, and that column stays empty. A matched choice still converts the side that is stored.
 - No number and no kind leaves the column at its default with no warning. A single specimen stores none of these choices.

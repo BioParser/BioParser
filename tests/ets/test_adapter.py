@@ -559,6 +559,19 @@ def test_an_unknown_statistic_kind_is_ignored() -> None:
     )
 
 
+def test_an_unknown_central_kind_does_not_warn_when_a_dispersion_phrase_is_written() -> None:
+    observation = _observation(
+        centralKind=_read("average", "average", start=60),
+        dispersionKind=_read("variance", "variance", start=70),
+        dispersion=_cited("0.2", start=90),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.statisticalMethod == "variance"
+    assert "not_in_vocabulary" not in row.warnings
+
+
 def test_an_empty_document_id_is_rejected() -> None:
     with pytest.raises(ValueError, match="references is empty"):
         to_ets(_artifact(_observation()), references="")

@@ -59,15 +59,18 @@ def read_statistics(
     """Parse the choices and the numbers. Scaling waits for the trait factor.
 
     A missing dispersion is 0. A number left in the printed unit, a declared
-    statistic with no number, and an unrecognized central choice are warnings
-    on the ETS column a reader can see.
+    statistic with no number, and an unrecognized central choice that leaves no
+    phrase are warnings on the ETS column a reader can see.
     """
     dispersion = _parse_dispersion(observation.dispersion, warnings)
     minimum = _parse_bound(observation.measurementValueMin, "measurementValue_min", warnings)
     maximum = _parse_bound(observation.measurementValueMax, "measurementValue_max", warnings)
-    central = _central(observation.centralKind, stored_phrase, warnings)
+    central = _central(observation.centralKind)
     dispersion_kind = _dispersion_kind(observation.dispersionKind)
     bounds_kind = _bounds_kind(observation.boundsKind)
+    phrase = _phrase(stored_phrase, central, dispersion_kind)
+    if phrase is None and observation.centralKind is not None and central is None:
+        warnings.append(NotInVocabulary(field="statisticalMethod"))
     _gaps(
         observation,
         dispersion=dispersion,
@@ -81,7 +84,7 @@ def read_statistics(
         dispersion=dispersion,
         measurement_value_min=minimum,
         measurement_value_max=maximum,
-        phrase=_phrase(stored_phrase, central, dispersion_kind),
+        phrase=phrase,
         dispersion_kind=dispersion_kind,
         bounds_kind=bounds_kind,
     )
@@ -210,17 +213,10 @@ def _scale_bound(
     return scale_measure(_text(stored), factor, squared=False)
 
 
-def _central(
-    value: Interpretation | None, stored_phrase: str | None, warnings: list[Notice]
-) -> CentralKind | None:
+def _central(value: Interpretation | None) -> CentralKind | None:
     if value is None:
         return None
-    matched = match_central(value.value)
-    if matched is None:
-        if stored_phrase is None:
-            warnings.append(NotInVocabulary(field="statisticalMethod"))
-        return None
-    return matched
+    return match_central(value.value)
 
 
 def _dispersion_kind(value: Interpretation | None) -> DispersionKind | None:
