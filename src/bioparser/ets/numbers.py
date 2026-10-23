@@ -3,6 +3,8 @@
 import re
 from decimal import Decimal
 
+# Longer than any printed measurement. Keeps int() and float() finite.
+_MAX_LENGTH = 32
 # No exponent. A leading zero is allowed and removed by the parser. "." is the only decimal separator.
 _NON_NEGATIVE = re.compile(r"^(?:\d+(?:\.\d+)?|\.\d+)$")
 _SIGNED = re.compile(r"^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$")
@@ -15,7 +17,7 @@ def canonical_decimal(text: str) -> str | None:
 
     A leading zero is removed. Trailing zeros after the decimal point are removed.
     """
-    if _NON_NEGATIVE.fullmatch(text) is None:
+    if len(text) > _MAX_LENGTH or _NON_NEGATIVE.fullmatch(text) is None:
         return None
     number = Decimal(text)
     if not number.is_finite() or number <= 0:
@@ -28,14 +30,14 @@ def canonical_decimal(text: str) -> str | None:
 
 def parse_integer(text: str) -> int | None:
     """Integer, or None when the text is not one. A leading zero is removed."""
-    if _INTEGER.fullmatch(text) is None:
+    if len(text) > _MAX_LENGTH or _INTEGER.fullmatch(text) is None:
         return None
     return int(text)
 
 
 def parse_count(text: str) -> int | None:
     """Integer greater than or equal to 1, or None when the text is not one."""
-    if _COUNT.fullmatch(text) is None:
+    if len(text) > _MAX_LENGTH or _COUNT.fullmatch(text) is None:
         return None
     return int(text)
 
@@ -52,7 +54,7 @@ def parse_signed_decimal(text: str) -> float | None:
 
 def _decimal(text: str, *, signed: bool) -> float | None:
     pattern = _SIGNED if signed else _NON_NEGATIVE
-    if pattern.fullmatch(text) is None:
+    if len(text) > _MAX_LENGTH or pattern.fullmatch(text) is None:
         return None
     number = Decimal(text)
     if not number.is_finite():

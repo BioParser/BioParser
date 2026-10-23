@@ -6,14 +6,13 @@ term. The artifact trait code is not a column.
 """
 
 import re
-from decimal import Decimal
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from bioparser.ets.numbers import canonical_decimal
 from bioparser.ets.vocab import BasisOfRecord, Sex
 
-_DECIMAL = re.compile(r"^(?:0|[1-9]\d*)(?:\.\d+)?$|^\.\d+$")
 _MEASUREMENT_ID = re.compile(r"^[1-9]\d*$")
 
 
@@ -111,16 +110,8 @@ class EtsRow(BaseModel):
     @field_validator("traitValue")
     @classmethod
     def _trait_value_is_a_positive_decimal(cls, value: str) -> str:
-        if _DECIMAL.fullmatch(value) is None:
-            raise ValueError("traitValue is not a decimal string")
-        number = Decimal(value)
-        if not number.is_finite() or number <= 0:
-            raise ValueError("traitValue must be greater than zero")
-        text = format(number, "f")
-        if "." in text:
-            text = text.rstrip("0").rstrip(".")
-        if value != text:
-            raise ValueError("traitValue is not in canonical decimal form")
+        if canonical_decimal(value) != value:
+            raise ValueError("traitValue is not a positive decimal in canonical form")
         return value
 
     @field_validator("measurementID")

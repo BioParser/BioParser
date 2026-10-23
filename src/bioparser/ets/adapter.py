@@ -56,14 +56,7 @@ def to_ets(artifact: ExtractionArtifact, *, references: str) -> EtsResult:
                 row=_row(verdict, references=references, measurement_id=str(len(rows) + 1)),
             )
         )
-    _require_unique_ids([item.row for item in rows])
     return EtsResult(rows=rows, drops=drops)
-
-
-def _require_unique_ids(rows: list[EtsRow]) -> None:
-    identifiers = [row.measurementID for row in rows]
-    if len(identifiers) != len(set(identifiers)):
-        raise ValueError("measurementID values are not unique")
 
 
 def _row(

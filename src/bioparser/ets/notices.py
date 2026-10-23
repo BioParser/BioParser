@@ -80,7 +80,16 @@ class NotADate(BaseModel):
     field: DateField
 
 
-Notice = NotNumeric | NotInVocabulary | NotADate
+class NotACalendarDay(BaseModel):
+    """Year, month, and day together are not one calendar day."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["not_a_date"] = "not_a_date"
+    field: Literal["year,month,day"] = "year,month,day"
+
+
+Notice = NotNumeric | NotInVocabulary | NotADate | NotACalendarDay
 
 
 def format_warning(notice: Notice) -> str:

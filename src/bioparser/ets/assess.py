@@ -1,6 +1,7 @@
 """Judge one stored observation. The observation is left unchanged."""
 
 import re
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -8,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from bioparser.ets.dates import parse_date
 from bioparser.ets.notices import (
     DateField,
+    NotACalendarDay,
     NotADate,
     Notice,
     NotInVocabulary,
@@ -142,6 +144,12 @@ def assess(observation: Observation) -> Assessment:
     year = _parse_integer(observation.year, "year", warnings, low=1000, high=9999)
     month = _parse_integer(observation.month, "month", warnings, low=1, high=12)
     day = _parse_integer(observation.day, "day", warnings, low=1, high=31)
+    if year is not None and month is not None and day is not None:
+        try:
+            datetime(year, month, day)
+        except ValueError:
+            warnings.append(NotACalendarDay())
+            day = None
     event_date = _parse_date(observation.eventDate, "eventDate", warnings)
     measurement_determined_date = _parse_date(
         observation.measurementDeterminedDate, "measurementDeterminedDate", warnings

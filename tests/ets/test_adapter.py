@@ -349,6 +349,40 @@ def test_a_negative_age_is_parsed_and_reversed_bounds_drop_the_row() -> None:
     assert result.rows[0].row.verbatimTraitUnit == "kg"
 
 
+def test_a_long_number_does_not_fail_the_other_rows() -> None:
+    long_month = _observation(month=_cited("1" * 40, start=130))
+    long_value = _observation(verbatimTraitValue=_cited("8" * 40, start=20))
+
+    result = to_ets(_artifact(long_month, long_value, _observation()), references=_DOCUMENT_ID)
+
+    assert result.rows[0].row.month is None
+    assert "not_numeric:month" in result.rows[0].row.warnings
+    assert [(drop.source_index, drop.reason) for drop in result.drops] == [(1, "value_not_numeric")]
+    assert result.rows[1].source_index == 2
+    assert result.rows[1].row.traitValue == "12500"
+
+
+def test_an_impossible_day_is_cleared_and_a_leap_day_is_kept() -> None:
+    impossible = _observation(
+        year=_cited("2021", start=80),
+        month=_cited("2", start=90),
+        day=_cited("31", start=100),
+    )
+    leap = _observation(
+        year=_cited("2020", start=80),
+        month=_cited("2", start=90),
+        day=_cited("29", start=100),
+    )
+
+    bad = to_ets(_artifact(impossible), references=_DOCUMENT_ID).rows[0].row
+    good = to_ets(_artifact(leap), references=_DOCUMENT_ID).rows[0].row
+
+    assert (bad.year, bad.month, bad.day) == (2021, 2, None)
+    assert "not_a_date:year,month,day" in bad.warnings
+    assert (good.year, good.month, good.day) == (2020, 2, 29)
+    assert good.warnings == ""
+
+
 def test_an_empty_document_id_is_rejected() -> None:
     with pytest.raises(ValueError, match="references is empty"):
         to_ets(_artifact(_observation()), references="")
