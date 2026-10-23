@@ -1,9 +1,11 @@
 import hashlib
 import json
 import logging
+import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -753,5 +755,38 @@ def test_each_backend_gets_its_own_result_path() -> None:
     handler.close()
 
     assert jobs.state is not None
-    # Without a tier the handler names the default tier's path.
+    # Without a tier the handler names the default tier's path
     assert jobs.state.parse_result_ref == parse_result_path(PDF_CHECKSUM, "mineru", "2", "basic")
+
+
+def test_the_parser_reads_a_closed_temp_file_that_is_removed_afterwards(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows refuses to open a file by name while another handle has it open (#219)."""
+    handles: list[Any] = []
+    named_temporary_file = tempfile.NamedTemporaryFile
+
+    def recording(*args: Any, **kwargs: Any) -> Any:
+        handle = named_temporary_file(*args, **kwargs)
+        handles.append(handle)
+        return handle
+
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", recording)
+    seen: list[tuple[bool, Path]] = []
+
+    class _ClosedFileParser(RecordingParser):
+        def parse(self, path: Path) -> ParserArtifact:
+            seen.append((handles[-1].closed, path))
+            return super().parse(path)
+
+    jobs = MemoryJobs(_queued())
+    parser = _ClosedFileParser(_artifact())
+    handler = _handler(jobs, MemoryStorage(), parser)
+    handler.handle(_message())
+    handler.close()
+
+    assert [closed for closed, _ in seen] == [True]  # our handle is closed during the parse
+    assert parser.paths == [PDF_BYTES]  # the parser still read the whole PDF
+    assert not seen[0][1].exists()  # and the file is gone afterwards
+    assert jobs.state is not None
+    assert jobs.state.status == "parsed"

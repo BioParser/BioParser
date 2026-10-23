@@ -190,9 +190,11 @@ def _parse_result_path(pdf: bytes, parser_name: str, mineru_tier: MinerUTier) ->
 
 
 def _parse_pdf(parser: PdfParser, pdf: bytes) -> ParserArtifact:
-    with tempfile.NamedTemporaryFile(suffix=".pdf") as handle:
+    # delete_on_close=False keeps file only during with block sill
+    # handle.close() needed for Windows, .flush() will not work
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete_on_close=False) as handle:
         handle.write(pdf)
-        handle.flush()
+        handle.close()
         return parser.parse(Path(handle.name))
 
 

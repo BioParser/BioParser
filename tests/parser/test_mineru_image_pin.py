@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -40,7 +41,9 @@ def test_compose_leaves_the_mineru_command_to_the_image() -> None:
         assert "--tier" not in path.read_text(encoding="utf-8"), path.name
 
 
-@pytest.mark.skipif(shutil.which("sh") is None, reason="needs a POSIX shell")
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("sh") is None, reason="needs a POSIX shell"
+)
 def test_mineru_entrypoint_passes_the_concurrency_as_one_argument(tmp_path: Path) -> None:
     # The ENTRYPOINT's sh script, run against a mineru-api stub that prints its arguments.
     dockerfile = _DOCKERFILE.read_text(encoding="utf-8").replace("\\\n", "")
