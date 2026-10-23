@@ -29,12 +29,20 @@ jobs:
         env:
           # The logging overlay rejects an empty password. .env.example leaves it empty.
           GRAFANA_ADMIN_PASSWORD: compose-config
+          # The Traefik overlay rejects an empty users file path. .env.example leaves it empty.
+          TRAEFIK_USERS_FILE: docker/traefik/users.example
         run: |
           set -euo pipefail
           # cpu.yml or gpu.yml supplies the vLLM image. The base file alone does not.
           validate() {
             docker compose --env-file .env.example "$@" config --quiet
           }
+          # Traefik must not start without a users file the operator made.
+          if TRAEFIK_USERS_FILE= validate -f docker-compose.yml -f docker-compose.cpu.yml \
+              -f docker-compose.traefik.yml 2>/dev/null; then
+            echo "docker-compose.traefik.yml accepted an empty TRAEFIK_USERS_FILE" >&2
+            exit 1
+          fi
           validate -f docker-compose.yml -f docker-compose.cpu.yml
           validate -f docker-compose.yml -f docker-compose.gpu.yml
           validate -f docker-compose.yml -f docker-compose.cpu.yml -f docker-compose.logging.yml

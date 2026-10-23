@@ -18,7 +18,7 @@ Compose runs six services:
 
 `docker-compose.traefik.yml` adds an encrypted reverse proxy with HTTP Basic Authentication in front of the API:
 
-- `traefik` terminates TLS/HTTPS on host port `TRAEFIK_HTTPS_PORT` (default 443), enforces Basic Authentication (configured in `docker/traefik/users`), and routes internally to `http://bioparser:8080`. Plain HTTP is disabled so credentials never travel unencrypted. It runs as unprivileged user `65534:65534` (`nobody`), uses file-based configuration (`docker/traefik/bioparser.yml`), and requires no Docker socket access.
+- `traefik` terminates TLS/HTTPS on host port `TRAEFIK_HTTPS_PORT` (default 443), enforces Basic Authentication (users from the file in `TRAEFIK_USERS_FILE`, which you make; the repository ships none), and routes internally to `http://bioparser:8080`. Plain HTTP is disabled so credentials never travel unencrypted. It runs as unprivileged user `65534:65534` (`nobody`), uses file-based configuration (`docker/traefik/bioparser.yml`), and requires no Docker socket access.
 
 The README has the default install and start commands. This page covers env vars, networking, logs, HTTPS, and `test_prompt`.
 
@@ -56,6 +56,7 @@ With `docker-compose.traefik.yml`:
 `TRAEFIK_BIND_ADDRESS`: host interface to bind Traefik to (default `127.0.0.1` for loopback). Set to `0.0.0.0` to expose to the LAN.  
 `TRAEFIK_HTTPS_PORT`: host port for HTTPS (default `443`). Plain HTTP is disabled so credentials are never sent unencrypted.  
 `TRAEFIK_LOG_LEVEL`: log verbosity for Traefik (default `INFO`).  
+`TRAEFIK_USERS_FILE`: required. Path to the Basic Auth users file you made (see below). Compose refuses to start Traefik while it is empty.  
 
 Inside Compose, the API and the extractor worker use `BIOPARSER_VLLM_BASE_URL=http://vllm:8000/v1`, and the API and the parser worker use `BIOPARSER_MINERU_BASE_URL=http://mineru:8000`. On the host, `test_prompt` should use `http://localhost:8000/v1` (the default in `.env.example`).
 
@@ -94,7 +95,20 @@ The Docker socket gives full control of Docker, and so of the host. Only `docker
 
 `docker-compose.traefik.yml` runs Traefik as an encrypted reverse proxy with HTTP Basic Authentication in front of the API.
 
-To enable it, append `:docker-compose.traefik.yml` to `COMPOSE_FILE` in `.env`:
+The repository ships no users and no default password. Before you enable Traefik, make the users file (`docker/traefik/users`, which Git ignores) and point `TRAEFIK_USERS_FILE` at it:
+
+```sh
+htpasswd -nbB <name> '<password>' > docker/traefik/users
+# without htpasswd on the host:
+docker run --rm httpd:2.4-alpine htpasswd -nbB <name> '<password>' > docker/traefik/users
+chmod 644 docker/traefik/users   # Traefik runs as uid 65534 and must read it
+```
+
+```sh
+TRAEFIK_USERS_FILE=./docker/traefik/users
+```
+
+Then append `:docker-compose.traefik.yml` to `COMPOSE_FILE` in `.env`:
 
 ```sh
 COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml:docker-compose.logging.yml:docker-compose.traefik.yml
@@ -103,12 +117,12 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml:docker-compose.logging.ym
 When started:
 
 - Traefik binds to `TRAEFIK_BIND_ADDRESS` (default `127.0.0.1` for loopback security) on HTTPS port `TRAEFIK_HTTPS_PORT` (default 443). Plain HTTP is disabled so credentials are never transmitted unencrypted.
-- All requests require HTTP Basic Authentication defined in `docker/traefik/users` (format: `username:bcrypt_hash`). The default user is `bioparser` with password `bioparser`. Additional users can be added with `htpasswd -nbB <username> <password>`.
+- All requests require HTTP Basic Authentication. Traefik reads the users from the Compose secret `traefik_users` (`/run/secrets/traefik_users`), which comes from `TRAEFIK_USERS_FILE` (format: `name:bcrypt_hash`, one line per user). Add a user with `htpasswd -nbB <name> '<password>' >> docker/traefik/users`, then run `docker compose up -d --force-recreate traefik`.
 - HTTPS connections are encrypted with TLS and routed internally across the `edge` network to `http://bioparser:8080`.
 - Direct plain HTTP to the API remains accessible on loopback (`http://127.0.0.1:8080`).
 - By default, Traefik generates an internal self-signed TLS certificate (`TRAEFIK DEFAULT CERT`) regenerated on restart, so encrypted connections work immediately without external domain setup. To use custom certificates, define a `tls.certificates` block in `docker/traefik/bioparser.yml` and mount your cert files.
 - Note: On rootless Docker hosts, binding privileged host ports below 1024 requires setting `TRAEFIK_HTTPS_PORT=8443` in `.env` (or configuring `net.ipv4.ip_unprivileged_port_start=0`).
-- On Docker Desktop for Windows, dynamic file watcher changes may require running `docker compose restart traefik` after modifying `docker/traefik/bioparser.yml` or `docker/traefik/users`.
+- On Docker Desktop for Windows, dynamic file watcher changes may require running `docker compose restart traefik` after modifying `docker/traefik/bioparser.yml`.
 
 Testing unauthenticated request (returns 401 Unauthorized):
 
@@ -119,11 +133,11 @@ curl -k https://localhost/health
 Testing with Basic Authentication:
 
 ```sh
-curl -k -u bioparser:bioparser https://localhost/health
-# Returns {"status":"healthy"}
+curl -k -u '<name>:<password>' https://localhost/health
+# Returns {"status":"ok"}
 ```
 
-(or `curl -k -u bioparser:bioparser https://localhost:8443/health` if `TRAEFIK_HTTPS_PORT=8443` is configured in `.env`).
+(or `curl -k -u '<name>:<password>' https://localhost:8443/health` if `TRAEFIK_HTTPS_PORT=8443` is configured in `.env`).
 
 Traefik uses file-based configuration (`docker/traefik/bioparser.yml`), runs as unprivileged user `65534:65534` (`nobody`), and does not mount the Docker socket, keeping the container isolated with dropped capabilities (`cap_drop: [ALL]`) and `read_only: true`.
 

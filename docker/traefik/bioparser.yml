@@ -16,7 +16,8 @@ http:
   middlewares:
     bioparser-auth:
       basicAuth:
-        usersFile: "/etc/traefik/conf.d/users"
+        # The Compose secret from TRAEFIK_USERS_FILE. The repository ships no users.
+        usersFile: "/run/secrets/traefik_users"
 
   services:
     bioparser:
