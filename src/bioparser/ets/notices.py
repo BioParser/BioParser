@@ -63,12 +63,47 @@ class NotNumeric(BaseModel):
 
 
 class NotInVocabulary(BaseModel):
-    """A printed token outside the ETS list for that column."""
+    """A stored token outside the list for that field."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["not_in_vocabulary"] = "not_in_vocabulary"
-    field: Literal["sex", "basisOfRecord", "aggregateMeasure", "countryCode"]
+    field: Literal[
+        "sex",
+        "basisOfRecord",
+        "aggregateMeasure",
+        "countryCode",
+        "centralKind",
+        "dispersionKind",
+        "boundsKind",
+    ]
+
+
+class KindMissing(BaseModel):
+    """A dispersion number was stored without a choice that says how to convert it."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["kind_missing"] = "kind_missing"
+    field: Literal["dispersion"] = "dispersion"
+
+
+class NumberMissing(BaseModel):
+    """A dispersion choice was stored without a dispersion number."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["number_missing"] = "number_missing"
+    field: Literal["dispersion"] = "dispersion"
+
+
+class BoundMissing(BaseModel):
+    """A range or a confidence interval is missing one bound."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["bound_missing"] = "bound_missing"
+    field: Literal["measurementValue_min", "measurementValue_max"]
 
 
 class NotADate(BaseModel):
@@ -89,7 +124,15 @@ class NotACalendarDay(BaseModel):
     field: Literal["year,month,day"] = "year,month,day"
 
 
-Notice = NotNumeric | NotInVocabulary | NotADate | NotACalendarDay
+Notice = (
+    NotNumeric
+    | NotInVocabulary
+    | NotADate
+    | NotACalendarDay
+    | KindMissing
+    | NumberMissing
+    | BoundMissing
+)
 
 
 def format_warning(notice: Notice) -> str:
