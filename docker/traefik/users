@@ -1,4 +1,0 @@
-# Basic Auth users file for Traefik (format: username:bcrypt_hash)
-# Lines can be generated with: htpasswd -nbB username password
-# Example default user (username: bioparser, password: bioparser)
-bioparser:$2b$12$1seHrBcz.FXHvGyh/QgwS.Tf90AngJ59d1azwz/FYMrfDVD3gd7Zq
