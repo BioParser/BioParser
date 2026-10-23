@@ -216,7 +216,19 @@ def test_a_paper_can_state_occurrence_place_and_time() -> None:
 def test_a_numeric_date_is_kept_when_one_number_cannot_be_a_month() -> None:
     assert parse_date("13/03/1963") == "1963-03-13"
     assert parse_date("03/13/1963") == "1963-03-13"
+    assert parse_date("13.03.1963") == "1963-03-13"
+    assert parse_date("03.13.1963") == "1963-03-13"
+    assert parse_date("29.02.1964") == "1964-02-29"
+    assert parse_date("1963.03.08") == "1963-03-08"
     assert parse_date("08/03/1963") is None
+    assert parse_date("08.03.1963") is None
+    assert parse_date("13/13/1963") is None
+    assert parse_date("31/04/1963") is None
+    assert parse_date("29/02/1963") is None
+    assert parse_date("29.02.1963") is None
+    assert parse_date("8 Mar 63") is None
+    assert parse_date("19630308") is None
+    assert parse_date("1963-03-08T10:00:00") is None
 
 
 def test_a_written_date_keeps_a_comma_an_ordinal_and_september() -> None:
@@ -228,6 +240,26 @@ def test_a_written_date_keeps_a_comma_an_ordinal_and_september() -> None:
     assert parse_date("8 Sept 1963") == "1963-09-08"
     assert parse_date("8 Sept. 1963") == "1963-09-08"
     assert parse_date("8 September 1963") == "1963-09-08"
+    assert parse_date("5 Jan. 2020") == "2020-01-05"
+    assert parse_date("Aug. 5, 2020") == "2020-08-05"
+    assert parse_date("8. Mar. 1963") == "1963-03-08"
+
+
+def test_a_written_date_accepts_prose_and_other_separators() -> None:
+    assert parse_date("8th of March 1963") == "1963-03-08"
+    assert parse_date("8th of March, 1963") == "1963-03-08"
+    assert parse_date("the 8th March 1963") == "1963-03-08"
+    assert parse_date("8/Mar/1963") == "1963-03-08"
+    assert parse_date("8/March/1963") == "1963-03-08"
+    assert parse_date("1963 Mar 8") == "1963-03-08"
+    assert parse_date("1963 March 8") == "1963-03-08"
+    assert parse_date("1963-Mar-08") == "1963-03-08"
+    assert parse_date("August 5. 2020") == "2020-08-05"
+    assert parse_date("Aug. 5. 2020") == "2020-08-05"
+    assert parse_date("8\u2013Mar\u20131963") == "1963-03-08"
+    assert parse_date("  8 Mar 1963  ") == "1963-03-08"
+    assert parse_date("March 1963") is None
+    assert parse_date("8\u201310 March 1963") is None
 
 
 def test_a_zero_padded_number_is_normalized() -> None:
