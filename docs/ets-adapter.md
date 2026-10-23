@@ -71,12 +71,13 @@ A dispersion kind and a bounds kind can both be set. ETS allows a dispersion met
 
 `statisticalMethod` stays one free-text phrase. A stored phrase is copied. When no phrase is stored, the adapter writes one from `centralKind` and `dispersionKind`. The bounds kind is not part of the phrase, because the minimum and the maximum are their own columns. `mean`, `standardDeviation`, and `range` become `mean and standard deviation`.
 
-- A dispersion number with no `dispersionKind` stays in the printed unit, and the row warns `kind_missing:dispersion`.
-- A matched `dispersionKind` with no dispersion number warns `number_missing:dispersion`, and `dispersion` is 0.
+- A dispersion number with no usable `dispersionKind` stays in the printed unit, and the row warns `not_converted:dispersion`.
+- A `dispersionKind` with no dispersion number warns `missing:dispersion`, and `dispersion` is 0. An unrecognized choice with no number does the same.
 - No dispersion number and no kind leaves `dispersion` at 0, with no warning.
-- A matched `boundsKind` with either bound missing warns `bound_missing:measurementValue_min` or `bound_missing:measurementValue_max`. The bound that is stored is still converted.
-- A minimum or a maximum with no `boundsKind` stays in the printed unit. A single specimen stores none of these choices, so the minimum and the maximum stay empty and `dispersion` is 0.
-- A choice outside its list warns `not_in_vocabulary` and is ignored for conversion and for the phrase.
+- A bounds choice with either side missing warns `missing:measurementValue_min` or `missing:measurementValue_max`. A matched choice still converts the side that is stored.
+- A minimum or a maximum with no `boundsKind` stays in the printed unit, with no warning. A single specimen stores none of these choices, so the minimum and the maximum stay empty and `dispersion` is 0.
+- An unrecognized bounds choice leaves each stored side in the printed unit and warns `not_converted:measurementValue_min` or `not_converted:measurementValue_max`.
+- An unrecognized `centralKind` warns `not_in_vocabulary:statisticalMethod` when the phrase is written from the choices. A stored phrase is copied, and that choice adds no warning.
 - A minimum greater than the maximum, after that conversion, drops the row with `bounds_reversed`.
 
 ### Citation and interpretation columns

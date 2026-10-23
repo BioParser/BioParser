@@ -7,14 +7,14 @@ they also supply ``statisticalMethod``. The observation is left unchanged.
 
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Literal
 
 from bioparser.ets.notices import (
-    BoundMissing,
-    KindMissing,
+    Missing,
+    NotConverted,
     Notice,
     NotInVocabulary,
     NotNumeric,
-    NumberMissing,
     NumericField,
 )
 from bioparser.ets.numbers import parse_decimal, parse_signed_decimal
@@ -58,18 +58,21 @@ def read_summary(
 ) -> MeasurementSummary:
     """Parse the choices and the numbers. Scaling waits for the trait factor.
 
-    A missing dispersion is 0. A dispersion number without a kind, a kind
-    without a number, and a bounds choice missing one side are warnings.
+    A missing dispersion is 0. A number left in the printed unit, a declared
+    statistic with no number, and an unrecognized central choice are warnings
+    on the ETS column a reader can see.
     """
     dispersion = _parse_dispersion(observation.dispersion, warnings)
     minimum = _parse_bound(observation.measurementValueMin, "measurementValue_min", warnings)
     maximum = _parse_bound(observation.measurementValueMax, "measurementValue_max", warnings)
-    central = _central(observation.centralKind, warnings)
-    dispersion_kind = _dispersion_kind(observation.dispersionKind, warnings)
-    bounds_kind = _bounds_kind(observation.boundsKind, warnings)
+    central = _central(observation.centralKind, stored_phrase, warnings)
+    dispersion_kind = _dispersion_kind(observation.dispersionKind)
+    bounds_kind = _bounds_kind(observation.boundsKind)
     _gaps(
         observation,
         dispersion=dispersion,
+        minimum=minimum,
+        maximum=maximum,
         dispersion_kind=dispersion_kind,
         bounds_kind=bounds_kind,
         warnings=warnings,
@@ -139,21 +142,48 @@ def _gaps(
     observation: Observation,
     *,
     dispersion: float | None,
+    minimum: float | None,
+    maximum: float | None,
     dispersion_kind: DispersionKind | None,
     bounds_kind: BoundsKind | None,
     warnings: list[Notice],
 ) -> None:
+    choice_stored = observation.dispersionKind is not None
     number_stored = observation.dispersion is not None and dispersion is not None
-    if number_stored and observation.dispersionKind is None:
-        warnings.append(KindMissing())
-    elif observation.dispersion is None and dispersion_kind is not None:
-        warnings.append(NumberMissing())
-    if bounds_kind is None:
+    if number_stored and dispersion_kind is None:
+        warnings.append(NotConverted(field="dispersion"))
+    elif choice_stored and observation.dispersion is None:
+        warnings.append(Missing(field="dispersion"))
+    if observation.boundsKind is None:
         return
-    if observation.measurementValueMin is None:
-        warnings.append(BoundMissing(field="measurementValue_min"))
-    if observation.measurementValueMax is None:
-        warnings.append(BoundMissing(field="measurementValue_max"))
+    _bound_gap(
+        observation.measurementValueMin,
+        minimum,
+        bounds_kind,
+        "measurementValue_min",
+        warnings,
+    )
+    _bound_gap(
+        observation.measurementValueMax,
+        maximum,
+        bounds_kind,
+        "measurementValue_max",
+        warnings,
+    )
+
+
+def _bound_gap(
+    stored: CitationOrInterpretation | None,
+    parsed: float | None,
+    kind: BoundsKind | None,
+    field: Literal["measurementValue_min", "measurementValue_max"],
+    warnings: list[Notice],
+) -> None:
+    if stored is None:
+        warnings.append(Missing(field=field))
+        return
+    if kind is None and parsed is not None:
+        warnings.append(NotConverted(field=field))
 
 
 def _scale_dispersion(
@@ -178,34 +208,29 @@ def _scale_bound(
     return scale_measure(_text(stored), factor, squared=False)
 
 
-def _central(value: Interpretation | None, warnings: list[Notice]) -> CentralKind | None:
+def _central(
+    value: Interpretation | None, stored_phrase: str | None, warnings: list[Notice]
+) -> CentralKind | None:
     if value is None:
         return None
     matched = match_central(value.value)
     if matched is None:
-        warnings.append(NotInVocabulary(field="centralKind"))
+        if stored_phrase is None:
+            warnings.append(NotInVocabulary(field="statisticalMethod"))
         return None
     return matched
 
 
-def _dispersion_kind(value: Interpretation | None, warnings: list[Notice]) -> DispersionKind | None:
+def _dispersion_kind(value: Interpretation | None) -> DispersionKind | None:
     if value is None:
         return None
-    matched = match_dispersion_kind(value.value)
-    if matched is None:
-        warnings.append(NotInVocabulary(field="dispersionKind"))
-        return None
-    return matched
+    return match_dispersion_kind(value.value)
 
 
-def _bounds_kind(value: Interpretation | None, warnings: list[Notice]) -> BoundsKind | None:
+def _bounds_kind(value: Interpretation | None) -> BoundsKind | None:
     if value is None:
         return None
-    matched = match_bounds(value.value)
-    if matched is None:
-        warnings.append(NotInVocabulary(field="boundsKind"))
-        return None
-    return matched
+    return match_bounds(value.value)
 
 
 def _parse_dispersion(

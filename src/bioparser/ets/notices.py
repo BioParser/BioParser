@@ -73,37 +73,29 @@ class NotInVocabulary(BaseModel):
         "basisOfRecord",
         "aggregateMeasure",
         "countryCode",
-        "centralKind",
-        "dispersionKind",
-        "boundsKind",
+        "statisticalMethod",
     ]
 
 
-class KindMissing(BaseModel):
-    """A dispersion number was stored without a choice that says how to convert it."""
+_SUMMARY_FIELD = Literal["dispersion", "measurementValue_min", "measurementValue_max"]
+
+
+class NotConverted(BaseModel):
+    """A stored number stayed in the printed unit."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    kind: Literal["kind_missing"] = "kind_missing"
-    field: Literal["dispersion"] = "dispersion"
+    kind: Literal["not_converted"] = "not_converted"
+    field: _SUMMARY_FIELD
 
 
-class NumberMissing(BaseModel):
-    """A dispersion choice was stored without a dispersion number."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["number_missing"] = "number_missing"
-    field: Literal["dispersion"] = "dispersion"
-
-
-class BoundMissing(BaseModel):
-    """A range or a confidence interval is missing one bound."""
+class Missing(BaseModel):
+    """A declared statistic has no number for this column."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    kind: Literal["bound_missing"] = "bound_missing"
-    field: Literal["measurementValue_min", "measurementValue_max"]
+    kind: Literal["missing"] = "missing"
+    field: _SUMMARY_FIELD
 
 
 class NotADate(BaseModel):
@@ -124,15 +116,7 @@ class NotACalendarDay(BaseModel):
     field: Literal["year,month,day"] = "year,month,day"
 
 
-Notice = (
-    NotNumeric
-    | NotInVocabulary
-    | NotADate
-    | NotACalendarDay
-    | KindMissing
-    | NumberMissing
-    | BoundMissing
-)
+Notice = NotNumeric | NotInVocabulary | NotADate | NotACalendarDay | NotConverted | Missing
 
 
 def format_warning(notice: Notice) -> str:

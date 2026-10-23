@@ -482,7 +482,7 @@ def test_a_dispersion_without_a_kind_stays_unconverted() -> None:
     assert row.traitValue == "12500"
     assert row.dispersion == 0.2
     assert row.statisticalMethod is None
-    assert row.warnings == "kind_missing:dispersion"
+    assert row.warnings == "not_converted:dispersion"
 
 
 def test_a_dispersion_kind_without_a_number_is_zero() -> None:
@@ -492,7 +492,7 @@ def test_a_dispersion_kind_without_a_number_is_zero() -> None:
 
     assert row.dispersion == 0
     assert row.statisticalMethod == "standard deviation"
-    assert row.warnings == "number_missing:dispersion"
+    assert row.warnings == "missing:dispersion"
 
 
 def test_a_missing_bound_warns_and_the_stored_bound_is_converted() -> None:
@@ -507,13 +507,13 @@ def test_a_missing_bound_warns_and_the_stored_bound_is_converted() -> None:
     assert row.measurementValue_max is None
     assert row.statisticalMethod is None
     assert row.dispersion == 0
-    assert row.warnings == "bound_missing:measurementValue_max"
+    assert row.warnings == "missing:measurementValue_max"
 
 
 def test_a_stored_phrase_is_copied_and_the_choices_still_convert() -> None:
     observation = _observation(
         statisticalMethod=_cited("mean ± SD", start=60),
-        centralKind=_read("mean", "mean ± SD", start=60),
+        centralKind=_read("average", "mean ± SD", start=60),
         dispersionKind=_read("standardDeviation", "mean ± SD", start=60),
         dispersion=_cited("0.2", start=70),
     )
@@ -542,9 +542,10 @@ def test_an_unknown_statistic_kind_is_ignored() -> None:
     assert row.measurementValue_max == 14
     assert row.statisticalMethod is None
     assert row.warnings == (
-        "not_in_vocabulary:centralKind | "
-        "not_in_vocabulary:dispersionKind | "
-        "not_in_vocabulary:boundsKind"
+        "not_in_vocabulary:statisticalMethod | "
+        "not_converted:dispersion | "
+        "not_converted:measurementValue_min | "
+        "not_converted:measurementValue_max"
     )
 
 
