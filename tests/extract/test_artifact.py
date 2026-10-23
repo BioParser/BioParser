@@ -170,6 +170,36 @@ def test_basis_and_aggregate_are_interpretations_only() -> None:
         )
 
 
+def test_a_statistic_kind_is_an_interpretation() -> None:
+    observation = _observation(
+        centralKind=Interpretation(value="mean", passage=_cite("mean of 12")),
+        dispersionKind=Interpretation(value="standardDeviation", passage=_cite("± 1.2")),
+        boundsKind=Interpretation(value="range", passage=_cite("10-14 g")),
+    )
+
+    assert observation.centralKind is not None
+    assert observation.centralKind.value == "mean"
+    assert observation.dispersionKind is not None
+    assert observation.dispersionKind.value == "standardDeviation"
+    assert observation.boundsKind is not None
+    assert observation.boundsKind.value == "range"
+
+    with pytest.raises(ValidationError):
+        Observation.model_validate(
+            {
+                "trait": {
+                    "kind": "interpretation",
+                    "value": "body_mass",
+                    "passage": {"text": "weighed"},
+                },
+                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
+                "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
+                "verbatimTraitUnit": {"kind": "citation", "text": "g"},
+                "dispersionKind": {"kind": "citation", "text": "standardDeviation"},
+            }
+        )
+
+
 def test_a_verbatim_field_rejects_a_choice() -> None:
     with pytest.raises(ValidationError):
         Observation.model_validate(
