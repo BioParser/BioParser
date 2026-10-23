@@ -45,8 +45,13 @@ jobs:
         run: uv run mypy
 
   test-unit:
-    name: Unit tests
-    runs-on: ubuntu-latest
+    name: Unit tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }} # Win64/Ubuntu arm failure wont fail run for Ubuntu x64
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-26.04-arm, windows-latest]
 
     steps:
       - name: Checkout
@@ -59,8 +64,13 @@ jobs:
         run: uv run pytest -m "not integration"
 
   test-integration:
-    name: Integration tests
-    runs-on: ubuntu-latest
+    name: Integration tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-26.04-arm] # The redis container is for linux only
 
     steps:
       - name: Checkout

@@ -46,9 +46,10 @@ def _normalize_backend(name: str | None, fallback: str) -> str:
 
 
 def _parse_pdf_bytes(pdf_bytes: bytes, backend: str) -> ParserArtifact:
-    with NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
+    # delete_on_close keeps file only during with block
+    with NamedTemporaryFile(suffix=".pdf", delete_on_close=False) as tmp:
         tmp.write(pdf_bytes)
-        tmp.flush()
+        tmp.close()  # close, windows refuses a second open with flush
         return get_parser(backend).parse(Path(tmp.name))
 
 
