@@ -2,45 +2,25 @@
 
 import re
 from datetime import datetime
-from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from bioparser.ets.dates import parse_date
 from bioparser.ets.notices import (
-    BoundMissing,
     DateField,
-    KindMissing,
     NotACalendarDay,
     NotADate,
     Notice,
     NotInVocabulary,
     NotNumeric,
-    NumberMissing,
     NumericField,
     TextField,
 )
 from bioparser.ets.numbers import parse_count, parse_decimal, parse_integer, parse_signed_decimal
-from bioparser.ets.units import (
-    CanonicalTraitValue,
-    TargetUnit,
-    convert_trait_value_to_canonical,
-    scale_measure,
-)
-from bioparser.ets.vocab import (
-    BasisOfRecord,
-    BoundsKind,
-    CentralKind,
-    DispersionKind,
-    Sex,
-    match_aggregate,
-    match_basis,
-    match_bounds,
-    match_central,
-    match_dispersion_kind,
-    match_sex,
-)
+from bioparser.ets.statistics import read_summary, scale_summary
+from bioparser.ets.units import CanonicalTraitValue, TargetUnit, convert_trait_value_to_canonical
+from bioparser.ets.vocab import BasisOfRecord, Sex, match_aggregate, match_basis, match_sex
 from bioparser.extract.models import (
     Citation,
     CitationOrCorrection,
@@ -153,26 +133,8 @@ def assess(observation: Observation) -> Assessment:
     # Numbers. ETS defaults a missing count to 1 and a missing dispersion to 0.
     age = _parse_decimal(observation.age, "age", warnings, signed=True)
     individual_count = _parse_individual_count(observation.individualCount, warnings)
-    measurement_value_min = _parse_decimal(
-        observation.measurementValueMin, "measurementValue_min", warnings, signed=True
-    )
-    measurement_value_max = _parse_decimal(
-        observation.measurementValueMax, "measurementValue_max", warnings, signed=True
-    )
-    dispersion = _parse_dispersion(observation.dispersion, warnings)
-    central_kind = _central(observation.centralKind, warnings)
-    dispersion_kind = _dispersion_kind(observation.dispersionKind, warnings)
-    bounds_kind = _bounds_kind(observation.boundsKind, warnings)
-    _statistic_gaps(
-        observation,
-        dispersion=dispersion,
-        dispersion_kind=dispersion_kind,
-        bounds_kind=bounds_kind,
-        warnings=warnings,
-    )
-    cited["statisticalMethod"] = _statistical_phrase(
-        cited["statisticalMethod"], central_kind, dispersion_kind
-    )
+    summary = read_summary(observation, stored_phrase=cited["statisticalMethod"], warnings=warnings)
+    cited["statisticalMethod"] = summary.phrase
 
     # A calendar day is written as YYYY-MM-DD. Year, month, and day stay separate.
     year = _parse_integer(observation.year, "year", warnings, low=1000, high=9999)
@@ -207,9 +169,9 @@ def assess(observation: Observation) -> Assessment:
         aggregate_measure=aggregate_measure,
         basis_of_record=basis_of_record,
         individual_count=individual_count,
-        dispersion=dispersion,
-        measurement_value_min=measurement_value_min,
-        measurement_value_max=measurement_value_max,
+        dispersion=summary.dispersion,
+        measurement_value_min=summary.measurement_value_min,
+        measurement_value_max=summary.measurement_value_max,
         year=year,
         month=month,
         day=day,
@@ -224,21 +186,15 @@ def assess(observation: Observation) -> Assessment:
     parsed = _parse_trait_value(observation)
     if not isinstance(parsed, CanonicalTraitValue):
         return Dropped(drop=parsed, **shared.model_dump())
-    dispersion = _scale_dispersion(observation, dispersion, dispersion_kind, parsed.factor)
-    measurement_value_min = _scale_bound(
-        observation.measurementValueMin, measurement_value_min, bounds_kind, parsed.factor
-    )
-    measurement_value_max = _scale_bound(
-        observation.measurementValueMax, measurement_value_max, bounds_kind, parsed.factor
-    )
+    summary = scale_summary(observation, summary, parsed.factor)
     shared = shared.model_copy(
         update={
-            "dispersion": dispersion,
-            "measurement_value_min": measurement_value_min,
-            "measurement_value_max": measurement_value_max,
+            "dispersion": summary.dispersion,
+            "measurement_value_min": summary.measurement_value_min,
+            "measurement_value_max": summary.measurement_value_max,
         }
     )
-    if _bounds_reversed(measurement_value_min, measurement_value_max):
+    if _bounds_reversed(summary.measurement_value_min, summary.measurement_value_max):
         return Dropped(drop="bounds_reversed", **shared.model_dump())
     return Kept(
         trait_value=parsed.value,
@@ -249,82 +205,6 @@ def assess(observation: Observation) -> Assessment:
 
 def _bounds_reversed(lower: float | None, upper: float | None) -> bool:
     return lower is not None and upper is not None and lower > upper
-
-
-_PHRASE: dict[str, str] = {
-    "mean": "mean",
-    "median": "median",
-    "standardDeviation": "standard deviation",
-    "variance": "variance",
-    "standardError": "standard error",
-}
-
-
-def _statistical_phrase(
-    stored: str | None, central: CentralKind | None, dispersion: DispersionKind | None
-) -> str | None:
-    """The printed phrase, or one written from the central and dispersion choices.
-
-    A bounds choice is not part of the phrase. The minimum and the maximum are
-    their own columns. ``mean``, ``standardDeviation``, and ``range`` become
-    ``mean and standard deviation``.
-    """
-    if stored is not None:
-        return stored
-    parts: list[str] = []
-    if central is not None:
-        parts.append(_PHRASE[central])
-    if dispersion is not None:
-        parts.append(_PHRASE[dispersion])
-    if len(parts) == 2:
-        return f"{parts[0]} and {parts[1]}"
-    if len(parts) == 1:
-        return parts[0]
-    return None
-
-
-def _statistic_gaps(
-    observation: Observation,
-    *,
-    dispersion: float | None,
-    dispersion_kind: DispersionKind | None,
-    bounds_kind: BoundsKind | None,
-    warnings: list[Notice],
-) -> None:
-    """Warn when a choice and its number do not both exist. Conversion comes later."""
-    number_stored = observation.dispersion is not None and dispersion is not None
-    if number_stored and observation.dispersionKind is None:
-        warnings.append(KindMissing())
-    elif observation.dispersion is None and dispersion_kind is not None:
-        warnings.append(NumberMissing())
-    if bounds_kind is None:
-        return
-    if observation.measurementValueMin is None:
-        warnings.append(BoundMissing(field="measurementValue_min"))
-    if observation.measurementValueMax is None:
-        warnings.append(BoundMissing(field="measurementValue_max"))
-
-
-def _scale_dispersion(
-    observation: Observation,
-    value: float | None,
-    kind: DispersionKind | None,
-    factor: Decimal,
-) -> float | None:
-    if value is None or kind is None or observation.dispersion is None:
-        return value
-    return scale_measure(_text(observation.dispersion), factor, squared=kind == "variance")
-
-
-def _scale_bound(
-    stored: CitationOrInterpretation | None,
-    value: float | None,
-    kind: BoundsKind | None,
-    factor: Decimal,
-) -> float | None:
-    if value is None or kind is None or stored is None:
-        return value
-    return scale_measure(_text(stored), factor, squared=False)
 
 
 def _parse_trait_value(observation: Observation) -> CanonicalTraitValue | DropReason:
@@ -378,36 +258,6 @@ def _aggregate(value: Interpretation | None, warnings: list[Notice]) -> bool | N
     return matched
 
 
-def _central(value: Interpretation | None, warnings: list[Notice]) -> CentralKind | None:
-    if value is None:
-        return None
-    matched = match_central(value.value)
-    if matched is None:
-        warnings.append(NotInVocabulary(field="centralKind"))
-        return None
-    return matched
-
-
-def _dispersion_kind(value: Interpretation | None, warnings: list[Notice]) -> DispersionKind | None:
-    if value is None:
-        return None
-    matched = match_dispersion_kind(value.value)
-    if matched is None:
-        warnings.append(NotInVocabulary(field="dispersionKind"))
-        return None
-    return matched
-
-
-def _bounds_kind(value: Interpretation | None, warnings: list[Notice]) -> BoundsKind | None:
-    if value is None:
-        return None
-    matched = match_bounds(value.value)
-    if matched is None:
-        warnings.append(NotInVocabulary(field="boundsKind"))
-        return None
-    return matched
-
-
 def _parse_individual_count(
     value: CitationOrInterpretation | None, warnings: list[Notice]
 ) -> int | None:
@@ -416,18 +266,6 @@ def _parse_individual_count(
     parsed = parse_count(_text(value))
     if parsed is None:
         warnings.append(NotNumeric(field="individualCount"))
-        return None
-    return parsed
-
-
-def _parse_dispersion(
-    value: CitationOrInterpretation | None, warnings: list[Notice]
-) -> float | None:
-    if value is None:
-        return 0.0
-    parsed = parse_decimal(_text(value))
-    if parsed is None:
-        warnings.append(NotNumeric(field="dispersion"))
         return None
     return parsed
 
