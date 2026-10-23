@@ -174,8 +174,8 @@ async def test_redis_backed_submission_and_polling(
             status="parsed",
             parse_result_ref=f"art-result-{job_id}",
         )
-        output_artifact_ref = succeeded.parse_result_ref
-        assert output_artifact_ref is not None
+        parse_ref = succeeded.parse_result_ref
+        assert parse_ref is not None
 
         artifact_storage.store(
             ParserArtifact(
@@ -187,18 +187,19 @@ async def test_redis_backed_submission_and_polling(
             .model_dump_json()
             .encode(),
             ArtifactMetadata(
-                artifact_path=output_artifact_ref,
+                artifact_path=parse_ref,
                 media_type="application/json",
             ),
         )
         await job_store.update(succeeded)
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
-        assert poll.json() == {
-            "job_id": job_id,
-            "status": "parsed",
-            "output_artifact_ref": f"art-result-{job_id}",
-        }
+        # The status names no storage path
+        assert poll.json() == {"job_id": job_id, "status": "parsed"}
+
+        artifact = await client.get(f"/api/jobs/{job_id}/artifacts/parser")
+        assert artifact.status_code == 200
+        assert artifact.content == artifact_storage.retrieve(parse_ref)
 
 
 async def test_same_pdf_can_be_submitted_twice(

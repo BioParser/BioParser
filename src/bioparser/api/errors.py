@@ -17,6 +17,7 @@ ErrorCode = Literal[
     "job_state_unreadable",
     "redis_unavailable",
     "queue_unavailable",
+    "artifact_not_available",
 ]
 
 
@@ -53,7 +54,7 @@ STORAGE_UNAVAILABLE = ErrorDetail(
 )
 ARTIFACT_INVALID = ErrorDetail(
     code="artifact_invalid",
-    message="Stored parser artifact is invalid",
+    message="Stored artifact is missing or invalid",
 )
 JOB_STATE_UNREADABLE = ErrorDetail(
     code="job_state_unreadable",
@@ -66,6 +67,11 @@ REDIS_UNAVAILABLE = ErrorDetail(
 )
 
 QUEUE_UNAVAILABLE = ErrorDetail(code="queue_unavailable", message="Parse queue is unavailable")
+
+ARTIFACT_NOT_AVAILABLE = ErrorDetail(
+    code="artifact_not_available",
+    message="The job has no such artifact. GET /api/jobs/{job_id} shows the job status",
+)
 
 
 def http_error(status_code: int, detail: ErrorDetail) -> HTTPException:

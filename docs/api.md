@@ -4,7 +4,8 @@ This document defines the public HTTP contract of the API container and the inte
 module layout that implements it. The system context for these endpoints is in
 [architecture.md](architecture.md).
 
-Status: **draft** — all five routes (`POST /api/extractions`, `GET /api/jobs/{job_id}`,
+Status: **draft** — all seven routes (`POST /api/extractions`, `GET /api/jobs/{job_id}`,
+`GET /api/jobs/{job_id}/artifacts/parser`, `GET /api/jobs/{job_id}/artifacts/extraction`,
 `POST /extract`, `GET /health`, `GET /ready`) are implemented, along with upload validation and a
 configurable size limit. `POST /extract` is a dev route: it runs a queued job's pipeline
 (the same parser and extractor) in one request, without the queue and the workers.
@@ -122,8 +123,10 @@ Poll a job.
 ```
 
 - `status` is one of `"queued"`, `"parsing"`, `"parsed"`, `"extracting"`,
-  `"done"`, or `"failed"`. Successful parse/extraction responses include
-  `output_artifact_ref`; failed responses include a safe error code.
+  `"done"`, or `"failed"`. Failed responses include a safe error code.
+- The response holds no storage paths. When a job is `done`, #179 adds its ETS response
+  here. The UI reads the internal artifacts from the
+  [job artifact routes](#get-apijobsjob_idartifactsparser-and-artifactsextraction).
 
 **Failure:**
 
@@ -134,8 +137,7 @@ Poll a job.
 | 500 | stored job state is unreadable |
 | 503 | Redis is unavailable |
 
-The route reads only the job state. It does not read the artifact that
-`output_artifact_ref` names: the worker validated that artifact before it recorded the ref.
+The route reads only the job state. It never reads an artifact.
 
 **Error body:**
 
@@ -147,6 +149,36 @@ The route reads only the job state. It does not read the artifact that
   }
 }
 ```
+
+### `GET /api/jobs/{job_id}/artifacts/parser` and `/artifacts/extraction`
+
+Internal routes for the BioParser UI (OpenAPI tag `internal`): a PDF viewer needs the
+bounding boxes of the parser artifact, and an evidence view needs the extraction artifact.
+API clients use `GET /api/jobs/{job_id}` instead. The body is the artifact exactly as the
+worker stored it (`application/json`). Its shape follows its `schema_version` and can
+change.
+
+| Route | Available when the job is |
+|-------|---------------------------|
+| `.../artifacts/parser` | `parsed`, `extracting`, `done`, or `failed` after its parse |
+| `.../artifacts/extraction` | `done` |
+
+- The route reads the stored bytes in a thread and does not parse them: the worker
+  validated them before it recorded the ref, and a parser artifact can be several MB.
+- `Cache-Control: private, max-age=31536000, immutable`. A job's artifact never changes:
+  storage cannot replace an artifact, and the job keeps the same ref.
+- The PDF itself is not served here. A viewer gets it from the document file route that
+  #197 adds.
+
+**Failure:**
+
+| Status | When |
+|--------|------|
+| 404 | no job with that id (`job_not_found`) |
+| 409 | the job has no such artifact, now or ever (`artifact_not_available`); its status tells which |
+| 422 | `job_id` is not a version 4 UUID (`invalid_job_id`) |
+| 500 | stored job state is unreadable, or the stored artifact is missing or invalid |
+| 503 | Redis or artifact storage is unavailable |
 
 ### `POST /extract`
 
@@ -256,7 +288,7 @@ expose secrets in error messages.
 ```
 src/bioparser/api/
   __init__.py       # main() -> starts the app
-  app.py            # FastAPI app, lifespan startup, all five routes
+  app.py            # FastAPI app, lifespan startup, all seven routes
   config.py         # process configuration read from the environment
   errors.py         # named ErrorDetail constants, codes, and OpenAPI helpers
   middleware.py     # body size limit middleware
@@ -271,7 +303,7 @@ so that a child process can import it without building the FastAPI app.
 
 ### `app.py`
 
-Holds the FastAPI app, its startup/shutdown lifecycle, and all five route handlers.
+Holds the FastAPI app, its startup/shutdown lifecycle, and all seven route handlers.
 
 **Lifespan:** on startup, first calls `setup_logging(settings.log_level)` (see
 [Logging](#logging)), then builds a `VLLMService` (`bioparser.services.vllm`) from
@@ -293,6 +325,8 @@ job-state client are closed.
   reading the file in chunks.
 - `GET /api/jobs/{job_id}` — reads the typed state from `RedisJobStateStore` and
   maps it to the public status response. One Redis read; no artifact read.
+- `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`
+  when it has no such ref, then return the stored bytes. The read runs in a thread.
 - `POST /extract` — runs the same `_validated_upload()` as `POST /api/extractions`, takes a
   slot (`_start_pipeline()`), and runs [`run_pipeline()`](#bioparserpipeline) in the process
   pool. A `PipelineError` becomes a `502 HTTPException`. If a child died (for example out

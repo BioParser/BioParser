@@ -10,11 +10,12 @@ from collections.abc import AsyncIterator
 from concurrent.futures import Executor, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
+from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile
-from pydantic import ValidationError
+from fastapi import FastAPI, HTTPException, Request, Response, UploadFile
+from pydantic import BaseModel, ValidationError
 
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
@@ -32,6 +33,7 @@ from bioparser.jobstate import (
     SafeError,
 )
 from bioparser.logging_config import error_fields, redact_url, setup_logging
+from bioparser.parser.models import ParserArtifact
 from bioparser.parser_names import DEFAULT_PARSER_NAME
 from bioparser.pipeline import PipelineError, PipelineOptions, run_pipeline
 from bioparser.services.vllm import VLLMService
@@ -40,13 +42,17 @@ from bioparser.services.vllm.vllm import VLLMError
 from bioparser.storage import (
     ArtifactAlreadyExistsError,
     ArtifactMetadata,
+    ArtifactNotFoundError,
     CreationInfo,
     FileSystemArtifactStorage,
     StorageError,
+    StoragePayloadError,
 )
 
 from . import config
 from .errors import (
+    ARTIFACT_INVALID,
+    ARTIFACT_NOT_AVAILABLE,
     CONTENT_TOO_LARGE,
     EMPTY_FILE,
     INVALID_CONTENT_LENGTH,
@@ -262,39 +268,86 @@ def _replace_pipeline_pool(app: FastAPI, broken: Executor) -> Executor:
 
 
 def _job_state_response(state: JobState) -> JobStatusResponse:
-    if state.status == "queued":
-        return QueuedJobResponse(
-            job_id=state.job_id,
-            status="queued",
-        )
+    """The public status. No storage paths: they are internal, and no route takes one."""
+    match state.status:
+        case "queued":
+            return QueuedJobResponse(job_id=state.job_id, status="queued")
+        case "parsing" | "extracting":
+            return RunningJobResponse(job_id=state.job_id, status=state.status)
+        case "parsed" | "done":
+            return SucceededJobResponse(job_id=state.job_id, status=state.status)
+        case "failed":
+            assert state.error is not None  # JobState._fields_match_status
+            return FailedJobResponse(job_id=state.job_id, status="failed", error=state.error)
 
-    if state.status in ("parsing", "extracting"):
-        return RunningJobResponse(
-            job_id=state.job_id,
-            status=state.status,
-        )
 
-    if state.status in ("parsed", "done"):
-        if state.parse_result_ref is None:
-            raise ValueError("Parsed job is missing parse_result_ref")
+def _parse_job_id(job_id: str) -> UUID:
+    try:
+        parsed_job_id = UUID(job_id)
+    except ValueError as exc:
+        raise http_error(422, INVALID_JOB_ID) from exc
+    if parsed_job_id.version != 4:
+        raise http_error(422, INVALID_JOB_ID)
+    return parsed_job_id
 
-        return SucceededJobResponse(
-            job_id=state.job_id,
-            status=state.status,
-            output_artifact_ref=state.parse_result_ref,
-        )
 
-    if state.status == "failed":
-        if state.error is None:
-            raise ValueError("Failed job is missing error")
+async def _read_job(request: Request, job_id: UUID) -> JobState:
+    """The stored job, or the route's 404, 500 or 503."""
+    try:
+        record: JobState | None = await request.app.state.job_store.get(job_id)
+    except CorruptJobStateError as exc:
+        LOGGER.error("job state unreadable", extra={"job_id": str(job_id), **error_fields(exc)})
+        raise http_error(500, JOB_STATE_UNREADABLE) from exc
+    except JobStateError as exc:
+        LOGGER.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
+        raise http_error(503, REDIS_UNAVAILABLE) from exc
+    if record is None:
+        raise http_error(404, JOB_NOT_FOUND)
+    return record
 
-        return FailedJobResponse(
-            job_id=state.job_id,
-            status="failed",
-            error=state.error,
-        )
-    else:
-        raise ValueError(f"Unknown job status: {state.status}")
+
+# The artifact routes are for the BioParser UI, not part of the core job flow.
+_INTERNAL = "internal"
+_INTERNAL_NOTE = (
+    "For the BioParser UI. The body is the artifact as stored; its shape follows its "
+    "`schema_version` and can change."
+)
+# A job's artifact never changes: its path holds the checksum of the input and the
+# producer's version, storage cannot replace it, and the job keeps the same ref.
+_IMMUTABLE = "private, max-age=31536000, immutable"
+
+
+def _artifact_responses(model: type[BaseModel], description: str) -> dict[int | str, Any]:
+    return {
+        200: {"model": model, "description": description, "content": {"application/json": {}}},
+        404: error_response(JOB_NOT_FOUND),
+        409: error_response(ARTIFACT_NOT_AVAILABLE),
+        422: error_response(INVALID_JOB_ID),
+        500: error_response(JOB_STATE_UNREADABLE, ARTIFACT_INVALID),
+        503: error_response(REDIS_UNAVAILABLE, STORAGE_UNAVAILABLE),
+    }
+
+
+async def _stored_artifact(request: Request, job: JobState, ref: str | None, kind: str) -> Response:
+    """The artifact at ``ref`` as stored, or 409 when the job has none yet.
+
+    The bytes are read in a thread and not parsed: the worker validated them before it
+    recorded the ref, and a parser artifact can be several MB.
+    """
+    if ref is None:
+        raise http_error(409, ARTIFACT_NOT_AVAILABLE)
+    fields = {"job_id": str(job.job_id), "artifact": kind}
+    try:
+        payload: bytes = await asyncio.to_thread(request.app.state.artifact_storage.retrieve, ref)
+    except (ArtifactNotFoundError, StoragePayloadError) as exc:
+        LOGGER.error("job artifact missing or invalid", extra=fields | error_fields(exc))
+        raise http_error(500, ARTIFACT_INVALID) from exc
+    except StorageError as exc:
+        LOGGER.warning("job artifact read failed", extra=fields | error_fields(exc))
+        raise http_error(503, STORAGE_UNAVAILABLE) from exc
+    return Response(
+        content=payload, media_type="application/json", headers={"Cache-Control": _IMMUTABLE}
+    )
 
 
 @app.post(
@@ -377,28 +430,38 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     },
 )
 async def job_status(request: Request, job_id: str) -> JobStatusResponse:
-    try:
-        parsed_job_id = UUID(job_id)
-    except ValueError as exc:
-        raise http_error(422, INVALID_JOB_ID) from exc
-    if parsed_job_id.version != 4:
-        raise http_error(422, INVALID_JOB_ID)
-    try:
-        record = await request.app.state.job_store.get(parsed_job_id)
+    # One Redis read. This route never reads an artifact: that cost grows with the paper.
+    return _job_state_response(await _read_job(request, _parse_job_id(job_id)))
 
-    except CorruptJobStateError as exc:
-        LOGGER.error("job state unreadable", extra={"job_id": str(job_id), **error_fields(exc)})
-        raise http_error(500, JOB_STATE_UNREADABLE) from exc
 
-    except JobStateError as exc:
-        LOGGER.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
-        raise http_error(503, REDIS_UNAVAILABLE) from exc
+@app.get(
+    "/api/jobs/{job_id}/artifacts/parser",
+    tags=[_INTERNAL],
+    description=_INTERNAL_NOTE,
+    response_class=Response,
+    responses=_artifact_responses(
+        ParserArtifact, "The job's parser artifact: blocks, text and bounding boxes"
+    ),
+)
+async def job_parser_artifact(request: Request, job_id: str) -> Response:
+    """The parser artifact of a job, from `parsed` on (also for a job that failed later)."""
+    job = await _read_job(request, _parse_job_id(job_id))
+    return await _stored_artifact(request, job, job.parse_result_ref, "parser")
 
-    if record is None:
-        raise http_error(404, JOB_NOT_FOUND)
-    # One Redis read. The worker validated the artifact before it recorded the ref, so this
-    # route does not read it again: that cost grows with the paper and ran on the event loop.
-    return _job_state_response(record)
+
+@app.get(
+    "/api/jobs/{job_id}/artifacts/extraction",
+    tags=[_INTERNAL],
+    description=_INTERNAL_NOTE,
+    response_class=Response,
+    responses=_artifact_responses(
+        ExtractionArtifact, "The job's extraction artifact: observations and their evidence"
+    ),
+)
+async def job_extraction_artifact(request: Request, job_id: str) -> Response:
+    """The extraction artifact of a `done` job."""
+    job = await _read_job(request, _parse_job_id(job_id))
+    return await _stored_artifact(request, job, job.extract_result_ref, "extraction")
 
 
 @app.post(
