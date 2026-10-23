@@ -362,7 +362,7 @@ class _CutOffVLLM(StubVLLMService):
 class _MangledMinerU(StubMinerUClient):
     async def parse(self, *, filename: str, content: bytes) -> dict[str, Any]:
         middle = copy.deepcopy(STUB_JSON)
-        middle["pdf_info"][0]["para_blocks"][0]["lines"][0]["spans"] = ["canary-paper-text"]
+        middle["pages"][0]["blocks"][0]["content"] = ["canary-paper-text"]
         return middle
 
 
@@ -391,7 +391,7 @@ async def test_a_failure_traceback_quotes_neither_paper_text_nor_model_output(
 def _paper(text: str) -> dict[str, Any]:
     """middle.json with one text block holding [text]."""
     middle = copy.deepcopy(STUB_JSON)
-    middle["pdf_info"][0]["para_blocks"][0]["lines"][0]["spans"][0]["content"] = text
+    middle["pages"][0]["blocks"][0]["content"][0]["content"] = text
     return middle
 
 

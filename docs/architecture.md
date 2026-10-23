@@ -26,12 +26,14 @@ flowchart TB
     Redis[(Redis<br/>queue and job state)]
     Store[(Artifact storage<br/>volume, PVC, or object store)]
     Parser[Parser worker container<br/>PDF parser]
+    MinerU[MinerU container<br/>layout models]
     Extractor[Extractor worker container<br/>local model and validator]
 
     Client -->|submit PDF / poll| API
     API -->|enqueue / read state| Redis
     API <-->|PDFs and results| Store
     Redis -->|parse job reference| Parser
+    Parser -->|PDF / middle.json| MinerU
     Parser -->|parser artifact| Store
     Parser -->|enqueue extraction| Redis
     Redis -->|extraction reference| Extractor
@@ -87,7 +89,8 @@ archive. PDFs and versioned outputs live behind an artifact storage interface:
 
 The CPU oriented parser worker reads a PDF artifact, invokes the selected parser, stores
 a validated parser artifact, and updates job state. It has no dependency on ETS or the
-language model.
+language model. The `mineru` backend sends the PDF to a separate MinerU service, which
+holds the layout models and is the only parser part that needs a GPU.
 
 The independently deployable extractor worker consumes parser artifacts, runs the local
 model, validates canonical observations, rejects candidates without evidence, and stores

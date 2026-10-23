@@ -374,8 +374,9 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 |-------|---------|---------|
 | `max_upload_bytes` | `DEFAULT_MAX_UPLOAD_BYTES` (20 MiB) | upload ceiling used by `uploads.py` and the body-limit middleware |
 | `mineru_base_url` | `http://mineru:8000` | base URL for `MinerUClient` |
-| `mineru_timeout_seconds` | `600.0` | MinerU request timeout |
+| `mineru_timeout_seconds` | `600.0` | how long the API waits for MinerU to parse one PDF, time queued behind other parses included (its `wait_timeout`, at most 3600); the task is cancelled then |
 | `mineru_connect_timeout_seconds` | `5.0` | MinerU connect timeout |
+| `mineru_tier` | `basic` | MinerU parse tier (`basic`, `standard`, `advanced`); the GPU stack sets `standard`, see [parser.md](parser.md) |
 | `extract_concurrency` | `2` | size of the `POST /extract` semaphore |
 | `extract_queue_timeout_seconds` | `5.0` | how long `POST /extract` waits for a semaphore slot before returning `503` |
 | `dependency_check_timeout_seconds` | `1.0` | timeout for each optional readiness dependency check |
