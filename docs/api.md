@@ -175,7 +175,7 @@ change.
 | Status | When |
 |--------|------|
 | 404 | no job with that id (`job_not_found`) |
-| 409 | the job has no such artifact, now or ever (`artifact_not_available`); its status tells which |
+| 409 | the job has no such artifact (`artifact_not_available`); its status tells whether it can still come |
 | 422 | `job_id` is not a version 4 UUID (`invalid_job_id`) |
 | 500 | stored job state is unreadable, or the stored artifact is missing or invalid |
 | 503 | Redis or artifact storage is unavailable |
