@@ -10,12 +10,12 @@ from decimal import Decimal
 from typing import Literal
 
 from bioparser.ets.notices import (
-    Missing,
     NotConverted,
     Notice,
     NotInVocabulary,
     NotNumeric,
     NumericField,
+    Unspecified,
 )
 from bioparser.ets.numbers import parse_decimal, parse_signed_decimal
 from bioparser.ets.units import scale_measure
@@ -153,12 +153,11 @@ def _gaps(
     if number_stored and dispersion_kind is None:
         warnings.append(NotConverted(field="dispersion"))
     elif choice_stored and observation.dispersion is None:
-        warnings.append(Missing(field="dispersion"))
-    if observation.boundsKind is None:
-        return
+        warnings.append(Unspecified(field="dispersion"))
     _bound_gap(
         observation.measurementValueMin,
         minimum,
+        observation.boundsKind,
         bounds_kind,
         "measurementValue_min",
         warnings,
@@ -166,6 +165,7 @@ def _gaps(
     _bound_gap(
         observation.measurementValueMax,
         maximum,
+        observation.boundsKind,
         bounds_kind,
         "measurementValue_max",
         warnings,
@@ -175,12 +175,14 @@ def _gaps(
 def _bound_gap(
     stored: CitationOrInterpretation | None,
     parsed: float | None,
+    choice: Interpretation | None,
     kind: BoundsKind | None,
     field: Literal["measurementValue_min", "measurementValue_max"],
     warnings: list[Notice],
 ) -> None:
     if stored is None:
-        warnings.append(Missing(field=field))
+        if choice is not None:
+            warnings.append(Unspecified(field=field))
         return
     if kind is None and parsed is not None:
         warnings.append(NotConverted(field=field))

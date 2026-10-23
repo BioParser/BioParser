@@ -89,12 +89,12 @@ class NotConverted(BaseModel):
     field: _SUMMARY_FIELD
 
 
-class Missing(BaseModel):
-    """A declared statistic has no number for this column."""
+class Unspecified(BaseModel):
+    """A choice was stored and this column has no number. Dispersion is then 0."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    kind: Literal["missing"] = "missing"
+    kind: Literal["unspecified"] = "unspecified"
     field: _SUMMARY_FIELD
 
 
@@ -116,7 +116,7 @@ class NotACalendarDay(BaseModel):
     field: Literal["year,month,day"] = "year,month,day"
 
 
-Notice = NotNumeric | NotInVocabulary | NotADate | NotACalendarDay | NotConverted | Missing
+Notice = NotNumeric | NotInVocabulary | NotADate | NotACalendarDay | NotConverted | Unspecified
 
 
 def format_warning(notice: Notice) -> str:
