@@ -528,11 +528,18 @@ def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
-async def _check_redis(redis_url: str, timeout: float) -> bool:
-    def _connect_to_redis() -> bool:
-        parsed = urlparse(redis_url)
+async def _check_tcp(url: str, timeout: float, default_port: int) -> bool:
+    """True when a TCP connection to the URL's host and port succeeds.
+
+    The socket timeout and the wait around the thread are the same bound, so a
+    slow connect cannot outlast the readiness check. The password stays in the
+    URL and is never part of the attempt or the result.
+    """
+
+    def _connect() -> bool:
+        parsed = urlparse(url)
         host = parsed.hostname
-        port = parsed.port or 6379
+        port = parsed.port or default_port
         if not host:
             return False
         try:
@@ -543,7 +550,7 @@ async def _check_redis(redis_url: str, timeout: float) -> bool:
             return False
 
     try:
-        return await asyncio.wait_for(asyncio.to_thread(_connect_to_redis), timeout=timeout)
+        return await asyncio.wait_for(asyncio.to_thread(_connect), timeout=timeout)
     except TimeoutError:
         return False
 
@@ -592,8 +599,11 @@ async def readiness() -> ReadinessResponse:
 
     timeout = settings.dependency_check_timeout_seconds
 
-    if settings.redis_url and not await _check_redis(str(settings.redis_url), timeout):
+    if settings.redis_url and not await _check_tcp(str(settings.redis_url), timeout, 6379):
         unavailable.append("redis")
+
+    if settings.database_url and not await _check_tcp(str(settings.database_url), timeout, 5432):
+        unavailable.append("postgres")
 
     if settings.artifact_storage_path and not await _check_storage(
         settings.artifact_storage_path,
