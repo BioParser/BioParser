@@ -1,5 +1,3 @@
-import json
-import logging
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -18,12 +16,7 @@ from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
 from bioparser.jobqueue import JobQueueError
 from bioparser.jobstate import CorruptJobStateError, JobState, JobStateError, SafeError
-from bioparser.parser import ParserArtifact
-from bioparser.parser.models import ParserInfo
 from bioparser.storage import (
-    ArtifactMetadata,
-    ArtifactNotFoundError,
-    CreationInfo,
     FileSystemArtifactStorage,
     StorageError,
 )
@@ -339,32 +332,15 @@ def test_succeeded_job_status(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
 ) -> None:
-    artifact_storage, job_store = stub_api_adapters[:2]
+    job_store = stub_api_adapters[1]
     job_id = uuid4()
-
-    state = JobState(
+    job_store.states[str(job_id)] = JobState(
         job_id=job_id,
         parser="default",
         extractor="default",
         status="parsed",
         pdf_ref="pdf/test",
         parse_result_ref="art-result-test",
-    )
-
-    job_store.states[str(job_id)] = state
-    artifact_storage.artifacts["art-result-test"] = (
-        json.dumps(
-            ParserArtifact(
-                schema_version="1",
-                checksum="a" * 64,
-                parser=ParserInfo(name="test", version="1", configuration={}),
-                pages=[],
-            ).model_dump()
-        ).encode(),
-        ArtifactMetadata(
-            artifact_path="art-result-test",
-            media_type="application/json",
-        ),
     )
 
     response = client.get(f"/api/jobs/{job_id}")
@@ -378,145 +354,27 @@ def test_succeeded_job_status(
     }
 
 
-def test_succeeded_job_status_returns_500_when_output_is_missing(
+def test_job_status_does_not_read_the_artifact(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    artifact_storage, job_store = stub_api_adapters[:2]
-    job_id = uuid4()
-    job_store.states[str(job_id)] = JobState(
-        job_id=job_id,
-        parser="default",
-        extractor="default",
-        status="parsed",
-        pdf_ref="art-pdf-test",
-        parse_result_ref="art-result-test",
-    )
-    artifact_storage.retrieve_error = ArtifactNotFoundError("missing")
-
-    response = client.get(f"/api/jobs/{job_id}")
-
-    assert response.status_code == 500
-    assert response.json()["detail"]["code"] == "artifact_invalid"
-    [record] = [
-        record
-        for record in caplog.records
-        if record.getMessage() == "parser artifact missing or invalid"
-    ]
-    assert record.levelno == logging.ERROR
-    assert vars(record)["job_id"] == str(job_id)
-    assert vars(record)["artifact_ref"] == "art-result-test"
-    assert vars(record)["error"] == "ArtifactNotFoundError"
-
-
-def test_succeeded_job_status_returns_503_when_storage_read_fails(
-    client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    artifact_storage, job_store = stub_api_adapters[:2]
-    job_id = uuid4()
-    job_store.states[str(job_id)] = JobState(
-        job_id=job_id,
-        parser="default",
-        extractor="default",
-        status="parsed",
-        pdf_ref="art-pdf-test",
-        parse_result_ref="art-result-test",
-    )
+    """Re-reading the artifact on every poll ran its validation on the event loop."""
+    artifact_storage, job_store, _queue, events = stub_api_adapters
     artifact_storage.retrieve_error = StorageError("storage unavailable")
-
-    response = client.get(f"/api/jobs/{job_id}")
-
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "storage_unavailable"
-    [record] = [
-        record for record in caplog.records if record.getMessage() == "parser artifact read failed"
-    ]
-    assert record.levelno == logging.WARNING
-    assert vars(record)["job_id"] == str(job_id)
-    assert vars(record)["artifact_ref"] == "art-result-test"
-    assert vars(record)["error"] == "StorageError"
-
-
-def test_succeeded_job_status_returns_500_for_invalid_output(
-    client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    artifact_storage, job_store = stub_api_adapters[:2]
     job_id = uuid4()
     job_store.states[str(job_id)] = JobState(
         job_id=job_id,
         parser="default",
         extractor="default",
         status="parsed",
-        pdf_ref="art-pdf-test",
+        pdf_ref="pdf/test",
         parse_result_ref="art-result-test",
-    )
-    artifact_storage.artifacts["art-result-test"] = (
-        b"{}",
-        ArtifactMetadata(
-            artifact_path="art-result-test",
-            media_type="application/json",
-        ),
-    )
-    response = client.get(f"/api/jobs/{job_id}")
-
-    assert response.status_code == 500
-    assert response.json()["detail"]["code"] == "artifact_invalid"
-    [record] = [
-        record for record in caplog.records if record.getMessage() == "parser artifact invalid"
-    ]
-    assert record.levelno == logging.ERROR
-    assert vars(record)["job_id"] == str(job_id)
-    assert vars(record)["artifact_ref"] == "art-result-test"
-    assert vars(record)["error"] == "ValidationError"
-
-
-def test_succeeded_job_status_reads_parser_artifact_from_filesystem(
-    client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _, job_store = stub_api_adapters[:2]
-    artifact_storage = FileSystemArtifactStorage(tmp_path / "artifacts")
-    monkeypatch.setattr(api_app.state, "artifact_storage", artifact_storage)
-    job_id = uuid4()
-    output_path = f"pdf/{'a' * 64}/parsed/test/1"
-    artifact = ParserArtifact(
-        schema_version="1",
-        checksum="a" * 64,
-        parser=ParserInfo(name="test", version="1", configuration={}),
-        pages=[],
-    )
-    artifact_storage.store(
-        artifact.model_dump_json().encode(),
-        ArtifactMetadata(
-            artifact_path=output_path,
-            media_type="application/json",
-            creation_info=CreationInfo(created_by="test"),
-        ),
-    )
-    job_store.states[str(job_id)] = JobState(
-        job_id=job_id,
-        parser="default",
-        extractor="default",
-        status="parsed",
-        pdf_ref="pdf/input",
-        parse_result_ref=output_path,
     )
 
     response = client.get(f"/api/jobs/{job_id}")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "job_id": str(job_id),
-        "status": "parsed",
-        "output_artifact_ref": output_path,
-    }
+    assert "artifact.retrieve" not in events
 
 
 def test_failed_job_status(

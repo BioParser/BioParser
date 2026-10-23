@@ -3,15 +3,27 @@
 import json
 import re
 import threading
+import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 
 import httpx2
 
 from bioparser.jobqueue import JobQueueError, ParseJobMessage
 from bioparser.jobstate import JobState, JobStateError
+from bioparser.parser.models import (
+    BlockKind,
+    BlockRole,
+    ContentBlock,
+    Page,
+    ParserArtifact,
+    ParserInfo,
+    TextContent,
+)
 from bioparser.storage import ArtifactMetadata, ArtifactNotFoundError, StorageError
 
 # What httpx2.MockTransport calls for every request a client sends
@@ -103,19 +115,47 @@ def fake_mineru(
         server.server_close()
 
 
-class StubMinerUClient:
-    """HTTP hop to mineru-api"""
+STUB_TEXT = "Adult body mass averaged 12.5 g in the sampled population."
 
-    def __init__(self, payload: dict[str, Any] | None = None) -> None:
-        self.payload = payload if payload is not None else STUB_JSON
-        self.calls: list[str] = []
 
-    async def parse(self, *, filename: str, content: bytes) -> dict[str, Any]:
-        self.calls.append(filename)
-        return self.payload
+def stub_parser_artifact(text: str = STUB_TEXT) -> ParserArtifact:
+    """A parser artifact with one page and one text block holding ``text``."""
+    block = ContentBlock(
+        block_id="stub-p1-b0000",
+        order=0,
+        kind=BlockKind.TEXT,
+        role=BlockRole.BODY,
+        content=TextContent(text=text),
+    )
+    return ParserArtifact(
+        schema_version="1",
+        checksum="0" * 64,
+        parser=ParserInfo(name="default", version="1", configuration={}),
+        pages=[Page(page_number=1, width=595.0, height=842.0, blocks=[block])],
+    )
 
-    async def aclose(self) -> None:
-        return None
+
+class StubParser:
+    """A parser backend: returns ``artifact`` or raises ``error``. Records the PDF of each call."""
+
+    def __init__(
+        self,
+        artifact: ParserArtifact | None = None,
+        *,
+        error: Exception | None = None,
+        delay_s: float = 0.0,
+    ) -> None:
+        self.artifact = artifact if artifact is not None else stub_parser_artifact()
+        self.error = error
+        self.delay_s = delay_s
+        self.pdfs: list[bytes] = []
+
+    def parse(self, path: Path) -> ParserArtifact:
+        self.pdfs.append(path.read_bytes())
+        time.sleep(self.delay_s)  # stands in for minutes of real parsing
+        if self.error is not None:
+            raise self.error
+        return self.artifact
 
 
 class StubVLLMService:
@@ -231,3 +271,13 @@ class StubParseQueue:
         if self.submit_error is not None:
             raise self.submit_error
         self.messages.append(message)
+
+
+@dataclass
+class InlinePipeline:
+    """What /extract and run_pipeline() get. Replace either field to change it for the test."""
+
+    parser: StubParser = field(default_factory=StubParser)
+    vllm: StubVLLMService = field(default_factory=StubVLLMService)
+    # (name, keyword arguments) of each get_parser() call
+    parser_requests: list[tuple[str, dict[str, Any]]] = field(default_factory=list)

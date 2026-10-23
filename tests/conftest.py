@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from collections.abc import Callable, Generator, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import httpx2
@@ -9,13 +10,14 @@ from fastapi.testclient import TestClient
 from openai import AsyncOpenAI
 from stubs import (
     Handler,
+    InlinePipeline,
     StubArtifactStorage,
     StubJobStateStore,
-    StubMinerUClient,
     StubParseQueue,
-    StubVLLMService,
+    StubParser,
 )
 
+from bioparser import pipeline as pipeline_module
 from bioparser.api import config
 from bioparser.api.app import app
 from bioparser.logging_config import HANDLER_NAME
@@ -46,18 +48,22 @@ def client(
 
 
 @pytest.fixture
-def stub_pipeline(
-    monkeypatch: pytest.MonkeyPatch,
-) -> tuple[StubMinerUClient, StubVLLMService]:
-    """Stub network hops for /extract"""
-    # NOTE:  Here TestClient(app) is not used as a context manager, so lifespan doesn't
-    # run, and app.state.mineru / app.state.vllm are unset
+def inline_pipeline(monkeypatch: pytest.MonkeyPatch) -> Iterator[InlinePipeline]:
+    """Stub parser and vLLM for the pipeline. /extract runs it in threads of this process,
+    not in child processes, so the stubs apply."""
+    # TestClient(app) without `with` runs no lifespan, so the test sets the pool.
+    inline = InlinePipeline()
 
-    mineru = StubMinerUClient()
-    vllm = StubVLLMService()
-    monkeypatch.setattr(app.state, "mineru", mineru, raising=False)
-    monkeypatch.setattr(app.state, "vllm", vllm, raising=False)
-    return mineru, vllm
+    def get_parser(name: str, **kwargs: Any) -> StubParser:
+        inline.parser_requests.append((name, kwargs))
+        return inline.parser
+
+    monkeypatch.setattr(pipeline_module, "get_parser", get_parser)
+    monkeypatch.setattr(pipeline_module, "VLLMService", lambda: inline.vllm)
+    pool = ThreadPoolExecutor(max_workers=4)
+    monkeypatch.setattr(app.state, "pipeline_pool", pool, raising=False)
+    yield inline
+    pool.shutdown(wait=True)
 
 
 @pytest.fixture(autouse=True)

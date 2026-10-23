@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import logging
-import tempfile
 from collections.abc import Callable
-from pathlib import Path
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -21,6 +19,7 @@ from bioparser.parser import (
     PdfParser,
     UnsupportedDocumentError,
 )
+from bioparser.parser.protocol import parse_pdf_bytes
 from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
@@ -159,7 +158,7 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
             LOGGER.error(f"parser backend {parser_name!r} cannot run: {exc}")
             raise PermanentJobFailure("parse_failed") from exc
         try:
-            return _parse_pdf(parser, pdf)
+            return parse_pdf_bytes(parser, pdf)
         except ParserBackendUnavailableError as exc:
             LOGGER.error(f"parser backend {parser_name!r} cannot run: {exc}")
             raise PermanentJobFailure("parse_failed") from exc
@@ -187,15 +186,6 @@ def _parse_result_path(pdf: bytes, parser_name: str, mineru_tier: MinerUTier) ->
         raise PermanentJobFailure("internal_error") from exc
     configuration = mineru_tier if parser_name == MINERU_PARSER_NAME else None
     return parse_result_path(sha256_bytes(pdf), parser_name, version, configuration)
-
-
-def _parse_pdf(parser: PdfParser, pdf: bytes) -> ParserArtifact:
-    # delete_on_close=False keeps file only during with block sill
-    # handle.close() needed for Windows, .flush() will not work
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete_on_close=False) as handle:
-        handle.write(pdf)
-        handle.close()
-        return parser.parse(Path(handle.name))
 
 
 def _is_parser_artifact(payload: bytes) -> bool:
