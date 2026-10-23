@@ -19,32 +19,34 @@ type Handler = Callable[[httpx2.Request], httpx2.Response]
 
 # stub json one page and one text block for mineru mapper
 STUB_JSON: dict[str, Any] = {
-    "_backend": "pipeline",
-    "_version_name": "3.4.5",
-    "pdf_info": [
+    "schema": "docvortex.middle",
+    "schema_version": "2.0",
+    "metadata": {"file_suffix": "pdf", "producer": {"name": "mineru", "version": "4.0.12"}},
+    "extensions": {
+        "docvortex_layout": {
+            "version": 1,
+            "pages": [{"page_idx": 0, "width_pt": 595.0, "height_pt": 842.0}],
+        }
+    },
+    "pages": [
         {
             "page_idx": 0,
-            "page_size": [595.0, 842.0],
-            "para_blocks": [
+            "blocks": [
                 {
                     "type": "text",
-                    "bbox": [10.0, 10.0, 500.0, 40.0],
-                    "lines": [
+                    "index": 0,
+                    "bbox": [0.017, 0.012, 0.84, 0.048],
+                    "content": [
                         {
-                            "bbox": [10.0, 10.0, 500.0, 40.0],
-                            "spans": [
-                                {
-                                    "type": "text",
-                                    "bbox": [10.0, 10.0, 500.0, 40.0],
-                                    "content": "Adult body mass averaged 12.5 g in the sampled population.",
-                                }
-                            ],
+                            "type": "text",
+                            "content": "Adult body mass averaged 12.5 g in the sampled population.",
                         }
                     ],
                 }
             ],
         }
     ],
+    "is_full_document": True,
 }
 
 

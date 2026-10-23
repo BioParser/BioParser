@@ -23,3 +23,11 @@ Threshold in Mammalian Neocortical Evolution. PLOS Biology 12(11): e1002000.
 Research article (not an editorial): two-column body, mammal trait/neurogenesis tables (Table 1 and Table 2). Use it to test column grouping and table extraction.
 
 The PDF remains CC BY 4.0. It is not relicensed with BioParser source.
+
+## mineru-middle.json
+
+MinerU 4.0.12 `middle_json` for `plos-biology-3000248.pdf`, from `POST /v1/file_parse` with `output_formats=middle_json`, written one block per line. It was produced with `tier=flash`. The protocol (`docvortex.middle` 2.0) is the same for every tier; the mix of blocks and spans is not. Regenerate it whenever `MINERU_VERSION` changes.
+
+## mineru-middle-1002000.json
+
+The same, for `plos-biology-1002000.pdf` (`tier=flash`). It has what the editorial lacks: paragraphs continued across columns and pages (`continues_prev`), a table body in HTML, inline equations, and superscript and subscript spans.

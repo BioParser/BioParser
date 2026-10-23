@@ -26,6 +26,16 @@ def test_mineru_image_pins_the_schema_version() -> None:
     assert pins == {MINERU_VERSION}
 
 
+def test_mineru_fixtures_come_from_the_pinned_service() -> None:
+    # The image, the mapper and the fixtures move together. A fixture from another
+    # version would let the mapper tests pass against a document the service never sends.
+    fixtures = sorted(_DOCKERFILE.parents[1].glob("tests/parser/fixtures/mineru-middle*.json"))
+    assert fixtures
+    for path in fixtures:
+        producer = json.loads(path.read_text(encoding="utf-8"))["metadata"]["producer"]
+        assert producer == {"name": "mineru", "version": MINERU_VERSION}, path.name
+
+
 def test_each_mineru_target_serves_the_tier_it_bakes_in() -> None:
     # cpu serves the client's default tier; gpu serves Standard, the tier the GPU stack asks for.
     stages = dict(_STAGE.findall(_DOCKERFILE.read_text(encoding="utf-8")))

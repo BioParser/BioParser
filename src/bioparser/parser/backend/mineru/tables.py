@@ -1,12 +1,10 @@
-"""Table HTML inside MinerU leaves → ``TableContent``."""
+"""Table HTML of MinerU ``table_body`` leaves → ``TableContent``."""
 
 from __future__ import annotations
 
 from html.parser import HTMLParser
 
-from bioparser.parser.backend.mineru.schema import MiddleBlock
-from bioparser.parser.backend.mineru.text import bbox_from_points
-from bioparser.parser.models import BoundingBox, TableCell, TableContent
+from bioparser.parser.models import TableCell, TableContent
 
 
 class _HTMLTableParser(HTMLParser):
@@ -102,28 +100,10 @@ def _cells_from_html(html: str) -> list[TableCell]:
     return parser.cells
 
 
-def _table_html_from_leaf(leaf: MiddleBlock) -> str | None:
-    for line in leaf.lines:
-        for span in line.spans:
-            if span.type != "table":
-                continue
-            html = span.html
-            if html is not None and html.strip():
-                return html
-    return None
-
-
-def table_from_leaf(
-    leaf: MiddleBlock,
-    *,
-    width: float,
-    height: float,
-) -> tuple[TableContent, BoundingBox | None] | None:
-    html = _table_html_from_leaf(leaf)
-    if html is None:
+def table_from_html(html: str) -> TableContent | None:
+    if not html.strip():
         return None
     cells = _cells_from_html(html)
     if not cells:
         return None
-    bbox = bbox_from_points(leaf.bbox, width, height)
-    return TableContent(cells=cells), bbox
+    return TableContent(cells=cells)

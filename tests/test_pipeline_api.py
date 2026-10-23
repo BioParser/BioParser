@@ -1,14 +1,16 @@
 import asyncio
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from httpx2 import ASGITransport
-from stubs import STUB_JSON, StubMinerUClient, StubVLLMService
+from stubs import STUB_JSON, StubMinerUClient, StubVLLMService, fake_mineru, file_parse_reply
 
+from bioparser.api import config
 from bioparser.api.app import app
 from bioparser.api.pipeline import PipelineError, run_pipeline
 from bioparser.services.vllm.vllm import VLLMError
@@ -134,7 +136,7 @@ class StaleVersionMinerU(StubMinerUClient):
         filename: str,
         content: bytes,
     ) -> dict[str, Any]:
-        return {**STUB_JSON, "_version_name": "9.9.9"}
+        return {**STUB_JSON, "metadata": {"producer": {"name": "mineru", "version": "9.9.9"}}}
 
 
 class StructurallyWrongMinerU(StubMinerUClient):
@@ -144,11 +146,7 @@ class StructurallyWrongMinerU(StubMinerUClient):
         filename: str,
         content: bytes,
     ) -> dict[str, Any]:
-        return {
-            "_backend": "pipeline",
-            "_version_name": "3.4.5",
-            "pdf_info": [{"page_idx": 0}],
-        }
+        return {**STUB_JSON, "pages": [{"blocks": []}]}
 
 
 class HallucinatingVLLM(StubVLLMService):
@@ -200,6 +198,21 @@ def test_extract_returns_502_for_upstream_misbehaviour(
 
     assert response.status_code == 502
     assert response.json()["detail"] == "Parsing failed"
+
+
+@pytest.mark.parametrize(
+    "mineru", [StaleVersionMinerU(), StructurallyWrongMinerU()], ids=["stale", "malformed"]
+)
+def test_extract_returns_502_when_the_parser_output_cannot_be_mapped(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, mineru: StubMinerUClient
+) -> None:
+    monkeypatch.setattr(app.state, "mineru", mineru, raising=False)
+    monkeypatch.setattr(app.state, "vllm", StubVLLMService(), raising=False)
+
+    response = client.post("/extract", files={"file": ("a.pdf", PDF, "application/pdf")})
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Parser output could not be mapped"
 
 
 class MismatchedUnitVLLM(StubVLLMService):
@@ -333,3 +346,25 @@ async def test_an_unreachable_vllm_becomes_a_pipeline_error() -> None:
             char_budget=4000,
             max_tokens=256,
         )
+
+
+def test_the_api_asks_mineru_for_the_configured_tier(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("BIOPARSER_MINERU_TIER", "standard")
+    monkeypatch.setenv("BIOPARSER_VLLM_BASE_URL", "http://127.0.0.1:9/v1")  # nothing answers
+    # The lifespan needs both. It only builds the Redis clients; nothing connects.
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://127.0.0.1:9/15")
+    monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path / "artifacts"))
+    # The lifespan overwrites these; registering them lets monkeypatch restore them.
+    for name in ("mineru", "vllm", "job_store", "parse_queue", "artifact_storage", "extract_sem"):
+        monkeypatch.setattr(app.state, name, None, raising=False)
+    with fake_mineru(file_parse_reply()) as (url, seen):
+        monkeypatch.setenv("BIOPARSER_MINERU_BASE_URL", url)
+        config.get_api_settings.cache_clear()  # read before the environment was set
+        with TestClient(app) as client:
+            pdf = ("a.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf")
+            response = client.post("/extract", files={"file": pdf})
+
+    assert response.status_code == 502  # the extraction model is not there
+    assert "tier=standard&" in seen[0]
