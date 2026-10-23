@@ -11,6 +11,9 @@ BasisOfRecord = Literal[
     "traitDatabase",
     "expertKnowledge",
 ]
+CentralKind = Literal["mean", "median"]
+DispersionKind = Literal["standardDeviation", "variance", "standardError"]
+BoundsKind = Literal["range", "confidenceInterval"]
 
 _SEX: dict[str, Sex] = {
     "male": "male",
@@ -26,6 +29,19 @@ _BASIS: dict[str, BasisOfRecord] = {
     "literaturedata": "literatureData",
     "traitdatabase": "traitDatabase",
     "expertknowledge": "expertKnowledge",
+}
+_CENTRAL: dict[str, CentralKind] = {
+    "mean": "mean",
+    "median": "median",
+}
+_DISPERSION_KIND: dict[str, DispersionKind] = {
+    "standarddeviation": "standardDeviation",
+    "variance": "variance",
+    "standarderror": "standardError",
+}
+_BOUNDS_KIND: dict[str, BoundsKind] = {
+    "range": "range",
+    "confidenceinterval": "confidenceInterval",
 }
 
 
@@ -47,25 +63,6 @@ def match_aggregate(text: str) -> bool | None:
     if folded == "false":
         return False
     return None
-
-
-CentralKind = Literal["mean", "median"]
-DispersionKind = Literal["standardDeviation", "variance", "standardError"]
-BoundsKind = Literal["range", "confidenceInterval"]
-
-_CENTRAL: dict[str, CentralKind] = {
-    "mean": "mean",
-    "median": "median",
-}
-_DISPERSION_KIND: dict[str, DispersionKind] = {
-    "standarddeviation": "standardDeviation",
-    "variance": "variance",
-    "standarderror": "standardError",
-}
-_BOUNDS_KIND: dict[str, BoundsKind] = {
-    "range": "range",
-    "confidenceinterval": "confidenceInterval",
-}
 
 
 def match_central(text: str) -> CentralKind | None:
