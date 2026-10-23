@@ -75,7 +75,9 @@ def _app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path | None = None) -> TestC
     )
     for name in ("mineru", "vllm", "job_store", "parse_queue", "artifact_storage"):
         monkeypatch.setattr(app.state, name, None, raising=False)
-    return TestClient(app)
+    api_key = config.get_api_settings().api_key
+    headers = {"X-API-Key": api_key.get_secret_value()} if api_key else {}
+    return TestClient(app, headers=headers)
 
 
 def _start_app(monkeypatch: pytest.MonkeyPatch, outcome: str | Exception) -> TestClient:

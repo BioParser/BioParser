@@ -43,6 +43,27 @@ MinerU → vLLM pipeline synchronously for manual testing outside the job lifecy
 
 ## HTTP contract
 
+### Authentication
+
+All endpoints under `/api/*` and `/extract` require a shared API key. `/health` and `/ready` are public and do not require authentication.
+
+- **Header:** `X-API-Key: <key>`
+- **Configuration:**
+  - `BIOPARSER_API_KEY`: The expected secret key (stored as `SecretStr`). Required unless `BIOPARSER_AUTH_DISABLED=true`.
+  - `BIOPARSER_AUTH_DISABLED`: Boolean flag (`true`/`false`, default `false`). If `true`, authentication checks are bypassed and a warning is logged at startup. If `false` and `BIOPARSER_API_KEY` is not set or empty, the API refuses to start.
+- **Validation:** Checked using constant-time comparison (`secrets.compare_digest`).
+- **Failure — `401 Unauthorized`:**
+  Missing or invalid keys return HTTP 401 with `WWW-Authenticate: ApiKey` and a standard error envelope:
+  ```json
+  {
+    "detail": {
+      "code": "unauthorized",
+      "message": "Invalid or missing API key"
+    }
+  }
+  ```
+- **OpenAPI / Swagger UI:** The security scheme `ApiKeyAuth` is registered on the OpenAPI document (`/openapi.json`), enabling interactive authentication via the "Authorize" button in Swagger UI (`/docs`).
+
 ### `POST /api/extractions`
 
 Submit a PDF.
@@ -249,6 +270,7 @@ expose secrets in error messages.
 src/bioparser/api/
   __init__.py       # main() -> starts the app
   app.py            # FastAPI app, lifespan startup, all five routes
+  auth.py           # API key authentication dependency (X-API-Key)
   config.py         # process configuration read from the environment
   errors.py         # named ErrorDetail constants, codes, and OpenAPI helpers
   middleware.py     # body size limit middleware
@@ -386,6 +408,8 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 | `redis_url` | `None` | required at API startup; Redis URL for shared job state and the parse queue |
 | `redis_timeout_seconds` | `5.0` | Redis connect and operation timeout |
 | `parse_queue_name` | `parse` | Redis/Dramatiq queue name shared with the parser worker |
+| `api_key` | `None` | Shared API key (`BIOPARSER_API_KEY`). Required when `auth_disabled` is false. Redacted in logs and errors (`SecretStr`). |
+| `auth_disabled` | `False` | Disables authentication checks for local development (`BIOPARSER_AUTH_DISABLED`). Emits a warning at startup if true. |
 | `log_level` | `INFO` | level of the `bioparser` loggers (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`; case-insensitive); see [Logging](#logging) |
 
 `DEFAULT_MAX_UPLOAD_BYTES` is also exported as a module-level constant.

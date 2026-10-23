@@ -9,6 +9,7 @@ from uuid import UUID
 
 import httpx2
 import pytest
+from conftest import TEST_API_KEY
 from httpx2 import ASGITransport
 
 from bioparser.api.app import app
@@ -117,6 +118,7 @@ async def test_redis_backed_submission_and_polling(
     async with httpx2.AsyncClient(
         transport=ASGITransport(app),
         base_url="http://test",
+        headers={"X-API-Key": TEST_API_KEY},
     ) as client:
         response = await client.post(
             "/api/extractions",
@@ -213,6 +215,7 @@ async def test_same_pdf_can_be_submitted_twice(
     async with httpx2.AsyncClient(
         transport=ASGITransport(app),
         base_url="http://test",
+        headers={"X-API-Key": TEST_API_KEY},
     ) as client:
         responses = [
             await client.post(

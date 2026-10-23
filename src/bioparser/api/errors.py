@@ -17,6 +17,7 @@ ErrorCode = Literal[
     "job_state_unreadable",
     "redis_unavailable",
     "queue_unavailable",
+    "unauthorized",
 ]
 
 
@@ -46,6 +47,10 @@ CONTENT_TOO_LARGE = ErrorDetail(
     code="content_too_large",
     message="Content Too Large",
 )
+UNAUTHORIZED = ErrorDetail(
+    code="unauthorized",
+    message="Invalid or missing API key",
+)
 
 STORAGE_UNAVAILABLE = ErrorDetail(
     code="storage_unavailable",
@@ -68,8 +73,12 @@ REDIS_UNAVAILABLE = ErrorDetail(
 QUEUE_UNAVAILABLE = ErrorDetail(code="queue_unavailable", message="Parse queue is unavailable")
 
 
-def http_error(status_code: int, detail: ErrorDetail) -> HTTPException:
-    return HTTPException(status_code=status_code, detail=detail.model_dump())
+def http_error(
+    status_code: int,
+    detail: ErrorDetail,
+    headers: dict[str, str] | None = None,
+) -> HTTPException:
+    return HTTPException(status_code=status_code, detail=detail.model_dump(), headers=headers)
 
 
 def error_response(*details: ErrorDetail) -> dict[str, object]:
