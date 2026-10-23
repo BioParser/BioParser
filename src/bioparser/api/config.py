@@ -40,14 +40,17 @@ class ApiSettings(BaseSettings):
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
     parse_queue_name: str = Field(default="parse", min_length=1)
 
+    # Postgres. Optional until job state moves here. The URL can hold the password.
+    database_url: AnyUrl | None = Field(default=None, repr=False)
+
     @field_validator("log_level", mode="before")
     @classmethod
     def parse_log_level(cls, value: object) -> int:
         return parse_level(value)
 
-    @field_validator("redis_url", mode="before")
+    @field_validator("redis_url", "database_url", mode="before")
     @classmethod
-    def empty_redis_url_becomes_none(cls, value: object) -> object:
+    def empty_url_becomes_none(cls, value: object) -> object:
         if value == "":
             return None
         return value
