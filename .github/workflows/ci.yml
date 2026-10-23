@@ -47,7 +47,7 @@ jobs:
   test-unit:
     name: Unit tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }} # win/arm wont block ubuntu
+    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }} # Win64/Ubuntu arm failure wont fail run for Ubuntu x64
     strategy:
       fail-fast: false
       matrix:
@@ -66,7 +66,7 @@ jobs:
   test-integration:
     name: Integration tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }} # win/arm wont block ubuntu
+    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
