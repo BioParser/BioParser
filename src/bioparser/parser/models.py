@@ -3,6 +3,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from bioparser.hashing import Sha256Hex
+
 PARSER_ARTIFACT_SCHEMA_VERSION = "1"
 
 
@@ -139,6 +141,6 @@ class ParserArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     schema_version: str
-    checksum: str
+    checksum: Sha256Hex
     parser: ParserInfo
     pages: list[Page]

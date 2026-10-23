@@ -135,7 +135,7 @@ class RecordingParser:
 def _artifact() -> ParserArtifact:
     return ParserArtifact(
         schema_version=PARSER_ARTIFACT_SCHEMA_VERSION,
-        checksum="abc",
+        checksum="a" * 64,
         parser=ParserInfo(name="default", version="1", configuration={}),
         pages=[
             Page(
@@ -460,7 +460,7 @@ def test_invalid_existing_artifact_fails_the_job() -> None:
 def test_different_valid_artifact_is_reused_without_parsing() -> None:
     jobs = MemoryJobs(_queued())
     storage = MemoryStorage()
-    stored = _artifact().model_copy(update={"checksum": "other"}).model_dump_json().encode()
+    stored = _artifact().model_copy(update={"checksum": "b" * 64}).model_dump_json().encode()
     storage.payloads[RESULT_PATH] = stored
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, storage, parser)

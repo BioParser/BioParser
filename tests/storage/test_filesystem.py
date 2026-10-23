@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from bioparser.artifact_paths import ARTIFACT_PATH_MAX_SEGMENT_LENGTH
+from bioparser.hashing import sha256_bytes
 from bioparser.storage import (
     ArtifactAlreadyExistsError,
     ArtifactMetadata,
@@ -66,6 +67,7 @@ class TestBasicStorageOperations:
         assert retrieved_meta.media_type == "application/pdf"
 
         assert retrieved_meta.size_bytes == len(pdf_bytes)
+        assert retrieved_meta.checksum == sha256_bytes(pdf_bytes)
 
         stored_artifact = storage.retrieve_artifact(artifact_path)
         assert stored_artifact.content == pdf_bytes
@@ -93,6 +95,19 @@ class TestBasicStorageOperations:
         retrieved_meta = storage.retrieve_metadata(artifact_path)
         assert retrieved_meta.content_schema_version == "1"
         assert retrieved_meta.media_type == "application/json"
+
+    def test_store_keeps_a_matching_checksum(self, storage: FileSystemArtifactStorage) -> None:
+        content = b"%PDF-1.4\n%%EOF"
+        checksum = sha256_bytes(content)
+        metadata = ArtifactMetadata(
+            artifact_path=f"pdf/{checksum}",
+            media_type="application/pdf",
+            checksum=checksum,
+        )
+
+        storage.store(content, metadata)
+
+        assert storage.retrieve_metadata(f"pdf/{checksum}").checksum == checksum
 
 
 class TestDuplicateUploadBehavior:
@@ -237,6 +252,20 @@ class TestErrorHandling:
         )
         with pytest.raises(StoragePayloadError, match="Metadata size_bytes"):
             storage.store(b"short", metadata)
+
+    def test_checksum_mismatch_raises_storage_payload_error(
+        self, storage: FileSystemArtifactStorage
+    ) -> None:
+
+        artifact_path = "pdf/dummy_hash/1"
+        metadata = ArtifactMetadata(
+            artifact_path=artifact_path,
+            media_type="application/pdf",
+            checksum=sha256_bytes(b"other content"),
+        )
+        with pytest.raises(StoragePayloadError, match="Metadata checksum"):
+            storage.store(b"content", metadata)
+        assert not storage.exists(artifact_path)
 
     def test_uninitialized_root_without_create_root_raises(self, tmp_path: Path) -> None:
         non_existent = tmp_path / "does_not_exist"

@@ -20,12 +20,17 @@ class ArtifactStorage(Protocol):
     ) -> str:
         """Store an artifact's content payload and metadata.
 
+        A missing ``size_bytes`` or ``checksum`` is filled in from ``content``.
+
         Args:
             content: The binary payload of the artifact.
             metadata: Metadata describing the artifact.
 
         Returns:
             The Artifact path string.
+
+        Raises:
+            StoragePayloadError: If ``size_bytes`` or ``checksum`` does not match ``content``.
         """
         ...
 

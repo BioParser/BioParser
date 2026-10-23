@@ -57,7 +57,7 @@ from bioparser.worker.extract.handler import ExtractJobHandler
 
 JOB_ID = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
 PARSE_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
-PDF_CHECKSUM = "abc"
+PDF_CHECKSUM = "a" * 64
 RESULT_PATH = extract_result_path(PARSE_REF, "default", "1")
 QUOTE = "Mus musculus adults averaged 12.5 kg in the sampled population."
 
