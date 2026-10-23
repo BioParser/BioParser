@@ -63,12 +63,39 @@ class NotNumeric(BaseModel):
 
 
 class NotInVocabulary(BaseModel):
-    """A printed token outside the ETS list for that column."""
+    """A stored token outside the list for that field."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["not_in_vocabulary"] = "not_in_vocabulary"
-    field: Literal["sex", "basisOfRecord", "aggregateMeasure", "countryCode"]
+    field: Literal[
+        "sex",
+        "basisOfRecord",
+        "aggregateMeasure",
+        "countryCode",
+        "statisticalMethod",
+    ]
+
+
+_SUMMARY_FIELD = Literal["dispersion", "measurementValue_min", "measurementValue_max"]
+
+
+class NotConverted(BaseModel):
+    """A stored number stayed in the printed unit."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["not_converted"] = "not_converted"
+    field: _SUMMARY_FIELD
+
+
+class Unspecified(BaseModel):
+    """A choice was stored and this column has no number. Dispersion is then 0."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["unspecified"] = "unspecified"
+    field: _SUMMARY_FIELD
 
 
 class NotADate(BaseModel):
@@ -89,7 +116,7 @@ class NotACalendarDay(BaseModel):
     field: Literal["year,month,day"] = "year,month,day"
 
 
-Notice = NotNumeric | NotInVocabulary | NotADate | NotACalendarDay
+Notice = NotNumeric | NotInVocabulary | NotADate | NotACalendarDay | NotConverted | Unspecified
 
 
 def format_warning(notice: Notice) -> str:

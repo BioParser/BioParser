@@ -18,6 +18,7 @@ from bioparser.ets.notices import (
     TextField,
 )
 from bioparser.ets.numbers import parse_count, parse_decimal, parse_integer, parse_signed_decimal
+from bioparser.ets.statistics import read_statistics, scale_statistics
 from bioparser.ets.units import CanonicalTraitValue, TargetUnit, convert_trait_value_to_canonical
 from bioparser.ets.vocab import BasisOfRecord, Sex, match_aggregate, match_basis, match_sex
 from bioparser.extract.models import (
@@ -132,13 +133,10 @@ def assess(observation: Observation) -> Assessment:
     # Numbers. ETS defaults a missing count to 1 and a missing dispersion to 0.
     age = _parse_decimal(observation.age, "age", warnings, signed=True)
     individual_count = _parse_individual_count(observation.individualCount, warnings)
-    measurement_value_min = _parse_decimal(
-        observation.measurementValueMin, "measurementValue_min", warnings, signed=True
+    statistics = read_statistics(
+        observation, stored_phrase=cited["statisticalMethod"], warnings=warnings
     )
-    measurement_value_max = _parse_decimal(
-        observation.measurementValueMax, "measurementValue_max", warnings, signed=True
-    )
-    dispersion = _parse_dispersion(observation.dispersion, warnings)
+    cited["statisticalMethod"] = statistics.phrase
 
     # A calendar day is written as YYYY-MM-DD. Year, month, and day stay separate.
     year = _parse_integer(observation.year, "year", warnings, low=1000, high=9999)
@@ -173,9 +171,9 @@ def assess(observation: Observation) -> Assessment:
         aggregate_measure=aggregate_measure,
         basis_of_record=basis_of_record,
         individual_count=individual_count,
-        dispersion=dispersion,
-        measurement_value_min=measurement_value_min,
-        measurement_value_max=measurement_value_max,
+        dispersion=statistics.dispersion,
+        measurement_value_min=statistics.measurement_value_min,
+        measurement_value_max=statistics.measurement_value_max,
         year=year,
         month=month,
         day=day,
@@ -190,7 +188,15 @@ def assess(observation: Observation) -> Assessment:
     parsed = _parse_trait_value(observation)
     if not isinstance(parsed, CanonicalTraitValue):
         return Dropped(drop=parsed, **shared.model_dump())
-    if _bounds_reversed(measurement_value_min, measurement_value_max):
+    statistics = scale_statistics(observation, statistics, parsed.factor)
+    shared = shared.model_copy(
+        update={
+            "dispersion": statistics.dispersion,
+            "measurement_value_min": statistics.measurement_value_min,
+            "measurement_value_max": statistics.measurement_value_max,
+        }
+    )
+    if _bounds_reversed(statistics.measurement_value_min, statistics.measurement_value_max):
         return Dropped(drop="bounds_reversed", **shared.model_dump())
     return Kept(
         trait_value=parsed.value,
@@ -262,18 +268,6 @@ def _parse_individual_count(
     parsed = parse_count(_text(value))
     if parsed is None:
         warnings.append(NotNumeric(field="individualCount"))
-        return None
-    return parsed
-
-
-def _parse_dispersion(
-    value: CitationOrInterpretation | None, warnings: list[Notice]
-) -> float | None:
-    if value is None:
-        return 0.0
-    parsed = parse_decimal(_text(value))
-    if parsed is None:
-        warnings.append(NotNumeric(field="dispersion"))
         return None
     return parsed
 

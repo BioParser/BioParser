@@ -173,11 +173,14 @@ In the table below, the ETS term is the column the adapter fills from the field.
 | `measurementDeterminedBy` | printed + correction | | `measurementDeterminedBy` | |
 | `measurementDeterminedDate` | printed or interpreted | | `measurementDeterminedDate` | A date. A paper prints `8 Mar 1963`, which fails the check. |
 | `aggregateMeasure` | interpreted | | `aggregateMeasure` | `TRUE` or `FALSE`. A paper does not print it. It is read from wording such as `mean of 12`. |
-| `statisticalMethod` | printed + correction | | `statisticalMethod` | |
+| `statisticalMethod` | printed + correction | | `statisticalMethod` | The printed phrase, such as `mean ± SD`. When it is omitted, the adapter writes a phrase from `centralKind` and `dispersionKind`. |
+| `centralKind` | interpreted | | - | `mean` or `median`. A paper does not print this token. It is not converted. |
+| `dispersionKind` | interpreted | | - | `standardDeviation`, `variance`, or `standardError`. With `dispersion`, it selects the conversion. |
+| `boundsKind` | interpreted | | - | `range` or `confidenceInterval`. With the minimum and the maximum, it selects their conversion. |
 | `individualCount` | printed or interpreted | | `individualCount` | A number. A paper prints `8 males and 4 females`, read as `12`. |
-| `dispersion` | printed or interpreted | | `dispersion` | A number. The printed token often carries a sign or a label, such as `± 1.2`. |
-| `measurementValueMin` | printed or interpreted | | `measurementValue_min` | A number. Often read from a range such as `10-14 g`. |
-| `measurementValueMax` | printed or interpreted | | `measurementValue_max` | A number. Often read from a range such as `10-14 g`. |
+| `dispersion` | printed or interpreted | | `dispersion` | A number. The printed token often carries a sign or a label, such as `± 1.2`. It shares the trait unit. There is no separate dispersion unit. |
+| `measurementValueMin` | printed or interpreted | | `measurementValue_min` | A number. Often read from a range such as `10-14 g`. It shares the trait unit. |
+| `measurementValueMax` | printed or interpreted | | `measurementValue_max` | A number. Often read from a range such as `10-14 g`. It shares the trait unit. |
 | `measurementAccuracy` | printed + correction | | `measurementAccuracy` | |
 | `occurrenceID` | printed + correction | | `occurrenceID` | |
 | `eventID` | printed + correction | | `eventID` | |
@@ -204,7 +207,7 @@ Not in the artifact, because the adapter derives or assigns them: `taxonID`, `tr
 
 Field names are the artifact's own, in camelCase, and follow the ETS terms where there is one. `taxonClass` and `measurementValueMin` differ from the ETS spellings `class` and `measurementValue_min`. A new ETS version changes the adapter's mapping and not the stored artifact.
 
-The artifact does not enforce a set of allowed values. An interpretation `value` is a non-empty string. That includes `trait`, `sex`, `basisOfRecord`, `aggregateMeasure`, and `traitUnit`. An extractor may constrain its model to a set, or check afterwards. The adapter decides what a value means and warns on one it does not know.
+The artifact does not enforce a set of allowed values. An interpretation `value` is a non-empty string. That includes `trait`, `sex`, `basisOfRecord`, `aggregateMeasure`, `centralKind`, `dispersionKind`, `boundsKind`, and `traitUnit`. An extractor may constrain its model to a set, or check afterwards. The adapter decides what a value means and warns on one it does not know.
 
 ## What the worker checks
 
@@ -222,5 +225,6 @@ The schema does not open the parsed text, so check 3 is done by the worker.
 - Ground every field. A field you cannot locate is not stored. If the field is required, drop the observation.
 - Keep failed attempts out of the artifact. What the model tried and could not ground belongs in the extractor's logs.
 - Store the unit when you change the scale of a value. A stored `traitValue` is read in the unit the adapter resolves, which is `traitUnit` when stored and the printed unit otherwise. Storing `12500` for a printed `12.5 kg` without `traitUnit = g` makes the value 12,500 kg.
+- Record `centralKind`, `dispersionKind`, and `boundsKind` when the paper summarizes a measurement. The adapter uses those choices to convert `dispersion`, `measurementValueMin`, and `measurementValueMax` into the trait unit. One unit covers the measurement. Do not store a separate unit for the minimum, the maximum, or the dispersion. If a paper mixes units, convert them into the trait unit before storing.
 - You may be stricter than the artifact. An extractor may check names, convert units, or repair a field before it stores a result. It may also store a result the adapter later rejects, such as a unit that does not fit the trait.
 - The artifact does not record how a range was found. An extractor may find one any way it likes.

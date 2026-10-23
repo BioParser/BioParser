@@ -55,18 +55,37 @@ A stored `traitValue` is in the effective unit, which is `traitUnit` when stored
 
 A trait outside the unit table drops the row with `trait_unknown`. Until a thesaurus exists, that table is `body_mass`, `body_length`, and `tail_length`. An unknown unit drops the row with `unit_unknown`, and a unit that is not valid for the trait drops it with `unit_not_for_trait`. A value that is not a positive decimal drops the row with `value_not_numeric`.
 
+### Range and dispersion
+
+The minimum, the maximum, and the dispersion share the trait's unit. ETS gives the minimum and the maximum no unit of their own, and it does not convert `dispersion`. The stored choice of statistic selects the conversion factor.
+
+| Stored choice | ETS column | Conversion |
+|---|---|---|
+| `dispersionKind` `standardDeviation` or `standardError` | `dispersion` | Same factor as the trait value |
+| `dispersionKind` `variance` | `dispersion` | Square of that factor |
+| `boundsKind` `range` or `confidenceInterval` | `measurementValue_min`, `measurementValue_max` | Same factor as the trait value |
+
+A dispersion kind and a bounds kind can both be set, since ETS allows a dispersion metric and a range together. `centralKind` has no column and no conversion. It only feeds the `statisticalMethod` phrase.
+
+`statisticalMethod` stays one free-text phrase. A stored phrase is copied. When no phrase is stored, the adapter writes one from `centralKind` and `dispersionKind`. The bounds kind is not part of the phrase, because the minimum and the maximum are their own columns. `mean`, `standardDeviation`, and `range` become `mean and standard deviation`.
+
+- An unrecognized `centralKind` warns `not_in_vocabulary:statisticalMethod` only when no phrase is stored and the choices write none. A stored phrase, or a phrase written from `dispersionKind`, adds no warning.
+- A number with no usable kind stays in the printed unit and warns `not_converted:dispersion`, `not_converted:measurementValue_min`, or `not_converted:measurementValue_max`. An absent choice and an unrecognized choice both do this.
+- A kind with no number warns `unspecified:dispersion` and `dispersion` takes the default (see [Defaults](#defaults-and-assigned-columns)). A bounds kind with either side absent warns `unspecified:measurementValue_min` or `unspecified:measurementValue_max`, and that column stays empty. A matched choice still converts the side that is stored.
+- No number and no kind leaves the column at its default with no warning. A single specimen stores none of these choices.
+- A minimum greater than the maximum, after conversion, drops the row with `bounds_reversed`.
+
 ### Citation and interpretation columns
 
 - A free-text column that accepts a citation or a correction uses the interpretation value when the extractor stored a correction, and the printed citation otherwise. The narrow citation of a correction is not used for the column. It stays in the artifact for tracing and for UI highlighting, where a precise range is better than a whole passage.
 - A column that accepts a citation or an interpretation (`individualCount`, `measurementValueMin`, dates, coordinates, and the like) is parsed or matched by the adapter. A citation is parsed from its text. An interpretation uses its `value`, and its passage is only the grounding. The adapter parses a number into the numeric ETS column. The artifact does not store the parsed number.
 - `sex` and `aggregateMeasure` are matched against the ETS values. A value that does not match adds a warning and leaves the column empty. A `countryCode` that is not two uppercase letters does the same. A `basisOfRecord` that does not match adds a warning and becomes `literatureData`.
 - A date is written as `YYYY-MM-DD`. A year-first number or a written month is converted. A numeric day and month is converted when one number is greater than 12, so that number is the day. When both are 12 or less, the date is left empty.
-- A minimum greater than the maximum drops the row with `bounds_reversed`.
 
 ### Defaults and assigned columns
 
 - `basisOfRecord` is `literatureData` when the observation did not record one. `aggregateMeasure` stays empty.
-- A missing `individualCount` is `1` and a missing `dispersion` is `0`. ETS defines those defaults.
+- A missing `individualCount` is `1`. A missing `dispersion` is `0`. ETS defines those defaults. The `0` means the measurement did not report a dispersion. It is not a measured dispersion of zero. The minimum and the maximum have no default, so they stay empty.
 - `measurementID` is assigned when the rows are built.
 - `references` comes from the job's document.
 - `warnings` collects what the adapter found while building the row.
