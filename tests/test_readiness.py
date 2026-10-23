@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from bioparser.api import config
 from bioparser.api.schema import ReadinessResponse
 
 app_module = import_module("bioparser.api.app")
@@ -95,6 +96,95 @@ def test_ready_invalid_redis_url(monkeypatch: pytest.MonkeyPatch, client: TestCl
     assert response.status_code == 503
     detail = response.json()["detail"]
     assert "config" in detail["unavailable"]
+
+
+def test_ready_empty_database_url(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
+    monkeypatch.setenv("BIOPARSER_DATABASE_URL", "")
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
+
+
+def test_ready_postgres_available(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "")
+    monkeypatch.setenv(
+        "BIOPARSER_DATABASE_URL", "postgresql://bioparser:canary-db-pass@localhost:5432/bioparser"
+    )
+    seen: list[tuple[tuple[str, int], float | None]] = []
+
+    class FakeSocket:
+        def close(self) -> None:
+            pass
+
+    def fake_create_connection(addr: tuple[str, int], timeout: float | None = None) -> FakeSocket:
+        seen.append((addr, timeout))
+        return FakeSocket()
+
+    monkeypatch.setattr(app_module.socket, "create_connection", fake_create_connection)
+
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
+    assert seen == [(("localhost", 5432), 1.0)]
+    assert "canary-db-pass" not in response.text
+
+
+def test_ready_postgres_unavailable_hides_the_url(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    password = "canary-db-pass"
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "")
+    monkeypatch.setenv(
+        "BIOPARSER_DATABASE_URL", f"postgresql://bioparser:{password}@127.0.0.1:1/bioparser"
+    )
+
+    def fake_create_connection(addr: tuple[str, int], timeout: float | None = None) -> None:
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(app_module.socket, "create_connection", fake_create_connection)
+
+    response = client.get("/ready")
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail == {"status": "not ready", "unavailable": ["postgres"]}
+    assert password not in response.text
+    assert "postgresql" not in response.text
+    assert "127.0.0.1" not in response.text
+    assert password not in repr(config.get_api_settings())
+
+
+def test_ready_postgres_timeout_is_bounded(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    password = "canary-db-pass"
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "")
+    monkeypatch.setenv("BIOPARSER_DEPENDENCY_CHECK_TIMEOUT_SECONDS", "0.05")
+    monkeypatch.setenv(
+        "BIOPARSER_DATABASE_URL", f"postgresql://bioparser:{password}@localhost:5432/bioparser"
+    )
+
+    def fake_create_connection(addr: tuple[str, int], timeout: float | None = None) -> None:
+        assert timeout == 0.05
+        raise TimeoutError
+
+    monkeypatch.setattr(app_module.socket, "create_connection", fake_create_connection)
+
+    response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json()["detail"]["unavailable"] == ["postgres"]
+    assert password not in response.text
+
+
+def test_ready_invalid_database_url_hides_the_password(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    monkeypatch.setenv(
+        "BIOPARSER_DATABASE_URL", "postgresql://bioparser:canary-db-pass@postgres:99999/bioparser"
+    )
+    response = client.get("/ready")
+    assert response.status_code == 503
+    assert "config" in response.json()["detail"]["unavailable"]
+    assert "canary-db-pass" not in response.text
 
 
 # need to fix this

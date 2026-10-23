@@ -32,7 +32,7 @@ class ReadinessUnavailableResponse(BaseModel):
                 {
                     "detail": {
                         "status": "not ready",
-                        "unavailable": ["redis"],
+                        "unavailable": ["redis", "postgres"],
                     }
                 }
             ]

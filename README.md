@@ -36,7 +36,7 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
    docker compose up --build
 ```
 
-   The first run is slow: the MinerU service downloads its models during its image build, and vLLM downloads the model set in `VLLM_MODEL` (default `Qwen/Qwen3-0.6B`). The extractor image does not download a model; it calls the vLLM service. The API starts only after `vllm`, `mineru`, and `redis` pass their health checks. The parser worker starts after `mineru` and Redis do. The extractor worker starts after `vllm` and Redis do.
+   The first run is slow: the MinerU service downloads its models during its image build, and vLLM downloads the model set in `VLLM_MODEL` (default `Qwen/Qwen3-0.6B`). The extractor image does not download a model; it calls the vLLM service. The API starts only after `vllm`, `mineru`, `redis`, and `postgres` pass their health checks. The parser worker starts after `mineru` and Redis do. The extractor worker starts after `vllm` and Redis do. Set `POSTGRES_PASSWORD` in `.env` before the first start.
 
 3. Check the API:
 
@@ -58,7 +58,7 @@ Stop with `Ctrl+C` or `docker compose down`.
 | API | `http://localhost:8080` (Swagger UI: `/docs`) |
 | vLLM (OpenAI-compatible) | `http://localhost:8000/v1` |
 | Grafana (logs of all services) | `http://localhost:3000` (user `admin`) |
-| MinerU, Redis, Loki, Alloy, docker-api | not published (internal network only) |
+| MinerU, Redis, Postgres, Loki, Alloy, docker-api | not published (internal network only) |
 
 Published ports bind to `127.0.0.1` only. Ports, environment variables, log queries, and `test_prompt`: [docs/docker-compose.md](docs/docker-compose.md).
 
@@ -78,7 +78,7 @@ uv run bioparser
 
 Serves on `http://127.0.0.1:8080`. Job submission and polling work on their own; `POST /extract` also needs reachable MinerU and vLLM services.
 
-> The host API reads `.env` if it exists. `.env.example` sets `BIOPARSER_REDIS_URL=redis://redis:6379/0`, which only resolves inside Compose, so `/ready` returns `503`. Empty that line for host-only runs.
+> The host API reads `.env` if it exists. `.env.example` sets `BIOPARSER_REDIS_URL=redis://redis:6379/0`, which only resolves inside Compose, so `/ready` returns `503`. Empty that line for host-only runs. Postgres is checked only when `BIOPARSER_DATABASE_URL` is set. Compose sets that URL on the API container.
 
 ### Parse a PDF
 
