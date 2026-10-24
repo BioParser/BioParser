@@ -12,6 +12,7 @@ def test_extract_queue_name_is_required(tmp_path: Path) -> None:
         WorkerSettings(
             _env_file=None,  # type: ignore[call-arg]
             redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+            database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
             parse_queue_name="parse",
         )
@@ -22,6 +23,7 @@ def test_queue_name_is_required(tmp_path: Path) -> None:
         WorkerSettings(
             _env_file=None,  # type: ignore[call-arg]
             redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+            database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
         )
 
@@ -39,6 +41,7 @@ def test_liveness_port_defaults_to_8081(tmp_path: Path) -> None:
     settings = WorkerSettings(
         _env_file=None,  # type: ignore[call-arg]
         redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+        database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
         artifact_storage_path=tmp_path,
         parse_queue_name="parse",
         extract_queue_name="extract",
@@ -52,6 +55,7 @@ def test_liveness_port_must_be_a_tcp_port(tmp_path: Path, port: int) -> None:
         WorkerSettings(
             _env_file=None,  # type: ignore[call-arg]
             redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+            database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
             parse_queue_name="parse",
             extract_queue_name="extract",
@@ -64,6 +68,7 @@ def test_time_limit_must_be_positive(tmp_path: Path) -> None:
         WorkerSettings(
             _env_file=None,  # type: ignore[call-arg]
             redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+            database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
             parse_time_limit_seconds=0,
         )
@@ -73,6 +78,7 @@ def _settings(tmp_path: Path, limit_s: float) -> WorkerSettings:
     return WorkerSettings(
         _env_file=None,  # type: ignore[call-arg]
         redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+        database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
         artifact_storage_path=tmp_path,
         parse_queue_name="parse",
         extract_queue_name="extract",
@@ -85,6 +91,7 @@ def test_claim_cap_follows_the_retry_count(tmp_path: Path) -> None:
     raised = WorkerSettings(
         _env_file=None,  # type: ignore[call-arg]
         redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+        database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
         artifact_storage_path=tmp_path,
         parse_queue_name="parse",
         extract_queue_name="extract",
@@ -111,6 +118,7 @@ def _log_settings(
         monkeypatch.setenv("BIOPARSER_LOG_LEVEL", raw)
     return WorkerSettings(
         redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+        database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
         artifact_storage_path=tmp_path,
         parse_queue_name="parse",
         extract_queue_name="extract",
@@ -137,6 +145,7 @@ def test_time_limit_is_capped_at_mineru_longest_wait(tmp_path: Path) -> None:
         WorkerSettings(
             _env_file=None,  # type: ignore[call-arg]
             redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+            database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
             parse_queue_name="parse",
             extract_queue_name="extract",
@@ -149,6 +158,7 @@ def test_mineru_base_url_must_be_http(tmp_path: Path) -> None:
         WorkerSettings(
             _env_file=None,  # type: ignore[call-arg]
             redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+            database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
             parse_queue_name="parse",
             extract_queue_name="extract",
@@ -160,6 +170,7 @@ def test_mineru_tier_defaults_to_basic_and_must_be_known(tmp_path: Path) -> None
     settings = WorkerSettings(
         _env_file=None,  # type: ignore[call-arg]
         redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+        database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
         artifact_storage_path=tmp_path,
         parse_queue_name="parse",
         extract_queue_name="extract",
@@ -170,6 +181,7 @@ def test_mineru_tier_defaults_to_basic_and_must_be_known(tmp_path: Path) -> None
         WorkerSettings(
             _env_file=None,  # type: ignore[call-arg]
             redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+            database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
             parse_queue_name="parse",
             extract_queue_name="extract",

@@ -1,5 +1,5 @@
 class JobStateError(RuntimeError):
-    """Base class for job-state adapter errors."""
+    """A job read or write failed."""
 
 
 class JobNotFoundError(JobStateError):
@@ -12,14 +12,6 @@ class JobAlreadyExistsError(JobStateError):
 
 class CorruptJobStateError(JobStateError):
     """Stored state could not be parsed into a valid JobState."""
-
-
-class JobStateConnectionError(JobStateError):
-    """Redis was unreachable, refused the connection, or timed out."""
-
-
-class JobStateBackendError(JobStateError):
-    """Redis answered with an error other than a connectivity failure (OOM, WRONGTYPE, NOPERM, READONLY, ...)."""
 
 
 class StaleJobStateWriteError(JobStateError):

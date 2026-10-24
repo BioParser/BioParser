@@ -16,6 +16,9 @@ from uuid import UUID
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ValidationError
 
+from bioparser.db import engine as database
+from bioparser.db import jobs as job_queries
+from bioparser.db.engine import DatabaseError
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.hashing import sha256_bytes
@@ -28,7 +31,6 @@ from bioparser.jobstate import (
     CorruptJobStateError,
     JobState,
     JobStateError,
-    RedisJobStateStore,
     SafeError,
 )
 from bioparser.logging_config import error_fields, redact_url, setup_logging
@@ -123,6 +125,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 )
             if settings.redis_url is None:
                 raise RuntimeError("BIOPARSER_REDIS_URL is required")
+            if settings.database_url is None:
+                raise RuntimeError("BIOPARSER_DATABASE_URL is required")
             if settings.artifact_storage_path is None:
                 raise RuntimeError("BIOPARSER_ARTIFACT_STORAGE_PATH is required")
 
@@ -144,10 +148,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
             redis_url = str(settings.redis_url)
             redis_timeout = settings.redis_timeout_seconds
-            app.state.job_store = RedisJobStateStore(
-                redis_url,
-                operation_timeout_seconds=redis_timeout,
-            )
+            await database.open(str(settings.database_url))
             app.state.parse_queue = DramatiqJobQueue.from_redis(
                 redis_url,
                 name=settings.parse_queue_name,
@@ -173,12 +174,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             if pool is not None:
                 # A running child cannot be stopped; the shutdown does not wait for it.
                 pool.shutdown(wait=False, cancel_futures=True)
-            for client in (
-                getattr(app.state, "vllm", None),
-                getattr(app.state, "job_store", None),
-            ):
-                if client is not None:
-                    await client.aclose()
+            vllm = getattr(app.state, "vllm", None)
+            if vllm is not None:
+                await vllm.aclose()
+            await database.aclose()
 
 
 def _pipeline_start_method() -> str:
@@ -307,11 +306,12 @@ def _parse_job_id(job_id: str) -> UUID:
 async def _read_job(request: Request, job_id: UUID) -> JobState:
     """The stored job, or the route's 404, 500 or 503."""
     try:
-        record: JobState | None = await request.app.state.job_store.get(job_id)
+        async with database.transaction() as connection:
+            record = await job_queries.get(connection, job_id)
     except CorruptJobStateError as exc:
         LOGGER.error("job state unreadable", extra={"job_id": str(job_id), **error_fields(exc)})
         raise http_error(500, JOB_STATE_UNREADABLE) from exc
-    except JobStateError as exc:
+    except (JobStateError, DatabaseError) as exc:
         LOGGER.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
         raise http_error(503, REDIS_UNAVAILABLE) from exc
     if record is None:
@@ -412,26 +412,33 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         extractor=DEFAULT_EXTRACTOR_NAME,
         pdf_ref=pdf_ref,
     )
-    try:
-        await request.app.state.job_store.create(job_state)
-    except JobStateError as exc:
-        LOGGER.error("job state create failed", extra=fields | error_fields(exc))
-        raise http_error(503, REDIS_UNAVAILABLE) from exc
-
     parse_job_message = ParseJobMessage(
         job_id=job_id,
     )
+    enqueue_error: JobQueueError | None = None
     try:
-        await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
-    except JobQueueError as exc:
-        LOGGER.error("parse job enqueue failed", extra=fields | error_fields(exc))
-        failed_state = job_state.with_changes(
-            status="failed",
-            error=SafeError(code="internal_error"),
-        )
-        with contextlib.suppress(JobStateError):
-            await request.app.state.job_store.update(failed_state)
-        raise http_error(503, QUEUE_UNAVAILABLE) from exc
+        async with database.transaction() as connection:
+            await job_queries.create(connection, job_state)
+            try:
+                await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
+            except JobQueueError as exc:
+                enqueue_error = exc
+                await job_queries.update(
+                    connection,
+                    job_state.with_changes(
+                        status="failed",
+                        error=SafeError(code="internal_error"),
+                    ),
+                )
+    except (JobStateError, DatabaseError) as exc:
+        if enqueue_error is None:
+            LOGGER.error("job state create failed", extra=fields | error_fields(exc))
+            raise http_error(503, REDIS_UNAVAILABLE) from exc
+        LOGGER.error("parse job enqueue failed", extra=fields | error_fields(enqueue_error))
+        raise http_error(503, QUEUE_UNAVAILABLE) from enqueue_error
+    if enqueue_error is not None:
+        LOGGER.error("parse job enqueue failed", extra=fields | error_fields(enqueue_error))
+        raise http_error(503, QUEUE_UNAVAILABLE) from enqueue_error
 
     return QueuedJobResponse(job_id=job_id, status="queued")
 
@@ -448,8 +455,28 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     },
 )
 async def job_status(request: Request, job_id: str) -> JobStatusResponse:
-    # One Redis read. This route never reads an artifact: that cost grows with the paper.
-    return _job_state_response(await _read_job(request, _parse_job_id(job_id)))
+    try:
+        parsed_job_id = UUID(job_id)
+    except ValueError as exc:
+        raise http_error(422, INVALID_JOB_ID) from exc
+    if parsed_job_id.version != 4:
+        raise http_error(422, INVALID_JOB_ID)
+    try:
+        async with database.transaction() as connection:
+            record = await job_queries.get(connection, parsed_job_id)
+    except CorruptJobStateError as exc:
+        LOGGER.error("job state unreadable", extra={"job_id": str(job_id), **error_fields(exc)})
+        raise http_error(500, JOB_STATE_UNREADABLE) from exc
+
+    except (JobStateError, DatabaseError) as exc:
+        LOGGER.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
+        raise http_error(503, REDIS_UNAVAILABLE) from exc
+
+    if record is None:
+        raise http_error(404, JOB_NOT_FOUND)
+    # One Postgres read. The worker validated the artifact before it recorded the ref, so this
+    # route does not read it again: that cost grows with the paper and ran on the event loop.
+    return _job_state_response(record)
 
 
 @app.get(

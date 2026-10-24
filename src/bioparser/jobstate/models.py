@@ -36,7 +36,7 @@ SafeErrorCode = Literal[
 # Schema version for the JobState contract. Bump the version up when the shape of JobState
 # changes in a way that is not backward compatible, so a stored record from
 # an older version is recognized as such rather than silently misread.
-JOB_STATE_SCHEMA_VERSION: Literal[1] = 1
+JOB_STATE_SCHEMA_VERSION: Literal[2] = 2
 
 
 class SafeError(BaseModel):
@@ -51,7 +51,7 @@ class JobState(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    schema_version: Literal[1] = JOB_STATE_SCHEMA_VERSION
+    schema_version: Literal[2] = JOB_STATE_SCHEMA_VERSION
     job_id: UUID4
     status: JobStatus
     parser: str = Field(min_length=1)
@@ -60,12 +60,16 @@ class JobState(BaseModel):
     parse_result_ref: ArtifactPath | None = None
     extract_result_ref: ArtifactPath | None = None
     error: SafeError | None = None
-    # Claims per stage.
-    claim_counts: dict[JobStatus, int] = Field(default_factory=dict)
+    parsing_claims: int = Field(default=0, ge=0)
+    extracting_claims: int = Field(default=0, ge=0)
 
     def claims(self, status: JobStatus) -> int:
-        """How many times status has been claimed."""
-        return self.claim_counts.get(status, 0)
+        """How many times this stage has been claimed. Other statuses are not claims."""
+        if status == "parsing":
+            return self.parsing_claims
+        if status == "extracting":
+            return self.extracting_claims
+        return 0
 
     def with_claim(self, status: JobStatus) -> Self:
         """Return this job moved to status, counting one start of that stage.
@@ -73,11 +77,11 @@ class JobState(BaseModel):
         The count includes this start. A stage that cannot be re-entered is not a claim.
         Store the result before the heavy work, then read the job again before a later write.
         """
-        if status not in ALLOWED_TRANSITIONS[status]:
-            raise ValueError(f"status={status!r} cannot be claimed")
-        counts = dict(self.claim_counts)
-        counts[status] = counts.get(status, 0) + 1
-        return self.with_changes(status=status, claim_counts=counts)
+        if status == "parsing":
+            return self.with_changes(status=status, parsing_claims=self.parsing_claims + 1)
+        if status == "extracting":
+            return self.with_changes(status=status, extracting_claims=self.extracting_claims + 1)
+        raise ValueError(f"status={status!r} cannot be claimed")
 
     def with_changes(self, **changes: object) -> Self:
         """Return a new, validated JobState with the given fields changed.
@@ -99,16 +103,6 @@ class JobState(BaseModel):
     def known_extractor(cls, value: str) -> str:
         if value not in EXTRACTORS:
             raise ValueError(f"must be one of: {', '.join(EXTRACTORS)}")
-        return value
-
-    @field_validator("claim_counts")
-    @classmethod
-    def claim_counts_are_per_stage(cls, value: dict[JobStatus, int]) -> dict[JobStatus, int]:
-        for status, count in value.items():
-            if status not in ALLOWED_TRANSITIONS[status]:
-                raise ValueError(f"status={status!r} cannot be claimed")
-            if count < 0:
-                raise ValueError(f"claim count for {status!r} must be >= 0")
         return value
 
     @model_validator(mode="after")

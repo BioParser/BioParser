@@ -254,19 +254,19 @@ class StubJobStateStore:
         self.create_error: JobStateError | None = None
         self.get_error: JobStateError | None = None
 
-    async def create(self, state: JobState) -> None:
+    async def create(self, connection: object, state: JobState) -> None:
         self.events.append("job_state.create")
         if self.create_error is not None:
             raise self.create_error
         self.states[str(state.job_id)] = state
 
-    async def get(self, job_id: object) -> JobState | None:
+    async def get(self, connection: object, job_id: object) -> JobState | None:
         if self.get_error is not None:
             raise self.get_error
         self.events.append("job_state.get")
         return self.states.get(str(job_id))
 
-    async def update(self, state: JobState) -> None:
+    async def update(self, connection: object, state: JobState) -> None:
         self.events.append("job_state.update")
         self.states[state.job_id] = state
 

@@ -89,8 +89,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       BIOPARSER_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      BIOPARSER_DATABASE_URL: postgresql://bioparser:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/bioparser
       BIOPARSER_ARTIFACT_STORAGE_PATH: /data
       BIOPARSER_PARSE_QUEUE_NAME: parse
       BIOPARSER_EXTRACT_QUEUE_NAME: extract
@@ -117,9 +122,14 @@ services:
         condition: service_healthy
       vllm:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       BIOPARSER_VLLM_BASE_URL: http://vllm:8000/v1
       BIOPARSER_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      BIOPARSER_DATABASE_URL: postgresql://bioparser:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/bioparser
       BIOPARSER_ARTIFACT_STORAGE_PATH: /data
       BIOPARSER_EXTRACT_QUEUE_NAME: extract
     volumes:

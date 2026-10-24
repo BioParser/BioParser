@@ -4,7 +4,6 @@ from bioparser.extract.backend.factory import get_extractor
 from bioparser.extract.protocol import Extractor
 from bioparser.jobqueue import ExtractJobMessage, JobQueue
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue
-from bioparser.jobstate import RedisJobStateStore
 from bioparser.logging_config import setup_logging
 from bioparser.services.vllm import VLLMService
 from bioparser.storage.filesystem import FileSystemArtifactStorage
@@ -18,7 +17,6 @@ from .handler import ExtractJobHandler
 def build_worker(
     settings: ExtractWorkerSettings,
 ) -> tuple[JobQueue[ExtractJobMessage], ExtractJobHandler]:
-    jobs = RedisJobStateStore(str(settings.redis_url))
     storage = FileSystemArtifactStorage(settings.artifact_storage_path)
     queue: JobQueue[ExtractJobMessage] = DramatiqJobQueue.from_redis(
         str(settings.redis_url),
@@ -42,7 +40,7 @@ def build_worker(
         )
 
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url=str(settings.database_url),
         storage=storage,
         extractor_factory=extractor_factory,
         max_claims=settings.extract_max_claims,

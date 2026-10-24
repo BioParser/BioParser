@@ -1,5 +1,6 @@
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import asynccontextmanager
 from typing import Any, cast
 from uuid import UUID
 
@@ -11,6 +12,8 @@ from bioparser.artifact_paths import (
     extract_result_path,
     parse_result_path,
 )
+from bioparser.db import engine as database
+from bioparser.db import jobs as job_queries
 from bioparser.extract.backend.default.extractor import extract_observations
 from bioparser.extract.backend.default.locate import cited_observations
 from bioparser.extract.backend.default.schema import Extraction, ModelObservation
@@ -80,6 +83,7 @@ def _stub() -> StubVLLMService:
 
 class MemoryJobs:
     def __init__(self, state: JobState | None) -> None:
+        _memory_jobs.append(self)
         self.state = state
 
     async def create(self, state: JobState) -> None:
@@ -99,6 +103,40 @@ class MemoryJobs:
 
     async def aclose(self) -> None:
         return
+
+
+_memory_jobs: list[MemoryJobs] = []
+
+
+@pytest.fixture(autouse=True)
+def _stub_job_queries(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    async def get(connection: object, job_id: UUID) -> JobState | None:
+        return await _memory_jobs[-1].get(job_id)
+
+    async def update(connection: object, state: JobState) -> None:
+        await _memory_jobs[-1].update(state)
+
+    async def create(connection: object, state: JobState) -> None:
+        await _memory_jobs[-1].create(state)
+
+    async def open_pool(url: str) -> None:
+        return None
+
+    async def close_pool() -> None:
+        return None
+
+    @asynccontextmanager
+    async def _transaction():  # type: ignore[no-untyped-def]
+        yield object()
+
+    monkeypatch.setattr(job_queries, "get", get)
+    monkeypatch.setattr(job_queries, "update", update)
+    monkeypatch.setattr(job_queries, "create", create)
+    monkeypatch.setattr(database, "open", open_pool)
+    monkeypatch.setattr(database, "aclose", close_pool)
+    monkeypatch.setattr(database, "transaction", _transaction)
+    yield
+    _memory_jobs.clear()
 
 
 class MemoryStorage:
@@ -249,7 +287,7 @@ def _handler(
     max_claims: int = DEFAULT_EXTRACT_MAX_RETRIES + 1,
 ) -> ExtractJobHandler:
     return ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=storage,
         extractor_factory=_factory(extract),
         max_claims=max_claims,
@@ -344,7 +382,7 @@ def test_schema_failure_is_permanent() -> None:
 def test_truncated_output_is_permanent() -> None:
     jobs = MemoryJobs(_parsed())
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=MemoryStorage(),
         extractor_factory=_registered(_FailingVLLM(VLLMTruncatedError("cut off"))),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -361,7 +399,7 @@ def test_truncated_output_is_permanent() -> None:
 def test_a_rejected_request_is_permanent() -> None:
     jobs = MemoryJobs(_parsed())
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=MemoryStorage(),
         extractor_factory=_registered(
             _FailingVLLM(VLLMRequestRejectedError("vLLM rejected the request: BadRequestError"))
@@ -389,7 +427,7 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
         raise AssertionError("model was called")
 
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=MemoryStorage(),
         extractor_factory=_factory(extract),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -414,7 +452,7 @@ def test_vllm_answering_still_extracts() -> None:
     storage = MemoryStorage()
     vllm = _stub()
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=storage,
         extractor_factory=_factory(_real_extract(vllm)),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -446,7 +484,7 @@ def test_on_failed_on_a_parsed_job_says_it_cannot_be_marked_failed(
 def test_vllm_errors_are_retried() -> None:
     jobs = MemoryJobs(_parsed())
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=MemoryStorage(),
         extractor_factory=_registered(_FailingVLLM(VLLMError("down"))),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -672,7 +710,7 @@ def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPa
         return _CallableExtractor(extract)
 
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=storage,
         extractor_factory=extractor_factory,
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -742,7 +780,7 @@ def test_registered_extractor_stores_the_resolved_version() -> None:
         )
 
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=storage,
         extractor_factory=extractor_factory,
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -811,7 +849,7 @@ def test_an_extractor_that_cannot_run_is_internal_error() -> None:
             raise ExtractorBackendUnavailableError("cannot run")
 
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=storage,
         extractor_factory=lambda _name: _Down(),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -833,7 +871,7 @@ def test_an_unknown_extractor_is_internal_error() -> None:
         raise ExtractorBackendUnavailableError(f"Unknown extractor {name!r}.")
 
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=storage,
         extractor_factory=extractor_factory,
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,

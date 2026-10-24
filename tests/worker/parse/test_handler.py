@@ -3,7 +3,8 @@ import json
 import logging
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -14,6 +15,8 @@ from dramatiq.middleware.time_limit import TimeLimit
 from stubs import fake_mineru
 
 from bioparser.artifact_paths import parse_result_path
+from bioparser.db import engine as database
+from bioparser.db import jobs as job_queries
 from bioparser.jobqueue import JobTimeLimitExceeded
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobqueue.messages import ParseJobMessage
@@ -59,6 +62,7 @@ RESULT_PATH = parse_result_path(PDF_CHECKSUM, "default", "1")
 
 class MemoryJobs:
     def __init__(self, state: JobState | None) -> None:
+        _memory_jobs.append(self)
         self.state = state
 
     async def create(self, state: JobState) -> None:
@@ -78,6 +82,40 @@ class MemoryJobs:
 
     async def aclose(self) -> None:
         return
+
+
+_memory_jobs: list[MemoryJobs] = []
+
+
+@pytest.fixture(autouse=True)
+def _stub_job_queries(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    async def get(connection: object, job_id: UUID) -> JobState | None:
+        return await _memory_jobs[-1].get(job_id)
+
+    async def update(connection: object, state: JobState) -> None:
+        await _memory_jobs[-1].update(state)
+
+    async def create(connection: object, state: JobState) -> None:
+        await _memory_jobs[-1].create(state)
+
+    async def open_pool(url: str) -> None:
+        return None
+
+    async def close_pool() -> None:
+        return None
+
+    @asynccontextmanager
+    async def _transaction():  # type: ignore[no-untyped-def]
+        yield object()
+
+    monkeypatch.setattr(job_queries, "get", get)
+    monkeypatch.setattr(job_queries, "update", update)
+    monkeypatch.setattr(job_queries, "create", create)
+    monkeypatch.setattr(database, "open", open_pool)
+    monkeypatch.setattr(database, "aclose", close_pool)
+    monkeypatch.setattr(database, "transaction", _transaction)
+    yield
+    _memory_jobs.clear()
 
 
 class MemoryStorage:
@@ -189,7 +227,7 @@ def _handler(
         return parser
 
     return ParseJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=storage,
         parser_factory=factory or _factory,
         max_claims=max_claims,
@@ -324,7 +362,7 @@ def test_parser_comes_from_job_state() -> None:
         raise ParserBackendUnavailableError(name)
 
     handler = ParseJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=MemoryStorage(),
         parser_factory=_factory,
         max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
@@ -406,7 +444,7 @@ def test_a_mineru_failure_is_retried_not_failed_as_invalid_pdf() -> None:
     jobs = MemoryJobs(_queued().with_changes(parser="mineru"))
     with fake_mineru(reply) as (url, _seen):
         handler = ParseJobHandler(
-            jobs=jobs,
+            database_url="postgresql://unused",
             storage=MemoryStorage(),
             parser_factory=lambda name: get_parser(name, timeout_s=5.0, mineru_base_url=url),
             max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
@@ -733,7 +771,7 @@ def test_the_mineru_result_path_has_the_tier_as_its_last_segment() -> None:
     jobs = MemoryJobs(_queued().with_changes(parser="mineru"))
     parser = RecordingParser(_artifact())
     handler = ParseJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=MemoryStorage(),
         parser_factory=lambda _name: parser,
         max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,

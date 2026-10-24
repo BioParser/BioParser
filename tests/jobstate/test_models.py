@@ -26,14 +26,14 @@ def _queued(**overrides: object) -> JobState:
 # --- round trips -------------------------------------------------------
 
 
-def test_claim_counts_a_start_of_that_stage_only() -> None:
+def test_a_claim_counts_a_start_of_that_stage_only() -> None:
     claimed = _queued().with_claim("parsing")
     assert claimed.status == "parsing"
-    assert claimed.claim_counts == {"parsing": 1}
-    again = _queued(status="parsing", claim_counts={"parsing": 1, "extracting": 2}).with_claim(
-        "parsing"
-    )
-    assert again.claim_counts == {"parsing": 2, "extracting": 2}
+    assert claimed.parsing_claims == 1
+    assert claimed.extracting_claims == 0
+    again = _queued(status="parsing", parsing_claims=1, extracting_claims=2).with_claim("parsing")
+    assert again.parsing_claims == 2
+    assert again.extracting_claims == 2
 
 
 def test_a_stage_that_cannot_be_reentered_is_not_a_claim() -> None:
@@ -41,12 +41,19 @@ def test_a_stage_that_cannot_be_reentered_is_not_a_claim() -> None:
         _queued().with_claim("parsed")
 
 
-def test_stored_state_without_claim_counts_reads_as_empty() -> None:
-    raw = _queued().model_dump()
-    del raw["claim_counts"]
-    restored = JobState.model_validate(raw)
-    assert restored.claims("parsing") == 0
-    assert restored.claims("extracting") == 0
+def test_claim_counts_default_to_zero() -> None:
+    state = _queued()
+    assert state.parsing_claims == 0
+    assert state.extracting_claims == 0
+    assert state.claims("parsing") == 0
+    assert state.claims("extracting") == 0
+
+
+def test_a_negative_claim_count_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        _queued(parsing_claims=-1)
+    with pytest.raises(ValidationError):
+        _queued(extracting_claims=-1)
 
 
 def test_every_status_has_a_transition_row() -> None:
@@ -192,7 +199,7 @@ def test_job_state_is_frozen() -> None:
 
 def test_job_state_rejects_unknown_schema_version() -> None:
     with pytest.raises(ValidationError):
-        _queued(schema_version=2)
+        _queued(schema_version=1)
 
 
 # --- Jobstate fields --------------------------------------------------------

@@ -444,13 +444,14 @@ def test_lifespan_sets_up_logging_once_across_restarts(
         "get_api_settings",
         lambda: config.ApiSettings(
             redis_url=AnyUrl("redis://localhost:6379/15"),
+            database_url="postgresql://bioparser@127.0.0.1:1/bioparser",  # type: ignore[arg-type]
             artifact_storage_path=str(tmp_path / "artifacts"),
             parse_queue_name="parse_test",
         ),
     )
 
     # The lifespan overwrites these; registering them lets monkeypatch restore them.
-    for name in ("mineru", "vllm", "job_store", "parse_queue", "artifact_storage"):
+    for name in ("mineru", "vllm", "parse_queue", "artifact_storage"):
         monkeypatch.setattr(app.state, name, None, raising=False)
 
     for _ in range(2):  # every TestClient context runs the lifespan again

@@ -35,6 +35,7 @@ def test_main_serves_health_while_the_queue_runs(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("BIOPARSER_DATABASE_URL", "postgresql://localhost/bioparser")
     monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path))
     monkeypatch.setenv("BIOPARSER_EXTRACT_QUEUE_NAME", "extract")
     monkeypatch.setattr(runtime, "build_worker", lambda settings: (_Queue(), _Handler()))

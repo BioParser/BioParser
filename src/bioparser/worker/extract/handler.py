@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from uuid import UUID
 
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from bioparser.artifact_paths import ArtifactPathError, extract_result_path
+from bioparser.db import engine as database
+from bioparser.db import jobs as job_queries
 from bioparser.extract.checks import checked_artifact
 from bioparser.extract.errors import ExtractionFailedError, ExtractorBackendUnavailableError
 from bioparser.extract.models import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
 from bioparser.extract.protocol import Extractor
 from bioparser.extractor_names import EXTRACTOR_VERSIONS
 from bioparser.jobqueue import ExtractJobMessage, JobDeferred
-from bioparser.jobstate import JobState, JobStateStore, JobStatus, StaleJobStateWriteError
+from bioparser.jobstate import JobState, JobStatus, StaleJobStateWriteError
 from bioparser.parser.models import ParserArtifact
 from bioparser.services.vllm.vllm import VLLMService
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
@@ -34,14 +38,14 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
     def __init__(
         self,
         *,
-        jobs: JobStateStore,
+        database_url: str,
         storage: ArtifactStorage,
         extractor_factory: Callable[[str], Extractor],
         max_claims: int,
         vllm: VLLMService | None = None,
     ) -> None:
         super().__init__(
-            jobs=jobs,
+            database_url=database_url,
             owned=_EXTRACT_STAGE,
             claim_status="extracting",
             max_claims=max_claims,
@@ -65,13 +69,20 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         artifact_path = await self._ensure_extraction_artifact(state)
         # `state` is from before the claim. `update` replaces the whole record, so
         # writing `done` from it would drop the claim count just stored.
-        match await fetch_job(self._jobs, state.job_id):
+        async with database.transaction() as connection:
+            await self._record_done(connection, state.job_id, artifact_path)
+
+    async def _record_done(
+        self, connection: AsyncConnection, job_id: UUID, artifact_path: str
+    ) -> None:
+        match await fetch_job(connection, job_id):
             case CorruptJobRecord():
                 LOGGER.error("stored job state is unreadable. Not recording 'done'")
             case JobState() as latest if latest.status in _EXTRACT_STAGE:
                 try:
-                    await self._jobs.update(
-                        latest.with_changes(status="done", extract_result_ref=artifact_path)
+                    await job_queries.update(
+                        connection,
+                        latest.with_changes(status="done", extract_result_ref=artifact_path),
                     )
                 except StaleJobStateWriteError:
                     LOGGER.info(

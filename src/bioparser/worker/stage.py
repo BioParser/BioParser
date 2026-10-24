@@ -15,12 +15,15 @@ from collections.abc import Awaitable
 from typing import Protocol
 from uuid import UUID
 
+from sqlalchemy.ext.asyncio import AsyncConnection
+
+from bioparser.db import engine as database
+from bioparser.db import jobs as job_queries
 from bioparser.jobqueue import JobTimeLimitExceeded
 from bioparser.jobstate import (
     ALLOWED_TRANSITIONS,
     JobNotFoundError,
     JobState,
-    JobStateStore,
     JobStatus,
     SafeError,
     SafeErrorCode,
@@ -62,12 +65,12 @@ class StageJobHandler[T: JobMessage]:
     def __init__(
         self,
         *,
-        jobs: JobStateStore,
+        database_url: str,
         owned: frozenset[JobStatus],
         claim_status: JobStatus,
         max_claims: int,
     ) -> None:
-        self._jobs = jobs
+        self._database_url = database_url
         self._owned = owned
         self._claim_status = claim_status
         self._max_claims = max_claims
@@ -79,7 +82,7 @@ class StageJobHandler[T: JobMessage]:
         if self._loop.is_closed():
             return
         try:
-            self.run_async(self._jobs.aclose())
+            self.run_async(database.aclose())
         finally:
             self._loop.close()
 
@@ -147,49 +150,66 @@ class StageJobHandler[T: JobMessage]:
         """
         raise NotImplementedError
 
+    async def _open(self) -> None:
+        await database.open(self._database_url)
+
     async def _handle(self, job_id: UUID) -> None:
-        match await fetch_job(self._jobs, job_id):
-            case CorruptJobRecord():
-                LOGGER.error(
-                    "stored job state is unreadable. Dropping the message without retry, "
-                    "the job stays in its stored status"
-                )
+        await self._open()
+        async with database.transaction() as connection:
+            match await fetch_job(connection, job_id):
+                case CorruptJobRecord():
+                    LOGGER.error(
+                        "stored job state is unreadable. Dropping the message without retry, "
+                        "the job stays in its stored status"
+                    )
+                    return
+                case MissingJobRecord():
+                    raise JobNotFoundError(
+                        f"no stored state for job {job_id}. Message will be retried"
+                    )
+                case JobState() as state:
+                    pass
+            if state.status not in self._owned:
+                LOGGER.info(f"status is already {state.status!r}. Skipping this delivery")
                 return
-            case MissingJobRecord():
-                raise JobNotFoundError(f"no stored state for job {job_id}. Message will be retried")
-            case JobState() as state:
-                pass
-        if state.status not in self._owned:
-            LOGGER.info(f"status is already {state.status!r}. Skipping this delivery")
-            return
         await self.ready()
-        if not await self._mark_running(state):
-            return
+        async with database.transaction() as connection:
+            if not await self._mark_running(connection, state):
+                return
         try:
             await self.run(state)
         except PermanentJobFailure as exc:
             LOGGER.error(f"stage failed. Marking the job failed ({exc.code})")
             await self._mark_failed(job_id, exc.code)
 
-    async def _mark_running(self, state: JobState) -> bool:
+    async def _mark_running(self, connection: AsyncConnection, state: JobState) -> bool:
         claim = self._claim_status
         if state.claims(claim) >= self._max_claims:
             LOGGER.error(
                 f"{claim} was already claimed {state.claims(claim)} times. "
                 "Marking the job failed (internal_error)"
             )
-            await self._mark_failed(state.job_id, "internal_error")
+            await self._mark_failed(state.job_id, "internal_error", connection)
             return False
         try:
-            await self._jobs.update(state.with_claim(claim))
+            await job_queries.update(connection, state.with_claim(claim))
         except StaleJobStateWriteError:
             LOGGER.info(f"job moved on before this delivery could start {claim}. Skipping")
             return False
         return True
 
-    async def _mark_failed(self, job_id: UUID, code: SafeErrorCode) -> bool:
+    async def _mark_failed(
+        self,
+        job_id: UUID,
+        code: SafeErrorCode,
+        connection: AsyncConnection | None = None,
+    ) -> bool:
         """Record `failed` when this stage still owns the job. True when the write lands."""
-        match await fetch_job(self._jobs, job_id):
+        if connection is None:
+            await self._open()
+            async with database.transaction() as owned:
+                return await self._mark_failed(job_id, code, owned)
+        match await fetch_job(connection, job_id):
             case CorruptJobRecord():
                 LOGGER.error("stored job state is unreadable. Cannot mark it failed")
                 return False
@@ -204,7 +224,9 @@ class StageJobHandler[T: JobMessage]:
             LOGGER.error(f"job is {state.status!r}, which cannot be marked failed.")
             return False
         try:
-            await self._jobs.update(state.with_changes(status="failed", error=SafeError(code=code)))
+            await job_queries.update(
+                connection, state.with_changes(status="failed", error=SafeError(code=code))
+            )
         except StaleJobStateWriteError:
             LOGGER.info(f"job already finished or moved on. Not marking it failed ({code})")
             return False

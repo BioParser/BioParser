@@ -12,8 +12,9 @@ configurable size limit. `POST /extract` is a dev route: it runs a queued job's 
 
 **Current API scope:**
 
-- **Job state is stored in Redis.** The API and parser worker share the typed,
-  versioned `JobState` model through `RedisJobStateStore`.
+- **Job state is stored in Postgres.** The API and both workers share the typed,
+  versioned `JobState` model through `bioparser.db.jobs`. The `Job` class there
+  is the table, and Alembic diffs it when generating a revision. Redis is the queue.
 - **The parser worker is a separate process.** `POST /api/extractions` enqueues a
   `ParseJobMessage`; `python -m bioparser.worker.parse` consumes it and advances
   the job from `queued` through `parsing` to `parsed` or `failed`.
@@ -336,23 +337,23 @@ Holds the FastAPI app, its startup/shutdown lifecycle, and all seven route handl
 **Lifespan:** on startup, first calls `setup_logging(settings.log_level)` (see
 [Logging](#logging)), then builds a `VLLMService` (`bioparser.services.vllm`) from
 `config.get_api_settings()` and probes the vLLM model id once. The probe is best-effort: a failure logs one WARNING
-and startup continues. When configured, the lifecycle also creates a
-`RedisJobStateStore`, a Redis-backed `DramatiqJobQueue`, and a
+and startup continues. When configured, the lifecycle also opens
+the async Postgres pool (`bioparser.db.engine`, asyncpg), a Redis-backed `DramatiqJobQueue`, and a
 `FileSystemArtifactStorage`. For `POST /extract` it creates a `ProcessPoolExecutor` and an
 `asyncio.Semaphore`, both sized `config.extract_concurrency`. On shutdown, the pool stops
-taking work (a running child is not waited for), and network clients and the Redis
-job-state client are closed.
+taking work (a running child is not waited for), and network clients and the Postgres
+pool are closed. Migrations stay on the sync psycopg driver.
 
 - `POST /api/extractions` — runs `_validated_upload()` (the [`uploads.py`](#uploadspy) helpers,
   in order: `validate_content_length`, `require_file`, `validate_content_type`,
   `read_upload`, `validate_pdf_content`), persists the content-addressed PDF,
-  creates a `JobState` through `RedisJobStateStore`, enqueues a `ParseJobMessage`,
+  creates a `JobState` in Postgres, enqueues a `ParseJobMessage`,
   and returns `202`.
   Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it is still
   being received. A missing or understated `Content-Length` is still capped while
   reading the file in chunks.
-- `GET /api/jobs/{job_id}` — reads the typed state from `RedisJobStateStore` and
-  maps it to the public status response. One Redis read; no artifact read.
+- `GET /api/jobs/{job_id}` — reads the typed state from Postgres and
+  maps it to the public status response. One Postgres read; no artifact read.
 - `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`
   when it has no such ref, then return the stored bytes. The read runs in a thread.
 - `POST /extract` — runs the same `_validated_upload()` as `POST /api/extractions`, takes a

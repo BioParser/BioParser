@@ -9,7 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from bioparser.jobstate import CorruptJobStateError, JobState, JobStateStore
+from sqlalchemy.ext.asyncio import AsyncConnection
+
+from bioparser.db import jobs as job_queries
+from bioparser.jobstate import CorruptJobStateError, JobState
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,11 +26,11 @@ class CorruptJobRecord:
 
 
 async def fetch_job(
-    jobs: JobStateStore, job_id: UUID
+    connection: AsyncConnection, job_id: UUID
 ) -> JobState | MissingJobRecord | CorruptJobRecord:
-    """Load one job. The caller decides whether a missing or corrupt record is retried."""
+    """Load one job on the caller's transaction."""
     try:
-        state = await jobs.get(job_id)
+        state = await job_queries.get(connection, job_id)
     except CorruptJobStateError:
         return CorruptJobRecord()
     if state is None:

@@ -91,13 +91,13 @@ class _ProbedVLLM:
 def _app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path | None = None) -> TestClient:
     """TestClient whose lifespan-built clients are dropped again after the test."""
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/15")
+    monkeypatch.setenv("BIOPARSER_DATABASE_URL", "postgresql://bioparser@127.0.0.1:1/bioparser")
     monkeypatch.setenv(
         "BIOPARSER_ARTIFACT_STORAGE_PATH",
         str((tmp_path or Path("/tmp")) / "bioparser-test-artifacts"),
     )
     for name in (
         "vllm",
-        "job_store",
         "parse_queue",
         "artifact_storage",
         "pipeline_pool",
@@ -187,6 +187,7 @@ def test_uvicorn_logs_no_password_when_the_vllm_url_is_malformed(tmp_path: Path)
     env = os.environ | {
         "BIOPARSER_VLLM_BASE_URL": "http://user:canary/rest@127.0.0.1:9/v1",
         "BIOPARSER_REDIS_URL": "redis://localhost:6379/15",
+        "BIOPARSER_DATABASE_URL": "postgresql://bioparser@127.0.0.1:1/bioparser",
         "BIOPARSER_ARTIFACT_STORAGE_PATH": str(tmp_path / "artifacts"),
     }
     result = subprocess.run(

@@ -47,8 +47,9 @@ class ApiSettings(BaseSettings):
     api_key: SecretStr | None = None
     auth_disabled: bool = False
 
-    # Postgres. Optional until job state moves here. The URL can hold the password.
-    # PostgresDsn rejects any other scheme when settings load.
+    # Postgres holds job state. The URL can hold the password.
+    # PostgresDsn rejects any other scheme when settings load. The process
+    # refuses to start while this is unset; tests that never open the pool may omit it.
     database_url: PostgresDsn | None = Field(default=None, repr=False)
 
     @field_validator("log_level", mode="before")
