@@ -2,15 +2,7 @@ import logging
 import re
 from functools import lru_cache
 
-from pydantic import (
-    AnyUrl,
-    Field,
-    PostgresDsn,
-    SecretStr,
-    ValidationError,
-    ValidationInfo,
-    field_validator,
-)
+from pydantic import AnyUrl, Field, PostgresDsn, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from bioparser.logging_config import parse_level
@@ -80,16 +72,25 @@ class ApiSettings(BaseSettings):
             )
         return value
 
-    @field_validator("redis_url", "database_url", "artifact_storage_path", mode="before")
+    @field_validator("redis_url", mode="before")
     @classmethod
-    def empty_setting_is_rejected(cls, value: object, info: ValidationInfo) -> object:
+    def empty_redis_url_is_rejected(cls, value: object) -> object:
         if value == "":
-            name = {
-                "redis_url": "BIOPARSER_REDIS_URL",
-                "database_url": "BIOPARSER_DATABASE_URL",
-                "artifact_storage_path": "BIOPARSER_ARTIFACT_STORAGE_PATH",
-            }[info.field_name or ""]
-            raise ValueError(f"{name} is set but empty")
+            raise ValueError("BIOPARSER_REDIS_URL is set but empty")
+        return value
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def empty_database_url_is_rejected(cls, value: object) -> object:
+        if value == "":
+            raise ValueError("BIOPARSER_DATABASE_URL is set but empty")
+        return value
+
+    @field_validator("artifact_storage_path", mode="before")
+    @classmethod
+    def empty_artifact_storage_path_is_rejected(cls, value: object) -> object:
+        if value == "":
+            raise ValueError("BIOPARSER_ARTIFACT_STORAGE_PATH is set but empty")
         return value
 
 
