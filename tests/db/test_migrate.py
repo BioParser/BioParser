@@ -25,6 +25,8 @@ _COLUMNS = {
     "error_code": ("YES", "text", None),
     "parsing_claims": ("NO", "integer", None),
     "extracting_claims": ("NO", "integer", None),
+    "created_at": ("NO", "timestamp with time zone", None),
+    "updated_at": ("NO", "timestamp with time zone", None),
 }
 _CHECKS = {
     "jobs_status_check",
@@ -57,6 +59,15 @@ def test_main_requires_a_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
         main()
 
 
+def test_main_reports_success(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("BIOPARSER_DATABASE_URL", "postgresql://bioparser@postgres/bioparser")
+    monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: None)
+    main()
+    assert capsys.readouterr().out.strip() == "migrated to head"
+
+
 def test_main_hides_the_password(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
         "BIOPARSER_DATABASE_URL", "postgresql://bioparser:s3cret@postgres:5432/bioparser"
@@ -69,6 +80,21 @@ def test_main_hides_the_password(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit, match="database migration failed") as raised:
         main()
     assert "s3cret" not in str(raised.value)
+
+
+def test_main_hides_a_percent_encoded_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "BIOPARSER_DATABASE_URL", "postgresql://bioparser:s%2Fcret@postgres:5432/bioparser"
+    )
+
+    def fail(url: str) -> None:
+        raise RuntimeError(f"rejected s/cret and s%2Fcret from {url}")
+
+    monkeypatch.setattr("bioparser.db.migrate.upgrade", fail)
+    with pytest.raises(SystemExit, match="database migration failed") as raised:
+        main()
+    assert "s/cret" not in str(raised.value)
+    assert "s%2Fcret" not in str(raised.value)
 
 
 @pytest.mark.integration
@@ -116,6 +142,7 @@ def _drop_database(admin_url: str, name: str) -> None:
 def _assert_jobs_table(admin_url: str, name: str) -> None:
     assert _columns(admin_url, name) == _COLUMNS
     assert _check_names(admin_url, name) == _CHECKS
+    assert _trigger_names(admin_url, name) == {"jobs_set_updated_at"}
 
 
 def _columns(admin_url: str, name: str) -> dict[str, tuple[str, str, int | None]]:
@@ -148,5 +175,19 @@ def _check_names(admin_url: str, name: str) -> set[str]:
             )
         )
         found = {str(constraint) for (constraint,) in rows}
+    engine.dispose()
+    return found
+
+
+def _trigger_names(admin_url: str, name: str) -> set[str]:
+    url = make_url(admin_url).set(database=name)
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT tgname FROM pg_trigger WHERE tgrelid = 'public.jobs'::regclass AND NOT tgisinternal"
+            )
+        )
+        found = {str(trigger) for (trigger,) in rows}
     engine.dispose()
     return found

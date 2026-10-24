@@ -38,6 +38,18 @@ def upgrade() -> None:
         sa.Column("error_code", sa.Text(), nullable=True),
         sa.Column("parsing_claims", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("extracting_claims", sa.Integer(), nullable=False, server_default=sa.text("0")),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
         sa.CheckConstraint(
             f"status IN ({', '.join(repr(status) for status in _STATUSES)})",
             name="jobs_status_check",
@@ -54,8 +66,30 @@ def upgrade() -> None:
         sa.CheckConstraint("parsing_claims >= 0", name="jobs_parsing_claims_check"),
         sa.CheckConstraint("extracting_claims >= 0", name="jobs_extracting_claims_check"),
     )
+    # now() fills both stamps on insert. This keeps updated_at current on later writes.
+    op.execute(
+        """
+        CREATE FUNCTION jobs_set_updated_at() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+            NEW.updated_at = now();
+            RETURN NEW;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER jobs_set_updated_at
+        BEFORE UPDATE ON jobs
+        FOR EACH ROW
+        EXECUTE FUNCTION jobs_set_updated_at()
+        """
+    )
 
 
 def downgrade() -> None:
     """Drop the jobs table."""
+    op.execute("DROP TRIGGER IF EXISTS jobs_set_updated_at ON jobs")
     op.drop_table("jobs")
+    op.execute("DROP FUNCTION IF EXISTS jobs_set_updated_at()")

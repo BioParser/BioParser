@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 from alembic import command
 from alembic.config import Config
@@ -49,6 +50,7 @@ def main() -> None:
         upgrade(url)
     except Exception as exc:  # noqa: BLE001 — any failure text can contain the URL
         sys.exit(_public_failure(url, exc))
+    print("migrated to head")
 
 
 def _public_failure(url: str, exc: Exception) -> str:
@@ -60,5 +62,6 @@ def _public_failure(url: str, exc: Exception) -> str:
         parsed = None
     if parsed is not None and parsed.password:
         message = message.replace(parsed.password, "***")
+        message = message.replace(quote(parsed.password, safe=""), "***")
         message = message.replace(parsed.render_as_string(hide_password=False), "postgresql://***")
     return f"database migration failed: {message}"
