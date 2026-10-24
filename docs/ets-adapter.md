@@ -57,22 +57,22 @@ A trait outside the unit table drops the row with `trait_unknown`. Until a thesa
 
 ### Range and dispersion
 
-The minimum, the maximum, and the dispersion share the trait's unit. ETS gives the minimum and the maximum no unit of their own, and it does not convert `dispersion`. The stored choice of statistic selects the conversion factor.
+The minimum, the maximum, and the dispersion share the trait's unit. ETS gives the minimum and the maximum no unit of their own, and it does not convert `dispersion`. A stored minimum or maximum is converted with the same factor as the trait value. An empty side stays empty.
 
 | Stored choice | ETS column | Conversion |
 |---|---|---|
 | `dispersionKind` `standardDeviation` or `standardError` | `dispersion` | Same factor as the trait value |
 | `dispersionKind` `variance` | `dispersion` | Square of that factor |
-| `boundsKind` `range` or `confidenceInterval` | `measurementValue_min`, `measurementValue_max` | Same factor as the trait value |
+| A stored minimum or maximum | `measurementValue_min`, `measurementValue_max` | Same factor as the trait value |
 
-A dispersion kind and a bounds kind can both be set, since ETS allows a dispersion metric and a range together. `centralKind` has no column and no conversion. It only feeds the `statisticalMethod` phrase.
+`centralKind` has no column and no conversion. It only feeds the `statisticalMethod` phrase.
 
-`statisticalMethod` stays one free-text phrase. A stored phrase is copied. When no phrase is stored, the adapter writes one from `centralKind` and `dispersionKind`. The bounds kind is not part of the phrase, because the minimum and the maximum are their own columns. `mean`, `standardDeviation`, and `range` become `mean and standard deviation`.
+`statisticalMethod` stays one free-text phrase. A stored phrase is copied. When no phrase is stored, the adapter writes one from `centralKind` and, when a dispersion number was stored, from `dispersionKind`. The minimum and the maximum are their own columns, so they are not part of the phrase. `mean` and `standardDeviation` become `mean and standard deviation`.
 
-- An unrecognized `centralKind` warns `not_in_vocabulary:statisticalMethod` only when no phrase is stored and the choices write none. A stored phrase, or a phrase written from `dispersionKind`, adds no warning.
-- A number with no usable kind stays in the printed unit and warns `not_converted:dispersion`, `not_converted:measurementValue_min`, or `not_converted:measurementValue_max`. An absent choice and an unrecognized choice both do this.
-- A kind with no number warns `unspecified:dispersion` and `dispersion` takes the default (see [Defaults](#defaults-and-assigned-columns)). A bounds kind with either side absent warns `unspecified:measurementValue_min` or `unspecified:measurementValue_max`, and that column stays empty. A matched choice still converts the side that is stored.
-- No number and no kind leaves the column at its default with no warning. A single specimen stores none of these choices.
+- An unrecognized `centralKind` warns `not_in_vocabulary:statisticalMethod`. A stored phrase is still copied.
+- A dispersion number with no usable kind stays in the printed unit and warns `not_converted:dispersion`. An absent choice and an unrecognized choice both do this. A factor of 1 means the number is already in grams or millimetres, so it is kept and there is no warning.
+- A dispersion kind with no number warns `unspecified:dispersion` and `dispersion` takes the default (see [Defaults](#defaults-and-assigned-columns)). The generated phrase does not name that dispersion.
+- No dispersion number and no kind leaves `dispersion` at 0, with no warning. A single specimen stores none of these choices.
 - A minimum greater than the maximum, after conversion, drops the row with `bounds_reversed`.
 
 ### Citation and interpretation columns

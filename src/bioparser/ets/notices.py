@@ -77,25 +77,22 @@ class NotInVocabulary(BaseModel):
     ]
 
 
-_SUMMARY_FIELD = Literal["dispersion", "measurementValue_min", "measurementValue_max"]
-
-
 class NotConverted(BaseModel):
-    """A stored number stayed in the printed unit."""
+    """A dispersion number stayed in the printed unit."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["not_converted"] = "not_converted"
-    field: _SUMMARY_FIELD
+    field: Literal["dispersion"] = "dispersion"
 
 
 class Unspecified(BaseModel):
-    """A choice was stored and this column has no number. Dispersion is then 0."""
+    """A dispersion choice was stored and there is no number. The column is then 0."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["unspecified"] = "unspecified"
-    field: _SUMMARY_FIELD
+    field: Literal["dispersion"] = "dispersion"
 
 
 class NotADate(BaseModel):

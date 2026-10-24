@@ -13,7 +13,6 @@ BasisOfRecord = Literal[
 ]
 CentralKind = Literal["mean", "median"]
 DispersionKind = Literal["standardDeviation", "variance", "standardError"]
-BoundsKind = Literal["range", "confidenceInterval"]
 
 _SEX: dict[str, Sex] = {
     "male": "male",
@@ -38,10 +37,6 @@ _DISPERSION_KIND: dict[str, DispersionKind] = {
     "standarddeviation": "standardDeviation",
     "variance": "variance",
     "standarderror": "standardError",
-}
-_BOUNDS_KIND: dict[str, BoundsKind] = {
-    "range": "range",
-    "confidenceinterval": "confidenceInterval",
 }
 
 
@@ -73,8 +68,3 @@ def match_central(text: str) -> CentralKind | None:
 def match_dispersion_kind(text: str) -> DispersionKind | None:
     """How a dispersion number was summarized. Matching ignores case."""
     return _DISPERSION_KIND.get(text.casefold())
-
-
-def match_bounds(text: str) -> BoundsKind | None:
-    """range or confidenceInterval. Matching ignores case."""
-    return _BOUNDS_KIND.get(text.casefold())

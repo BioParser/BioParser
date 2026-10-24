@@ -75,6 +75,13 @@ CitationOrInterpretation = Annotated[Citation | Interpretation, Field(discrimina
 CitationOrCorrection = Annotated[Citation | Correction, Field(discriminator="kind")]
 
 
+def stored_text(value: Citation | Interpretation) -> str:
+    """The column text. An interpretation contributes its value, a citation its text."""
+    if isinstance(value, Interpretation):
+        return value.value
+    return value.text
+
+
 class Observation(BaseModel):
     """One measurement.
 
@@ -83,11 +90,12 @@ class Observation(BaseModel):
     or interpretation has no verbatim sibling. Its check can reject the printed
     text, so it is a citation or an interpretation of one passage. The passage
     fails that check, so it is not a usable column value. ``basisOfRecord``,
-    ``aggregateMeasure``, ``centralKind``, ``dispersionKind``, and ``boundsKind``
+    ``aggregateMeasure``, ``centralKind``, and ``dispersionKind``
     are interpretations only. A paper does not print those tokens. The adapter
-    uses the three statistic choices to convert the dispersion and the bounds,
-    and to write ``statisticalMethod`` when no phrase was stored. One unit
-    covers the measurement.
+    uses ``centralKind`` and ``dispersionKind`` to write ``statisticalMethod``
+    when no phrase was stored, and ``dispersionKind`` to convert the dispersion.
+    The minimum and the maximum use the same factor as the trait value. One
+    unit covers the measurement.
 
     ``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations
     beside a required verbatim citation. The interpretation is omitted when the
@@ -141,7 +149,6 @@ class Observation(BaseModel):
     statisticalMethod: CitationOrCorrection | None = None
     centralKind: Interpretation | None = None
     dispersionKind: Interpretation | None = None
-    boundsKind: Interpretation | None = None
     individualCount: CitationOrInterpretation | None = None
     dispersion: CitationOrInterpretation | None = None
     measurementValueMin: CitationOrInterpretation | None = None
