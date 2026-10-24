@@ -17,7 +17,6 @@ from bioparser.db.engine import DatabaseError, async_database_url
 from bioparser.db.migrate import sync_database_url, upgrade
 from bioparser.jobstate import (
     CorruptJobStateError,
-    JobAlreadyExistsError,
     JobNotFoundError,
     JobState,
     StaleJobStateWriteError,
@@ -91,9 +90,9 @@ async def _update(state: JobState) -> None:
 
 def _in_status(state: JobState, status: str) -> JobState:
     """A view of `state` with `status`, carrying exactly the fields that status requires."""
-    fields: dict[str, object] = {"status": status, "parse_result_ref": None, "error": None}
+    fields: dict[str, object] = {"status": status, "parse_result_ref": None, "error_code": None}
     if status == "failed":
-        fields["error"] = {"code": "parse_failed"}
+        fields["error_code"] = "parse_failed"
     elif status == "done":
         fields["parse_result_ref"] = str(uuid.uuid4())
         fields["extract_result_ref"] = str(uuid.uuid4())
@@ -176,7 +175,7 @@ async def test_create_rejects_duplicate_job_id(database: str) -> None:
     state = _queued(uuid.uuid4())
     await _create(state)
 
-    with pytest.raises(JobAlreadyExistsError):
+    with pytest.raises(DatabaseError, match="Postgres query failed"):
         await _create(state)
 
 
@@ -206,7 +205,7 @@ async def test_update_refuses_to_reopen_a_finished_job(database: str) -> None:
     state = _queued(uuid.uuid4())
     await _create(state)
     stale = state.with_changes(status="parsing")
-    failed = state.with_changes(status="failed", error={"code": "parse_failed"})
+    failed = state.with_changes(status="failed", error_code="parse_failed")
     await _update(failed)
 
     with pytest.raises(StaleJobStateWriteError):
@@ -220,13 +219,13 @@ async def test_update_refuses_to_reopen_a_finished_job(database: str) -> None:
 async def test_update_never_changes_a_terminal_state(database: str) -> None:
     state = _queued(uuid.uuid4())
     await _create(state)
-    failed = state.with_changes(status="failed", error={"code": "parse_failed"})
+    failed = state.with_changes(status="failed", error_code="parse_failed")
     await _update(failed)
 
     with pytest.raises(StaleJobStateWriteError):
         await _update(failed)
     with pytest.raises(StaleJobStateWriteError):
-        await _update(failed.with_changes(error={"code": "timeout"}))
+        await _update(failed.with_changes(error_code="timeout"))
 
     assert await _get(state.job_id) == failed
 
@@ -239,7 +238,7 @@ async def test_update_refuses_failed_over_done(database: str) -> None:
     done = await _advance_to(state, "done")
 
     with pytest.raises(StaleJobStateWriteError):
-        await _update(state.with_changes(status="failed", error={"code": "timeout"}))
+        await _update(state.with_changes(status="failed", error_code="timeout"))
 
     assert await _get(state.job_id) == done
 
@@ -275,7 +274,7 @@ async def test_update_refuses_to_move_parsed_back_to_parsing(database: str) -> N
 async def test_update_refuses_done_over_failed(database: str) -> None:
     state = _queued(uuid.uuid4())
     await _create(state)
-    failed = state.with_changes(status="failed", error={"code": "parse_failed"})
+    failed = state.with_changes(status="failed", error_code="parse_failed")
     await _update(failed)
     done = state.with_changes(
         status="done",
@@ -320,7 +319,7 @@ async def test_corrupt_stored_state_raises(database: str) -> None:
         connection.execute(
             text(
                 "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
-                "VALUES (:job_id, 1, 'queued', 'default', 'default', :pdf_ref)"
+                "VALUES (:job_id, 2, 'queued', 'default', 'default', :pdf_ref)"
             ),
             {"job_id": job_id, "pdf_ref": str(uuid.uuid4())},
         )
@@ -395,6 +394,6 @@ async def test_update_refuses_failed_over_parsed(database: str) -> None:
     parsed = await _advance_to(state, "parsed")
 
     with pytest.raises(StaleJobStateWriteError):
-        await _update(state.with_changes(status="failed", error={"code": "timeout"}))
+        await _update(state.with_changes(status="failed", error_code="timeout"))
 
     assert await _get(state.job_id) == parsed

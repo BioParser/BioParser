@@ -90,7 +90,7 @@ def test_extracting_requires_parse_result_and_rejects_error() -> None:
         _queued(
             status="extracting",
             parse_result_ref=RESULT_REF,
-            error=SafeError(code="extraction_failed"),
+            error_code="extraction_failed",
         )
 
 
@@ -106,16 +106,15 @@ def test_done_requires_both_artifact_refs() -> None:
             status="done",
             parse_result_ref=RESULT_REF,
             extract_result_ref=EXTRACT_REF,
-            error=SafeError(code="extraction_failed"),
+            error_code="extraction_failed",
         )
 
 
 def test_failed_job_round_trips_through_json() -> None:
-    state = _queued(status="failed", error=SafeError(code="parse_failed"))
+    state = _queued(status="failed", error_code="parse_failed")
     restored = JobState.model_validate_json(state.model_dump_json())
     assert restored == state
-    assert restored.error is not None
-    assert restored.error.code == "parse_failed"
+    assert restored.error_code == "parse_failed"
 
 
 # --- status/field invariants --------------------------------------------
@@ -131,7 +130,7 @@ def test_succeeded_job_rejects_error() -> None:
         _queued(
             status="parsed",
             parse_result_ref=RESULT_REF,
-            error=SafeError(code="parse_failed"),
+            error_code="parse_failed",
         )
 
 
@@ -144,7 +143,7 @@ def test_failed_job_may_keep_the_parser_artifact() -> None:
     state = _queued(
         status="failed",
         parse_result_ref=RESULT_REF,
-        error=SafeError(code="extraction_failed"),
+        error_code="extraction_failed",
     )
     assert state.parse_result_ref == RESULT_REF
     assert state.extract_result_ref is None
@@ -156,7 +155,7 @@ def test_failed_job_rejects_extraction_result() -> None:
             status="failed",
             parse_result_ref=RESULT_REF,
             extract_result_ref=EXTRACT_REF,
-            error=SafeError(code="extraction_failed"),
+            error_code="extraction_failed",
         )
 
 
@@ -169,7 +168,7 @@ def test_non_terminal_job_rejects_parse_result(status: str) -> None:
 @pytest.mark.parametrize("status", ["queued", "parsing"])
 def test_non_terminal_job_rejects_error(status: str) -> None:
     with pytest.raises(ValidationError):
-        _queued(status=status, error=SafeError(code="parse_failed"))
+        _queued(status=status, error_code="parse_failed")
 
 
 def test_with_changes_returns_new_validated_instance() -> None:
@@ -199,7 +198,7 @@ def test_job_state_is_frozen() -> None:
 
 def test_job_state_rejects_unknown_schema_version() -> None:
     with pytest.raises(ValidationError):
-        _queued(schema_version=1)
+        _queued(schema_version=2)
 
 
 # --- Jobstate fields --------------------------------------------------------

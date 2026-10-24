@@ -1,13 +1,9 @@
 class JobStateError(RuntimeError):
-    """A job read or write failed."""
+    """A pipeline rule rejected a job read or write."""
 
 
 class JobNotFoundError(JobStateError):
     """No state exists for the given job ID."""
-
-
-class JobAlreadyExistsError(JobStateError):
-    """A job with this ID already has state."""
 
 
 class CorruptJobStateError(JobStateError):

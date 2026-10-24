@@ -36,7 +36,7 @@ SafeErrorCode = Literal[
 # Schema version for the JobState contract. Bump the version up when the shape of JobState
 # changes in a way that is not backward compatible, so a stored record from
 # an older version is recognized as such rather than silently misread.
-JOB_STATE_SCHEMA_VERSION: Literal[2] = 2
+JOB_STATE_SCHEMA_VERSION: Literal[1] = 1
 
 
 class SafeError(BaseModel):
@@ -51,7 +51,7 @@ class JobState(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    schema_version: Literal[2] = JOB_STATE_SCHEMA_VERSION
+    schema_version: Literal[1] = JOB_STATE_SCHEMA_VERSION
     job_id: UUID4
     status: JobStatus
     parser: str = Field(min_length=1)
@@ -59,7 +59,7 @@ class JobState(BaseModel):
     pdf_ref: ArtifactPath
     parse_result_ref: ArtifactPath | None = None
     extract_result_ref: ArtifactPath | None = None
-    error: SafeError | None = None
+    error_code: SafeErrorCode | None = None
     parsing_claims: int = Field(default=0, ge=0)
     extracting_claims: int = Field(default=0, ge=0)
 
@@ -109,7 +109,7 @@ class JobState(BaseModel):
     def _fields_match_status(self) -> Self:
         has_parse = self.parse_result_ref is not None
         has_extract = self.extract_result_ref is not None
-        has_error = self.error is not None
+        has_error = self.error_code is not None
         # `failed` may keep the parser artifact. Extraction fails after that artifact exists,
         # and dropping the reference would hide a successful parse. The extraction artifact
         # is only recorded on `done`.
@@ -142,5 +142,5 @@ class JobState(BaseModel):
         raise ValueError(
             f"status={self.status!r} requires {required}, "
             f"got parse_result_ref={self.parse_result_ref!r}, "
-            f"extract_result_ref={self.extract_result_ref!r}, error={self.error!r}"
+            f"extract_result_ref={self.extract_result_ref!r}, error_code={self.error_code!r}"
         )

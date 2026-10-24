@@ -38,7 +38,7 @@ from bioparser.jobqueue import (
     JobDeferred,
     JobTimeLimitExceeded,
 )
-from bioparser.jobstate import JobNotFoundError, JobState, SafeError, StaleJobStateWriteError
+from bioparser.jobstate import JobNotFoundError, JobState, StaleJobStateWriteError
 from bioparser.jobstate.models import ALLOWED_TRANSITIONS
 from bioparser.parser.models import (
     PARSER_ARTIFACT_SCHEMA_VERSION,
@@ -375,7 +375,7 @@ def test_schema_failure_is_permanent() -> None:
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="extraction_failed")
+    assert jobs.state.error_code == "extraction_failed"
     assert jobs.state.parse_result_ref == PARSE_REF
 
 
@@ -392,7 +392,7 @@ def test_truncated_output_is_permanent() -> None:
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="extraction_failed")
+    assert jobs.state.error_code == "extraction_failed"
     assert jobs.state.claims("extracting") == 1
 
 
@@ -411,7 +411,7 @@ def test_a_rejected_request_is_permanent() -> None:
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="extraction_failed")
+    assert jobs.state.error_code == "extraction_failed"
     assert jobs.state.claims("extracting") == 1
 
 
@@ -510,7 +510,7 @@ def test_a_missing_parser_artifact_fails_without_retry() -> None:
     handler.close()
 
     assert jobs.state is not None
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_an_invalid_parser_artifact_fails_without_calling_the_model() -> None:
@@ -530,7 +530,7 @@ def test_an_invalid_parser_artifact_fails_without_calling_the_model() -> None:
     assert storage.retrieve(PARSE_REF) == invalid
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_a_job_still_parsing_is_left_alone() -> None:
@@ -561,7 +561,7 @@ def test_deferral_expiry_marks_an_extracting_job_failed() -> None:
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
     assert jobs.state.parse_result_ref == PARSE_REF
 
 
@@ -573,7 +573,7 @@ def test_on_failed_records_timeout_and_keeps_the_parser_artifact() -> None:
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="timeout")
+    assert jobs.state.error_code == "timeout"
     assert jobs.state.parse_result_ref == PARSE_REF
 
 
@@ -615,7 +615,7 @@ def test_an_invalid_stored_extraction_fails_without_calling_the_model() -> None:
     assert storage.retrieve(RESULT_PATH) == invalid
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_a_parse_path_that_cannot_take_an_extraction_is_internal_error() -> None:
@@ -635,7 +635,7 @@ def test_a_parse_path_that_cannot_take_an_extraction_is_internal_error() -> None
     handler.close()
 
     assert jobs.state is not None
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
     assert storage.stores == 0
 
 
@@ -749,7 +749,7 @@ def _failed_with(returned: ExtractionArtifact) -> MemoryStorage:
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="extraction_failed")
+    assert jobs.state.error_code == "extraction_failed"
     assert RESULT_PATH not in storage.payloads
     return storage
 
@@ -837,7 +837,7 @@ def test_an_extractor_with_no_version_is_internal_error(monkeypatch: pytest.Monk
     assert storage.stores == 0
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_an_extractor_that_cannot_run_is_internal_error() -> None:
@@ -860,7 +860,7 @@ def test_an_extractor_that_cannot_run_is_internal_error() -> None:
     assert storage.stores == 0
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_an_unknown_extractor_is_internal_error() -> None:
@@ -882,7 +882,7 @@ def test_an_unknown_extractor_is_internal_error() -> None:
     assert storage.stores == 0
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_malformed_message_cannot_fail_a_parsed_job() -> None:
@@ -894,4 +894,4 @@ def test_malformed_message_cannot_fail_a_parsed_job() -> None:
 
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
-    assert jobs.state.error is None
+    assert jobs.state.error_code is None

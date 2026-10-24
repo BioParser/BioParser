@@ -30,7 +30,6 @@ from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobstate import (
     CorruptJobStateError,
     JobState,
-    JobStateError,
     SafeError,
 )
 from bioparser.logging_config import error_fields, redact_url, setup_logging
@@ -289,8 +288,13 @@ def _job_state_response(state: JobState) -> JobStatusResponse:
         case "parsed" | "done":
             return SucceededJobResponse(job_id=state.job_id, status=state.status)
         case "failed":
-            assert state.error is not None  # JobState._fields_match_status
-            return FailedJobResponse(job_id=state.job_id, status="failed", error=state.error)
+            if state.error_code is None:
+                raise ValueError("Failed job is missing error_code")
+            return FailedJobResponse(
+                job_id=state.job_id,
+                status="failed",
+                error=SafeError(code=state.error_code),
+            )
 
 
 def _parse_job_id(job_id: str) -> UUID:
@@ -311,7 +315,7 @@ async def _read_job(request: Request, job_id: UUID) -> JobState:
     except CorruptJobStateError as exc:
         LOGGER.error("job state unreadable", extra={"job_id": str(job_id), **error_fields(exc)})
         raise http_error(500, JOB_STATE_UNREADABLE) from exc
-    except (JobStateError, DatabaseError) as exc:
+    except DatabaseError as exc:
         LOGGER.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
         raise http_error(503, REDIS_UNAVAILABLE) from exc
     if record is None:
@@ -427,10 +431,10 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
                     connection,
                     job_state.with_changes(
                         status="failed",
-                        error=SafeError(code="internal_error"),
+                        error_code="internal_error",
                     ),
                 )
-    except (JobStateError, DatabaseError) as exc:
+    except DatabaseError as exc:
         if enqueue_error is None:
             LOGGER.error("job state create failed", extra=fields | error_fields(exc))
             raise http_error(503, REDIS_UNAVAILABLE) from exc
@@ -468,7 +472,7 @@ async def job_status(request: Request, job_id: str) -> JobStatusResponse:
         LOGGER.error("job state unreadable", extra={"job_id": str(job_id), **error_fields(exc)})
         raise http_error(500, JOB_STATE_UNREADABLE) from exc
 
-    except (JobStateError, DatabaseError) as exc:
+    except DatabaseError as exc:
         LOGGER.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
         raise http_error(503, REDIS_UNAVAILABLE) from exc
 

@@ -14,7 +14,7 @@ from typing import Any
 import httpx2
 
 from bioparser.jobqueue import JobQueueError, ParseJobMessage
-from bioparser.jobstate import JobState, JobStateError
+from bioparser.jobstate import JobState
 from bioparser.parser.models import (
     BlockKind,
     BlockRole,
@@ -251,8 +251,8 @@ class StubJobStateStore:
     def __init__(self, events: list[str]) -> None:
         self.states: dict[object, JobState] = {}
         self.events = events
-        self.create_error: JobStateError | None = None
-        self.get_error: JobStateError | None = None
+        self.create_error: Exception | None = None
+        self.get_error: Exception | None = None
 
     async def create(self, connection: object, state: JobState) -> None:
         self.events.append("job_state.create")

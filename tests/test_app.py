@@ -16,12 +16,12 @@ from bioparser.api.app import app as api_app
 from bioparser.api.errors import ErrorResponse
 from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
+from bioparser.db.engine import DatabaseError
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.jobqueue import JobQueueError
 from bioparser.jobstate import (
     CorruptJobStateError,
     JobState,
-    JobStateError,
     JobStatus,
     SafeError,
 )
@@ -578,9 +578,7 @@ def test_failed_job_status(
         extractor="default",
         status="failed",
         pdf_ref="art-pdf-test",
-        error=SafeError(
-            code="parse_failed",
-        ),
+        error_code="parse_failed",
     )
 
     job_store.states[str(job_id)] = state
@@ -601,7 +599,7 @@ def test_job_status_returns_503_when_redis_unavailable(
     stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
 ) -> None:
     job_store = stub_api_adapters[1]
-    job_store.get_error = JobStateError("Redis unavailable")
+    job_store.get_error = DatabaseError("Postgres query failed: OperationalError")
 
     response = client.get(f"/api/jobs/{uuid4()}")
 
@@ -634,7 +632,7 @@ def test_submit_returns_503_when_redis_unavailable(
     stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
 ) -> None:
     artifact_storage, job_store, parse_queue, events = stub_api_adapters
-    job_store.create_error = JobStateError("Redis unavailable")
+    job_store.create_error = DatabaseError("Postgres query failed: OperationalError")
 
     response = client.post(
         "/api/extractions",
@@ -688,7 +686,7 @@ def test_submit_returns_503_when_queue_unavailable(
     assert len(job_store.states) == 2
     failed_state = next(state for state in job_store.states.values() if state.status == "failed")
     assert failed_state.status == "failed"
-    assert failed_state.error == SafeError(code="internal_error")
+    assert failed_state.error_code == "internal_error"
     assert events == [
         "artifact.store",
         "job_state.create",

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import NoReturn, cast, get_args
+from typing import cast, get_args
 from uuid import UUID
 
 from pydantic import ValidationError
 from sqlalchemy import CheckConstraint, DateTime, String, Text, Uuid, insert, select, text
 from sqlalchemy import update as sql_update
-from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,9 +17,7 @@ from bioparser.artifact_paths import ARTIFACT_PATH_MAX_LENGTH
 from bioparser.db.base import Base
 from bioparser.jobstate.errors import (
     CorruptJobStateError,
-    JobAlreadyExistsError,
     JobNotFoundError,
-    JobStateError,
     StaleJobStateWriteError,
 )
 from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobState, JobStatus
@@ -75,70 +72,48 @@ class Job(Base):
     )
 
 
-def _raise_driver(exc: DBAPIError | OSError | TimeoutError) -> NoReturn:
-    """Raise a job-state error whose message names the type and not the URL."""
-    if isinstance(exc, IntegrityError) and getattr(exc.orig, "sqlstate", None) == "23505":
-        raise JobAlreadyExistsError("a job with this id already exists") from exc
-    raise JobStateError(f"Postgres query failed: {type(exc).__name__}") from exc
+# Names shared by JobState and the jobs table. created_at and updated_at stay out:
+# the database fills them.
+_COLUMNS = (
+    "job_id",
+    "schema_version",
+    "status",
+    "parser",
+    "extractor",
+    "pdf_ref",
+    "parse_result_ref",
+    "extract_result_ref",
+    "error_code",
+    "parsing_claims",
+    "extracting_claims",
+)
 
 
-def _values(state: JobState) -> dict[str, object]:
+def _job_state_to_columns(state: JobState) -> dict[str, object]:
     """Column values for one job. The database sets created_at and updated_at."""
-    return {
-        "schema_version": state.schema_version,
-        "status": state.status,
-        "parser": state.parser,
-        "extractor": state.extractor,
-        "pdf_ref": state.pdf_ref,
-        "parse_result_ref": state.parse_result_ref,
-        "extract_result_ref": state.extract_result_ref,
-        "error_code": None if state.error is None else state.error.code,
-        "parsing_claims": state.parsing_claims,
-        "extracting_claims": state.extracting_claims,
-    }
+    return {name: getattr(state, name) for name in _COLUMNS}
 
 
-def _state(row: Mapping[str, object]) -> JobState:
-    error_code = row["error_code"]
-    return JobState.model_validate(
-        {
-            "schema_version": row["schema_version"],
-            "job_id": row["job_id"],
-            "status": row["status"],
-            "parser": row["parser"],
-            "extractor": row["extractor"],
-            "pdf_ref": row["pdf_ref"],
-            "parse_result_ref": row["parse_result_ref"],
-            "extract_result_ref": row["extract_result_ref"],
-            "error": None if error_code is None else {"code": error_code},
-            "parsing_claims": row["parsing_claims"],
-            "extracting_claims": row["extracting_claims"],
-        }
-    )
+def _row_to_job_state(row: Mapping[str, object]) -> JobState:
+    return JobState.model_validate({name: row[name] for name in _COLUMNS})
 
 
 async def create(connection: AsyncConnection, state: JobState) -> None:
-    """Insert one job. A duplicate job_id raises JobAlreadyExistsError."""
-    try:
-        await connection.execute(insert(Job).values(job_id=state.job_id, **_values(state)))
-    except (DBAPIError, OSError, TimeoutError) as exc:
-        _raise_driver(exc)
+    """Insert one job."""
+    await connection.execute(insert(Job).values(**_job_state_to_columns(state)))
 
 
 async def get(connection: AsyncConnection, job_id: UUID) -> JobState | None:
     """Load one job, or None when the row is missing. An invalid row is corrupt."""
-    try:
-        row = (
-            (await connection.execute(select(Job.__table__).where(Job.job_id == job_id)))
-            .mappings()
-            .one_or_none()
-        )
-    except (DBAPIError, OSError, TimeoutError) as exc:
-        _raise_driver(exc)
+    row = (
+        (await connection.execute(select(Job.__table__).where(Job.job_id == job_id)))
+        .mappings()
+        .one_or_none()
+    )
     if row is None:
         return None
     try:
-        return _state(cast(Mapping[str, object], row))
+        return _row_to_job_state(cast(Mapping[str, object], row))
     except ValidationError as exc:
         raise CorruptJobStateError(str(job_id)) from exc
 
@@ -160,16 +135,11 @@ async def update(connection: AsyncConnection, state: JobState) -> None:
     matching the old Redis script. The statement does not set updated_at; the
     row trigger does.
     """
-    try:
-        stored = await _locked_status(connection, state.job_id)
-        if stored in ALLOWED_TRANSITIONS:
-            allowed = ALLOWED_TRANSITIONS[cast(JobStatus, stored)]
-            if state.status not in allowed:
-                raise StaleJobStateWriteError(state.status)
-        await connection.execute(
-            sql_update(Job).where(Job.job_id == state.job_id).values(**_values(state))
-        )
-    except (JobNotFoundError, StaleJobStateWriteError):
-        raise
-    except (DBAPIError, OSError, TimeoutError) as exc:
-        _raise_driver(exc)
+    stored = await _locked_status(connection, state.job_id)
+    if stored in ALLOWED_TRANSITIONS:
+        allowed = ALLOWED_TRANSITIONS[cast(JobStatus, stored)]
+        if state.status not in allowed:
+            raise StaleJobStateWriteError(state.status)
+    await connection.execute(
+        sql_update(Job).where(Job.job_id == state.job_id).values(**_job_state_to_columns(state))
+    )

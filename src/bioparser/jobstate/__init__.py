@@ -1,6 +1,5 @@
 from .errors import (
     CorruptJobStateError,
-    JobAlreadyExistsError,
     JobNotFoundError,
     JobStateError,
     StaleJobStateWriteError,
@@ -18,7 +17,6 @@ __all__ = [
     "ALLOWED_TRANSITIONS",
     "JOB_STATE_SCHEMA_VERSION",
     "CorruptJobStateError",
-    "JobAlreadyExistsError",
     "JobNotFoundError",
     "JobState",
     "JobStateError",

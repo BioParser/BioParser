@@ -68,7 +68,8 @@ async def transaction() -> AsyncIterator[AsyncConnection]:
     """Borrow one pooled connection. A clean exit commits; an exception rolls back.
 
     Query functions take this connection, so a caller can run several of them
-    in one transaction and pass the same connection through.
+    in one transaction and pass the same connection through. A driver error
+    becomes DatabaseError. The message names the driver type and not the URL.
     """
     try:
         async with require().begin() as connection:

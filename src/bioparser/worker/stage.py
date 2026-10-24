@@ -25,7 +25,6 @@ from bioparser.jobstate import (
     JobNotFoundError,
     JobState,
     JobStatus,
-    SafeError,
     SafeErrorCode,
     StaleJobStateWriteError,
 )
@@ -225,7 +224,7 @@ class StageJobHandler[T: JobMessage]:
             return False
         try:
             await job_queries.update(
-                connection, state.with_changes(status="failed", error=SafeError(code=code))
+                connection, state.with_changes(status="failed", error_code=code)
             )
         except StaleJobStateWriteError:
             LOGGER.info(f"job already finished or moved on. Not marking it failed ({code})")

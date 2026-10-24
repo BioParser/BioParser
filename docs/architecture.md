@@ -88,9 +88,9 @@ archive. PDFs and versioned outputs live behind an artifact storage interface:
   is allowed from the stored one. `created_at` and `updated_at` are set by the
   database. The update trigger sets `updated_at`.
 - **Retention:** a row stays until something deletes it.
-- **Timeouts:** borrowing or committing a connection reports `DatabaseError`.
-  A job query that fails reports `JobStateError`. The message names the driver
-  error type and not the URL.
+- **Timeouts:** a driver failure, including one raised by a statement inside
+  the transaction, reports `DatabaseError`. The message names the driver error
+  type and not the URL.
 
 ### Workers
 

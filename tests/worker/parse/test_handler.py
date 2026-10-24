@@ -25,7 +25,7 @@ from bioparser.jobstate.errors import (
     JobNotFoundError,
     StaleJobStateWriteError,
 )
-from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobState, SafeError
+from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobState
 from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
 from bioparser.parser.errors import (
@@ -330,7 +330,7 @@ def test_claim_is_counted_and_a_further_start_stops_at_the_cap() -> None:
 
     assert len(parser.paths) == 1
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
     assert jobs.state.claims("parsing") == 1
 
 
@@ -372,7 +372,7 @@ def test_parser_comes_from_job_state() -> None:
 
     assert seen == ["mineru"]
     assert jobs.state is not None
-    assert jobs.state.error == SafeError(code="parse_failed")
+    assert jobs.state.error_code == "parse_failed"
 
 
 def test_malformed_message_fails_the_job() -> None:
@@ -381,7 +381,7 @@ def test_malformed_message_fails_the_job() -> None:
     handler.on_malformed({"job_id": str(JOB_ID), "extra": "nope"})
     handler.close()
     assert jobs.state is not None
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_unsupported_document_is_invalid_pdf() -> None:
@@ -393,7 +393,7 @@ def test_unsupported_document_is_invalid_pdf() -> None:
     handler.close()
 
     assert jobs.state is not None
-    assert jobs.state.error == SafeError(code="invalid_pdf")
+    assert jobs.state.error_code == "invalid_pdf"
 
 
 def test_missing_input_fails_without_retry() -> None:
@@ -406,7 +406,7 @@ def test_missing_input_fails_without_retry() -> None:
     handler.close()
 
     assert jobs.state is not None
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
     assert parser.paths == []
 
 
@@ -420,7 +420,7 @@ def test_parser_without_a_version_is_internal_error(monkeypatch: pytest.MonkeyPa
 
     assert parser.paths == []
     assert jobs.state is not None
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_unavailable_parser_fails_without_retry() -> None:
@@ -433,7 +433,7 @@ def test_unavailable_parser_fails_without_retry() -> None:
     assert parser.paths == []
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="parse_failed")
+    assert jobs.state.error_code == "parse_failed"
 
 
 def test_a_mineru_failure_is_retried_not_failed_as_invalid_pdf() -> None:
@@ -474,7 +474,7 @@ def test_parser_timeout_fails_with_timeout_without_retry(error: BaseException) -
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="timeout")
+    assert jobs.state.error_code == "timeout"
 
 
 def test_invalid_existing_artifact_fails_the_job() -> None:
@@ -492,7 +492,7 @@ def test_invalid_existing_artifact_fails_the_job() -> None:
     assert storage.retrieve(RESULT_PATH) == invalid
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_different_valid_artifact_is_reused_without_parsing() -> None:
@@ -561,7 +561,7 @@ def test_on_failed_records_timeout(capsys: pytest.CaptureFixture[str]) -> None:
     handler.on_failed(_message(), JobTimeLimitExceeded())
     handler.close()
     assert jobs.state is not None
-    assert jobs.state.error == SafeError(code="timeout")
+    assert jobs.state.error_code == "timeout"
     records = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
     assert any("Marked the job failed (timeout)" in r["msg"] for r in records)
 
@@ -681,7 +681,7 @@ def test_exhausted_wake_retries_try_once_more_when_the_job_is_parsed() -> None:
 
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
-    assert jobs.state.error is None
+    assert jobs.state.error_code is None
     # Two deliveries, then on_failed sends the wake-up that those deliveries could not.
     assert calls == [JOB_ID, JOB_ID, JOB_ID]
 
@@ -708,7 +708,7 @@ def test_a_failing_parse_is_retried_then_fails_the_job() -> None:
     assert len(parser.paths) == 3
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_claim_cap_stops_retries_that_the_queue_would_still_allow() -> None:
@@ -721,7 +721,7 @@ def test_claim_cap_stops_retries_that_the_queue_would_still_allow() -> None:
     assert len(parser.paths) == 2
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_queue_time_limit_fails_the_job_as_timeout_without_retry() -> None:
@@ -744,7 +744,7 @@ def test_queue_time_limit_fails_the_job_as_timeout_without_retry() -> None:
     assert _HangingParser.calls == 1
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="timeout")
+    assert jobs.state.error_code == "timeout"
 
 
 def test_second_job_with_the_same_pdf_reuses_the_artifact() -> None:
