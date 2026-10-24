@@ -165,24 +165,24 @@ class StageJobHandler[T: JobMessage]:
                 LOGGER.info(f"status is already {state.status!r}. Skipping this delivery")
                 return
         await self.ready()
-        async with database.transaction() as connection:
-            if not await self._mark_running(connection, state):
-                return
+        if not await self._mark_running(state):
+            return
         try:
             await self.run(state)
         except PermanentJobFailure as exc:
             LOGGER.error(f"stage failed. Marking the job failed ({exc.code})")
             await self._mark_failed(job_id, exc.code)
 
-    async def _mark_running(self, connection: AsyncConnection, state: JobState) -> bool:
+    async def _mark_running(self, state: JobState) -> bool:
         claim = self._claim_status
-        outcome = await job_queries.claim(
-            connection,
-            state.job_id,
-            status=claim,
-            from_statuses=self._owned,
-            max_claims=self._max_claims,
-        )
+        async with database.transaction() as connection:
+            outcome = await job_queries.claim(
+                connection,
+                state.job_id,
+                status=claim,
+                from_statuses=self._owned,
+                max_claims=self._max_claims,
+            )
         if outcome == "claimed":
             return True
         if outcome == "exhausted":
