@@ -68,21 +68,9 @@ class Job(Base):
     )
 
 
-# Names shared by JobState and the jobs table. created_at and updated_at stay out:
-# the database fills them.
-_COLUMNS = (
-    "job_id",
-    "schema_version",
-    "status",
-    "parser",
-    "extractor",
-    "pdf_ref",
-    "parse_result_ref",
-    "extract_result_ref",
-    "error_code",
-    "parsing_claims",
-    "extracting_claims",
-)
+# Every JobState field is a column of the jobs table. created_at and updated_at
+# are columns only: the database fills them. A test checks the two stay in step.
+_COLUMNS = tuple(JobState.model_fields)
 
 
 def _job_state_to_columns(state: JobState) -> dict[str, object]:

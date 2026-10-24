@@ -6,16 +6,19 @@ import os
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
+from typing import get_args
 
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from bioparser.db import engine as db_engine
 from bioparser.db import jobs as job_queries
 from bioparser.db.engine import DatabaseError, async_database_url
 from bioparser.db.migrate import sync_database_url, upgrade
-from bioparser.jobstate import CorruptJobStateError, JobState
+from bioparser.jobstate import CorruptJobStateError, JobState, JobStatus
 
 
 def test_async_url_selects_asyncpg() -> None:
@@ -476,3 +479,70 @@ async def test_unreachable_postgres_raises_database_error() -> None:
         assert "s3cret" not in str(raised.value)
     finally:
         await db_engine.aclose()
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_pool_exhaustion_raises_database_error(
+    database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    small = create_async_engine(
+        db_engine.async_database_url(database), pool_size=1, max_overflow=0, pool_timeout=0.2
+    )
+    monkeypatch.setattr(db_engine, "_engine", small)
+    try:
+        async with db_engine.transaction():
+            with pytest.raises(DatabaseError, match="TimeoutError"):
+                await _get(uuid.uuid4())
+    finally:
+        await small.dispose()
+
+
+@pytest.mark.anyio
+async def test_transaction_passes_through_an_error_from_the_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Connection:
+        closed = False
+
+        async def commit(self) -> None:
+            raise AssertionError("must not commit after an error")
+
+        async def close(self) -> None:
+            self.closed = True
+
+    connection = _Connection()
+
+    class _Engine:
+        async def connect(self) -> _Connection:
+            return connection
+
+    monkeypatch.setattr(db_engine, "_engine", _Engine())
+    with pytest.raises(OSError, match="not the database"):
+        async with db_engine.transaction():
+            raise OSError("not the database")
+    assert connection.closed
+
+
+def test_job_columns_match_the_job_state_fields() -> None:
+    columns = {column.name for column in job_queries.Job.__table__.columns}
+    assert columns - {"created_at", "updated_at"} == set(JobState.model_fields)
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_migrated_status_check_accepts_exactly_the_job_statuses(database: str) -> None:
+    """The migration lists the statuses by hand. This fails when the code adds one."""
+    insert = text(
+        "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
+        "VALUES (:job_id, 1, :status, 'default', 'default', 'ref')"
+    )
+    engine = create_engine(sync_database_url(database))
+    try:
+        for status in get_args(JobStatus):
+            with engine.begin() as connection:
+                connection.execute(insert, {"job_id": uuid.uuid4(), "status": status})
+        with pytest.raises(IntegrityError), engine.begin() as connection:
+            connection.execute(insert, {"job_id": uuid.uuid4(), "status": "not_a_status"})
+    finally:
+        engine.dispose()

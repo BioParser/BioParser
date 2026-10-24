@@ -71,7 +71,11 @@ class StageJobHandler[T: JobMessage]:
         self._claim_status = claim_status
         self._max_claims = max_claims
         self._loop = asyncio.new_event_loop()
-        # One loop serves every callback, so calls from different threads take turns.
+        # One thread per worker process is the supported setup (`worker_threads=1` in each
+        # runtime). The loop and the process-wide pool in `bioparser.db.engine` belong to
+        # that one thread. This lock keeps extra threads correct, not fast: they would
+        # queue behind a running stage, including its blocking parse or extract work.
+        # Scale with more worker replicas, not threads.
         self._loop_lock = threading.Lock()
 
     def close(self) -> None:
