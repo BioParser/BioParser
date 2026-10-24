@@ -2,7 +2,7 @@ import logging
 import re
 from functools import lru_cache
 
-from pydantic import AnyUrl, Field, SecretStr, ValidationError, field_validator
+from pydantic import AnyUrl, Field, PostgresDsn, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from bioparser.logging_config import parse_level
@@ -48,7 +48,8 @@ class ApiSettings(BaseSettings):
     auth_disabled: bool = False
 
     # Postgres. Optional until job state moves here. The URL can hold the password.
-    database_url: AnyUrl | None = Field(default=None, repr=False)
+    # PostgresDsn rejects any other scheme when settings load.
+    database_url: PostgresDsn | None = Field(default=None, repr=False)
 
     @field_validator("log_level", mode="before")
     @classmethod

@@ -175,6 +175,16 @@ def test_ready_postgres_timeout_is_bounded(
     assert password not in response.text
 
 
+def test_ready_non_postgres_database_url_is_config(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    monkeypatch.setenv("BIOPARSER_DATABASE_URL", "redis://:canary-db-pass@localhost:6379/0")
+    response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json()["detail"]["unavailable"] == ["config"]
+    assert "canary-db-pass" not in response.text
+
+
 def test_ready_invalid_database_url_hides_the_password(
     monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:

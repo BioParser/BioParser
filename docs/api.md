@@ -448,7 +448,7 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 | `extraction_max_tokens` | `1024` | max generation tokens passed to vLLM extraction |
 | `redis_url` | `None` | required at API startup; Redis URL for shared job state and the parse queue |
 | `redis_timeout_seconds` | `5.0` | Redis connect and operation timeout |
-| `database_url` | `None` | optional Postgres URL; when set, `/ready` TCP-connects to it. Not used for job state yet |
+| `database_url` | `None` | optional `postgresql` URL (`PostgresDsn`); when set, `/ready` TCP-connects to it. Not used for job state yet |
 | `parse_queue_name` | `parse` | Redis/Dramatiq queue name shared with the parser worker |
 | `api_key` | `None` | Shared API key (`BIOPARSER_API_KEY`). Required when `auth_disabled` is false. Redacted in logs and errors (`SecretStr`). |
 | `auth_disabled` | `False` | Disables authentication checks for local development (`BIOPARSER_AUTH_DISABLED`). Emits a warning at startup if true. |
