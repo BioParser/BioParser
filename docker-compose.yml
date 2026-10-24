@@ -47,6 +47,7 @@ services:
     build:
       context: .
       dockerfile: docker/api.Dockerfile
+    image: bioparser-api
     depends_on:
       mineru:
         condition: service_healthy
@@ -56,6 +57,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       BIOPARSER_VLLM_BASE_URL: http://vllm:8000/v1
       BIOPARSER_MINERU_BASE_URL: http://mineru:8000
@@ -179,6 +182,25 @@ services:
     user: "999:999"
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: bioparser-api
+    command: ["bioparser-migrate"]
+    # The API image health check calls the HTTP server. This process exits.
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BIOPARSER_DATABASE_URL: postgresql://bioparser:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/bioparser
+    restart: "no"
+    mem_limit: 512m
+    memswap_limit: 512m
+    networks: [backend]
 
 volumes:
   redis-data:

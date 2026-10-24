@@ -47,9 +47,11 @@ paths (`pdf_ref`, `parse_result_ref`), which workers and the API read from it. N
 holds PDF bytes or model results; those stay in artifact storage. This keeps Redis small
 and lets storage change on its own.
 
-Compose also runs Postgres, and the API reads `BIOPARSER_DATABASE_URL`. The workers
-do not, until they store job state. Job state still lives in Redis. The queue stays
-there too. Postgres is only the database service, with no tables yet.
+Compose also runs Postgres, and the API reads `BIOPARSER_DATABASE_URL`. A one-shot
+`migrate` container uses the API image to create the `jobs` table, then exits. The
+API starts after that exit and does not migrate itself. Nothing reads or writes the
+table yet. The workers do not connect to Postgres until they store job state. Job
+state still lives in Redis. The queue stays there too.
 
 ## Components
 
