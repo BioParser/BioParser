@@ -12,17 +12,28 @@ from sqlalchemy.engine import make_url
 
 from bioparser.db.migrate import alembic_config, main, sync_database_url
 
+# nullable, data type, maximum length
 _COLUMNS = {
-    "job_id": "NO",
-    "schema_version": "NO",
-    "status": "NO",
-    "parser": "NO",
-    "extractor": "NO",
-    "pdf_ref": "NO",
-    "parse_result_ref": "YES",
-    "extract_result_ref": "YES",
-    "error_code": "YES",
-    "claim_counts": "NO",
+    "job_id": ("NO", "uuid", None),
+    "schema_version": ("NO", "integer", None),
+    "status": ("NO", "text", None),
+    "parser": ("NO", "text", None),
+    "extractor": ("NO", "text", None),
+    "pdf_ref": ("NO", "character varying", 512),
+    "parse_result_ref": ("YES", "character varying", 512),
+    "extract_result_ref": ("YES", "character varying", 512),
+    "error_code": ("YES", "text", None),
+    "parsing_claims": ("NO", "integer", None),
+    "extracting_claims": ("NO", "integer", None),
+}
+_CHECKS = {
+    "jobs_schema_version_check",
+    "jobs_status_check",
+    "jobs_pdf_ref_check",
+    "jobs_parse_result_ref_check",
+    "jobs_extract_result_ref_check",
+    "jobs_parsing_claims_check",
+    "jobs_extracting_claims_check",
 }
 
 
@@ -78,7 +89,7 @@ def test_jobs_migration_upgrades_an_empty_database(monkeypatch: pytest.MonkeyPat
         main()
         _assert_jobs_table(admin_url.render_as_string(hide_password=False), name)
         command.downgrade(alembic_config(os.environ["BIOPARSER_DATABASE_URL"]), "base")
-        assert _column_nullability(admin_url.render_as_string(hide_password=False), name) == {}
+        assert _columns(admin_url.render_as_string(hide_password=False), name) == {}
         main()
         _assert_jobs_table(admin_url.render_as_string(hide_password=False), name)
     finally:
@@ -104,19 +115,39 @@ def _drop_database(admin_url: str, name: str) -> None:
 
 
 def _assert_jobs_table(admin_url: str, name: str) -> None:
-    assert _column_nullability(admin_url, name) == _COLUMNS
+    assert _columns(admin_url, name) == _COLUMNS
+    assert _check_names(admin_url, name) == _CHECKS
 
 
-def _column_nullability(admin_url: str, name: str) -> dict[str, str]:
+def _columns(admin_url: str, name: str) -> dict[str, tuple[str, str, int | None]]:
     url = make_url(admin_url).set(database=name)
     engine = create_engine(url)
     with engine.connect() as connection:
         rows = connection.execute(
             text(
-                "SELECT column_name, is_nullable FROM information_schema.columns "
+                "SELECT column_name, is_nullable, data_type, character_maximum_length "
+                "FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = 'jobs'"
             )
         )
-        found = {str(column): str(nullable) for column, nullable in rows}
+        found = {
+            str(column): (str(nullable), str(data_type), length)
+            for column, nullable, data_type, length in rows
+        }
+    engine.dispose()
+    return found
+
+
+def _check_names(admin_url: str, name: str) -> set[str]:
+    url = make_url(admin_url).set(database=name)
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT conname FROM pg_constraint "
+                "WHERE conrelid = 'public.jobs'::regclass AND contype = 'c'"
+            )
+        )
+        found = {str(constraint) for (constraint,) in rows}
     engine.dispose()
     return found
