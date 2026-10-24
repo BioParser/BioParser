@@ -99,8 +99,9 @@ class Observation(BaseModel):
 
     ``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations
     beside a required verbatim citation. The interpretation is omitted when the
-    printed token is already the value. ``scientificName`` is another name a
-    later taxonomy lookup can try.
+    printed token is already the value. ``traitValue`` and ``traitUnit`` are
+    that printed number and unit, cleaned up, not a converted pair.
+    ``scientificName`` is another name a later taxonomy lookup can try.
 
     The artifact does not enforce a closed set of values. An interpretation's
     ``value`` is any non-empty string, including ``trait``. An extractor may

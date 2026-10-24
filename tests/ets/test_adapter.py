@@ -111,11 +111,14 @@ def test_a_stored_name_replaces_the_verbatim_citation() -> None:
 
 def test_each_stored_trait_part_is_used_on_its_own() -> None:
     both = _observation(
-        traitValue=_read("12500", "12.5 kg", start=20),
-        traitUnit=_read("g", "12.5 kg", start=20),
+        traitValue=_read("13", "12.5 kg", start=20),
+        traitUnit=_read("kg", "12.5 kg", start=20),
     )
     value_only = _observation(traitValue=_read("2", "12.5 kg", start=20))
-    unit_only = _observation(traitUnit=_read("g", "kg", start=25))
+    unit_only = _observation(
+        verbatimTraitUnit=_cited("kilograms", start=25),
+        traitUnit=_read("kg", "kilograms", start=25),
+    )
     neither = _observation()
 
     rows = [
@@ -123,12 +126,12 @@ def test_each_stored_trait_part_is_used_on_its_own() -> None:
         for observation in (both, value_only, unit_only, neither)
     ]
 
-    assert (rows[0].traitValue, rows[0].traitUnit) == ("12500", "g")
+    assert (rows[0].traitValue, rows[0].traitUnit) == ("13000", "g")
     assert (rows[1].traitValue, rows[1].traitUnit) == ("2000", "g")
-    assert (rows[2].traitValue, rows[2].traitUnit) == ("12.5", "g")
+    assert (rows[2].traitValue, rows[2].traitUnit) == ("12500", "g")
     assert (rows[3].traitValue, rows[3].traitUnit) == ("12500", "g")
     assert rows[2].verbatimTraitValue == "12.5"
-    assert rows[2].verbatimTraitUnit == "kg"
+    assert rows[2].verbatimTraitUnit == "kilograms"
 
 
 def test_a_correction_supplies_the_column_and_the_citation_stays_stored() -> None:

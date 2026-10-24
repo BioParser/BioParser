@@ -210,6 +210,7 @@ def _parse_trait_value(observation: Observation) -> CanonicalTraitValue | DropRe
         if observation.traitValue is not None
         else observation.verbatimTraitValue.text
     )
+    # A stored unit is the printed unit, cleaned up. It is not a unit the value was converted into.
     unit = (
         observation.traitUnit.value
         if observation.traitUnit is not None

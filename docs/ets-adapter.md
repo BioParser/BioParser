@@ -31,7 +31,7 @@ The adapter needs three sources. Two are not chosen yet.
 - **Trait thesaurus** for `traitName`, `traitID`, and the standard unit. ETS does not define the trait list, so the thesaurus is chosen later. The artifact does not check `trait` against a list. The adapter checks it against the thesaurus.
 - **Unit table**, owned by the adapter. It checks that the printed unit belongs to the trait. It converts mass to grams and length to millimetres.
 
-An extractor may store `traitValue` and `traitUnit` itself, for example a converted pair. The adapter uses what is stored. The unit check is not written into the artifact.
+An extractor may store `traitValue` and `traitUnit` when the printed token is not itself the value, such as `kg` for a printed `kilograms`. Both are what the paper printed. The adapter converts that pair. The unit check is not written into the artifact.
 
 ## How a row is derived
 
@@ -45,13 +45,13 @@ Until a taxonomy source exists, ETS `scientificName` is the stored `scientificNa
 
 ### Trait value and unit
 
-The adapter resolves the value and the unit each on its own, then converts once.
+The adapter resolves the value and the unit each on its own, then converts once. Both are what the paper printed.
 
-1. The value is `traitValue` when stored, otherwise the parsed `verbatimTraitValue`.
-2. The unit is `traitUnit` when stored, otherwise the printed `verbatimTraitUnit`.
+1. The value is `traitValue` when stored, otherwise the parsed `verbatimTraitValue`. A stored value is a cleaned reading of the printed number, in the printed unit.
+2. The unit is `traitUnit` when stored, otherwise the printed `verbatimTraitUnit`. A stored unit is a cleaned reading of the printed unit, such as `kg` for `kilograms`.
 3. The pair is converted with the unit table to grams for mass or millimetres for length. This changes nothing when the unit is already `g` or `mm`.
 
-A stored `traitValue` is in the effective unit, which is `traitUnit` when stored and the printed unit otherwise. An extractor that changes the scale of a value must also store the unit.
+The adapter is what converts. An extractor does not store a converted pair, such as `12500` and `g` for a printed `12.5 kg`.
 
 A trait outside the unit table drops the row with `trait_unknown`. Until a thesaurus exists, that table is `body_mass`, `body_length`, and `tail_length`. An unknown unit drops the row with `unit_unknown`, and a unit that is not valid for the trait drops it with `unit_not_for_trait`. A value that is not a positive decimal drops the row with `value_not_numeric`.
 

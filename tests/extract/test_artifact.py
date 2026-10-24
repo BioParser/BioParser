@@ -238,8 +238,8 @@ def test_a_scientific_name_can_expand_the_printed_citation() -> None:
 
 def test_a_paired_value_is_a_choice() -> None:
     observation = _observation(
-        traitValue=Interpretation(value="12500", passage=_cite("weighed 12.5 kg")),
-        traitUnit=Interpretation(value="g", passage=_cite("kg")),
+        traitValue=Interpretation(value="12.5", passage=_cite("weighed 12,5 kg")),
+        traitUnit=Interpretation(value="kg", passage=_cite("kilograms")),
     )
 
     assert isinstance(observation.traitValue, Interpretation)
