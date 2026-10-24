@@ -2,7 +2,6 @@ from .errors import (
     CorruptJobStateError,
     JobNotFoundError,
     JobStateError,
-    StaleJobStateWriteError,
 )
 from .models import (
     ALLOWED_TRANSITIONS,
@@ -23,5 +22,4 @@ __all__ = [
     "JobStatus",
     "SafeError",
     "SafeErrorCode",
-    "StaleJobStateWriteError",
 ]

@@ -3,7 +3,6 @@ import logging
 import os
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx2
@@ -17,6 +16,7 @@ from stubs import (
     StubJobStateStore,
     StubParseQueue,
     StubParser,
+    bind_job_store,
 )
 
 # The API requires these. A developer .env must not be the only way tests import the app.
@@ -27,8 +27,6 @@ os.environ.setdefault("BIOPARSER_ARTIFACT_STORAGE_PATH", "/tmp")
 from bioparser import pipeline as pipeline_module
 from bioparser.api import config
 from bioparser.api.app import app
-from bioparser.db import engine as database
-from bioparser.db import jobs as job_queries
 from bioparser.logging_config import HANDLER_NAME
 from bioparser.services.vllm import config as vllm_config
 from bioparser.services.vllm import vllm as vllm_module
@@ -42,20 +40,12 @@ def stub_api_adapters(
 ) -> tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]]:
     events: list[str] = []
     artifact_storage = StubArtifactStorage(events)
-    job_store = StubJobStateStore(events)
+    job_store = StubJobStateStore(events=events)
     parse_queue = StubParseQueue(events)
 
     monkeypatch.setattr(app.state, "artifact_storage", artifact_storage, raising=False)
     monkeypatch.setattr(app.state, "parse_queue", parse_queue, raising=False)
-
-    @asynccontextmanager
-    async def _transaction():  # type: ignore[no-untyped-def]
-        yield object()
-
-    monkeypatch.setattr(job_queries, "create", job_store.create)
-    monkeypatch.setattr(job_queries, "get", job_store.get)
-    monkeypatch.setattr(job_queries, "update", job_store.update)
-    monkeypatch.setattr(database, "transaction", _transaction)
+    bind_job_store(monkeypatch)
     return artifact_storage, job_store, parse_queue, events
 
 

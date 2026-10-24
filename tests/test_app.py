@@ -687,13 +687,13 @@ def test_submit_returns_503_when_queue_unavailable(
     assert response.json()["detail"]["code"] == "queue_unavailable"
     assert len(artifact_storage.artifacts) == 1
     assert parse_queue.messages == []
-    assert len(job_store.states) == 2
-    failed_state = next(state for state in job_store.states.values() if state.status == "failed")
+    assert len(job_store.states) == 1
+    failed_state = next(iter(job_store.states.values()))
     assert failed_state.status == "failed"
     assert failed_state.error_code == "internal_error"
     assert events == [
         "artifact.store",
         "job_state.create",
         "queue.submit",
-        "job_state.update",
+        "job_state.mark_failed",
     ]

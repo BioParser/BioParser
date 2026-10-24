@@ -26,21 +26,6 @@ def _queued(**overrides: object) -> JobState:
 # --- round trips -------------------------------------------------------
 
 
-def test_a_claim_counts_a_start_of_that_stage_only() -> None:
-    claimed = _queued().with_claim("parsing")
-    assert claimed.status == "parsing"
-    assert claimed.parsing_claims == 1
-    assert claimed.extracting_claims == 0
-    again = _queued(status="parsing", parsing_claims=1, extracting_claims=2).with_claim("parsing")
-    assert again.parsing_claims == 2
-    assert again.extracting_claims == 2
-
-
-def test_a_stage_that_cannot_be_reentered_is_not_a_claim() -> None:
-    with pytest.raises(ValueError, match="cannot be claimed"):
-        _queued().with_claim("parsed")
-
-
 def test_claim_counts_default_to_zero() -> None:
     state = _queued()
     assert state.parsing_claims == 0

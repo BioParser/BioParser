@@ -4,8 +4,8 @@ import json
 import re
 import threading
 import time
-from collections.abc import Callable, Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Callable, Collection, Iterator, Sequence
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -13,8 +13,10 @@ from typing import Any
 
 import httpx2
 
+from bioparser.db import engine as database
+from bioparser.db import jobs as job_queries
 from bioparser.jobqueue import JobQueueError, ParseJobMessage
-from bioparser.jobstate import JobState
+from bioparser.jobstate import ALLOWED_TRANSITIONS, JobState, JobStatus
 from bioparser.parser.models import (
     BlockKind,
     BlockRole,
@@ -247,12 +249,26 @@ class StubArtifactStorage:
             raise ArtifactNotFoundError(f"Artifact not found: {artifact_path}") from exc
 
 
+_job_stores: list["StubJobStateStore"] = []
+
+
 class StubJobStateStore:
-    def __init__(self, events: list[str]) -> None:
-        self.states: dict[object, JobState] = {}
-        self.events = events
+    """One in-memory jobs table for the API tests and both worker handler tests."""
+
+    def __init__(self, state: JobState | None = None, *, events: list[str] | None = None) -> None:
+        _job_stores.append(self)
+        self.states: dict[str, JobState] = {}
+        if state is not None:
+            self.states[str(state.job_id)] = state
+        self.events = events if events is not None else []
         self.create_error: Exception | None = None
         self.get_error: Exception | None = None
+
+    @property
+    def state(self) -> JobState | None:
+        if not self.states:
+            return None
+        return next(iter(self.states.values()))
 
     async def create(self, connection: object, state: JobState) -> None:
         self.events.append("job_state.create")
@@ -266,9 +282,134 @@ class StubJobStateStore:
         self.events.append("job_state.get")
         return self.states.get(str(job_id))
 
-    async def update(self, connection: object, state: JobState) -> None:
-        self.events.append("job_state.update")
-        self.states[state.job_id] = state
+    async def claim(
+        self,
+        connection: object,
+        job_id: object,
+        *,
+        status: JobStatus,
+        from_statuses: Collection[str],
+        max_claims: int,
+    ) -> str:
+        state = self.states.get(str(job_id))
+        if state is None:
+            return "missing"
+        if state.status not in from_statuses:
+            return "skipped"
+        if state.claims(status) >= max_claims:
+            self.states[str(job_id)] = state.with_changes(
+                status="failed", error_code="internal_error"
+            )
+            return "exhausted"
+        if status == "parsing":
+            claimed = state.with_changes(status=status, parsing_claims=state.parsing_claims + 1)
+        else:
+            claimed = state.with_changes(
+                status=status, extracting_claims=state.extracting_claims + 1
+            )
+        self.states[str(job_id)] = claimed
+        return "claimed"
+
+    async def record_parsed(self, connection: object, job_id: object, artifact_path: str) -> bool:
+        state = self.states.get(str(job_id))
+        if state is None or state.status not in ("queued", "parsing"):
+            return False
+        self.states[str(job_id)] = state.with_changes(
+            status="parsed", parse_result_ref=artifact_path
+        )
+        return True
+
+    async def record_done(self, connection: object, job_id: object, artifact_path: str) -> bool:
+        state = self.states.get(str(job_id))
+        if state is None or state.status not in ("parsed", "extracting"):
+            return False
+        self.states[str(job_id)] = state.with_changes(
+            status="done", extract_result_ref=artifact_path
+        )
+        return True
+
+    async def mark_failed(
+        self,
+        connection: object,
+        job_id: object,
+        code: str,
+        *,
+        from_statuses: Collection[str],
+    ) -> str:
+        self.events.append("job_state.mark_failed")
+        state = self.states.get(str(job_id))
+        if state is None or state.status not in from_statuses:
+            return "skipped"
+        if "failed" not in ALLOWED_TRANSITIONS[state.status]:
+            return "not_allowed"
+        self.states[str(job_id)] = state.with_changes(status="failed", error_code=code)
+        return "recorded"
+
+
+def bind_job_store(monkeypatch: Any) -> None:
+    """Point job queries and the pool at the store most recently constructed."""
+    store = _job_stores
+
+    async def get(connection: object, job_id: object) -> JobState | None:
+        return await store[-1].get(connection, job_id)
+
+    async def create(connection: object, state: JobState) -> None:
+        await store[-1].create(connection, state)
+
+    async def claim(
+        connection: object,
+        job_id: object,
+        *,
+        status: JobStatus,
+        from_statuses: Collection[str],
+        max_claims: int,
+    ) -> str:
+        return await store[-1].claim(
+            connection,
+            job_id,
+            status=status,
+            from_statuses=from_statuses,
+            max_claims=max_claims,
+        )
+
+    async def record_parsed(connection: object, job_id: object, artifact_path: str) -> bool:
+        return await store[-1].record_parsed(connection, job_id, artifact_path)
+
+    async def record_done(connection: object, job_id: object, artifact_path: str) -> bool:
+        return await store[-1].record_done(connection, job_id, artifact_path)
+
+    async def mark_failed(
+        connection: object,
+        job_id: object,
+        code: str,
+        *,
+        from_statuses: Collection[str],
+    ) -> str:
+        return await store[-1].mark_failed(connection, job_id, code, from_statuses=from_statuses)
+
+    async def open_pool(url: str) -> None:
+        return None
+
+    async def close_pool() -> None:
+        return None
+
+    @asynccontextmanager
+    async def _transaction():  # type: ignore[no-untyped-def]
+        yield object()
+
+    monkeypatch.setattr(job_queries, "get", get)
+    monkeypatch.setattr(job_queries, "create", create)
+    monkeypatch.setattr(job_queries, "claim", claim)
+    monkeypatch.setattr(job_queries, "record_parsed", record_parsed)
+    monkeypatch.setattr(job_queries, "record_done", record_done)
+    monkeypatch.setattr(job_queries, "mark_failed", mark_failed)
+    monkeypatch.setattr(database, "open", open_pool)
+    monkeypatch.setattr(database, "aclose", close_pool)
+    monkeypatch.setattr(database, "transaction", _transaction)
+
+
+def clear_job_stores() -> None:
+    _job_stores.clear()
 
 
 class StubParseQueue:

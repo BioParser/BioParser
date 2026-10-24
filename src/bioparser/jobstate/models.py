@@ -71,18 +71,6 @@ class JobState(BaseModel):
             return self.extracting_claims
         return 0
 
-    def with_claim(self, status: JobStatus) -> Self:
-        """Return this job moved to status, counting one start of that stage.
-
-        The count includes this start. A stage that cannot be re-entered is not a claim.
-        Store the result before the heavy work, then read the job again before a later write.
-        """
-        if status == "parsing":
-            return self.with_changes(status=status, parsing_claims=self.parsing_claims + 1)
-        if status == "extracting":
-            return self.with_changes(status=status, extracting_claims=self.extracting_claims + 1)
-        raise ValueError(f"status={status!r} cannot be claimed")
-
     def with_changes(self, **changes: object) -> Self:
         """Return a new, validated JobState with the given fields changed.
         Use instead of model_copy(update=...), which skips validation

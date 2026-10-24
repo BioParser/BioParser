@@ -2,25 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import datetime
-from typing import cast, get_args
+from typing import Literal, cast, get_args
 from uuid import UUID
 
 from pydantic import ValidationError
 from sqlalchemy import CheckConstraint, DateTime, String, Text, Uuid, insert, select, text
 from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncConnection
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import InstrumentedAttribute, Mapped, mapped_column
 
 from bioparser.artifact_paths import ARTIFACT_PATH_MAX_LENGTH
 from bioparser.db.base import Base
-from bioparser.jobstate.errors import (
-    CorruptJobStateError,
-    JobNotFoundError,
-    StaleJobStateWriteError,
-)
-from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobState, JobStatus
+from bioparser.jobstate.errors import CorruptJobStateError
+from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobState, JobStatus, SafeErrorCode
 
 # The same status list the column check uses. Schema version, parser names,
 # extractor names, and error codes stay unconstrained apart from null.
@@ -118,28 +114,107 @@ async def get(connection: AsyncConnection, job_id: UUID) -> JobState | None:
         raise CorruptJobStateError(str(job_id)) from exc
 
 
-async def _locked_status(connection: AsyncConnection, job_id: UUID) -> str:
-    row = (
-        await connection.execute(select(Job.status).where(Job.job_id == job_id).with_for_update())
-    ).one_or_none()
-    if row is None:
-        raise JobNotFoundError(str(job_id))
-    return str(row.status)
+ClaimOutcome = Literal["claimed", "exhausted", "skipped", "missing"]
+MarkOutcome = Literal["recorded", "not_allowed", "skipped"]
 
 
-async def update(connection: AsyncConnection, state: JobState) -> None:
-    """Replace one job when the new status is allowed from the stored one.
+async def claim(
+    connection: AsyncConnection,
+    job_id: UUID,
+    *,
+    status: JobStatus,
+    from_statuses: Collection[str],
+    max_claims: int,
+) -> ClaimOutcome:
+    """Start one stage when the row is still in it and under the claim limit.
 
-    Locks the row, checks ALLOWED_TRANSITIONS, then writes, on the caller's
-    transaction. A stored status this process does not know is overwritten,
-    matching the old Redis script. The statement does not set updated_at; the
-    row trigger does.
+    The count increases in the same statement as the status change. At the
+    limit the row is marked failed and the count stays. `skipped` means the
+    row is still there with another status. `missing` means no row.
     """
-    stored = await _locked_status(connection, state.job_id)
-    if stored in ALLOWED_TRANSITIONS:
-        allowed = ALLOWED_TRANSITIONS[cast(JobStatus, stored)]
-        if state.status not in allowed:
-            raise StaleJobStateWriteError(state.status)
-    await connection.execute(
-        sql_update(Job).where(Job.job_id == state.job_id).values(**_job_state_to_columns(state))
+    count = _claim_count(status)
+    claimed = await connection.execute(
+        sql_update(Job)
+        .where(Job.job_id == job_id, Job.status.in_(from_statuses), count < max_claims)
+        .values(status=status, **{count.key: count + 1})
     )
+    if claimed.rowcount == 1:
+        return "claimed"
+    exhausted = await connection.execute(
+        sql_update(Job)
+        .where(Job.job_id == job_id, Job.status.in_(from_statuses), count >= max_claims)
+        .values(status="failed", error_code="internal_error")
+    )
+    if exhausted.rowcount == 1:
+        return "exhausted"
+    found = (await connection.execute(select(Job.job_id).where(Job.job_id == job_id))).one_or_none()
+    if found is None:
+        return "missing"
+    return "skipped"
+
+
+async def record_parsed(connection: AsyncConnection, job_id: UUID, artifact_path: str) -> bool:
+    """Set `parsed` and the parser artifact while the job is still `queued` or `parsing`."""
+    result = await connection.execute(
+        sql_update(Job)
+        .where(Job.job_id == job_id, Job.status.in_(("queued", "parsing")))
+        .values(status="parsed", parse_result_ref=artifact_path)
+    )
+    return result.rowcount == 1
+
+
+async def record_done(connection: AsyncConnection, job_id: UUID, artifact_path: str) -> bool:
+    """Set `done` and the extraction artifact while the job is still `parsed` or `extracting`."""
+    result = await connection.execute(
+        sql_update(Job)
+        .where(Job.job_id == job_id, Job.status.in_(("parsed", "extracting")))
+        .values(status="done", extract_result_ref=artifact_path)
+    )
+    return result.rowcount == 1
+
+
+async def mark_failed(
+    connection: AsyncConnection,
+    job_id: UUID,
+    code: SafeErrorCode,
+    *,
+    from_statuses: Collection[str],
+) -> MarkOutcome:
+    """Set `failed` when one of `from_statuses` may move there.
+
+    `recorded` means the row changed. `not_allowed` means the stored status is
+    one of `from_statuses` but cannot become `failed`. `skipped` means the row
+    is missing or has another status.
+    """
+    failable = [
+        status
+        for status in from_statuses
+        if status in ALLOWED_TRANSITIONS
+        and "failed" in ALLOWED_TRANSITIONS[cast(JobStatus, status)]
+    ]
+    if failable:
+        result = await connection.execute(
+            sql_update(Job)
+            .where(Job.job_id == job_id, Job.status.in_(failable))
+            .values(status="failed", error_code=code)
+        )
+        if result.rowcount == 1:
+            return "recorded"
+    row = (await connection.execute(select(Job.status).where(Job.job_id == job_id))).one_or_none()
+    if row is None:
+        return "skipped"
+    status = str(row.status)
+    if status in from_statuses and (
+        status not in ALLOWED_TRANSITIONS
+        or "failed" not in ALLOWED_TRANSITIONS[cast(JobStatus, status)]
+    ):
+        return "not_allowed"
+    return "skipped"
+
+
+def _claim_count(status: JobStatus) -> InstrumentedAttribute[int]:
+    if status == "parsing":
+        return Job.parsing_claims
+    if status == "extracting":
+        return Job.extracting_claims
+    raise ValueError(f"status={status!r} cannot be claimed")

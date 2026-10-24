@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from uuid import UUID
 
 from pydantic import ValidationError
-from sqlalchemy.ext.asyncio import AsyncConnection
 
 from bioparser.artifact_paths import ArtifactPathError, extract_result_path
 from bioparser.db import engine as database
@@ -18,12 +16,11 @@ from bioparser.extract.models import EXTRACTION_ARTIFACT_SCHEMA_VERSION, Extract
 from bioparser.extract.protocol import Extractor
 from bioparser.extractor_names import EXTRACTOR_VERSIONS
 from bioparser.jobqueue import ExtractJobMessage, JobDeferred
-from bioparser.jobstate import JobState, JobStatus, StaleJobStateWriteError
+from bioparser.jobstate import JobState, JobStatus
 from bioparser.parser.models import ParserArtifact
 from bioparser.services.vllm.vllm import VLLMService
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
 
-from ..job import CorruptJobRecord, MissingJobRecord, fetch_job
 from ..json_artifact import _retrieve_or_none, store_json_artifact
 from ..stage import PermanentJobFailure, StageJobHandler
 
@@ -67,30 +64,12 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
 
     async def run(self, state: JobState) -> None:
         artifact_path = await self._ensure_extraction_artifact(state)
-        # `state` is from before the claim. `update` replaces the whole record, so
-        # writing `done` from it would drop the claim count just stored.
         async with database.transaction() as connection:
-            await self._record_done(connection, state.job_id, artifact_path)
-
-    async def _record_done(
-        self, connection: AsyncConnection, job_id: UUID, artifact_path: str
-    ) -> None:
-        match await fetch_job(connection, job_id):
-            case CorruptJobRecord():
-                LOGGER.error("stored job state is unreadable. Not recording 'done'")
-            case JobState() as latest if latest.status in _EXTRACT_STAGE:
-                try:
-                    await job_queries.update(
-                        connection,
-                        latest.with_changes(status="done", extract_result_ref=artifact_path),
-                    )
-                except StaleJobStateWriteError:
-                    LOGGER.info(
-                        "another delivery moved the job on while it was extracting. "
-                        "Not recording 'done'"
-                    )
-            case MissingJobRecord() | JobState():
-                return
+            wrote = await job_queries.record_done(connection, state.job_id, artifact_path)
+        if not wrote:
+            LOGGER.info(
+                "another delivery moved the job on while it was extracting. Not recording 'done'"
+            )
 
     async def _ensure_extraction_artifact(self, state: JobState) -> str:
         ref = state.parse_result_ref

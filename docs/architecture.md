@@ -84,9 +84,10 @@ archive. PDFs and versioned outputs live behind an artifact storage interface:
 - **Table:** `jobs`, one row per `job_id`. The `Job` class in `bioparser.db.jobs`
   is that table. The API and both workers query it, and Alembic diffs the class
   when generating a revision.
-- **Transitions:** an update locks the row and writes only when the new status
-  is allowed from the stored one. `created_at` and `updated_at` are set by the
-  database. The update trigger sets `updated_at`.
+- **Writes:** a claim, a recorded result, and a failure are each one statement.
+  The statement changes its own columns and matches only a status that may make
+  that change. No matching row leaves the job as it is. `created_at` and
+  `updated_at` are set by the database. The update trigger sets `updated_at`.
 - **Retention:** a row stays until something deletes it.
 - **Timeouts:** a driver failure, including one raised by a statement inside
   the transaction, reports `DatabaseError`. The message names the driver error

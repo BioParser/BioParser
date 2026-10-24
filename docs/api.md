@@ -346,8 +346,9 @@ pool are closed. Migrations stay on the sync psycopg driver.
 - `POST /api/extractions` — runs `_validated_upload()` (the [`uploads.py`](#uploadspy) helpers,
   in order: `validate_content_length`, `require_file`, `validate_content_type`,
   `read_upload`, `validate_pdf_content`), persists the content-addressed PDF,
-  creates a `JobState` in Postgres, enqueues a `ParseJobMessage`,
-  and returns `202`.
+  creates a `JobState` in Postgres, commits it, then enqueues a `ParseJobMessage`,
+  and returns `202`. The enqueue is outside the database transaction. A failed
+  enqueue marks that row `failed` in a later transaction.
   Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it is still
   being received. A missing or understated `Content-Length` is still capped while
   reading the file in chunks.

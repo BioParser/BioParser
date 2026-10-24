@@ -412,30 +412,35 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     parse_job_message = ParseJobMessage(
         job_id=job_id,
     )
-    enqueue_error: JobQueueError | None = None
+    # Commit the row before calling Redis, so a queue round trip does not hold a
+    # pooled connection. A failed enqueue marks that row failed afterwards.
     try:
         async with database.transaction() as connection:
             await job_queries.create(connection, job_state)
-            try:
-                await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
-            except JobQueueError as exc:
-                enqueue_error = exc
-                await job_queries.update(
-                    connection,
-                    job_state.with_changes(
-                        status="failed",
-                        error_code="internal_error",
-                    ),
-                )
     except DatabaseError as exc:
-        if enqueue_error is None:
-            LOGGER.error("job state create failed", extra=fields | error_fields(exc))
-            raise http_error(503, REDIS_UNAVAILABLE) from exc
-        LOGGER.error("parse job enqueue failed", extra=fields | error_fields(enqueue_error))
-        raise http_error(503, QUEUE_UNAVAILABLE) from enqueue_error
-    if enqueue_error is not None:
-        LOGGER.error("parse job enqueue failed", extra=fields | error_fields(enqueue_error))
-        raise http_error(503, QUEUE_UNAVAILABLE) from enqueue_error
+        LOGGER.error("job state create failed", extra=fields | error_fields(exc))
+        raise http_error(503, REDIS_UNAVAILABLE) from exc
+    try:
+        await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
+    except JobQueueError as exc:
+        LOGGER.error("parse job enqueue failed", extra=fields | error_fields(exc))
+        try:
+            async with database.transaction() as connection:
+                outcome = await job_queries.mark_failed(
+                    connection,
+                    job_id,
+                    "internal_error",
+                    from_statuses=("queued",),
+                )
+        except DatabaseError as mark_error:
+            LOGGER.error(
+                "queued job remains after the enqueue failed",
+                extra=fields | error_fields(mark_error),
+            )
+        else:
+            if outcome != "recorded":
+                LOGGER.error("queued job remains after the enqueue failed", extra=fields)
+        raise http_error(503, QUEUE_UNAVAILABLE) from exc
 
     return QueuedJobResponse(job_id=job_id, status="queued")
 

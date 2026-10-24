@@ -186,19 +186,22 @@ async def test_redis_backed_submission_and_polling(
 
         # Worker execution is outside this issue, so simulate only its state
         # transitions through the real store and verify the public mappings.
-        running = queued.with_claim("parsing")
         async with database.transaction() as connection:
-            await job_queries.update(connection, running)
+            assert (
+                await job_queries.claim(
+                    connection,
+                    queued.job_id,
+                    status="parsing",
+                    from_statuses=("queued", "parsing"),
+                    max_claims=2,
+                )
+                == "claimed"
+            )
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
         assert poll.json() == {"job_id": job_id, "status": "parsing"}
 
-        succeeded = running.with_changes(
-            status="parsed",
-            parse_result_ref=f"art-result-{job_id}",
-        )
-        parse_ref = succeeded.parse_result_ref
-        assert parse_ref is not None
+        output_artifact_ref = f"art-result-{job_id}"
 
         artifact_storage.store(
             ParserArtifact(
@@ -210,12 +213,12 @@ async def test_redis_backed_submission_and_polling(
             .model_dump_json()
             .encode(),
             ArtifactMetadata(
-                artifact_path=parse_ref,
+                artifact_path=output_artifact_ref,
                 media_type="application/json",
             ),
         )
         async with database.transaction() as connection:
-            await job_queries.update(connection, succeeded)
+            assert await job_queries.record_parsed(connection, queued.job_id, output_artifact_ref)
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
         # The status names no storage path
@@ -223,7 +226,7 @@ async def test_redis_backed_submission_and_polling(
 
         artifact = await client.get(f"/api/jobs/{job_id}/artifacts/parser")
         assert artifact.status_code == 200
-        assert artifact.content == artifact_storage.retrieve(parse_ref)
+        assert artifact.content == artifact_storage.retrieve(output_artifact_ref)
 
 
 async def test_same_pdf_can_be_submitted_twice(
