@@ -250,7 +250,7 @@ def test_a_malformed_database_url_does_not_echo_its_password(
     )
 
     with pytest.raises(ValidationError, match="database_url") as failure:
-        config.ApiSettings()
+        config.ApiSettings()  # type: ignore[call-arg]
 
     assert "canary-db-pass" not in str(failure.value)
 
@@ -263,7 +263,7 @@ def test_a_malformed_redis_url_does_not_echo_its_password(
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://:canary-redis-pass@redis:99999/0")
 
     with pytest.raises(ValidationError, match="redis_url") as failure:
-        config.ApiSettings()
+        config.ApiSettings()  # type: ignore[call-arg]
 
     assert "canary-redis-pass" not in str(failure.value)
 

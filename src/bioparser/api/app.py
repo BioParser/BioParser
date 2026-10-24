@@ -122,13 +122,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 raise RuntimeError(
                     "BIOPARSER_API_KEY is required when BIOPARSER_AUTH_DISABLED is false"
                 )
-            if settings.redis_url is None:
-                raise RuntimeError("BIOPARSER_REDIS_URL is required")
-            if settings.database_url is None:
-                raise RuntimeError("BIOPARSER_DATABASE_URL is required")
-            if settings.artifact_storage_path is None:
-                raise RuntimeError("BIOPARSER_ARTIFACT_STORAGE_PATH is required")
-
             app.state.vllm = VLLMService()
             vllm_base_url = redact_url(get_vllm_settings().vllm_base_url)
             try:
@@ -626,16 +619,15 @@ async def readiness() -> ReadinessResponse:
     timeout = settings.dependency_check_timeout_seconds
 
     redis = settings.redis_url
-    if redis and not await _check_tcp(redis.host, redis.port or 6379, timeout):
+    if not await _check_tcp(redis.host, redis.port or 6379, timeout):
         unavailable.append("redis")
 
     # PostgresDsn can hold several hosts. Check the first, as libpq tries it first.
-    if settings.database_url:
-        db = settings.database_url.hosts()[0]
-        if not await _check_tcp(db["host"], db["port"] or 5432, timeout):
-            unavailable.append("postgres")
+    db = settings.database_url.hosts()[0]
+    if not await _check_tcp(db["host"], db["port"] or 5432, timeout):
+        unavailable.append("postgres")
 
-    if settings.artifact_storage_path and not await _check_storage(
+    if not await _check_storage(
         settings.artifact_storage_path,
         timeout,
     ):

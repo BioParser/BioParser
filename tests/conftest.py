@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -17,6 +18,11 @@ from stubs import (
     StubParseQueue,
     StubParser,
 )
+
+# The API requires these. A developer .env must not be the only way tests import the app.
+os.environ.setdefault("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
+os.environ.setdefault("BIOPARSER_DATABASE_URL", "postgresql://bioparser@localhost/bioparser")
+os.environ.setdefault("BIOPARSER_ARTIFACT_STORAGE_PATH", "/tmp")
 
 from bioparser import pipeline as pipeline_module
 from bioparser.api import config

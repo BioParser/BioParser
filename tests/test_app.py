@@ -251,7 +251,11 @@ def test_submit_non_pdf_bytes(client: TestClient) -> None:
 
 
 def test_submit_file_too_large(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(config, "get_api_settings", lambda: config.ApiSettings(max_upload_bytes=10))
+    monkeypatch.setattr(
+        config,
+        "get_api_settings",
+        lambda: config.ApiSettings(max_upload_bytes=10),  # type: ignore[call-arg]
+    )
 
     response = client.post(
         "/api/extractions",

@@ -354,7 +354,7 @@ def test_log_level_comes_from_bioparser_log_level(
     else:
         monkeypatch.setenv("BIOPARSER_LOG_LEVEL", raw)
 
-    assert config.ApiSettings().log_level == expected
+    assert config.ApiSettings().log_level == expected  # type: ignore[call-arg]
 
 
 @pytest.mark.parametrize("raw", ["verbose", "NOTSET", "0", "-10", "1.5", ""])
@@ -365,7 +365,7 @@ def test_an_unknown_log_level_fails_at_startup(
     monkeypatch.setenv("BIOPARSER_LOG_LEVEL", raw)
 
     with pytest.raises(ValidationError, match="log_level") as failure:
-        config.ApiSettings()
+        config.ApiSettings()  # type: ignore[call-arg]
 
     assert "expected a logging level name" in str(failure.value)  # says what would work
 

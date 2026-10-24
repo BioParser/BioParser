@@ -2,7 +2,15 @@ import logging
 import re
 from functools import lru_cache
 
-from pydantic import AnyUrl, Field, PostgresDsn, SecretStr, ValidationError, field_validator
+from pydantic import (
+    AnyUrl,
+    Field,
+    PostgresDsn,
+    SecretStr,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from bioparser.logging_config import parse_level
@@ -31,15 +39,14 @@ class ApiSettings(BaseSettings):
     extract_concurrency: int = Field(default=2, ge=1)
     extract_queue_timeout_seconds: float = Field(default=5.0, gt=0)
     dependency_check_timeout_seconds: float = Field(default=1.0, gt=0)
-    artifact_storage_path: str | None = None
+    artifact_storage_path: str
     # NOTE: char budget not token budget
     # --max-model-len is cap for all tokens
     extraction_char_budget: int = Field(default=8000, ge=50)
     extraction_max_tokens: int = Field(default=1024, ge=64)
 
-    # redis
-    # repr=False: the URL can hold the password; keep it out of repr(settings)
-    redis_url: AnyUrl | None = Field(default=None, repr=False)
+    # redis. repr=False: the URL can hold the password.
+    redis_url: AnyUrl = Field(repr=False)
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
     parse_queue_name: str = Field(default="parse", min_length=1)
 
@@ -48,9 +55,7 @@ class ApiSettings(BaseSettings):
     auth_disabled: bool = False
 
     # Postgres holds job state. The URL can hold the password.
-    # PostgresDsn rejects any other scheme when settings load. The process
-    # refuses to start while this is unset; tests that never open the pool may omit it.
-    database_url: PostgresDsn | None = Field(default=None, repr=False)
+    database_url: PostgresDsn = Field(repr=False)
 
     @field_validator("log_level", mode="before")
     @classmethod
@@ -75,17 +80,22 @@ class ApiSettings(BaseSettings):
             )
         return value
 
-    @field_validator("redis_url", "database_url", mode="before")
+    @field_validator("redis_url", "database_url", "artifact_storage_path", mode="before")
     @classmethod
-    def empty_url_becomes_none(cls, value: object) -> object:
+    def empty_setting_is_rejected(cls, value: object, info: ValidationInfo) -> object:
         if value == "":
-            return None
+            name = {
+                "redis_url": "BIOPARSER_REDIS_URL",
+                "database_url": "BIOPARSER_DATABASE_URL",
+                "artifact_storage_path": "BIOPARSER_ARTIFACT_STORAGE_PATH",
+            }[info.field_name or ""]
+            raise ValueError(f"{name} is set but empty")
         return value
 
 
 @lru_cache(maxsize=1)
 def get_api_settings() -> ApiSettings:
-    return ApiSettings()
+    return ApiSettings()  # type: ignore[call-arg]
 
 
 def invalid_settings(exc: ValidationError) -> list[dict[str, str]]:
