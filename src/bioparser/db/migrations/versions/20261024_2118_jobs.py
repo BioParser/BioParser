@@ -15,9 +15,10 @@ down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# The pipeline statuses are the type of this column. Parser names, extractor
-# names, and error codes grow as features are added, so they stay text and the
-# application checks them. Which artifact refs go with which status stays there too.
+# The pipeline statuses are the type of this column. Schema version, parser
+# names, extractor names, and error codes stay unconstrained apart from null,
+# because those values grow as the record changes. The application checks them.
+# Which artifact refs go with which status stays there too.
 _STATUSES = ("queued", "parsing", "parsed", "extracting", "done", "failed")
 _PATH_LENGTH = 512
 
@@ -37,7 +38,6 @@ def upgrade() -> None:
         sa.Column("error_code", sa.Text(), nullable=True),
         sa.Column("parsing_claims", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("extracting_claims", sa.Integer(), nullable=False, server_default=sa.text("0")),
-        sa.CheckConstraint("schema_version = 1", name="jobs_schema_version_check"),
         sa.CheckConstraint(
             f"status IN ({', '.join(repr(status) for status in _STATUSES)})",
             name="jobs_status_check",

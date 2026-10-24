@@ -27,7 +27,6 @@ _COLUMNS = {
     "extracting_claims": ("NO", "integer", None),
 }
 _CHECKS = {
-    "jobs_schema_version_check",
     "jobs_status_check",
     "jobs_pdf_ref_check",
     "jobs_parse_result_ref_check",
