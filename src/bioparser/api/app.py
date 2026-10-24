@@ -55,6 +55,7 @@ from .errors import (
     ARTIFACT_INVALID,
     ARTIFACT_NOT_AVAILABLE,
     CONTENT_TOO_LARGE,
+    DATABASE_UNAVAILABLE,
     EMPTY_FILE,
     INVALID_CONTENT_LENGTH,
     INVALID_JOB_ID,
@@ -63,7 +64,6 @@ from .errors import (
     JOB_STATE_UNREADABLE,
     MISSING_FILE,
     QUEUE_UNAVAILABLE,
-    REDIS_UNAVAILABLE,
     STORAGE_UNAVAILABLE,
     UNAUTHORIZED,
     UNSUPPORTED_CONTENT_TYPE,
@@ -371,7 +371,7 @@ async def _stored_artifact(request: Request, job: JobState, ref: str | None, kin
         413: error_response(CONTENT_TOO_LARGE),
         415: error_response(UNSUPPORTED_CONTENT_TYPE),
         500: error_response(JOB_STATE_UNREADABLE),
-        503: error_response(STORAGE_UNAVAILABLE, REDIS_UNAVAILABLE, QUEUE_UNAVAILABLE),
+        503: error_response(STORAGE_UNAVAILABLE, DATABASE_UNAVAILABLE, QUEUE_UNAVAILABLE),
     },
 )
 async def submit_job(request: Request, file: UploadFile | None = None) -> QueuedJobResponse:
@@ -419,7 +419,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
             await job_queries.create(connection, job_state)
     except DatabaseError as exc:
         LOGGER.error("job state create failed", extra=fields | error_fields(exc))
-        raise http_error(503, REDIS_UNAVAILABLE) from exc
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
     try:
         await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
     except JobQueueError as exc:
@@ -453,7 +453,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         404: error_response(JOB_NOT_FOUND),
         422: error_response(INVALID_JOB_ID),
         500: error_response(JOB_STATE_UNREADABLE),
-        503: error_response(REDIS_UNAVAILABLE),
+        503: error_response(DATABASE_UNAVAILABLE),
     },
 )
 async def job_status(request: Request, job_id: str) -> JobStatusResponse:
@@ -472,7 +472,7 @@ async def job_status(request: Request, job_id: str) -> JobStatusResponse:
 
     except DatabaseError as exc:
         LOGGER.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
-        raise http_error(503, REDIS_UNAVAILABLE) from exc
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
 
     if record is None:
         raise http_error(404, JOB_NOT_FOUND)

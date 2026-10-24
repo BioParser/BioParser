@@ -40,6 +40,18 @@ def test_async_url_rejects_another_scheme() -> None:
         async_database_url("redis://localhost/0")
 
 
+@pytest.mark.anyio
+async def test_open_keeps_the_same_url_and_rejects_a_different_one() -> None:
+    await db_engine.aclose()
+    await db_engine.open("postgresql://bioparser@127.0.0.1:1/one")
+    try:
+        await db_engine.open("postgres://bioparser@127.0.0.1:1/one")
+        with pytest.raises(RuntimeError, match="different URL"):
+            await db_engine.open("postgresql://bioparser@127.0.0.1:1/two")
+    finally:
+        await db_engine.aclose()
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
@@ -198,6 +210,37 @@ async def test_claim_at_the_cap_marks_the_job_failed(database: str) -> None:
     assert stored.status == "failed"
     assert stored.error_code == "internal_error"
     assert stored.parsing_claims == 1
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_claim_at_the_cap_leaves_a_status_that_cannot_fail(database: str) -> None:
+    state = _queued(uuid.uuid4(), status="parsed", parse_result_ref=str(uuid.uuid4()))
+    await _create(state)
+    engine = create_engine(sync_database_url(database))
+    with engine.begin() as connection:
+        connection.execute(
+            text("UPDATE jobs SET extracting_claims = 1 WHERE job_id = :job_id"),
+            {"job_id": state.job_id},
+        )
+    engine.dispose()
+
+    async with db_engine.transaction() as connection:
+        assert (
+            await job_queries.claim(
+                connection,
+                state.job_id,
+                status="extracting",
+                from_statuses=("parsed", "extracting"),
+                max_claims=1,
+            )
+            == "skipped"
+        )
+
+    stored = await _get(state.job_id)
+    assert stored is not None
+    assert stored.status == "parsed"
+    assert stored.extracting_claims == 1
 
 
 @pytest.mark.integration

@@ -297,6 +297,8 @@ class StubJobStateStore:
         if state.status not in from_statuses:
             return "skipped"
         if state.claims(status) >= max_claims:
+            if "failed" not in ALLOWED_TRANSITIONS[state.status]:
+                return "skipped"
             self.states[str(job_id)] = state.with_changes(
                 status="failed", error_code="internal_error"
             )

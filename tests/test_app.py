@@ -598,7 +598,7 @@ def test_failed_job_status(
     }
 
 
-def test_job_status_returns_503_when_redis_unavailable(
+def test_job_status_returns_503_when_postgres_unavailable(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
 ) -> None:
@@ -609,7 +609,7 @@ def test_job_status_returns_503_when_redis_unavailable(
 
     assert response.status_code == 503
     ErrorResponse.model_validate(response.json())
-    assert response.json()["detail"]["code"] == "redis_unavailable"
+    assert response.json()["detail"]["code"] == "database_unavailable"
 
 
 def test_job_status_returns_500_when_stored_state_is_unreadable(
@@ -631,7 +631,7 @@ def test_job_status_returns_500_when_stored_state_is_unreadable(
     }
 
 
-def test_submit_returns_503_when_redis_unavailable(
+def test_submit_returns_503_when_postgres_unavailable(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
 ) -> None:
@@ -645,7 +645,7 @@ def test_submit_returns_503_when_redis_unavailable(
 
     assert response.status_code == 503
     ErrorResponse.model_validate(response.json())
-    assert response.json()["detail"]["code"] == "redis_unavailable"
+    assert response.json()["detail"]["code"] == "database_unavailable"
     assert len(artifact_storage.artifacts) == 1
     assert parse_queue.messages == []
     assert events == ["artifact.store", "job_state.create"]

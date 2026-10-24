@@ -22,6 +22,7 @@ class DatabaseError(RuntimeError):
 
 
 _engine: AsyncEngine | None = None
+_engine_url: str | None = None
 
 
 def async_database_url(url: str) -> str:
@@ -35,23 +36,28 @@ def async_database_url(url: str) -> str:
 
 
 async def open(url: str) -> None:
-    """Open this process's pool. A second call keeps the pool from the first."""
-    global _engine
+    """Open this process's pool. The same URL keeps it. A different URL is refused."""
+    global _engine, _engine_url
+    normalized = async_database_url(url)
     if _engine is not None:
+        if normalized != _engine_url:
+            raise RuntimeError("Postgres is already open with a different URL")
         return
     _engine = create_async_engine(
-        async_database_url(url),
+        normalized,
         pool_pre_ping=True,
         pool_timeout=5,
         connect_args={"timeout": 5, "command_timeout": 5},
     )
+    _engine_url = normalized
 
 
 async def aclose() -> None:
     """Dispose this process's pool. Safe when `open` was never called."""
-    global _engine
+    global _engine, _engine_url
     engine = _engine
     _engine = None
+    _engine_url = None
     if engine is not None:
         await engine.dispose()
 

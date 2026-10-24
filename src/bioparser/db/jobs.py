@@ -129,8 +129,9 @@ async def claim(
     """Start one stage when the row is still in it and under the claim limit.
 
     The count increases in the same statement as the status change. At the
-    limit the row is marked failed and the count stays. `skipped` means the
-    row is still there with another status. `missing` means no row.
+    limit the row is marked failed when that status may become `failed`, and
+    the count stays. `skipped` means the row is still there with another
+    status, or the status cannot become `failed`. `missing` means no row.
     """
     count = _claim_count(status)
     claimed = await connection.execute(
@@ -140,13 +141,15 @@ async def claim(
     )
     if claimed.rowcount == 1:
         return "claimed"
-    exhausted = await connection.execute(
-        sql_update(Job)
-        .where(Job.job_id == job_id, Job.status.in_(from_statuses), count >= max_claims)
-        .values(status="failed", error_code="internal_error")
-    )
-    if exhausted.rowcount == 1:
-        return "exhausted"
+    failable = _failable(from_statuses)
+    if failable:
+        exhausted = await connection.execute(
+            sql_update(Job)
+            .where(Job.job_id == job_id, Job.status.in_(failable), count >= max_claims)
+            .values(status="failed", error_code="internal_error")
+        )
+        if exhausted.rowcount == 1:
+            return "exhausted"
     found = (await connection.execute(select(Job.job_id).where(Job.job_id == job_id))).one_or_none()
     if found is None:
         return "missing"
@@ -186,12 +189,7 @@ async def mark_failed(
     one of `from_statuses` but cannot become `failed`. `skipped` means the row
     is missing or has another status.
     """
-    failable = [
-        status
-        for status in from_statuses
-        if status in ALLOWED_TRANSITIONS
-        and "failed" in ALLOWED_TRANSITIONS[cast(JobStatus, status)]
-    ]
+    failable = _failable(from_statuses)
     if failable:
         result = await connection.execute(
             sql_update(Job)
@@ -210,6 +208,16 @@ async def mark_failed(
     ):
         return "not_allowed"
     return "skipped"
+
+
+def _failable(from_statuses: Collection[str]) -> list[str]:
+    """Statuses in `from_statuses` that may become `failed`."""
+    return [
+        status
+        for status in from_statuses
+        if status in ALLOWED_TRANSITIONS
+        and "failed" in ALLOWED_TRANSITIONS[cast(JobStatus, status)]
+    ]
 
 
 def _claim_count(status: JobStatus) -> InstrumentedAttribute[int]:

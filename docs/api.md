@@ -36,7 +36,7 @@ configurable size limit. `POST /extract` is a dev route: it runs a queued job's 
 ## Scope
 
 The API container accepts a born-digital PDF, creates a job, and lets the client poll
-for its status. `POST /api/extractions` stores the PDF, creates Redis job state, and
+for its status. `POST /api/extractions` stores the PDF, creates the Postgres job row, and
 enqueues parsing without parsing in the request process. The separate parser worker
 advances the stored state. `POST /extract` runs the same upload through the same
 pipeline in one request, for manual testing outside the job lifecycle.
@@ -105,7 +105,7 @@ The checks run in a fixed order: `Content-Length` header format and size →
 | 400 | the Content-Length header is not a valid non-negative integer |
 | 413 | the file exceeds `config.MAX_UPLOAD_BYTES` |
 | 415 | content type is not `application/pdf` |
-| 503 | artifact storage, Redis job state, or the parse queue is unavailable |
+| 503 | artifact storage, the database, or the parse queue is unavailable |
 
 
 **Validation error body:**
@@ -159,7 +159,7 @@ Poll a job.
 | 404 | no job with that id |
 | 422 | `job_id` is not a version 4 UUID |
 | 500 | stored job state is unreadable |
-| 503 | Redis is unavailable |
+| 503 | the database is unavailable |
 
 The route reads only the job state. It never reads an artifact.
 
@@ -402,14 +402,14 @@ for the OpenAPI docs' `responses=` examples:
 
 Error types and the named `ErrorDetail` instances used across `uploads.py` and `app.py`.
 
-- `ErrorCode` — the fixed set of validation, job-state, storage, Redis, and queue
+- `ErrorCode` — the fixed set of validation, job-state, storage, database, and queue
   error codes returned by the API.
 - `ErrorDetail` — `{code: ErrorCode, message: str}`, the shape used as
   `HTTPException.detail` for typed API failures.
 - `ErrorResponse` — `{detail: ErrorDetail}`, used only in `responses=` schemas for
   OpenAPI documentation; it is never constructed at runtime.
 - Named `ErrorDetail` constants provide one source of truth for each
-  validation, job-state, storage, Redis, and queue error's code and message.
+  validation, job-state, storage, database, and queue error's code and message.
 - `http_error(status_code, detail)` — builds the `HTTPException` raised at each
   failure site from one of the constants above.
 - `error_response(*details)` — builds the `responses=` OpenAPI entry (schema +
