@@ -333,7 +333,7 @@ def test_extract_runs_the_pipeline_in_a_child_process(
     monkeypatch.setattr(app.state, "pipeline_pool", None, raising=False)
     config.get_api_settings.cache_clear()  # read before the environment was set
 
-    with TestClient(app) as client:
+    with TestClient(app, headers={"X-API-Key": TEST_API_KEY}) as client:
         pdf = ("paper.pdf", FIXTURE_PDF.read_bytes(), "application/pdf")
         response = client.post("/extract", files={"file": pdf})
 
