@@ -25,8 +25,6 @@ def build_worker(
         timeout_s=settings.redis_timeout_seconds,
         time_limit_ms=round(settings.parse_time_limit_seconds * 1000),
         max_retries=settings.parse_max_retries,
-        # This process runs one job at a time.
-        worker_threads=1,
     )
     # The extractor process owns retries and the time limit.
     extract_queue = DramatiqJobSubmitter.from_redis(

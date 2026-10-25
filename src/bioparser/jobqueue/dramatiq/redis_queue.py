@@ -4,19 +4,20 @@ Delivery is at-least-once: a worker crash or handler exception can re-run a job.
 
 Defaults:
 - ``time_limit``: 10 minutes (600_000 ms). Cancels the handler. See ``_on_loop``.
-  A blocking call still running after another limit exits the process.
+  The process exits if the handler is still going after another limit, or if a
+  reporting hook or shutdown runs past one limit.
 - ``max_retries``: 3. Handler exceptions retry.
 - ``min_backoff``: 15 seconds before the first retry, backing off exponentially.
-- ``worker_threads``: 1. Raising it overlaps handlers on the one consumer loop,
-  with that many threads for ``asyncio.to_thread``. A time limit joins the calls
-  that handler started.
+
+One thread consumes the queue. ``asyncio.to_thread`` uses one more thread, so a
+handler's blocking calls run in the order they were started. After a time limit
+the queue waits for that thread before the next message.
 
 Messages that leave the queue without a successful handler run are poisoned.
 """
 
 import asyncio
 import concurrent.futures
-import contextvars
 import logging
 import os
 import re
@@ -59,8 +60,9 @@ _DEFAULT_TIME_LIMIT_MS = 600_000
 _DEFAULT_MAX_RETRIES = 3
 _DEFAULT_MIN_BACKOFF_MS = 15_000
 _DEFAULT_BROKER_NAMESPACE = "bioparser"
+# How long an empty-queue poll blocks before the consumer checks for shutdown.
+# Dramatiq's name. The handler's limit is `_DEFAULT_TIME_LIMIT_MS`.
 _DEFAULT_WORKER_TIMEOUT_MS = 1000
-_DEFAULT_WORKER_THREADS = 1
 _DEFAULT_REDIS_TIMEOUT_S = 5.0
 # A dependency outage sends a new message instead of using a retry, so a restart
 # longer than the retry budget can still finish. The delay doubles from the
@@ -72,116 +74,6 @@ _OPTION_DEFERRED_SINCE = "deferred_since"
 _OPTION_DEFERRALS = "deferrals"
 # The same pattern Dramatiq checks when the actor is declared.
 _QUEUE_NAME_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9._-]*")
-
-
-class _HandlerBlocking:
-    """Calls one handler handed to the pool, and the lock that keeps them in order."""
-
-    def __init__(self) -> None:
-        self.lock = Lock()
-        self.calls: list[concurrent.futures.Future[Any]] = []
-
-
-# Set while a handler runs. The pool records into it and runs its calls one at a time.
-_HANDLER_BLOCKING: contextvars.ContextVar[_HandlerBlocking | None] = contextvars.ContextVar(
-    "bioparser_handler_blocking",
-    default=None,
-)
-
-
-def _option_int(options: Mapping[str, object], key: str) -> int | None:
-    value = options.get(key)
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value
-
-
-class _BlockingPool(concurrent.futures.ThreadPoolExecutor):
-    """``asyncio.to_thread`` for the consumer loop. One thread per worker."""
-
-    def __init__(self, workers: int, name: str) -> None:
-        super().__init__(max_workers=workers, thread_name_prefix=name)
-
-    def submit(
-        self,
-        fn: Callable[..., Any],
-        /,
-        *args: Any,
-        **kwargs: Any,
-    ) -> concurrent.futures.Future[Any]:
-        handler = _HANDLER_BLOCKING.get()
-        if handler is None:
-            future = super().submit(fn, *args, **kwargs)
-        else:
-            # One handler's calls take its lock, so cleanup cannot pass the call it follows.
-            # Other handlers have their own lock and run alongside.
-            future = super().submit(_run_for_handler, handler, fn, args, kwargs)
-        # Cancelling the awaiter also cancels a future that has not started. Keep
-        # queued work, including a finally block's cleanup, for _on_loop to join.
-        future.cancel = _cannot_cancel  # type: ignore[method-assign]
-        if handler is not None:
-            handler.calls.append(future)
-        return future
-
-
-def _run_for_handler(
-    handler: _HandlerBlocking,
-    fn: Callable[..., Any],
-    args: tuple[Any, ...],
-    kwargs: dict[str, Any],
-) -> Any:
-    with handler.lock:
-        return fn(*args, **kwargs)
-
-
-def _cannot_cancel() -> bool:
-    return False
-
-
-def _use_blocking_executor(
-    loop: asyncio.AbstractEventLoop,
-    executor: concurrent.futures.ThreadPoolExecutor,
-) -> None:
-    """Send ``asyncio.to_thread`` on `loop` through `executor`."""
-    installed = Event()
-
-    def install() -> None:
-        loop.set_default_executor(executor)
-        installed.set()
-
-    loop.call_soon_threadsafe(install)
-    if not installed.wait(timeout=5.0):
-        raise JobQueueError("the consumer loop did not install its blocking thread")
-
-
-def _require_queue_name(name: str) -> None:
-    if not _QUEUE_NAME_RE.fullmatch(name):
-        raise JobQueueConfigError(
-            "queue name must start with a letter or underscore, "
-            "followed by letters, digits, dots, dashes, or underscores"
-        )
-
-
-def _create_redis_broker(
-    url: str,
-    *,
-    timeout_s: float = _DEFAULT_REDIS_TIMEOUT_S,
-    namespace: str = _DEFAULT_BROKER_NAMESPACE,
-) -> RedisBroker:
-    """The Redis broker for one queue. `from_redis` builds a new one on each call."""
-    if timeout_s <= 0:
-        raise JobQueueConfigError("timeout_s must be > 0")
-    try:
-        client = redis.Redis.from_url(
-            url,
-            socket_timeout=timeout_s,
-            socket_connect_timeout=timeout_s,
-        )
-    except ValueError as exc:
-        # The ValueError text can hold part of the URL: a password with an
-        # unescaped "/", "#" or "?" ends up in redis-py's port error.
-        raise JobQueueConfigError("invalid Redis URL") from exc
-    return RedisBroker(client=client, namespace=namespace)  # type: ignore[no-untyped-call]
 
 
 class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
@@ -196,7 +88,6 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         time_limit_ms: int = _DEFAULT_TIME_LIMIT_MS,
         max_retries: int = _DEFAULT_MAX_RETRIES,
         min_backoff_ms: int = _DEFAULT_MIN_BACKOFF_MS,
-        worker_threads: int = _DEFAULT_WORKER_THREADS,
         worker_timeout_ms: int = _DEFAULT_WORKER_TIMEOUT_MS,
     ) -> None:
         _require_queue_name(name)
@@ -206,8 +97,6 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
             raise JobQueueConfigError("time_limit_ms must be > 0")
         if min_backoff_ms <= 0:
             raise JobQueueConfigError("min_backoff_ms must be > 0")
-        if worker_threads < 1:
-            raise JobQueueConfigError("worker_threads must be >= 1")
         if worker_timeout_ms <= 0:
             raise JobQueueConfigError("worker_timeout_ms must be > 0")
         if name in broker.actors:
@@ -217,7 +106,6 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         self._broker = broker
         self._max_retries = max_retries
         self._time_limit_ms = time_limit_ms
-        self._worker_threads = worker_threads
         self._worker_timeout_ms = worker_timeout_ms
         self._handler: JobHandler[T] | None = None
         self._consuming = Lock()
@@ -244,7 +132,6 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         time_limit_ms: int = _DEFAULT_TIME_LIMIT_MS,
         max_retries: int = _DEFAULT_MAX_RETRIES,
         min_backoff_ms: int = _DEFAULT_MIN_BACKOFF_MS,
-        worker_threads: int = _DEFAULT_WORKER_THREADS,
         worker_timeout_ms: int = _DEFAULT_WORKER_TIMEOUT_MS,
     ) -> "DramatiqJobQueue[T]":
         """A queue backed by Redis. The broker stays inside this backend."""
@@ -255,7 +142,6 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
             time_limit_ms=time_limit_ms,
             max_retries=max_retries,
             min_backoff_ms=min_backoff_ms,
-            worker_threads=worker_threads,
             worker_timeout_ms=worker_timeout_ms,
         )
 
@@ -282,7 +168,7 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
                 self._broker,
                 queues={self._name},
                 worker_timeout=self._worker_timeout_ms,
-                worker_threads=self._worker_threads,
+                worker_threads=1,
             )
             worker.start()
             try:
@@ -302,15 +188,17 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         loop_thread = EventLoopThread(LOGGER)
         loop_thread.start(timeout=5.0)
         set_event_loop_thread(loop_thread)
-        # Several Dramatiq threads block in _on_loop while their coroutines overlap
-        # here. The pool has one thread per worker. Each handler records its own calls.
-        executor = _BlockingPool(self._worker_threads, f"{self._name}-blocking")
+        # One thread, so a handler's blocking calls run in submission order. The join
+        # after a time limit queues behind them.
+        executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix=f"{self._name}-blocking"
+        )
         try:
             _use_blocking_executor(loop_thread.loop, executor)
             yield
         finally:
             try:
-                loop_thread.run_coroutine(handler.aclose())
+                self._on_loop(handler.aclose(), bound_s=self._hook_bound_s())
             except Exception:
                 LOGGER.exception("handler aclose failed on queue %s", self._name)
             finally:
@@ -318,23 +206,43 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
                 loop_thread.stop()  # type: ignore[no-untyped-call]
                 set_event_loop_thread(None)
 
-    def _on_loop(self, coroutine: Coroutine[Any, Any, _R]) -> _R:
-        """Run `coroutine` on the consumer loop. Return when this worker can take another message."""
+    def _hook_bound_s(self) -> float:
+        """How long a reporting hook or shutdown may run before the process exits."""
+        return self._time_limit_ms / 1000
+
+    def _handler_bound_s(self) -> float:
+        """How long the handler may run before the process exits.
+
+        Dramatiq cancels it at the time limit. The same limit again is for the
+        blocking thread to finish, including cleanup started while cancelling.
+        """
+        return 2 * self._time_limit_ms / 1000
+
+    def _on_loop(self, coroutine: Coroutine[Any, Any, _R], *, bound_s: float) -> _R:
+        """Run `coroutine` on the consumer loop. Return when this worker can take another message.
+
+        `bound_s` is how long this call may sit here. Past that, the process exits:
+        a stuck thread cannot be interrupted, and a live worker would keep reporting healthy.
+        """
         loop_thread = get_event_loop_thread()
         if loop_thread is None:
             coroutine.close()
             raise JobQueueError("the queue is not consuming")
-        # The pool appends to this while the coroutine runs, including its finally block.
-        handler_blocking = _HandlerBlocking()
-        # The worker waits on this, because the cancelled future is done before the coroutine unwinds.
+        # The worker waits on this, because cancelling the future completes it
+        # before the coroutine has unwound.
         finished = Event()
+        returned = Event()
+        Thread(
+            target=_exit_when_stuck,
+            args=(returned, bound_s),
+            name="bioparser-stuck-call",
+            daemon=True,
+        ).start()
 
         async def watched() -> _R:
-            token = _HANDLER_BLOCKING.set(handler_blocking)
             try:
                 return await coroutine
             finally:
-                _HANDLER_BLOCKING.reset(token)
                 finished.set()
 
         # Used instead of EventLoopThread.run_coroutine, which returns one second after
@@ -342,30 +250,17 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         # call was still running.
         future = asyncio.run_coroutine_threadsafe(watched(), loop_thread.loop)
         try:
-            return _wait(future)
-        except TimeLimitExceeded:
-            # This thread cannot be recovered if the call never returns. The time limit
-            # again is how long it may run past the cancellation. Then the process exits.
-            returned = Event()
-            Thread(
-                target=_exit_when_stuck,
-                args=(returned, self._time_limit_ms / 1000),
-                name="bioparser-stuck-call",
-                daemon=True,
-            ).start()
             try:
-                # The handler sees CancelledError. Calls already in the pool keep running.
+                return _wait(future)
+            except TimeLimitExceeded:
+                # The handler sees CancelledError. A call already on the blocking
+                # thread keeps running; the next one waits behind it.
                 future.cancel()
-                while not finished.is_set():
-                    try:
-                        finished.wait(timeout=_WAIT_POLL_S)
-                    except TimeLimitExceeded:
-                        continue
-                # This handler's calls only. Another handler's calls keep running.
-                _join_calls(handler_blocking.calls)
-            finally:
-                returned.set()
-            raise
+                _wait_for(finished)
+                _join_blocking(loop_thread.loop)
+                raise
+        finally:
+            returned.set()
 
     @contextmanager
     def _bind(self, handler: JobHandler[T]) -> Iterator[None]:
@@ -470,7 +365,7 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         if handler is None:
             LOGGER.error("no handler set on queue %s; message will be retried", self._name)
             raise JobQueueError(f"no handler set on queue {self._name}")
-        self._on_loop(handler.handle(message))
+        self._on_loop(handler.handle(message), bound_s=self._handler_bound_s())
 
     def _is_last_retry(self) -> bool:
         current = CurrentMessage.get_current_message()
@@ -484,7 +379,7 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         if handler is None:
             return
         try:
-            self._on_loop(handler.on_malformed(payload))
+            self._on_loop(handler.on_malformed(payload), bound_s=self._hook_bound_s())
         except Exception:
             LOGGER.exception("on_malformed hook failed on queue %s", self._name)
 
@@ -498,94 +393,9 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
             self._notify_malformed(payload)
             return
         try:
-            self._on_loop(handler.on_failed(message, exc))
+            self._on_loop(handler.on_failed(message, exc), bound_s=self._hook_bound_s())
         except Exception:
             LOGGER.exception("on_failed hook failed on queue %s", self._name)
-
-
-def _validation_summary(exc: ValidationError) -> str:
-    """Field paths and error types only: rejected values never reach the logs."""
-    return "; ".join(
-        f"{'.'.join(str(part) for part in error['loc']) or '<root>'}: {error['type']}"
-        for error in exc.errors(include_url=False, include_input=False)
-    )
-
-
-def _exit_when_stuck(returned: Event, grace_s: float) -> None:
-    if returned.wait(timeout=grace_s):
-        return
-    message = (
-        f"a blocking call was still running {grace_s:.0f} seconds after the time limit; exiting"
-    )
-    LOGGER.critical(message)
-    sys.stderr.write(message + "\n")
-    sys.stderr.flush()
-    os._exit(1)
-
-
-def _join_calls(calls: list[concurrent.futures.Future[Any]]) -> None:
-    """Wait until `calls` finish. A time-limit exception during the wait is ignored."""
-    pending = set(calls)
-    while pending:
-        try:
-            done, pending = concurrent.futures.wait(pending, timeout=_WAIT_POLL_S)
-            for call in done:
-                if call.cancelled():
-                    continue
-                error = call.exception()
-                if error is not None:
-                    LOGGER.warning(
-                        "blocking call finished after cancellation: %s",
-                        type(error).__name__,
-                    )
-        except TimeLimitExceeded:
-            continue
-
-
-def _wait[R](future: concurrent.futures.Future[R]) -> R:
-    """Block until `future` finishes. A time-limit exception can land between polls."""
-    while True:
-        try:
-            return future.result(timeout=_WAIT_POLL_S)
-        except concurrent.futures.TimeoutError:
-            if future.done():
-                return future.result(timeout=0)
-
-
-def _start_time_limit(broker: Broker) -> None:
-    """Start the broker's TimeLimit timer, once.
-
-    Dramatiq's command line starts it by emitting `process_boot`. A `Worker` built here is
-    not run by that command line, so the timer thread is started directly. `Thread.start`
-    raises the second time, and `process_boot` calls it unconditionally, so a later boot
-    finds the thread already running and leaves it.
-
-    The timer raises `TimeLimitExceeded` in the worker thread waiting in `_on_loop`.
-    """
-    for middleware in broker.middleware:
-        if isinstance(middleware, TimeLimit):
-            manager = middleware.manager
-            start = manager.start
-
-            def start_once(
-                manager: object = manager,
-                start: Callable[[], None] = start,
-            ) -> None:
-                alive = getattr(manager, "is_alive", None)
-                if callable(alive) and alive():
-                    return
-                start()
-
-            manager.start = start_once  # type: ignore[method-assign]
-            start_once()
-            return
-    raise JobQueueConfigError("the broker has no TimeLimit middleware to enforce limits")
-
-
-def _ensure_current_message(broker: Broker) -> None:
-    if any(isinstance(middleware, CurrentMessage) for middleware in broker.middleware):
-        return
-    broker.add_middleware(CurrentMessage())
 
 
 class DramatiqJobSubmitter:
@@ -633,3 +443,149 @@ class DramatiqJobSubmitter:
             self._broker.enqueue(envelope)
         except redis.RedisError as exc:
             raise JobQueueError(f"could not enqueue on queue {self._name!r}") from exc
+
+
+def _require_queue_name(name: str) -> None:
+    if not _QUEUE_NAME_RE.fullmatch(name):
+        raise JobQueueConfigError(
+            "queue name must start with a letter or underscore, "
+            "followed by letters, digits, dots, dashes, or underscores"
+        )
+
+
+def _create_redis_broker(
+    url: str,
+    *,
+    timeout_s: float = _DEFAULT_REDIS_TIMEOUT_S,
+    namespace: str = _DEFAULT_BROKER_NAMESPACE,
+) -> RedisBroker:
+    """The Redis broker for one queue. `from_redis` builds a new one on each call."""
+    if timeout_s <= 0:
+        raise JobQueueConfigError("timeout_s must be > 0")
+    try:
+        client = redis.Redis.from_url(
+            url,
+            socket_timeout=timeout_s,
+            socket_connect_timeout=timeout_s,
+        )
+    except ValueError as exc:
+        # The ValueError text can hold part of the URL: a password with an
+        # unescaped "/", "#" or "?" ends up in redis-py's port error.
+        raise JobQueueConfigError("invalid Redis URL") from exc
+    return RedisBroker(client=client, namespace=namespace)  # type: ignore[no-untyped-call]
+
+
+def _ensure_current_message(broker: Broker) -> None:
+    if any(isinstance(middleware, CurrentMessage) for middleware in broker.middleware):
+        return
+    broker.add_middleware(CurrentMessage())
+
+
+def _start_time_limit(broker: Broker) -> None:
+    """Start the broker's TimeLimit timer, once.
+
+    Dramatiq's command line starts it by emitting `process_boot`. A `Worker` built here is
+    not run by that command line, so the timer thread is started directly. `Thread.start`
+    raises the second time, and `process_boot` calls it unconditionally, so a later boot
+    finds the thread already running and leaves it.
+
+    The timer raises `TimeLimitExceeded` in the worker thread waiting in `_on_loop`.
+    """
+    for middleware in broker.middleware:
+        if isinstance(middleware, TimeLimit):
+            manager = middleware.manager
+            start = manager.start
+
+            def start_once(
+                manager: object = manager,
+                start: Callable[[], None] = start,
+            ) -> None:
+                alive = getattr(manager, "is_alive", None)
+                if callable(alive) and alive():
+                    return
+                start()
+
+            manager.start = start_once  # type: ignore[method-assign]
+            start_once()
+            return
+    raise JobQueueConfigError("the broker has no TimeLimit middleware to enforce limits")
+
+
+def _option_int(options: Mapping[str, object], key: str) -> int | None:
+    value = options.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _validation_summary(exc: ValidationError) -> str:
+    """Field paths and error types only: rejected values never reach the logs."""
+    return "; ".join(
+        f"{'.'.join(str(part) for part in error['loc']) or '<root>'}: {error['type']}"
+        for error in exc.errors(include_url=False, include_input=False)
+    )
+
+
+def _use_blocking_executor(
+    loop: asyncio.AbstractEventLoop,
+    executor: concurrent.futures.ThreadPoolExecutor,
+) -> None:
+    """Send ``asyncio.to_thread`` on `loop` through `executor`."""
+    installed = Event()
+
+    def install() -> None:
+        loop.set_default_executor(executor)
+        installed.set()
+
+    loop.call_soon_threadsafe(install)
+    if not installed.wait(timeout=5.0):
+        raise JobQueueError("the consumer loop did not install its blocking thread")
+
+
+def _exit_when_stuck(returned: Event, bound_s: float) -> None:
+    if returned.wait(timeout=bound_s):
+        return
+    message = f"a queue call was still running {bound_s:.0f} seconds after it started; exiting"
+    LOGGER.critical(message)
+    sys.stderr.write(message + "\n")
+    sys.stderr.flush()
+    os._exit(1)
+
+
+def _wait_for(event: Event) -> None:
+    """Block until `event` is set. A time-limit exception during the wait is ignored."""
+    while not event.is_set():
+        try:
+            event.wait(timeout=_WAIT_POLL_S)
+        except TimeLimitExceeded:
+            continue
+
+
+def _join_blocking(loop: asyncio.AbstractEventLoop) -> None:
+    """Wait until the one blocking thread is idle.
+
+    This call is queued behind the handler's, and the thread runs them in order,
+    so it returns only after those calls have. A time-limit exception during the
+    wait is ignored. A call that never returns is ended by `_exit_when_stuck`.
+    """
+    idle = asyncio.run_coroutine_threadsafe(asyncio.to_thread(_idle), loop)
+    while True:
+        try:
+            _wait(idle)
+            return
+        except TimeLimitExceeded:
+            continue
+
+
+def _idle() -> None:
+    return None
+
+
+def _wait[R](future: concurrent.futures.Future[R]) -> R:
+    """Block until `future` finishes. A time-limit exception can land between polls."""
+    while True:
+        try:
+            return future.result(timeout=_WAIT_POLL_S)
+        except concurrent.futures.TimeoutError:
+            if future.done():
+                return future.result(timeout=0)
