@@ -24,7 +24,7 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
 
    Set `GRAFANA_ADMIN_PASSWORD` in `.env`; Compose does not start without it.
    Set `BIOPARSER_API_KEY` in `.env`; the API does not start without it. Make a key with
-   `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`.
+   `uv run python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`.
 
    This selects the GPU stack. For CPU, change the `COMPOSE_FILE` line in `.env` to:
 
