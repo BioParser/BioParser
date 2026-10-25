@@ -175,6 +175,31 @@ def test_ready_postgres_timeout_is_bounded(
     assert password not in response.text
 
 
+def test_ready_multi_host_database_url_checks_the_first_host(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "")
+    monkeypatch.setenv(
+        "BIOPARSER_DATABASE_URL", "postgresql://bioparser:canary-db-pass@db1:6000,db2/bioparser"
+    )
+    seen: list[tuple[str, int]] = []
+
+    class FakeSocket:
+        def close(self) -> None:
+            pass
+
+    def fake_create_connection(addr: tuple[str, int], timeout: float | None = None) -> FakeSocket:
+        seen.append(addr)
+        return FakeSocket()
+
+    monkeypatch.setattr(app_module.socket, "create_connection", fake_create_connection)
+
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert seen == [("db1", 6000)]
+    assert "canary-db-pass" not in response.text
+
+
 def test_ready_non_postgres_database_url_is_config(
     monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:

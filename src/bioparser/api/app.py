@@ -11,7 +11,6 @@ from concurrent.futures import Executor, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
 from typing import Any
-from urllib.parse import urlparse
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
@@ -528,26 +527,22 @@ def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
-async def _check_tcp(url: str, timeout: float, default_port: int) -> bool:
-    """True when a TCP connection to the URL's host and port succeeds.
+async def _check_tcp(host: str | None, port: int, timeout: float) -> bool:
+    """True when a TCP connection to host and port succeeds.
 
-    The socket timeout and the wait around the thread are the same bound, so a
-    slow connect cannot outlast the readiness check. The password stays in the
-    URL and is never part of the attempt or the result.
+    The caller passes host and port, never the URL, so the password does not
+    reach this function. The wait bounds the response. A hung DNS lookup still
+    keeps its thread until DNS answers.
     """
 
     def _connect() -> bool:
-        parsed = urlparse(url)
-        host = parsed.hostname
-        port = parsed.port or default_port
         if not host:
             return False
         try:
-            conn = socket.create_connection((host, port), timeout=timeout)
-            conn.close()
-            return True
+            socket.create_connection((host, port), timeout=timeout).close()
         except OSError:
             return False
+        return True
 
     try:
         return await asyncio.wait_for(asyncio.to_thread(_connect), timeout=timeout)
@@ -599,11 +594,15 @@ async def readiness() -> ReadinessResponse:
 
     timeout = settings.dependency_check_timeout_seconds
 
-    if settings.redis_url and not await _check_tcp(str(settings.redis_url), timeout, 6379):
+    redis = settings.redis_url
+    if redis and not await _check_tcp(redis.host, redis.port or 6379, timeout):
         unavailable.append("redis")
 
-    if settings.database_url and not await _check_tcp(str(settings.database_url), timeout, 5432):
-        unavailable.append("postgres")
+    # PostgresDsn can hold several hosts. Check the first, as libpq tries it first.
+    if settings.database_url:
+        db = settings.database_url.hosts()[0]
+        if not await _check_tcp(db["host"], db["port"] or 5432, timeout):
+            unavailable.append("postgres")
 
     if settings.artifact_storage_path and not await _check_storage(
         settings.artifact_storage_path,

@@ -167,16 +167,17 @@ services:
     mem_limit: 512m
     memswap_limit: 512m
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bioparser -d bioparser"]
+      # -h forces TCP. During first-start init the image runs a temporary server
+      # on the Unix socket only; over the socket that server looks ready too early.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U bioparser -d bioparser"]
       interval: 10s
       timeout: 3s
       retries: 5
       start_period: 10s
-    # The entrypoint starts as root, fixes ownership of the data volume, then
-    # switches to the postgres user. These capabilities are the ones that handoff
-    # needs. gosu is not a setuid binary, so no-new-privileges stays.
+    # The image's postgres user. A new named volume gets this owner from the image,
+    # so the entrypoint needs no root step and no capabilities. Same as redis.
+    user: "999:999"
     cap_drop: [ALL]
-    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     security_opt: [no-new-privileges:true]
 
 volumes:
