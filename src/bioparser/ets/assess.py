@@ -18,15 +18,16 @@ from bioparser.ets.notices import (
     TextField,
 )
 from bioparser.ets.numbers import parse_count, parse_decimal, parse_integer, parse_signed_decimal
+from bioparser.ets.statistics import read_statistics
 from bioparser.ets.units import CanonicalTraitValue, TargetUnit, convert_trait_value_to_canonical
 from bioparser.ets.vocab import BasisOfRecord, Sex, match_aggregate, match_basis, match_sex
 from bioparser.extract.models import (
-    Citation,
     CitationOrCorrection,
     CitationOrInterpretation,
     Correction,
     Interpretation,
     Observation,
+    stored_text,
 )
 
 DropReason = Literal[
@@ -132,13 +133,14 @@ def assess(observation: Observation) -> Assessment:
     # Numbers. ETS defaults a missing count to 1 and a missing dispersion to 0.
     age = _parse_decimal(observation.age, "age", warnings, signed=True)
     individual_count = _parse_individual_count(observation.individualCount, warnings)
-    measurement_value_min = _parse_decimal(
-        observation.measurementValueMin, "measurementValue_min", warnings, signed=True
+    parsed = _parse_trait_value(observation)
+    statistics = read_statistics(
+        observation,
+        trait_factor=parsed.factor if isinstance(parsed, CanonicalTraitValue) else None,
+        stored_phrase=cited["statisticalMethod"],
+        warnings=warnings,
     )
-    measurement_value_max = _parse_decimal(
-        observation.measurementValueMax, "measurementValue_max", warnings, signed=True
-    )
-    dispersion = _parse_dispersion(observation.dispersion, warnings)
+    cited["statisticalMethod"] = statistics.phrase
 
     # A calendar day is written as YYYY-MM-DD. Year, month, and day stay separate.
     year = _parse_integer(observation.year, "year", warnings, low=1000, high=9999)
@@ -173,9 +175,9 @@ def assess(observation: Observation) -> Assessment:
         aggregate_measure=aggregate_measure,
         basis_of_record=basis_of_record,
         individual_count=individual_count,
-        dispersion=dispersion,
-        measurement_value_min=measurement_value_min,
-        measurement_value_max=measurement_value_max,
+        dispersion=statistics.dispersion,
+        measurement_value_min=statistics.measurement_value_min,
+        measurement_value_max=statistics.measurement_value_max,
         year=year,
         month=month,
         day=day,
@@ -187,10 +189,9 @@ def assess(observation: Observation) -> Assessment:
         country_code=country_code,
         cited=cited,
     )
-    parsed = _parse_trait_value(observation)
     if not isinstance(parsed, CanonicalTraitValue):
         return Dropped(drop=parsed, **shared.model_dump())
-    if _bounds_reversed(measurement_value_min, measurement_value_max):
+    if _bounds_reversed(statistics.measurement_value_min, statistics.measurement_value_max):
         return Dropped(drop="bounds_reversed", **shared.model_dump())
     return Kept(
         trait_value=parsed.value,
@@ -209,6 +210,7 @@ def _parse_trait_value(observation: Observation) -> CanonicalTraitValue | DropRe
         if observation.traitValue is not None
         else observation.verbatimTraitValue.text
     )
+    # A stored unit is the printed unit, cleaned up. It is not a unit the value was converted into.
     unit = (
         observation.traitUnit.value
         if observation.traitUnit is not None
@@ -228,7 +230,7 @@ def _cited(value: CitationOrCorrection | None) -> str | None:
 def _sex(value: CitationOrInterpretation | None, warnings: list[Notice]) -> Sex | None:
     if value is None:
         return None
-    matched = match_sex(_text(value))
+    matched = match_sex(stored_text(value))
     if matched is None:
         warnings.append(NotInVocabulary(field="sex"))
     return matched
@@ -259,21 +261,9 @@ def _parse_individual_count(
 ) -> int | None:
     if value is None:
         return 1
-    parsed = parse_count(_text(value))
+    parsed = parse_count(stored_text(value))
     if parsed is None:
         warnings.append(NotNumeric(field="individualCount"))
-        return None
-    return parsed
-
-
-def _parse_dispersion(
-    value: CitationOrInterpretation | None, warnings: list[Notice]
-) -> float | None:
-    if value is None:
-        return 0.0
-    parsed = parse_decimal(_text(value))
-    if parsed is None:
-        warnings.append(NotNumeric(field="dispersion"))
         return None
     return parsed
 
@@ -287,7 +277,7 @@ def _parse_decimal(
 ) -> float | None:
     if value is None:
         return None
-    text = _text(value)
+    text = stored_text(value)
     parsed = parse_signed_decimal(text) if signed else parse_decimal(text)
     if parsed is None:
         warnings.append(NotNumeric(field=field))
@@ -305,7 +295,7 @@ def _parse_integer(
 ) -> int | None:
     if value is None:
         return None
-    parsed = parse_integer(_text(value))
+    parsed = parse_integer(stored_text(value))
     if parsed is None or not low <= parsed <= high:
         warnings.append(NotNumeric(field=field))
         return None
@@ -317,7 +307,7 @@ def _parse_date(
 ) -> str | None:
     if value is None:
         return None
-    text = parse_date(_text(value))
+    text = parse_date(stored_text(value))
     if text is None:
         warnings.append(NotADate(field=field))
         return None
@@ -349,14 +339,8 @@ def _parse_country_code(
 ) -> str | None:
     if value is None:
         return None
-    text = _text(value)
+    text = stored_text(value)
     if _COUNTRY_CODE.fullmatch(text) is None:
         warnings.append(NotInVocabulary(field="countryCode"))
         return None
     return text
-
-
-def _text(value: Citation | Interpretation) -> str:
-    if isinstance(value, Interpretation):
-        return value.value
-    return value.text

@@ -35,7 +35,6 @@ def _observation(**changes: object) -> Observation:
         verbatimTraitValue=_cited("12.5", start=20),
         verbatimTraitUnit=_cited("kg", start=25),
         individualCount=_cited("25", start=30),
-        measurementValueMin=_cited("1.5", start=40),
     )
     if not changes:
         return observation
@@ -92,7 +91,7 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     assert dumped["measurementID"] == "1"
     assert dumped["occurrenceID"] is None
     assert dumped["individualCount"] == 25
-    assert dumped["measurementValue_min"] == 1.5
+    assert dumped["measurementValue_min"] is None
     assert dumped["dispersion"] == 0
     assert dumped["warnings"] == ""
     assert "evidence" not in dumped
@@ -112,11 +111,14 @@ def test_a_stored_name_replaces_the_verbatim_citation() -> None:
 
 def test_each_stored_trait_part_is_used_on_its_own() -> None:
     both = _observation(
-        traitValue=_read("12500", "12.5 kg", start=20),
-        traitUnit=_read("g", "12.5 kg", start=20),
+        traitValue=_read("13", "12.5 kg", start=20),
+        traitUnit=_read("kg", "12.5 kg", start=20),
     )
     value_only = _observation(traitValue=_read("2", "12.5 kg", start=20))
-    unit_only = _observation(traitUnit=_read("g", "kg", start=25))
+    unit_only = _observation(
+        verbatimTraitUnit=_cited("kilograms", start=25),
+        traitUnit=_read("kg", "kilograms", start=25),
+    )
     neither = _observation()
 
     rows = [
@@ -124,12 +126,12 @@ def test_each_stored_trait_part_is_used_on_its_own() -> None:
         for observation in (both, value_only, unit_only, neither)
     ]
 
-    assert (rows[0].traitValue, rows[0].traitUnit) == ("12500", "g")
+    assert (rows[0].traitValue, rows[0].traitUnit) == ("13000", "g")
     assert (rows[1].traitValue, rows[1].traitUnit) == ("2000", "g")
-    assert (rows[2].traitValue, rows[2].traitUnit) == ("12.5", "g")
+    assert (rows[2].traitValue, rows[2].traitUnit) == ("12500", "g")
     assert (rows[3].traitValue, rows[3].traitUnit) == ("12500", "g")
     assert rows[2].verbatimTraitValue == "12.5"
-    assert rows[2].verbatimTraitUnit == "kg"
+    assert rows[2].verbatimTraitUnit == "kilograms"
 
 
 def test_a_correction_supplies_the_column_and_the_citation_stays_stored() -> None:
@@ -371,8 +373,8 @@ def test_a_negative_age_is_parsed_and_reversed_bounds_drop_the_row() -> None:
     assert isinstance(verdict, Dropped)
     assert verdict.drop == "bounds_reversed"
     assert verdict.age == -1
-    assert verdict.measurement_value_min == 4
-    assert verdict.measurement_value_max == 2
+    assert verdict.measurement_value_min == 4000
+    assert verdict.measurement_value_max == 2000
     assert not any(
         isinstance(warning, NotNumeric) and warning.field == "age" for warning in verdict.warnings
     )
@@ -413,6 +415,173 @@ def test_an_impossible_day_is_cleared_and_a_leap_day_is_kept() -> None:
     assert "not_a_date:year,month,day" in bad.warnings
     assert (good.year, good.month, good.day) == (2020, 2, 29)
     assert good.warnings == ""
+
+
+def test_a_mean_a_standard_deviation_and_a_range_share_the_trait_unit() -> None:
+    observation = _observation(
+        centralKind=_read("mean", "mean ± SD, range", start=60),
+        dispersionKind=_read("standardDeviation", "mean ± SD, range", start=60),
+        dispersion=_cited("0.2", start=70),
+        measurementValueMin=_cited("10", start=40),
+        measurementValueMax=_cited("14", start=50),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.traitValue == "12500"
+    assert row.traitUnit == "g"
+    assert row.dispersion == 200
+    assert row.measurementValue_min == 10000
+    assert row.measurementValue_max == 14000
+    assert row.statisticalMethod == "mean and standard deviation"
+    assert row.warnings == ""
+
+
+def test_a_variance_converts_with_the_square_of_the_factor() -> None:
+    observation = _observation(
+        dispersionKind=_read("variance", "variance", start=60),
+        dispersion=_cited("0.2", start=70),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.dispersion == 200_000
+    assert row.statisticalMethod == "variance"
+    assert row.measurementValue_min is None
+    assert row.warnings == ""
+
+
+def test_a_median_a_standard_error_and_an_interval_convert_length() -> None:
+    observation = _observation(
+        trait=_read("tail_length", "tail", start=10),
+        verbatimTraitValue=_cited("2", start=20),
+        verbatimTraitUnit=_cited("cm", start=25),
+        centralKind=_read("median", "median", start=60),
+        dispersionKind=_read("standardError", "SE", start=70),
+        dispersion=_cited("0.1", start=90),
+        measurementValueMin=_cited("1.2", start=40),
+        measurementValueMax=_cited("2.4", start=50),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.traitValue == "20"
+    assert row.traitUnit == "mm"
+    assert row.dispersion == 1
+    assert row.measurementValue_min == 12
+    assert row.measurementValue_max == 24
+    assert row.statisticalMethod == "median and standard error"
+    assert row.warnings == ""
+
+
+def test_a_minimum_converts_with_the_trait() -> None:
+    observation = _observation(measurementValueMin=_cited("1.5", start=40))
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.traitValue == "12500"
+    assert row.measurementValue_min == 1500
+    assert row.measurementValue_max is None
+    assert row.warnings == ""
+
+
+def test_a_canonical_unit_keeps_a_number_that_is_already_converted() -> None:
+    observation = _observation(
+        verbatimTraitUnit=_cited("g", start=25),
+        dispersion=_cited("0.2", start=70),
+        measurementValueMin=_cited("10", start=40),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.traitValue == "12.5"
+    assert row.traitUnit == "g"
+    assert row.dispersion == 0.2
+    assert row.measurementValue_min == 10
+    assert row.warnings == ""
+
+
+def test_a_dispersion_without_a_kind_stays_unconverted() -> None:
+    observation = _observation(dispersion=_cited("0.2", start=70))
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.traitValue == "12500"
+    assert row.dispersion == 0.2
+    assert row.statisticalMethod is None
+    assert row.warnings == "not_converted:dispersion"
+
+
+def test_a_dispersion_kind_without_a_number_is_zero() -> None:
+    observation = _observation(
+        centralKind=_read("mean", "mean", start=60),
+        dispersionKind=_read("standardDeviation", "SD", start=70),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.dispersion == 0
+    assert row.statisticalMethod == "mean"
+    assert row.warnings == "unspecified:dispersion"
+
+
+def test_an_empty_maximum_stays_empty() -> None:
+    observation = _observation(measurementValueMin=_cited("10", start=40))
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.measurementValue_min == 10000
+    assert row.measurementValue_max is None
+    assert row.statisticalMethod is None
+    assert row.dispersion == 0
+    assert row.warnings == ""
+
+
+def test_a_stored_phrase_is_copied_and_the_choices_still_convert() -> None:
+    observation = _observation(
+        statisticalMethod=_cited("mean ± SD", start=60),
+        centralKind=_read("average", "mean ± SD", start=60),
+        dispersionKind=_read("standardDeviation", "mean ± SD", start=60),
+        dispersion=_cited("0.2", start=70),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.statisticalMethod == "mean ± SD"
+    assert row.dispersion == 200
+    assert row.warnings == "not_in_vocabulary:statisticalMethod"
+
+
+def test_an_unknown_statistic_kind_is_ignored() -> None:
+    observation = _observation(
+        centralKind=_read("average", "average", start=60),
+        dispersionKind=_read("sd", "SD", start=70),
+        dispersion=_cited("0.2", start=90),
+        measurementValueMin=_cited("10", start=40),
+        measurementValueMax=_cited("14", start=50),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.dispersion == 0.2
+    assert row.measurementValue_min == 10000
+    assert row.measurementValue_max == 14000
+    assert row.statisticalMethod is None
+    assert row.warnings == "not_in_vocabulary:statisticalMethod | not_converted:dispersion"
+
+
+def test_an_unknown_central_kind_warns_when_a_dispersion_phrase_is_written() -> None:
+    observation = _observation(
+        centralKind=_read("average", "average", start=60),
+        dispersionKind=_read("variance", "variance", start=70),
+        dispersion=_cited("0.2", start=90),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.statisticalMethod == "variance"
+    assert row.dispersion == 200_000
+    assert row.warnings == "not_in_vocabulary:statisticalMethod"
 
 
 def test_an_empty_document_id_is_rejected() -> None:

@@ -170,6 +170,33 @@ def test_basis_and_aggregate_are_interpretations_only() -> None:
         )
 
 
+def test_a_statistic_kind_is_an_interpretation() -> None:
+    observation = _observation(
+        centralKind=Interpretation(value="mean", passage=_cite("mean of 12")),
+        dispersionKind=Interpretation(value="standardDeviation", passage=_cite("± 1.2")),
+    )
+
+    assert observation.centralKind is not None
+    assert observation.centralKind.value == "mean"
+    assert observation.dispersionKind is not None
+    assert observation.dispersionKind.value == "standardDeviation"
+
+    with pytest.raises(ValidationError):
+        Observation.model_validate(
+            {
+                "trait": {
+                    "kind": "interpretation",
+                    "value": "body_mass",
+                    "passage": {"text": "weighed"},
+                },
+                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
+                "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
+                "verbatimTraitUnit": {"kind": "citation", "text": "g"},
+                "dispersionKind": {"kind": "citation", "text": "standardDeviation"},
+            }
+        )
+
+
 def test_a_verbatim_field_rejects_a_choice() -> None:
     with pytest.raises(ValidationError):
         Observation.model_validate(
@@ -211,8 +238,8 @@ def test_a_scientific_name_can_expand_the_printed_citation() -> None:
 
 def test_a_paired_value_is_a_choice() -> None:
     observation = _observation(
-        traitValue=Interpretation(value="12500", passage=_cite("weighed 12.5 kg")),
-        traitUnit=Interpretation(value="g", passage=_cite("kg")),
+        traitValue=Interpretation(value="12.5", passage=_cite("weighed 12,5 kg")),
+        traitUnit=Interpretation(value="kg", passage=_cite("kilograms")),
     )
 
     assert isinstance(observation.traitValue, Interpretation)
