@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx2
 import pytest
+from conftest import TEST_API_KEY
 from fastapi.testclient import TestClient
 from httpx2 import ASGITransport
 from stubs import (
@@ -239,7 +240,9 @@ async def test_a_saturated_pipeline_returns_503_instead_of_queueing(
     monkeypatch.setattr(app.state, "extract_sem", asyncio.Semaphore(1), raising=False)
     monkeypatch.setattr(config.get_api_settings(), "extract_queue_timeout_seconds", 0.05)
 
-    async with httpx2.AsyncClient(transport=ASGITransport(app), base_url="http://t") as http:
+    async with httpx2.AsyncClient(
+        transport=ASGITransport(app), base_url="http://t", headers={"X-API-Key": TEST_API_KEY}
+    ) as http:
 
         async def one(index: int) -> int:
             response = await http.post(
@@ -259,7 +262,9 @@ async def test_the_event_loop_answers_while_a_pdf_is_parsed(
 ) -> None:
     inline_pipeline.parser = StubParser(delay_s=0.5)
 
-    async with httpx2.AsyncClient(transport=ASGITransport(app), base_url="http://t") as http:
+    async with httpx2.AsyncClient(
+        transport=ASGITransport(app), base_url="http://t", headers={"X-API-Key": TEST_API_KEY}
+    ) as http:
         extraction = asyncio.create_task(
             http.post("/extract", files={"file": ("a.pdf", PDF, "application/pdf")})
         )
@@ -328,7 +333,7 @@ def test_extract_runs_the_pipeline_in_a_child_process(
     monkeypatch.setattr(app.state, "pipeline_pool", None, raising=False)
     config.get_api_settings.cache_clear()  # read before the environment was set
 
-    with TestClient(app) as client:
+    with TestClient(app, headers={"X-API-Key": TEST_API_KEY}) as client:
         pdf = ("paper.pdf", FIXTURE_PDF.read_bytes(), "application/pdf")
         response = client.post("/extract", files={"file": pdf})
 

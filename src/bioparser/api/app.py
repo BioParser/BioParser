@@ -14,7 +14,7 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ValidationError
 
 from bioparser.extract.models import ExtractionArtifact
@@ -50,6 +50,7 @@ from bioparser.storage import (
 )
 
 from . import config
+from .auth import ApiKeyMiddleware, require_api_key
 from .errors import (
     ARTIFACT_INVALID,
     ARTIFACT_NOT_AVAILABLE,
@@ -64,6 +65,7 @@ from .errors import (
     QUEUE_UNAVAILABLE,
     REDIS_UNAVAILABLE,
     STORAGE_UNAVAILABLE,
+    UNAUTHORIZED,
     UNSUPPORTED_CONTENT_TYPE,
     error_response,
     http_error,
@@ -111,6 +113,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with _failure_logged_redacted("startup"):
             settings = config.get_api_settings()
             setup_logging(settings.log_level)
+            if settings.auth_disabled:
+                LOGGER.warning("authentication is disabled (BIOPARSER_AUTH_DISABLED=true)")
+            elif not settings.api_key or not settings.api_key.get_secret_value():
+                LOGGER.critical(
+                    "BIOPARSER_API_KEY must be set when BIOPARSER_AUTH_DISABLED is false"
+                )
+                raise RuntimeError(
+                    "BIOPARSER_API_KEY is required when BIOPARSER_AUTH_DISABLED is false"
+                )
             if settings.redis_url is None:
                 raise RuntimeError("BIOPARSER_REDIS_URL is required")
             if settings.artifact_storage_path is None:
@@ -201,6 +212,9 @@ app.add_middleware(
     TypedRequestBodyLimitMiddleware,
     max_body_size=config.get_api_settings().max_upload_bytes,
 )
+# Added last, so it runs first: a request without the key gets 401 before the body
+# limit, the form parser or a route reads any of its body.
+app.add_middleware(ApiKeyMiddleware)
 
 
 async def _validated_upload(request: Request, file: UploadFile | None) -> bytes:
@@ -320,6 +334,7 @@ _IMMUTABLE = "private, max-age=31536000, immutable"
 def _artifact_responses(model: type[BaseModel], description: str) -> dict[int | str, Any]:
     return {
         200: {"model": model, "description": description, "content": {"application/json": {}}},
+        401: error_response(UNAUTHORIZED),
         404: error_response(JOB_NOT_FOUND),
         409: error_response(ARTIFACT_NOT_AVAILABLE),
         422: error_response(INVALID_JOB_ID),
@@ -353,8 +368,10 @@ async def _stored_artifact(request: Request, job: JobState, ref: str | None, kin
 @app.post(
     "/api/extractions",
     status_code=202,
+    dependencies=[Depends(require_api_key)],
     responses={
         400: error_response(MISSING_FILE, EMPTY_FILE, INVALID_PDF, INVALID_CONTENT_LENGTH),
+        401: error_response(UNAUTHORIZED),
         413: error_response(CONTENT_TOO_LARGE),
         415: error_response(UNSUPPORTED_CONTENT_TYPE),
         500: error_response(JOB_STATE_UNREADABLE),
@@ -422,7 +439,9 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
 
 @app.get(
     "/api/jobs/{job_id}",
+    dependencies=[Depends(require_api_key)],
     responses={
+        401: error_response(UNAUTHORIZED),
         404: error_response(JOB_NOT_FOUND),
         422: error_response(INVALID_JOB_ID),
         500: error_response(JOB_STATE_UNREADABLE),
@@ -436,6 +455,7 @@ async def job_status(request: Request, job_id: str) -> JobStatusResponse:
 
 @app.get(
     "/api/jobs/{job_id}/artifacts/parser",
+    dependencies=[Depends(require_api_key)],
     tags=[_INTERNAL],
     description=_INTERNAL_NOTE,
     response_class=Response,
@@ -451,6 +471,7 @@ async def job_parser_artifact(request: Request, job_id: str) -> Response:
 
 @app.get(
     "/api/jobs/{job_id}/artifacts/extraction",
+    dependencies=[Depends(require_api_key)],
     tags=[_INTERNAL],
     description=_INTERNAL_NOTE,
     response_class=Response,
@@ -466,7 +487,9 @@ async def job_extraction_artifact(request: Request, job_id: str) -> Response:
 
 @app.post(
     "/extract",
+    dependencies=[Depends(require_api_key)],
     responses={
+        401: error_response(UNAUTHORIZED),
         502: {"description": "The pipeline gave no result. `detail` names the failed step."},
         503: {"description": "Every pipeline process is busy. Retry after `Retry-After`."},
     },
