@@ -1,16 +1,31 @@
+import asyncio
 import logging
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
+from starlette.routing import Route
+from starlette.types import Message, Scope
 from stubs import StubArtifactStorage, StubJobStateStore, StubParseQueue
 
 from bioparser.api.app import app
+from bioparser.api.auth import PUBLIC_PATHS
+from bioparser.api.config import ApiSettings
 from bioparser.api.errors import ErrorResponse
 
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
 CANARY_API_KEY = "sk-super-secret-canary-api-key-8899"
+
+ROUTES = [route for route in app.routes if isinstance(route, Route)]
+
+
+def _example_path(route: Route) -> str:
+    path = route.path
+    if "{job_id}" in path:
+        path = path.replace("{job_id}", str(uuid4()))
+    return path
 
 
 @pytest.fixture
@@ -190,11 +205,95 @@ def test_openapi_declares_security_scheme() -> None:
         "description": "Shared API key required for all /api/* and /extract operations.",
     }
 
-    # Protected routes must have ApiKeyAuth security requirement
-    assert schema["paths"]["/api/extractions"]["post"].get("security") == [{"ApiKeyAuth": []}]
-    assert schema["paths"]["/api/jobs/{job_id}"]["get"].get("security") == [{"ApiKeyAuth": []}]
-    assert schema["paths"]["/extract"]["post"].get("security") == [{"ApiKeyAuth": []}]
+    # Every operation outside PUBLIC_PATHS must declare ApiKeyAuth
+    for path, path_item in schema["paths"].items():
+        for method, operation in path_item.items():
+            if method.lower() in ("get", "post", "put", "delete", "patch"):
+                if path in PUBLIC_PATHS:
+                    assert "security" not in operation, f"{method.upper()} {path} should be public"
+                else:
+                    assert operation.get("security") == [{"ApiKeyAuth": []}], (
+                        f"{method.upper()} {path} must require ApiKeyAuth"
+                    )
 
-    # Public routes must not require security
-    assert "security" not in schema["paths"]["/health"]["get"]
-    assert "security" not in schema["paths"]["/ready"]["get"]
+
+@pytest.mark.parametrize("path", ["/api/extractions", "/extract"])
+def test_a_request_without_the_key_is_refused_before_its_body_is_read(
+    auth_enabled: None, path: str
+) -> None:
+    """FastAPI reads an upload before it runs the route's dependencies. The middleware runs first."""
+    reads = 0
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        nonlocal reads
+        reads += 1
+        return {"type": "http.request", "body": b"0" * 65536, "more_body": True}
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    scope: Scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "headers": [
+            (b"content-type", b"multipart/form-data; boundary=boundary"),
+            (b"content-length", b"65536"),
+        ],
+    }
+
+    asyncio.run(app(scope, receive, send))
+
+    start = next(m for m in sent if m["type"] == "http.response.start")
+    assert start["status"] == 401
+    assert reads == 0
+
+
+def test_a_non_ascii_key_gets_401_not_500(auth_enabled: None) -> None:
+    client = TestClient(app)
+    response = client.get(
+        f"/api/jobs/{uuid4()}",
+        headers=[(b"X-API-Key", b"\xe9t\xe9-invalid")],
+    )
+    assert response.status_code == 401
+    assert response.headers.get("www-authenticate") == "ApiKey"
+    ErrorResponse.model_validate(response.json())
+
+
+@pytest.mark.parametrize(
+    "bad_key",
+    [
+        "short",
+        "password",
+        "a" * 31,
+        "pässwörd-" + "a" * 25,
+        "key with spaces in the middle   ",
+    ],
+)
+def test_short_and_non_ascii_keys_fail_validation(bad_key: str) -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        ApiSettings.model_validate({"api_key": bad_key})
+    errors = exc_info.value.errors()
+    assert any("at least 32 visible ASCII characters" in e["msg"] for e in errors)
+
+
+@pytest.mark.parametrize("route", ROUTES, ids=lambda route: route.path)
+def test_every_route_needs_the_key_unless_it_is_public(auth_enabled: None, route: Route) -> None:
+    """Secure by default: a new route needs the key even if it forgets the dependency."""
+    client = TestClient(app, raise_server_exceptions=False)
+
+    for method in sorted(route.methods or ()):
+        if method in ("HEAD", "OPTIONS"):
+            continue
+        status = client.request(method, _example_path(route)).status_code
+        assert (status == 401) == (route.path not in PUBLIC_PATHS), (method, route.path, status)
+
+
+def test_every_public_path_is_a_route() -> None:
+    route_paths = {route.path for route in app.routes if isinstance(route, Route)}
+    assert PUBLIC_PATHS.issubset(route_paths | {"/openapi.json", "/docs/oauth2-redirect"})

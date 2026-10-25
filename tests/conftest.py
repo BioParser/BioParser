@@ -24,7 +24,7 @@ from bioparser.logging_config import HANDLER_NAME
 from bioparser.services.vllm import config as vllm_config
 from bioparser.services.vllm import vllm as vllm_module
 
-TEST_API_KEY = "test-api-key"
+TEST_API_KEY = "test-api-key-at-least-32-characters-long"
 
 
 @pytest.fixture

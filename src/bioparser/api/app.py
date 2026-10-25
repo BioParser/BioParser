@@ -50,7 +50,7 @@ from bioparser.storage import (
 )
 
 from . import config
-from .auth import require_api_key
+from .auth import ApiKeyMiddleware, require_api_key
 from .errors import (
     ARTIFACT_INVALID,
     ARTIFACT_NOT_AVAILABLE,
@@ -212,6 +212,9 @@ app.add_middleware(
     TypedRequestBodyLimitMiddleware,
     max_body_size=config.get_api_settings().max_upload_bytes,
 )
+# Added last, so it runs first: a request without the key gets 401 before the body
+# limit, the form parser or a route reads any of its body.
+app.add_middleware(ApiKeyMiddleware)
 
 
 async def _validated_upload(request: Request, file: UploadFile | None) -> bytes:

@@ -35,7 +35,8 @@ Required:
 `COMPOSE_FILE`: Compose configuration preference, e.g. `docker-compose.yml:docker-compose.gpu.yml` (GPU) or `docker-compose.yml:docker-compose.cpu.yml` (CPU).  
 `VLLM_MODEL`: Hugging Face repo id, for example `Qwen/Qwen3-0.6B` (already set in `.env.example`).  
 `VLLM_PORT`: host port for vLLM (default `8000`).  
-`BIOPARSER_PORT`: host port for the API (default `8080`).
+`BIOPARSER_PORT`: host port for the API (default `8080`).  
+`BIOPARSER_API_KEY`: the key clients send in `X-API-Key` (at least 32 visible ASCII characters, see [docs/api.md](api.md#authentication)). The API does not start without it, unless `BIOPARSER_AUTH_DISABLED=true`.
 
 Optional:
 
@@ -120,6 +121,7 @@ When started:
 - All requests require HTTP Basic Authentication. Traefik reads the users from the Compose secret `traefik_users` (`/run/secrets/traefik_users`), which comes from `TRAEFIK_USERS_FILE` (format: `name:bcrypt_hash`, one line per user). Add a user with `htpasswd -nbB <name> '<password>' >> docker/traefik/users`, then run `docker compose up -d --force-recreate traefik`.
 - HTTPS connections are encrypted with TLS and routed internally across the `edge` network to `http://bioparser:8080`.
 - Direct plain HTTP to the API remains accessible on loopback (`http://127.0.0.1:8080`).
+- Through Traefik, `/api/*` and `/extract` need both the Traefik user and the `X-API-Key` header. The default Traefik user is public, so the API key is the lock that matters on a LAN.
 - By default, Traefik generates an internal self-signed TLS certificate (`TRAEFIK DEFAULT CERT`) regenerated on restart, so encrypted connections work immediately without external domain setup. To use custom certificates, define a `tls.certificates` block in `docker/traefik/bioparser.yml` and mount your cert files.
 - Note: On rootless Docker hosts, binding privileged host ports below 1024 requires setting `TRAEFIK_HTTPS_PORT=8443` in `.env` (or configuring `net.ipv4.ip_unprivileged_port_start=0`).
 - On Docker Desktop for Windows, dynamic file watcher changes may require running `docker compose restart traefik` after modifying `docker/traefik/bioparser.yml`.

@@ -26,7 +26,7 @@ services:
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
     volumes:
-      - ${HF_CACHE_DIR:-${USERPROFILE:-${HOME}}/.cache/huggingface}:/root/.cache/huggingface
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
     ports:
       - "127.0.0.1:${VLLM_PORT:-8000}:8000"
     ipc: host

@@ -46,13 +46,15 @@ pipeline in one request, for manual testing outside the job lifecycle.
 
 ### Authentication
 
-All endpoints under `/api/*` and `/extract` require a shared API key. `/health` and `/ready` are public and do not require authentication.
+All endpoints require a shared API key, except the explicit public endpoints: `/health`, `/ready`, `/docs`, `/docs/oauth2-redirect`, `/openapi.json`, and `/redoc`.
 
 - **Header:** `X-API-Key: <key>`
 - **Configuration:**
-  - `BIOPARSER_API_KEY`: The expected secret key (stored as `SecretStr`). Required unless `BIOPARSER_AUTH_DISABLED=true`.
-  - `BIOPARSER_AUTH_DISABLED`: Boolean flag (`true`/`false`, default `false`). If `true`, authentication checks are bypassed and a warning is logged at startup. If `false` and `BIOPARSER_API_KEY` is not set or empty, the API refuses to start.
-- **Validation:** Checked using constant-time comparison (`secrets.compare_digest`).
+  - `BIOPARSER_API_KEY`: The expected secret key (stored as `SecretStr`). Must be at least 32 visible ASCII characters (without spaces). Generate with `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`. Required unless `BIOPARSER_AUTH_DISABLED=true`.
+  - `BIOPARSER_AUTH_DISABLED`: Boolean flag (`true`/`false`, default `false`). If `true`, authentication checks are bypassed and a warning is logged at startup. If `false` and `BIOPARSER_API_KEY` is not set or invalid, the API refuses to start.
+- **Validation:**
+  - Enforced before body parsing by a pure ASGI middleware (`ApiKeyMiddleware`). Unauthenticated requests are rejected with 401 before any upload body is buffered or written to disk.
+  - Constant-time comparison (`secrets.compare_digest`) is performed over UTF-8 bytes to safely reject non-ASCII header values without raising exceptions.
 - **Failure — `401 Unauthorized`:**
   Missing or invalid keys return HTTP 401 with `WWW-Authenticate: ApiKey` and a standard error envelope:
   ```json

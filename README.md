@@ -23,6 +23,8 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
 ```
 
    Set `GRAFANA_ADMIN_PASSWORD` in `.env`; Compose does not start without it.
+   Set `BIOPARSER_API_KEY` in `.env`; the API does not start without it. Make a key with
+   `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`.
 
    This selects the GPU stack. For CPU, change the `COMPOSE_FILE` line in `.env` to:
 
@@ -48,7 +50,8 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
 4. Run the pipeline on a sample paper (synchronous; can take minutes on CPU):
 
 ```sh
-   curl -F file=@tests/parser/fixtures/plos-biology-3000248.pdf localhost:8080/extract
+   curl -H "X-API-Key: <BIOPARSER_API_KEY from .env>" \
+     -F file=@tests/parser/fixtures/plos-biology-3000248.pdf localhost:8080/extract
 ```
 
 Stop with `Ctrl+C` or `docker compose down`.
@@ -79,6 +82,7 @@ uv run bioparser
 Serves on `http://127.0.0.1:8080`. Job submission and polling work on their own; `POST /extract` also needs reachable MinerU and vLLM services.
 
 > The host API reads `.env` if it exists. `.env.example` sets `BIOPARSER_REDIS_URL=redis://redis:6379/0`, which only resolves inside Compose, so `/ready` returns `503`. Empty that line for host-only runs.
+> The API does not start without `BIOPARSER_API_KEY`. For local development only, set `BIOPARSER_AUTH_DISABLED=true` instead.
 
 ### Parse a PDF
 

@@ -1,4 +1,5 @@
 import logging
+import re
 from functools import lru_cache
 
 from pydantic import AnyUrl, Field, SecretStr, ValidationError, field_validator
@@ -8,6 +9,8 @@ from bioparser.logging_config import parse_level
 from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 
 DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MiB
+API_KEY_MIN_LENGTH = 32
+_API_KEY_PATTERN = re.compile(rf"[\x21-\x7e]{{{API_KEY_MIN_LENGTH},}}")
 
 
 class ApiSettings(BaseSettings):
@@ -56,6 +59,15 @@ class ApiSettings(BaseSettings):
             return None
         if isinstance(value, SecretStr) and not value.get_secret_value().strip():
             return None
+        return value
+
+    @field_validator("api_key")
+    @classmethod
+    def api_key_is_long_visible_ascii(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and not _API_KEY_PATTERN.fullmatch(value.get_secret_value()):
+            raise ValueError(
+                f"must be at least {API_KEY_MIN_LENGTH} visible ASCII characters, without spaces"
+            )
         return value
 
     @field_validator("redis_url", mode="before")
