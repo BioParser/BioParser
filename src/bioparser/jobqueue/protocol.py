@@ -44,12 +44,16 @@ class JobHandler[T: BaseModel](Protocol):
         return
 
 
-class JobQueue[T: BaseModel](Protocol):
-    """Replaceable queue for submitting and consuming typed messages."""
+class JobSubmitter[T: BaseModel](Protocol):
+    """Sends typed messages. Another process consumes them."""
 
     async def submit(self, message: T) -> None:
         """Enqueue a message."""
         ...
+
+
+class JobConsumer[T: BaseModel](Protocol):
+    """Consumes typed messages from one queue."""
 
     def consume(
         self,

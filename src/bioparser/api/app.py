@@ -24,9 +24,10 @@ from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.hashing import sha256_bytes
 from bioparser.jobqueue import (
     JobQueueError,
+    JobSubmitter,
     ParseJobMessage,
 )
-from bioparser.jobqueue.dramatiq import DramatiqJobQueue
+from bioparser.jobqueue.dramatiq import DramatiqJobSubmitter
 from bioparser.jobstate import (
     CorruptJobStateError,
     JobState,
@@ -141,12 +142,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             redis_url = str(settings.redis_url)
             redis_timeout = settings.redis_timeout_seconds
             await database.open(str(settings.database_url))
-            app.state.parse_queue = DramatiqJobQueue.from_redis(
+            parse_queue: JobSubmitter[ParseJobMessage] = DramatiqJobSubmitter.from_redis(
                 redis_url,
                 name=settings.parse_queue_name,
-                model=ParseJobMessage,
                 timeout_s=redis_timeout,
             )
+            app.state.parse_queue = parse_queue
 
             app.state.artifact_storage = FileSystemArtifactStorage(
                 root_path=settings.artifact_storage_path

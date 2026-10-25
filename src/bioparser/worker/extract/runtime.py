@@ -2,7 +2,7 @@ from threading import Event
 
 from bioparser.extract.backend.factory import get_extractor
 from bioparser.extract.protocol import Extractor
-from bioparser.jobqueue import ExtractJobMessage, JobQueue
+from bioparser.jobqueue import ExtractJobMessage, JobConsumer
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.logging_config import setup_logging
 from bioparser.services.vllm import VLLMService
@@ -16,9 +16,9 @@ from .handler import ExtractJobHandler
 
 def build_worker(
     settings: ExtractWorkerSettings,
-) -> tuple[JobQueue[ExtractJobMessage], ExtractJobHandler]:
+) -> tuple[JobConsumer[ExtractJobMessage], ExtractJobHandler]:
     storage = FileSystemArtifactStorage(settings.artifact_storage_path)
-    queue: JobQueue[ExtractJobMessage] = DramatiqJobQueue.from_redis(
+    queue: JobConsumer[ExtractJobMessage] = DramatiqJobQueue.from_redis(
         str(settings.redis_url),
         name=settings.extract_queue_name,
         model=ExtractJobMessage,
