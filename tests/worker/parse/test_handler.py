@@ -11,7 +11,7 @@ from uuid import UUID
 import pytest
 from dramatiq.brokers.stub import StubBroker
 from dramatiq.middleware.time_limit import TimeLimit
-from stubs import StubJobs, bind_jobs, clear_jobs, fake_mineru
+from stubs import MemoryStorage, StubJobs, bind_jobs, clear_jobs, fake_mineru
 
 from bioparser.artifact_paths import parse_result_path
 from bioparser.jobqueue import JobTimeLimitExceeded
@@ -38,9 +38,6 @@ from bioparser.parser.models import (
     TextContent,
 )
 from bioparser.parser.protocol import PdfParser
-from bioparser.storage import StoredArtifact
-from bioparser.storage.errors import ArtifactAlreadyExistsError, ArtifactNotFoundError
-from bioparser.storage.models import ArtifactMetadata
 from bioparser.worker.parse.config import DEFAULT_PARSE_MAX_RETRIES
 from bioparser.worker.parse.handler import ParseJobHandler
 
@@ -60,38 +57,8 @@ def _stub_job_queries(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     clear_jobs()
 
 
-class MemoryStorage:
-    def __init__(self) -> None:
-        self.payloads: dict[str, bytes] = {PDF_REF: PDF_BYTES}
-        self.metadata: dict[str, ArtifactMetadata] = {}
-        self.stores = 0
-
-    async def store(
-        self,
-        content: bytes,
-        metadata: ArtifactMetadata,
-    ) -> str:
-        if metadata.artifact_path in self.payloads:
-            raise ArtifactAlreadyExistsError(metadata.artifact_path)
-        self.payloads[metadata.artifact_path] = content
-        self.metadata[metadata.artifact_path] = metadata
-        self.stores += 1
-        return metadata.artifact_path
-
-    async def retrieve(self, artifact_path: str) -> bytes:
-        try:
-            return self.payloads[artifact_path]
-        except KeyError as exc:
-            raise ArtifactNotFoundError(artifact_path) from exc
-
-    async def exists(self, artifact_path: str) -> bool:
-        return artifact_path in self.payloads
-
-    async def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
-        return self.metadata[artifact_path]
-
-    async def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
-        raise NotImplementedError
+def _storage() -> MemoryStorage:
+    return MemoryStorage({PDF_REF: PDF_BYTES})
 
 
 class RecordingParser:
@@ -179,7 +146,7 @@ def _handler(
 
 def test_success_stores_artifact_and_marks_parsed() -> None:
     jobs = StubJobs(_queued())
-    storage = MemoryStorage()
+    storage = _storage()
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, storage, parser)
     asyncio.run(handler.handle(_message()))
@@ -205,7 +172,7 @@ def test_success_wakes_the_extractor_and_a_duplicate_wakes_it_again() -> None:
     woken: list[UUID] = []
     handler = _handler(
         jobs,
-        MemoryStorage(),
+        _storage(),
         RecordingParser(_artifact()),
         enqueue=lambda job_id: _record(woken, job_id),
     )
@@ -229,7 +196,7 @@ def test_a_lost_wake_up_is_sent_again_on_the_next_delivery() -> None:
         if calls == 1:
             raise RuntimeError("queue down")
 
-    handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()), enqueue=_enqueue)
+    handler = _handler(jobs, _storage(), RecordingParser(_artifact()), enqueue=_enqueue)
     message = _message()
     with pytest.raises(RuntimeError, match="queue down"):
         asyncio.run(handler.handle(message))
@@ -244,7 +211,7 @@ def test_a_lost_wake_up_is_sent_again_on_the_next_delivery() -> None:
 
 def test_duplicate_delivery_does_not_parse_again() -> None:
     jobs = StubJobs(_queued())
-    storage = MemoryStorage()
+    storage = _storage()
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, storage, parser)
     message = _message()
@@ -262,7 +229,7 @@ def test_duplicate_delivery_does_not_parse_again() -> None:
 
 def test_claim_is_counted_and_a_further_start_stops_at_the_cap() -> None:
     jobs = StubJobs(_queued())
-    storage = MemoryStorage()
+    storage = _storage()
     parser = RecordingParser(_artifact(), error=RuntimeError("backend blip"))
     handler = _handler(jobs, storage, parser, max_claims=1)
     with pytest.raises(RuntimeError, match="backend blip"):
@@ -282,7 +249,7 @@ def test_claim_is_counted_and_a_further_start_stops_at_the_cap() -> None:
 
 def test_retry_after_parser_error_can_succeed() -> None:
     jobs = StubJobs(_queued())
-    storage = MemoryStorage()
+    storage = _storage()
     parser = RecordingParser(_artifact(), error=RuntimeError("backend blip"))
     handler = _handler(jobs, storage, parser)
     message = _message()
@@ -309,7 +276,7 @@ def test_parser_comes_from_job_state() -> None:
 
     handler = ParseJobHandler(
         database_url="postgresql://unused",
-        storage=MemoryStorage(),
+        storage=_storage(),
         parser_factory=_factory,
         max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
     )
@@ -323,7 +290,7 @@ def test_parser_comes_from_job_state() -> None:
 
 def test_malformed_message_fails_the_job() -> None:
     jobs = StubJobs(_queued())
-    handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()))
+    handler = _handler(jobs, _storage(), RecordingParser(_artifact()))
     asyncio.run(handler.on_malformed({"job_id": str(JOB_ID), "extra": "nope"}))
     asyncio.run(handler.aclose())
     assert jobs.state is not None
@@ -332,7 +299,7 @@ def test_malformed_message_fails_the_job() -> None:
 
 def test_unsupported_document_is_invalid_pdf() -> None:
     jobs = StubJobs(_queued())
-    storage = MemoryStorage()
+    storage = _storage()
     parser = RecordingParser(_artifact(), error=UnsupportedDocumentError("empty"))
     handler = _handler(jobs, storage, parser)
     asyncio.run(handler.handle(_message()))
@@ -344,7 +311,7 @@ def test_unsupported_document_is_invalid_pdf() -> None:
 
 def test_missing_input_fails_without_retry() -> None:
     jobs = StubJobs(_queued())
-    storage = MemoryStorage()
+    storage = _storage()
     storage.payloads.clear()
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, storage, parser)
@@ -360,7 +327,7 @@ def test_parser_without_a_version_is_internal_error(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr("bioparser.worker.parse.handler.PARSER_VERSIONS", {})
     jobs = StubJobs(_queued())
     parser = RecordingParser(_artifact())
-    handler = _handler(jobs, MemoryStorage(), parser)
+    handler = _handler(jobs, _storage(), parser)
     asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
 
@@ -372,7 +339,7 @@ def test_parser_without_a_version_is_internal_error(monkeypatch: pytest.MonkeyPa
 def test_unavailable_parser_fails_without_retry() -> None:
     jobs = StubJobs(_queued().with_changes(parser="mineru"))
     parser = RecordingParser(_artifact())
-    handler = _handler(jobs, MemoryStorage(), parser)
+    handler = _handler(jobs, _storage(), parser)
     asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
 
@@ -391,7 +358,7 @@ def test_a_mineru_failure_is_retried_not_failed_as_invalid_pdf() -> None:
     with fake_mineru(reply) as (url, _seen):
         handler = ParseJobHandler(
             database_url="postgresql://unused",
-            storage=MemoryStorage(),
+            storage=_storage(),
             parser_factory=lambda name: get_parser(name, timeout_s=5.0, mineru_base_url=url),
             max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
         )
@@ -413,7 +380,7 @@ def test_parser_timeout_fails_with_timeout_without_retry(error: BaseException) -
 
     jobs = StubJobs(_queued())
     handler = _handler(
-        jobs, MemoryStorage(), RecordingParser(_artifact()), factory=lambda _name: _SlowParser()
+        jobs, _storage(), RecordingParser(_artifact()), factory=lambda _name: _SlowParser()
     )
     asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
@@ -425,7 +392,7 @@ def test_parser_timeout_fails_with_timeout_without_retry(error: BaseException) -
 
 def test_invalid_existing_artifact_fails_the_job() -> None:
     jobs = StubJobs(_queued())
-    storage = MemoryStorage()
+    storage = _storage()
     invalid = b'{"old":true}'
     storage.payloads[RESULT_PATH] = invalid
     parser = RecordingParser(_artifact())
@@ -443,7 +410,7 @@ def test_invalid_existing_artifact_fails_the_job() -> None:
 
 def test_different_valid_artifact_is_reused_without_parsing() -> None:
     jobs = StubJobs(_queued())
-    storage = MemoryStorage()
+    storage = _storage()
     stored = _artifact().model_copy(update={"checksum": "b" * 64}).model_dump_json().encode()
     storage.payloads[RESULT_PATH] = stored
     parser = RecordingParser(_artifact())
@@ -461,7 +428,7 @@ def test_different_valid_artifact_is_reused_without_parsing() -> None:
 
 def test_identical_existing_artifact_is_reused() -> None:
     jobs = StubJobs(_queued().with_changes(status="parsing"))
-    storage = MemoryStorage()
+    storage = _storage()
     payload = _artifact().model_dump_json().encode()
     storage.payloads[RESULT_PATH] = payload
     parser = RecordingParser(_artifact())
@@ -477,7 +444,7 @@ def test_identical_existing_artifact_is_reused() -> None:
 
 def test_missing_job_state_is_retried() -> None:
     jobs = StubJobs(None)
-    handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()))
+    handler = _handler(jobs, _storage(), RecordingParser(_artifact()))
     with pytest.raises(JobNotFoundError):
         asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
@@ -489,7 +456,7 @@ class CorruptJobs(StubJobs):
 
 
 def test_corrupt_state_is_dropped_without_retry() -> None:
-    handler = _handler(CorruptJobs(None), MemoryStorage(), RecordingParser(_artifact()))
+    handler = _handler(CorruptJobs(None), _storage(), RecordingParser(_artifact()))
     asyncio.run(
         handler.handle(_message())
     )  # returns instead of raising, so the queue does not retry
@@ -497,7 +464,7 @@ def test_corrupt_state_is_dropped_without_retry() -> None:
 
 
 def test_on_failed_tolerates_corrupt_state() -> None:
-    handler = _handler(CorruptJobs(None), MemoryStorage(), RecordingParser(_artifact()))
+    handler = _handler(CorruptJobs(None), _storage(), RecordingParser(_artifact()))
     asyncio.run(handler.on_failed(_message(), RuntimeError("late")))
     asyncio.run(handler.aclose())
 
@@ -505,7 +472,7 @@ def test_on_failed_tolerates_corrupt_state() -> None:
 def test_on_failed_records_timeout(capsys: pytest.CaptureFixture[str]) -> None:
     setup_logging("INFO")
     jobs = StubJobs(_queued().with_changes(status="parsing"))
-    handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()))
+    handler = _handler(jobs, _storage(), RecordingParser(_artifact()))
     asyncio.run(handler.on_failed(_message(), JobTimeLimitExceeded()))
     asyncio.run(handler.aclose())
     assert jobs.state is not None
@@ -520,7 +487,7 @@ def test_on_failed_does_not_reopen_a_finished_job(capsys: pytest.CaptureFixture[
         status="parsed", parse_result_ref="7c2e1d3b-8e55-4f2b-ad4c-3a9f6b1e7d22"
     )
     jobs = StubJobs(finished)
-    handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()))
+    handler = _handler(jobs, _storage(), RecordingParser(_artifact()))
     asyncio.run(handler.on_failed(_message(), RuntimeError("late")))
     asyncio.run(handler.aclose())
     assert jobs.state == finished
@@ -540,7 +507,7 @@ def test_job_past_the_parse_stage_is_left_alone(status: str) -> None:
     later = _queued().with_changes(**fields)
     jobs = StubJobs(later)
     parser = RecordingParser(_artifact())
-    handler = _handler(jobs, MemoryStorage(), parser)
+    handler = _handler(jobs, _storage(), parser)
     asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
     assert parser.paths == []
@@ -549,7 +516,7 @@ def test_job_past_the_parse_stage_is_left_alone(status: str) -> None:
 
 def test_malformed_message_with_non_string_job_id_is_ignored() -> None:
     jobs = StubJobs(_queued())
-    handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()))
+    handler = _handler(jobs, _storage(), RecordingParser(_artifact()))
     asyncio.run(handler.on_malformed({"job_id": 12345}))  # must not raise
     asyncio.run(handler.aclose())
     assert jobs.state == _queued()
@@ -558,7 +525,7 @@ def test_malformed_message_with_non_string_job_id_is_ignored() -> None:
 def test_killed_parser_process_is_retried_not_failed_as_invalid_pdf() -> None:
     jobs = StubJobs(_queued())
     parser = RecordingParser(_artifact(), error=ParserProcessError("killed by signal 9"))
-    handler = _handler(jobs, MemoryStorage(), parser)
+    handler = _handler(jobs, _storage(), parser)
     with pytest.raises(ParserProcessError):
         asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
@@ -578,7 +545,7 @@ def test_records_logged_while_a_job_runs_carry_its_job_id(
     setup_logging("INFO")
     handler = _handler(
         StubJobs(_queued()),
-        MemoryStorage(),
+        _storage(),
         RecordingParser(_artifact()),
         factory=lambda _name: _LoggingParser(),
     )
@@ -624,7 +591,7 @@ def test_exhausted_wake_retries_try_once_more_when_the_job_is_parsed() -> None:
         calls.append(job_id)
         raise RuntimeError("queue down")
 
-    handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()), enqueue=_enqueue)
+    handler = _handler(jobs, _storage(), RecordingParser(_artifact()), enqueue=_enqueue)
     _consume(handler, max_retries=1)
 
     assert jobs.state is not None
@@ -636,7 +603,7 @@ def test_exhausted_wake_retries_try_once_more_when_the_job_is_parsed() -> None:
 
 def test_a_job_runs_from_the_queue_to_parsed() -> None:
     jobs = StubJobs(_queued())
-    storage = MemoryStorage()
+    storage = _storage()
     parser = RecordingParser(_artifact())
 
     _consume(_handler(jobs, storage, parser), max_retries=3)
@@ -651,7 +618,7 @@ def test_a_failing_parse_is_retried_then_fails_the_job() -> None:
     jobs = StubJobs(_queued())
     parser = RecordingParser(_artifact(), error=RuntimeError("boom"))
 
-    _consume(_handler(jobs, MemoryStorage(), parser, max_claims=3), max_retries=2)
+    _consume(_handler(jobs, _storage(), parser, max_claims=3), max_retries=2)
 
     assert len(parser.paths) == 3
     assert jobs.state is not None
@@ -664,7 +631,7 @@ def test_claim_cap_stops_retries_that_the_queue_would_still_allow() -> None:
     jobs = StubJobs(_queued())
     parser = RecordingParser(_artifact(), error=RuntimeError("boom"))
 
-    _consume(_handler(jobs, MemoryStorage(), parser, max_claims=2), max_retries=5)
+    _consume(_handler(jobs, _storage(), parser, max_claims=2), max_retries=5)
 
     assert len(parser.paths) == 2
     assert jobs.state is not None
@@ -683,7 +650,7 @@ def test_queue_time_limit_fails_the_job_as_timeout_without_retry() -> None:
 
     jobs = StubJobs(_queued())
     handler = _handler(
-        jobs, MemoryStorage(), RecordingParser(_artifact()), factory=lambda _name: _HangingParser()
+        jobs, _storage(), RecordingParser(_artifact()), factory=lambda _name: _HangingParser()
     )
 
     _consume(handler, max_retries=3, time_limit_ms=200)
@@ -695,7 +662,7 @@ def test_queue_time_limit_fails_the_job_as_timeout_without_retry() -> None:
 
 
 def test_second_job_with_the_same_pdf_reuses_the_artifact() -> None:
-    storage = MemoryStorage()
+    storage = _storage()
     parser = RecordingParser(_artifact())
     first = StubJobs(_queued())
     handler = _handler(first, storage, parser)
@@ -719,7 +686,7 @@ def test_the_mineru_result_path_has_the_tier_as_its_last_segment() -> None:
     parser = RecordingParser(_artifact())
     handler = ParseJobHandler(
         database_url="postgresql://unused",
-        storage=MemoryStorage(),
+        storage=_storage(),
         parser_factory=lambda _name: parser,
         max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
         mineru_tier="standard",
@@ -733,7 +700,7 @@ def test_the_mineru_result_path_has_the_tier_as_its_last_segment() -> None:
 
 def test_each_backend_gets_its_own_result_path() -> None:
     jobs = StubJobs(_queued().with_changes(parser="mineru"))
-    storage = MemoryStorage()
+    storage = _storage()
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, storage, parser, factory=lambda _name: parser)
     asyncio.run(handler.handle(_message()))
@@ -766,7 +733,7 @@ def test_the_parser_reads_a_closed_temp_file_that_is_removed_afterwards(
 
     jobs = StubJobs(_queued())
     parser = _ClosedFileParser(_artifact())
-    handler = _handler(jobs, MemoryStorage(), parser)
+    handler = _handler(jobs, _storage(), parser)
     asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
 

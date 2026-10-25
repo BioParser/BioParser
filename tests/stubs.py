@@ -4,7 +4,7 @@ import asyncio
 import json
 import re
 import threading
-from collections.abc import Callable, Collection, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,7 +26,13 @@ from bioparser.parser.models import (
     ParserInfo,
     TextContent,
 )
-from bioparser.storage import ArtifactMetadata, ArtifactNotFoundError, StorageError
+from bioparser.storage import (
+    ArtifactAlreadyExistsError,
+    ArtifactMetadata,
+    ArtifactNotFoundError,
+    StorageError,
+    StoredArtifact,
+)
 
 # What httpx2.MockTransport calls for every request a client sends
 type Handler = Callable[[httpx2.Request], httpx2.Response]
@@ -217,6 +223,42 @@ class StubVLLMService:
 
     async def aclose(self) -> None:
         return None
+
+
+class MemoryStorage:
+    """In-memory artifacts for the parse and extract handler tests.
+
+    `payloads` can already hold files the handler reads. A later `store` of the
+    same path raises, the same way the filesystem store does.
+    """
+
+    def __init__(self, payloads: Mapping[str, bytes] | None = None) -> None:
+        self.payloads: dict[str, bytes] = dict(payloads or {})
+        self.metadata: dict[str, ArtifactMetadata] = {}
+        self.stores = 0
+
+    async def store(self, content: bytes, metadata: ArtifactMetadata) -> str:
+        if metadata.artifact_path in self.payloads:
+            raise ArtifactAlreadyExistsError(metadata.artifact_path)
+        self.payloads[metadata.artifact_path] = content
+        self.metadata[metadata.artifact_path] = metadata
+        self.stores += 1
+        return metadata.artifact_path
+
+    async def retrieve(self, artifact_path: str) -> bytes:
+        try:
+            return self.payloads[artifact_path]
+        except KeyError as exc:
+            raise ArtifactNotFoundError(artifact_path) from exc
+
+    async def exists(self, artifact_path: str) -> bool:
+        return artifact_path in self.payloads
+
+    async def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
+        return self.metadata[artifact_path]
+
+    async def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
+        raise NotImplementedError
 
 
 class StubArtifactStorage:

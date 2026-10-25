@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import os
@@ -9,7 +10,6 @@ from pathlib import Path
 
 from pydantic import Field, ValidationError
 
-from bioparser import blocking
 from bioparser.artifact_paths import (
     ArtifactPathError,
     ArtifactPathTraversalError,
@@ -235,20 +235,19 @@ class FileSystemArtifactStorage:
         metadata_path = self._get_metadata_path(artifact_path)
         return metadata_path.is_file()
 
-    # Local file I/O has no async form. `blocking.call` runs it off the loop and,
-    # if the job is cancelled, waits until the call returns before the next job starts.
+    # Local file I/O has no async form, so it runs on a thread.
 
     async def store(self, content: bytes, metadata: ArtifactMetadata) -> str:
-        return await blocking.call(self._store, content, metadata)
+        return await asyncio.to_thread(self._store, content, metadata)
 
     async def retrieve(self, artifact_path: str) -> bytes:
-        return await blocking.call(self._retrieve, artifact_path)
+        return await asyncio.to_thread(self._retrieve, artifact_path)
 
     async def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
-        return await blocking.call(self._retrieve_metadata, artifact_path)
+        return await asyncio.to_thread(self._retrieve_metadata, artifact_path)
 
     async def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
-        return await blocking.call(self._retrieve_artifact, artifact_path)
+        return await asyncio.to_thread(self._retrieve_artifact, artifact_path)
 
     async def exists(self, artifact_path: str) -> bool:
-        return await blocking.call(self._exists, artifact_path)
+        return await asyncio.to_thread(self._exists, artifact_path)

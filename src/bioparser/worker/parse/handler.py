@@ -9,7 +9,6 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-from bioparser import blocking
 from bioparser.artifact_paths import parse_result_path
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
@@ -117,7 +116,7 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
     async def _ensure_parser_artifact(self, parser_name: str, pdf_ref: str) -> str:
         """Return the artifact path for the parsed PDF, creating it if needed."""
         pdf = await self._retrieve_pdf(pdf_ref)
-        checksum = await blocking.call(sha256_bytes, pdf)
+        checksum = await asyncio.to_thread(sha256_bytes, pdf)
         artifact_path = _parse_result_path(checksum, parser_name, self._mineru_tier)
         stored = await _retrieve_or_none(self._storage, artifact_path)
         if stored is not None and _is_parser_artifact(stored):

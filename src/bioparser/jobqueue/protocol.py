@@ -21,11 +21,10 @@ class JobHandler[T: BaseModel](Protocol):
         Any other result drops the deferral clock on this message, so a retry
         is not charged to the same outage.
 
-        When the time limit passes the queue cancels this coroutine, so it sees
-        `asyncio.CancelledError` at its next await. Blocking work goes through
-        `bioparser.blocking.call`: the thread cannot be killed, and the call waits
-        for it to return before this coroutine ends. The queue does not take the
-        next message until then. The attempt is retried like any other failure.
+        When the time limit passes, this coroutine is cancelled and sees
+        `asyncio.CancelledError` at its next await. `asyncio.to_thread` keeps running;
+        the queue joins that thread before the next message. The attempt is retried
+        like any other failure.
         """
         ...
 

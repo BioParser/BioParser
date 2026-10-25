@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import tempfile
 from pathlib import Path
 
-from bioparser import blocking
 from bioparser.parser.models import ParserArtifact
 from bioparser.parser.protocol import PdfParser
 
@@ -20,8 +20,8 @@ def _write_temporary_pdf(pdf: bytes) -> Path:
 
 async def parse_pdf_bytes(parser: PdfParser, pdf: bytes) -> ParserArtifact:
     """Parse PDF bytes with a backend that reads a path. The temporary file is removed after."""
-    path = await blocking.call(_write_temporary_pdf, pdf)
+    path = await asyncio.to_thread(_write_temporary_pdf, pdf)
     try:
         return await parser.parse(path)
     finally:
-        await blocking.call(path.unlink, missing_ok=True)
+        await asyncio.to_thread(path.unlink, missing_ok=True)
