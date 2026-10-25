@@ -137,11 +137,6 @@ def test_rejects_non_positive_min_backoff(stub_broker: StubBroker) -> None:
         DramatiqJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker, min_backoff_ms=0)
 
 
-def test_rejects_non_positive_worker_threads(stub_broker: StubBroker) -> None:
-    with pytest.raises(JobQueueConfigError, match="worker_threads"):
-        DramatiqJobQueue(name="parse", model=ParseJobMessage, broker=stub_broker, worker_threads=0)
-
-
 def test_rejects_non_positive_worker_timeout(stub_broker: StubBroker) -> None:
     with pytest.raises(JobQueueConfigError, match="worker_timeout_ms"):
         DramatiqJobQueue(
@@ -186,13 +181,12 @@ def test_worker_settings_reach_the_dramatiq_worker(
         name="parse",
         model=ParseJobMessage,
         broker=stub_broker,
-        worker_threads=2,
         worker_timeout_ms=50,
     )
     expected = _message()
     _submit(queue, expected)
     queue.consume(handler, until_empty=True)
-    assert captured["worker_threads"] == 2
+    assert captured["worker_threads"] == 1
     assert captured["worker_timeout"] == 50
     assert handler.received == [expected]
 
@@ -582,86 +576,6 @@ def test_consume_enforces_the_time_limit(stub_broker: StubBroker) -> None:
     assert [type(exc) for exc in handler.failed] == [JobTimeLimitExceeded]
 
 
-def test_worker_threads_overlap_blocking_calls(stub_broker: StubBroker) -> None:
-    """Each worker has a pool thread, so two blocking calls run at the same time."""
-    started = [Event(), Event()]
-    release = Event()
-
-    class _Hold(JobHandler[ParseJobMessage]):
-        def __init__(self) -> None:
-            self._slot = 0
-            self._slot_lock = threading.Lock()
-
-        async def handle(self, message: ParseJobMessage) -> None:
-            with self._slot_lock:
-                slot = self._slot
-                self._slot += 1
-            await asyncio.to_thread(self._hold, slot)
-
-        def _hold(self, slot: int) -> None:
-            started[slot].set()
-            release.wait(timeout=2)
-
-    def release_when_both() -> None:
-        if started[0].wait(timeout=2) and started[1].wait(timeout=2):
-            release.set()
-
-    queue = _queue(stub_broker, worker_threads=2)
-    handler = _Hold()
-    _submit(queue, _message())
-    _submit(queue, _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35"))
-    threading.Thread(target=release_when_both, daemon=True).start()
-
-    queue.consume(handler, until_empty=True)
-
-    assert release.is_set()
-
-
-def test_time_limit_joins_only_the_handler_that_ran_long(stub_broker: StubBroker) -> None:
-    """The other worker finishes its blocking call while the timed-out call is still running."""
-    slow_id = "3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34"
-    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
-    time_limit.manager.interval = 0.05  # type: ignore[union-attr]
-
-    class _Pair(JobHandler[ParseJobMessage]):
-        def __init__(self) -> None:
-            self.slow_started = Event()
-            self.fast_finished_at: float | None = None
-            self.slow_finished_at: float | None = None
-            self.cancelled = Event()
-
-        async def handle(self, message: ParseJobMessage) -> None:
-            if str(message.job_id) == slow_id:
-                try:
-                    await asyncio.to_thread(self._slow)
-                except asyncio.CancelledError:
-                    self.cancelled.set()
-                    raise
-                return
-            await asyncio.to_thread(self._fast)
-
-        def _slow(self) -> None:
-            self.slow_started.set()
-            time.sleep(1.2)
-            self.slow_finished_at = time.monotonic()
-
-        def _fast(self) -> None:
-            self.slow_started.wait(timeout=2)
-            self.fast_finished_at = time.monotonic()
-
-    queue = _queue(stub_broker, worker_threads=2, time_limit_ms=1000, max_retries=0)
-    handler = _Pair()
-    _submit(queue, _message(slow_id))
-    _submit(queue, _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35"))
-
-    queue.consume(handler, until_empty=True)
-
-    assert handler.cancelled.is_set()
-    assert handler.fast_finished_at is not None
-    assert handler.slow_finished_at is not None
-    assert handler.fast_finished_at < handler.slow_finished_at
-
-
 def test_a_blocking_call_that_never_returns_exits_the_process(
     stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -688,6 +602,56 @@ def test_a_blocking_call_that_never_returns_exits_the_process(
     _submit(queue, _message())
 
     queue.consume(_Stuck(), until_empty=True)
+
+    assert exits == [1]
+
+
+def test_a_hook_that_never_returns_exits_the_process(
+    stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """on_failed has no second time-limit injection, so its own bound exits the process."""
+    release = Event()
+    exits: list[int] = []
+
+    def fake_exit(code: int) -> None:
+        exits.append(code)
+        release.set()
+
+    monkeypatch.setattr("bioparser.jobqueue.dramatiq.redis_queue.os._exit", fake_exit)
+
+    class _StuckHook(JobHandler[ParseJobMessage]):
+        async def handle(self, message: ParseJobMessage) -> None:
+            raise RuntimeError("parse failed")
+
+        async def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
+            await asyncio.to_thread(release.wait)
+
+    queue = _queue(stub_broker, time_limit_ms=200, max_retries=0)
+    _submit(queue, _message())
+
+    queue.consume(_StuckHook(), until_empty=True)
+
+    assert exits == [1]
+
+
+def test_shutdown_that_never_returns_exits_the_process(
+    stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    release = Event()
+    exits: list[int] = []
+
+    def fake_exit(code: int) -> None:
+        exits.append(code)
+        release.set()
+
+    monkeypatch.setattr("bioparser.jobqueue.dramatiq.redis_queue.os._exit", fake_exit)
+
+    class _StuckClose(JobHandler[ParseJobMessage]):
+        async def aclose(self) -> None:
+            await asyncio.to_thread(release.wait)
+
+    queue = _queue(stub_broker, time_limit_ms=200)
+    queue.consume(_StuckClose(), until_empty=True)
 
     assert exits == [1]
 

@@ -25,7 +25,6 @@ def build_worker(
         timeout_s=settings.redis_timeout_seconds,
         time_limit_ms=round(settings.extract_time_limit_seconds * 1000),
         max_retries=settings.extract_max_retries,
-        worker_threads=1,
     )
     vllm = VLLMService()
     char_budget = settings.extraction_char_budget
