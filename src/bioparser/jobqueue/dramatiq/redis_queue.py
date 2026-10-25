@@ -3,23 +3,27 @@
 Delivery is at-least-once: a worker crash or handler exception can re-run a job.
 
 Defaults:
-- ``time_limit``: 10 minutes (600_000 ms). The handler's coroutine is cancelled after this.
-  A blocking call keeps running until it returns. The worker does not take the next
-  message until that call has returned. See ``bioparser.blocking``.
+- ``time_limit``: 10 minutes (600_000 ms). Cancels the handler. See ``_on_loop``.
+  A blocking call still running after another limit exits the process.
 - ``max_retries``: 3. Handler exceptions retry.
 - ``min_backoff``: 15 seconds before the first retry, backing off exponentially.
-- ``worker_threads``: 1, so handlers run serially. Raising it runs them concurrently.
+- ``worker_threads``: 1. Raising it overlaps handlers on the one consumer loop,
+  with that many threads for ``asyncio.to_thread``. A time limit joins the calls
+  that handler started.
 
 Messages that leave the queue without a successful handler run are poisoned.
 """
 
 import asyncio
 import concurrent.futures
+import contextvars
 import logging
+import os
 import re
+import sys
 from collections.abc import Callable, Coroutine, Iterator, Mapping
 from contextlib import contextmanager
-from threading import Event, Lock
+from threading import Event, Lock, Thread
 from typing import Any, TypeVar
 
 import dramatiq
@@ -70,11 +74,84 @@ _OPTION_DEFERRALS = "deferrals"
 _QUEUE_NAME_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9._-]*")
 
 
+class _HandlerBlocking:
+    """Calls one handler handed to the pool, and the lock that keeps them in order."""
+
+    def __init__(self) -> None:
+        self.lock = Lock()
+        self.calls: list[concurrent.futures.Future[Any]] = []
+
+
+# Set while a handler runs. The pool records into it and runs its calls one at a time.
+_HANDLER_BLOCKING: contextvars.ContextVar[_HandlerBlocking | None] = contextvars.ContextVar(
+    "bioparser_handler_blocking",
+    default=None,
+)
+
+
 def _option_int(options: Mapping[str, object], key: str) -> int | None:
     value = options.get(key)
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value
+
+
+class _BlockingPool(concurrent.futures.ThreadPoolExecutor):
+    """``asyncio.to_thread`` for the consumer loop. One thread per worker."""
+
+    def __init__(self, workers: int, name: str) -> None:
+        super().__init__(max_workers=workers, thread_name_prefix=name)
+
+    def submit(
+        self,
+        fn: Callable[..., Any],
+        /,
+        *args: Any,
+        **kwargs: Any,
+    ) -> concurrent.futures.Future[Any]:
+        handler = _HANDLER_BLOCKING.get()
+        if handler is None:
+            future = super().submit(fn, *args, **kwargs)
+        else:
+            # One handler's calls take its lock, so cleanup cannot pass the call it follows.
+            # Other handlers have their own lock and run alongside.
+            future = super().submit(_run_for_handler, handler, fn, args, kwargs)
+        # Cancelling the awaiter also cancels a future that has not started. Keep
+        # queued work, including a finally block's cleanup, for _on_loop to join.
+        future.cancel = _cannot_cancel  # type: ignore[method-assign]
+        if handler is not None:
+            handler.calls.append(future)
+        return future
+
+
+def _run_for_handler(
+    handler: _HandlerBlocking,
+    fn: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> Any:
+    with handler.lock:
+        return fn(*args, **kwargs)
+
+
+def _cannot_cancel() -> bool:
+    return False
+
+
+def _use_blocking_executor(
+    loop: asyncio.AbstractEventLoop,
+    executor: concurrent.futures.ThreadPoolExecutor,
+) -> None:
+    """Send ``asyncio.to_thread`` on `loop` through `executor`."""
+    installed = Event()
+
+    def install() -> None:
+        loop.set_default_executor(executor)
+        installed.set()
+
+    loop.call_soon_threadsafe(install)
+    if not installed.wait(timeout=5.0):
+        raise JobQueueError("the consumer loop did not install its blocking thread")
 
 
 def _require_queue_name(name: str) -> None:
@@ -139,6 +216,7 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         self._model = model
         self._broker = broker
         self._max_retries = max_retries
+        self._time_limit_ms = time_limit_ms
         self._worker_threads = worker_threads
         self._worker_timeout_ms = worker_timeout_ms
         self._handler: JobHandler[T] | None = None
@@ -220,11 +298,15 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
 
     @contextmanager
     def _event_loop(self, handler: JobHandler[T]) -> Iterator[None]:
-        """Run one event loop for every handler call, and close the handler on it."""
+        """Run every handler on one loop, then close the handler on it."""
         loop_thread = EventLoopThread(LOGGER)
         loop_thread.start(timeout=5.0)
         set_event_loop_thread(loop_thread)
+        # Several Dramatiq threads block in _on_loop while their coroutines overlap
+        # here. The pool has one thread per worker. Each handler records its own calls.
+        executor = _BlockingPool(self._worker_threads, f"{self._name}-blocking")
         try:
+            _use_blocking_executor(loop_thread.loop, executor)
             yield
         finally:
             try:
@@ -232,45 +314,57 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
             except Exception:
                 LOGGER.exception("handler aclose failed on queue %s", self._name)
             finally:
+                executor.shutdown(wait=True)
                 loop_thread.stop()  # type: ignore[no-untyped-call]
                 set_event_loop_thread(None)
 
-    @staticmethod
-    def _on_loop(coroutine: Coroutine[Any, Any, _R]) -> _R:
-        """Run a handler call on the consumer's loop and wait for it in this worker thread.
-
-        When the time limit passes, Dramatiq raises `TimeLimitExceeded` in this thread.
-        Cancelling the coroutine makes the handler see `asyncio.CancelledError`. This
-        wait does not return until the coroutine has finished, including a blocking
-        call that `bioparser.blocking.call` is joining. Dramatiq's own `run_coroutine`
-        gives that cleanup one second, which would let the next message start while
-        the thread was still parsing.
-        """
+    def _on_loop(self, coroutine: Coroutine[Any, Any, _R]) -> _R:
+        """Run `coroutine` on the consumer loop. Return when this worker can take another message."""
         loop_thread = get_event_loop_thread()
         if loop_thread is None:
             coroutine.close()
             raise JobQueueError("the queue is not consuming")
-        # Cancelling the concurrent future marks it done at once, before the
-        # coroutine has joined its blocking call. This event is set in the
-        # coroutine's finally, which runs after that join.
+        # The pool appends to this while the coroutine runs, including its finally block.
+        handler_blocking = _HandlerBlocking()
+        # The worker waits on this, because the cancelled future is done before the coroutine unwinds.
         finished = Event()
 
         async def watched() -> _R:
+            token = _HANDLER_BLOCKING.set(handler_blocking)
             try:
                 return await coroutine
             finally:
+                _HANDLER_BLOCKING.reset(token)
                 finished.set()
 
+        # Used instead of EventLoopThread.run_coroutine, which returns one second after
+        # the time limit and would let this worker take the next message while a blocking
+        # call was still running.
         future = asyncio.run_coroutine_threadsafe(watched(), loop_thread.loop)
         try:
             return _wait(future)
         except TimeLimitExceeded:
-            future.cancel()
-            while not finished.is_set():
-                try:
-                    finished.wait(timeout=_WAIT_POLL_S)
-                except TimeLimitExceeded:
-                    continue
+            # This thread cannot be recovered if the call never returns. The time limit
+            # again is how long it may run past the cancellation. Then the process exits.
+            returned = Event()
+            Thread(
+                target=_exit_when_stuck,
+                args=(returned, self._time_limit_ms / 1000),
+                name="bioparser-stuck-call",
+                daemon=True,
+            ).start()
+            try:
+                # The handler sees CancelledError. Calls already in the pool keep running.
+                future.cancel()
+                while not finished.is_set():
+                    try:
+                        finished.wait(timeout=_WAIT_POLL_S)
+                    except TimeLimitExceeded:
+                        continue
+                # This handler's calls only. Another handler's calls keep running.
+                _join_calls(handler_blocking.calls)
+            finally:
+                returned.set()
             raise
 
     @contextmanager
@@ -417,6 +511,37 @@ def _validation_summary(exc: ValidationError) -> str:
     )
 
 
+def _exit_when_stuck(returned: Event, grace_s: float) -> None:
+    if returned.wait(timeout=grace_s):
+        return
+    message = (
+        f"a blocking call was still running {grace_s:.0f} seconds after the time limit; exiting"
+    )
+    LOGGER.critical(message)
+    sys.stderr.write(message + "\n")
+    sys.stderr.flush()
+    os._exit(1)
+
+
+def _join_calls(calls: list[concurrent.futures.Future[Any]]) -> None:
+    """Wait until `calls` finish. A time-limit exception during the wait is ignored."""
+    pending = set(calls)
+    while pending:
+        try:
+            done, pending = concurrent.futures.wait(pending, timeout=_WAIT_POLL_S)
+            for call in done:
+                if call.cancelled():
+                    continue
+                error = call.exception()
+                if error is not None:
+                    LOGGER.warning(
+                        "blocking call finished after cancellation: %s",
+                        type(error).__name__,
+                    )
+        except TimeLimitExceeded:
+            continue
+
+
 def _wait[R](future: concurrent.futures.Future[R]) -> R:
     """Block until `future` finishes. A time-limit exception can land between polls."""
     while True:
@@ -435,8 +560,7 @@ def _start_time_limit(broker: Broker) -> None:
     raises the second time, and `process_boot` calls it unconditionally, so a later boot
     finds the thread already running and leaves it.
 
-    The timer raises `TimeLimitExceeded` in the worker thread, which is waiting in
-    `_on_loop`. That cancels the handler's coroutine.
+    The timer raises `TimeLimitExceeded` in the worker thread waiting in `_on_loop`.
     """
     for middleware in broker.middleware:
         if isinstance(middleware, TimeLimit):

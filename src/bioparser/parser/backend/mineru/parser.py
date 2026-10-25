@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 
-from bioparser import blocking
 from bioparser.hashing import sha256_bytes
 from bioparser.parser.backend.mineru.mapper import (
     MiddleJsonContractError,
@@ -46,8 +46,8 @@ class MinerUParser:
         pdf_path = path.expanduser().resolve()
         if not pdf_path.is_file():
             raise FileNotFoundError("PDF not found")
-        content = await blocking.call(pdf_path.read_bytes)
-        checksum = await blocking.call(sha256_bytes, content)
+        content = await asyncio.to_thread(pdf_path.read_bytes)
+        checksum = await asyncio.to_thread(sha256_bytes, content)
         wait_s = MAX_WAIT_SECONDS if self._timeout_s is None else self._timeout_s
 
         try:

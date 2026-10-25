@@ -16,7 +16,6 @@ from dramatiq.middleware import CurrentMessage, Retries
 from dramatiq.middleware.time_limit import TimeLimit
 from redis.exceptions import ConnectionError as RedisConnectionError
 
-from bioparser import blocking
 from bioparser.jobqueue import (
     JobDeferralExpired,
     JobDeferred,
@@ -527,6 +526,7 @@ class _Blocking(JobHandler[ParseJobMessage]):
         self.calls = 0
         self.started_at: list[float] = []
         self.finished_at: float | None = None
+        self.cleaned_at: float | None = None
         self.failed: list[BaseException] = []
 
     async def handle(self, message: ParseJobMessage) -> None:
@@ -534,16 +534,22 @@ class _Blocking(JobHandler[ParseJobMessage]):
         call = self.calls
         self.started_at.append(time.monotonic())
         try:
-            await blocking.call(self._block, call)
+            await asyncio.to_thread(self._block, call)
         except asyncio.CancelledError:
             self.cancelled.set()
             raise
+        finally:
+            await asyncio.to_thread(self._clean, call)
 
     def _block(self, call: int) -> None:
         if call > 1:
             return
         time.sleep(self.seconds)
         self.finished_at = time.monotonic()
+
+    def _clean(self, call: int) -> None:
+        if call == 1:
+            self.cleaned_at = time.monotonic()
 
     async def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
         self.failed.append(exc)
@@ -552,13 +558,16 @@ class _Blocking(JobHandler[ParseJobMessage]):
 def test_consume_enforces_the_time_limit(stub_broker: StubBroker) -> None:
     """The broker is not booted by the test: consume must do what Dramatiq's CLI would.
 
-    The blocking call runs past the limit. consume returns only after that call has
-    returned, so the next job cannot start while it is still running.
+    The blocking call runs past the limit. consume returns only after that call
+    and the handler's cleanup have returned, so the next job cannot start while
+    either is still running.
     """
     (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
     time_limit.manager.interval = 0.05  # type: ignore[union-attr]
-    queue = _queue(stub_broker, time_limit_ms=200, max_retries=0)
-    handler = _Blocking(0.6)
+    # The call runs past the limit, and returns within the second limit. A call that
+    # is still going after that exits the process.
+    queue = _queue(stub_broker, time_limit_ms=1000, max_retries=0)
+    handler = _Blocking(1.2)
     _submit(queue, _message())
     _submit(queue, _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35"))
 
@@ -567,8 +576,120 @@ def test_consume_enforces_the_time_limit(stub_broker: StubBroker) -> None:
     assert handler.cancelled.is_set()
     assert handler.calls == 2
     assert handler.finished_at is not None
-    assert handler.started_at[1] >= handler.finished_at
+    assert handler.cleaned_at is not None
+    assert handler.cleaned_at >= handler.finished_at
+    assert handler.started_at[1] >= handler.cleaned_at
     assert [type(exc) for exc in handler.failed] == [JobTimeLimitExceeded]
+
+
+def test_worker_threads_overlap_blocking_calls(stub_broker: StubBroker) -> None:
+    """Each worker has a pool thread, so two blocking calls run at the same time."""
+    started = [Event(), Event()]
+    release = Event()
+
+    class _Hold(JobHandler[ParseJobMessage]):
+        def __init__(self) -> None:
+            self._slot = 0
+            self._slot_lock = threading.Lock()
+
+        async def handle(self, message: ParseJobMessage) -> None:
+            with self._slot_lock:
+                slot = self._slot
+                self._slot += 1
+            await asyncio.to_thread(self._hold, slot)
+
+        def _hold(self, slot: int) -> None:
+            started[slot].set()
+            release.wait(timeout=2)
+
+    def release_when_both() -> None:
+        if started[0].wait(timeout=2) and started[1].wait(timeout=2):
+            release.set()
+
+    queue = _queue(stub_broker, worker_threads=2)
+    handler = _Hold()
+    _submit(queue, _message())
+    _submit(queue, _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35"))
+    threading.Thread(target=release_when_both, daemon=True).start()
+
+    queue.consume(handler, until_empty=True)
+
+    assert release.is_set()
+
+
+def test_time_limit_joins_only_the_handler_that_ran_long(stub_broker: StubBroker) -> None:
+    """The other worker finishes its blocking call while the timed-out call is still running."""
+    slow_id = "3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34"
+    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
+    time_limit.manager.interval = 0.05  # type: ignore[union-attr]
+
+    class _Pair(JobHandler[ParseJobMessage]):
+        def __init__(self) -> None:
+            self.slow_started = Event()
+            self.fast_finished_at: float | None = None
+            self.slow_finished_at: float | None = None
+            self.cancelled = Event()
+
+        async def handle(self, message: ParseJobMessage) -> None:
+            if str(message.job_id) == slow_id:
+                try:
+                    await asyncio.to_thread(self._slow)
+                except asyncio.CancelledError:
+                    self.cancelled.set()
+                    raise
+                return
+            await asyncio.to_thread(self._fast)
+
+        def _slow(self) -> None:
+            self.slow_started.set()
+            time.sleep(1.2)
+            self.slow_finished_at = time.monotonic()
+
+        def _fast(self) -> None:
+            self.slow_started.wait(timeout=2)
+            self.fast_finished_at = time.monotonic()
+
+    queue = _queue(stub_broker, worker_threads=2, time_limit_ms=1000, max_retries=0)
+    handler = _Pair()
+    _submit(queue, _message(slow_id))
+    _submit(queue, _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35"))
+
+    queue.consume(handler, until_empty=True)
+
+    assert handler.cancelled.is_set()
+    assert handler.fast_finished_at is not None
+    assert handler.slow_finished_at is not None
+    assert handler.fast_finished_at < handler.slow_finished_at
+
+
+def test_a_blocking_call_that_never_returns_exits_the_process(
+    stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
+    time_limit.manager.interval = 0.05  # type: ignore[union-attr]
+    release = Event()
+    exits: list[int] = []
+
+    def fake_exit(code: int) -> None:
+        exits.append(code)
+        release.set()
+
+    monkeypatch.setattr("bioparser.jobqueue.dramatiq.redis_queue.os._exit", fake_exit)
+
+    class _Stuck(JobHandler[ParseJobMessage]):
+        async def handle(self, message: ParseJobMessage) -> None:
+            await asyncio.to_thread(self._block)
+
+        def _block(self) -> None:
+            while not release.wait(timeout=0.05):
+                pass
+
+    queue = _queue(stub_broker, time_limit_ms=200, max_retries=0)
+    _submit(queue, _message())
+
+    queue.consume(_Stuck(), until_empty=True)
+
+    assert exits == [1]
 
 
 def test_consume_can_run_more_than_once_on_one_broker(stub_broker: StubBroker) -> None:
@@ -626,7 +747,7 @@ def test_stop_waits_for_the_running_job_to_finish(stub_broker: StubBroker) -> No
     class _Slow(JobHandler[ParseJobMessage]):
         async def handle(self, message: ParseJobMessage) -> None:
             started.set()
-            await blocking.call(time.sleep, 0.3)
+            await asyncio.to_thread(time.sleep, 0.3)
             finished.set()
 
     stop = Event()

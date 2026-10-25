@@ -41,8 +41,7 @@ class JobDeferred(Exception):
 class JobTimeLimitExceeded(Exception):
     """The job ran past the queue's time limit.
 
-    The handler's coroutine is cancelled when the limit passes, so it sees
-    `asyncio.CancelledError` at its next await. A blocking call is not stopped.
-    It runs to completion, and the queue waits for that before `on_failed` and
-    before the next message. This type reaches `on_failed` for the last attempt.
+    The handler is cancelled and sees `asyncio.CancelledError` at its next await.
+    `asyncio.to_thread` keeps running; the queue joins it before `on_failed` and
+    before the next message. `on_failed` receives this on the last attempt.
     """
