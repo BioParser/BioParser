@@ -7,11 +7,11 @@ from pydantic import BaseModel
 class JobHandler[T: BaseModel](Protocol):
     """Consumer of one queue's messages.
 
-    Callbacks run concurrently when the queue consumes on more than one
-    thread. Subclass to inherit the reporting hooks as no-ops.
+    Every method runs on the consumer's one event loop. Subclass to inherit the
+    reporting hooks as no-ops.
     """
 
-    def handle(self, message: T) -> None:
+    async def handle(self, message: T) -> None:
         """Process one message. Raising retries it up to the queue's retry limit.
 
         Raise `JobDeferred` instead when the job was not changed and should run
@@ -21,29 +21,35 @@ class JobHandler[T: BaseModel](Protocol):
         Any other result drops the deferral clock on this message, so a retry
         is not charged to the same outage.
 
-        The queue interrupts a call that runs past its time limit by raising
-        `JobTimeLimitExceeded` in this thread, at any point. It is retried like any other
-        failure unless the handler catches it and decides otherwise.
+        When the time limit passes the queue cancels this coroutine, so it sees
+        `asyncio.CancelledError` at its next await. Blocking work goes through
+        `bioparser.blocking.call`: the thread cannot be killed, and the call waits
+        for it to return before this coroutine ends. The queue does not take the
+        next message until then. The attempt is retried like any other failure.
         """
         ...
 
-    def on_malformed(self, payload: object) -> None:
+    async def on_malformed(self, payload: object) -> None:
         """Report a payload that failed validation. It is poisoned, not retried."""
         return
 
-    def on_failed(self, message: T, exc: BaseException) -> None:
-        """Report a message that failed its final attempt. It is poisoned."""
+    async def on_failed(self, message: T, exc: BaseException) -> None:
+        """Report a message that failed its final attempt. It is poisoned.
+
+        `exc` is `JobTimeLimitExceeded` when the last attempt ran out of time.
+        """
+        return
+
+    async def aclose(self) -> None:
+        """Release what the handler holds. The queue calls this once, after the last message."""
         return
 
 
 class JobQueue[T: BaseModel](Protocol):
     """Replaceable queue for submitting and consuming typed messages."""
 
-    def submit(self, message: T) -> None:
-        """Enqueue a message.
-
-        Blocks on queue I/O: call it through ``asyncio.to_thread`` from async code.
-        """
+    async def submit(self, message: T) -> None:
+        """Enqueue a message."""
         ...
 
     def consume(

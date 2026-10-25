@@ -13,7 +13,7 @@ class ArtifactStorage(Protocol):
     Artifacts are stored, retrieved, and checked strictly by Artifact path string.
     """
 
-    def store(
+    async def store(
         self,
         content: bytes,
         metadata: ArtifactMetadata,
@@ -34,7 +34,7 @@ class ArtifactStorage(Protocol):
         """
         ...
 
-    def retrieve(self, artifact_path: str) -> bytes:
+    async def retrieve(self, artifact_path: str) -> bytes:
         """Retrieve the binary payload of an artifact.
 
         Args:
@@ -49,7 +49,7 @@ class ArtifactStorage(Protocol):
         """
         ...
 
-    def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
+    async def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
         """Retrieve the metadata of an artifact.
 
         Args:
@@ -64,7 +64,7 @@ class ArtifactStorage(Protocol):
         """
         ...
 
-    def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
+    async def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
         """Retrieve both content and metadata for an artifact in a single operation.
 
         Args:
@@ -79,7 +79,7 @@ class ArtifactStorage(Protocol):
         """
         ...
 
-    def exists(self, artifact_path: str) -> bool:
+    async def exists(self, artifact_path: str) -> bool:
         """Check whether an artifact exists in storage.
 
         Args:

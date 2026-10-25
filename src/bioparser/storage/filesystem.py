@@ -9,6 +9,7 @@ from pathlib import Path
 
 from pydantic import Field, ValidationError
 
+from bioparser import blocking
 from bioparser.artifact_paths import (
     ArtifactPathError,
     ArtifactPathTraversalError,
@@ -136,7 +137,7 @@ class FileSystemArtifactStorage:
 
         return content
 
-    def store(
+    def _store(
         self,
         content: bytes,
         metadata: ArtifactMetadata,
@@ -213,23 +214,41 @@ class FileSystemArtifactStorage:
 
         return aid
 
-    def retrieve(self, artifact_path: str) -> bytes:
+    def _retrieve(self, artifact_path: str) -> bytes:
         record = self._read_file_blob_metadata(artifact_path)
         return self._read_content(artifact_path, record)
 
-    def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
+    def _retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
         record = self._read_file_blob_metadata(artifact_path)
         blob_path = self._get_blob_data_path(artifact_path, record.blob_id)
         if not blob_path.is_file():
             raise ArtifactNotFoundError(f"Artifact content not found: {artifact_path}")
         return record.to_artifact_metadata()
 
-    def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
+    def _retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
         record = self._read_file_blob_metadata(artifact_path)
         content = self._read_content(artifact_path, record)
         return StoredArtifact(content=content, metadata=record.to_artifact_metadata())
 
-    def exists(self, artifact_path: str) -> bool:
+    def _exists(self, artifact_path: str) -> bool:
         self._validate_artifact_path(artifact_path)
         metadata_path = self._get_metadata_path(artifact_path)
         return metadata_path.is_file()
+
+    # Local file I/O has no async form. `blocking.call` runs it off the loop and,
+    # if the job is cancelled, waits until the call returns before the next job starts.
+
+    async def store(self, content: bytes, metadata: ArtifactMetadata) -> str:
+        return await blocking.call(self._store, content, metadata)
+
+    async def retrieve(self, artifact_path: str) -> bytes:
+        return await blocking.call(self._retrieve, artifact_path)
+
+    async def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
+        return await blocking.call(self._retrieve_metadata, artifact_path)
+
+    async def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
+        return await blocking.call(self._retrieve_artifact, artifact_path)
+
+    async def exists(self, artifact_path: str) -> bool:
+        return await blocking.call(self._exists, artifact_path)

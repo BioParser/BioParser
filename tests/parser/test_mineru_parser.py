@@ -1,5 +1,6 @@
 """MinerUParser against a mineru-api on loopback."""
 
+import asyncio
 import hashlib
 import json
 import socket
@@ -41,7 +42,7 @@ def _failed(code: str) -> tuple[int, dict[str, Any]]:
 
 def test_the_reply_is_mapped_with_the_pdf_checksum_and_settings(pdf: Path) -> None:
     with fake_mineru(file_parse_reply()) as (url, seen):
-        artifact = MinerUParser(url, timeout_s=120.0).parse(pdf)
+        artifact = asyncio.run(MinerUParser(url, timeout_s=120.0).parse(pdf))
 
     checksum = hashlib.sha256(PDF).hexdigest()
     assert artifact.checksum == checksum
@@ -55,7 +56,7 @@ def test_the_reply_is_mapped_with_the_pdf_checksum_and_settings(pdf: Path) -> No
 
 def test_the_tier_is_asked_for_and_recorded(pdf: Path) -> None:
     with fake_mineru(file_parse_reply()) as (url, seen):
-        artifact = MinerUParser(url, tier="standard").parse(pdf)
+        artifact = asyncio.run(MinerUParser(url, tier="standard").parse(pdf))
 
     assert "tier=standard&" in seen[0]
     assert artifact.parser.version == "2"
@@ -71,14 +72,14 @@ def test_an_unknown_tier_from_the_environment_is_refused(monkeypatch: pytest.Mon
 
 def test_without_a_limit_mineru_waits_its_maximum(pdf: Path) -> None:
     with fake_mineru(file_parse_reply()) as (url, seen):
-        MinerUParser(url).parse(pdf)
+        asyncio.run(MinerUParser(url).parse(pdf))
 
     assert seen[0].endswith("wait_timeout=3600")
 
 
 def test_a_restarting_service_is_waited_for(pdf: Path) -> None:
     with fake_mineru(file_parse_reply(), health=[503, 503]) as (url, seen):
-        MinerUParser(url, timeout_s=120.0).parse(pdf)
+        asyncio.run(MinerUParser(url, timeout_s=120.0).parse(pdf))
 
     assert [request.split("?")[0] for request in seen] == ["POST /v1/file_parse"]
 
@@ -88,7 +89,7 @@ def test_a_failed_parse_is_a_process_error_to_retry(pdf: Path) -> None:
         fake_mineru(_failed("parse_failed")) as (url, _seen),
         pytest.raises(ParserProcessError, match="parse_failed"),
     ):
-        MinerUParser(url).parse(pdf)
+        asyncio.run(MinerUParser(url).parse(pdf))
 
 
 def test_a_parse_past_its_limit_is_a_timeout_and_is_cancelled(pdf: Path) -> None:
@@ -96,7 +97,7 @@ def test_a_parse_past_its_limit_is_a_timeout_and_is_cancelled(pdf: Path) -> None
         fake_mineru((202, {"task_id": "job_7", "status": "running"})) as (url, seen),
         pytest.raises(ParserTimeoutError),
     ):
-        MinerUParser(url, timeout_s=5.0).parse(pdf)
+        asyncio.run(MinerUParser(url, timeout_s=5.0).parse(pdf))
 
     assert seen[-1] == "DELETE /v1/tasks/job_7"
 
@@ -106,7 +107,7 @@ def test_a_parse_still_queued_at_its_limit_is_cancelled_and_retried(pdf: Path) -
         fake_mineru((202, {"task_id": "job_7", "status": "queued"})) as (url, seen),
         pytest.raises(ParserProcessError, match="did not start"),
     ):
-        MinerUParser(url, timeout_s=5.0).parse(pdf)
+        asyncio.run(MinerUParser(url, timeout_s=5.0).parse(pdf))
 
     assert seen[-1] == "DELETE /v1/tasks/job_7"
 
@@ -118,7 +119,7 @@ def test_a_tier_the_service_does_not_serve_fails_without_retries(pdf: Path) -> N
         fake_mineru((400, refused)) as (url, _seen),
         pytest.raises(ParserBackendUnavailableError, match="400 \\(invalid_request\\)"),
     ):
-        MinerUParser(url, tier="advanced").parse(pdf)
+        asyncio.run(MinerUParser(url, tier="advanced").parse(pdf))
 
 
 def test_an_unreachable_service_is_a_process_error(pdf: Path) -> None:
@@ -127,7 +128,7 @@ def test_an_unreachable_service_is_a_process_error(pdf: Path) -> None:
         port = sock.getsockname()[1]  # nothing listens once the socket closes
 
     with pytest.raises(ParserProcessError, match="not ready"):
-        MinerUParser(f"http://127.0.0.1:{port}", timeout_s=0.1).parse(pdf)
+        asyncio.run(MinerUParser(f"http://127.0.0.1:{port}", timeout_s=0.1).parse(pdf))
 
 
 def test_a_proxy_in_the_environment_is_not_used(pdf: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -137,7 +138,7 @@ def test_a_proxy_in_the_environment_is_not_used(pdf: Path, monkeypatch: pytest.M
         monkeypatch.delenv(name, raising=False)
 
     with fake_mineru(file_parse_reply()) as (url, seen):
-        MinerUParser(url, timeout_s=2.0).parse(pdf)
+        asyncio.run(MinerUParser(url, timeout_s=2.0).parse(pdf))
 
     assert len(seen) == 1
 
@@ -150,7 +151,7 @@ def test_middle_json_from_another_mineru_fails_without_blaming_the_pdf(pdf: Path
         fake_mineru(file_parse_reply(stale)) as (url, _seen),
         pytest.raises(ParserBackendUnavailableError, match="'3.4.5'"),
     ):
-        MinerUParser(url).parse(pdf)
+        asyncio.run(MinerUParser(url).parse(pdf))
 
 
 def test_middle_json_without_text_is_an_unsupported_document(pdf: Path) -> None:
@@ -162,11 +163,11 @@ def test_middle_json_without_text_is_an_unsupported_document(pdf: Path) -> None:
         fake_mineru(file_parse_reply(empty)) as (url, _seen),
         pytest.raises(UnsupportedDocumentError, match="no mappable"),
     ):
-        MinerUParser(url).parse(pdf)
+        asyncio.run(MinerUParser(url).parse(pdf))
 
 
 def test_a_missing_pdf_is_not_sent(tmp_path: Path) -> None:
     with fake_mineru() as (url, seen), pytest.raises(FileNotFoundError):
-        MinerUParser(url).parse(tmp_path / "missing.pdf")
+        asyncio.run(MinerUParser(url).parse(tmp_path / "missing.pdf"))
 
     assert seen == []

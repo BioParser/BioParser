@@ -179,7 +179,7 @@ async def test_duplicate_pdf_submission_reuses_stored_artifact(
     pdf_refs = {jobs.states[job_id].pdf_ref for job_id in job_ids}
     assert len(pdf_refs) == 1
     pdf_ref = pdf_refs.pop()
-    assert artifact_storage.retrieve(pdf_ref) == MINIMAL_PDF
+    assert await artifact_storage.retrieve(pdf_ref) == MINIMAL_PDF
     assert [str(message.job_id) for message in parse_queue.messages] == job_ids
 
 

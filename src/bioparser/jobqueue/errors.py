@@ -38,11 +38,11 @@ class JobDeferred(Exception):
     """
 
 
-class JobTimeLimitExceeded(BaseException):
-    """Raised by the queue in a handler's thread when its time limit passes.
+class JobTimeLimitExceeded(Exception):
+    """The job ran past the queue's time limit.
 
-    It is injected into the running thread, so it can surface at any statement. Like
-    `KeyboardInterrupt` it is not an `Exception`: a plain `except Exception` does not
-    swallow it. A handler may catch it to decide what a timeout means, for example whether
-    to retry, and otherwise lets it pass.
+    The handler's coroutine is cancelled when the limit passes, so it sees
+    `asyncio.CancelledError` at its next await. A blocking call is not stopped.
+    It runs to completion, and the queue waits for that before `on_failed` and
+    before the next message. This type reaches `on_failed` for the last attempt.
     """

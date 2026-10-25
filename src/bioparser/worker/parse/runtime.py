@@ -44,8 +44,8 @@ def build_worker(
             mineru_tier=settings.mineru_tier,
         )
 
-    def enqueue_extraction(job_id: UUID) -> None:
-        extract_queue.submit(ExtractJobMessage(job_id=job_id))
+    async def enqueue_extraction(job_id: UUID) -> None:
+        await extract_queue.submit(ExtractJobMessage(job_id=job_id))
 
     handler = ParseJobHandler(
         database_url=str(settings.database_url),
@@ -68,9 +68,6 @@ def main() -> None:
         queue, handler = build_worker(settings)
         stop = Event()
         install_shutdown(stop)
-        try:
-            queue.consume(handler, stop=stop)
-        finally:
-            handler.close()
+        queue.consume(handler, stop=stop)
     finally:
         liveness.close()

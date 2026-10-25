@@ -6,6 +6,7 @@ from pathlib import Path
 import pdfplumber
 from pdfplumber.page import Page as PdfPlumberPage
 
+from bioparser import blocking
 from bioparser.parser.backend.default.grouping import (
     SPAN_WIDTH_FACTOR,
     WordBox,
@@ -82,7 +83,12 @@ def _words_from_page(page: PdfPlumberPage) -> list[WordBox]:
 class DefaultParser:
     """Default digital-born PDF backend. Text currently uses pdfplumber."""
 
-    def parse(self, path: Path) -> ParserArtifact:
+    async def parse(self, path: Path) -> ParserArtifact:
+        # pdfplumber is blocking CPU work with no async form. The call runs in a
+        # thread and, if the job is cancelled, finishes before the next job starts.
+        return await blocking.call(self._parse, path)
+
+    def _parse(self, path: Path) -> ParserArtifact:
         pdf_path = path.expanduser().resolve()
         if not pdf_path.is_file():
             raise FileNotFoundError("PDF not found")

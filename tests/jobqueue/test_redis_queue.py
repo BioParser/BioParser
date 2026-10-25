@@ -1,10 +1,11 @@
+import asyncio
 import logging
 import threading
 import time
 from collections.abc import Generator
 from queue import Empty
 from threading import Event
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from dramatiq import Broker, Message, Worker
@@ -15,6 +16,7 @@ from dramatiq.middleware import CurrentMessage, Retries
 from dramatiq.middleware.time_limit import TimeLimit
 from redis.exceptions import ConnectionError as RedisConnectionError
 
+from bioparser import blocking
 from bioparser.jobqueue import (
     JobDeferralExpired,
     JobDeferred,
@@ -27,7 +29,6 @@ from bioparser.jobqueue import (
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue, DramatiqJobSubmitter
 from bioparser.jobqueue.dramatiq import redis_queue as redis_queue_module
 from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
-from bioparser.jobqueue.dramatiq.time_limit import _DeadlineThread
 
 
 @pytest.fixture
@@ -40,6 +41,12 @@ def stub_broker() -> Generator[StubBroker]:
 
 def _message(job_id: str = "3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34") -> ParseJobMessage:
     return ParseJobMessage.model_validate({"job_id": job_id})
+
+
+def _submit(
+    queue: DramatiqJobQueue[ParseJobMessage] | DramatiqJobSubmitter, message: ParseJobMessage
+) -> None:
+    asyncio.run(queue.submit(message))
 
 
 def _queue(
@@ -59,15 +66,15 @@ class _Recorder(JobHandler[ParseJobMessage]):
         self.failed: list[tuple[ParseJobMessage, BaseException]] = []
         self._raises = raises
 
-    def handle(self, message: ParseJobMessage) -> None:
+    async def handle(self, message: ParseJobMessage) -> None:
         self.received.append(message)
         if self._raises is not None:
             raise self._raises
 
-    def on_malformed(self, payload: object) -> None:
+    async def on_malformed(self, payload: object) -> None:
         self.malformed.append(payload)
 
-    def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
+    async def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
         self.failed.append((message, exc))
 
 
@@ -148,8 +155,6 @@ def test_rejects_queue_name_starting_with_digit(stub_broker: StubBroker) -> None
         DramatiqJobQueue(name="123name", model=ParseJobMessage, broker=stub_broker)
 
     assert "123name" not in stub_broker.actors
-    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
-    assert not isinstance(time_limit.manager, _DeadlineThread)
 
 
 def test_rejects_duplicate_queue_name_on_same_broker(stub_broker: StubBroker) -> None:
@@ -162,7 +167,7 @@ def test_submit_and_consume_round_trip(stub_broker: StubBroker) -> None:
     handler = _Recorder()
     queue = _queue(stub_broker)
     expected = _message()
-    queue.submit(expected)
+    _submit(queue, expected)
     queue.consume(handler, until_empty=True)
     assert handler.received == [expected]
 
@@ -186,7 +191,7 @@ def test_worker_settings_reach_the_dramatiq_worker(
         worker_timeout_ms=50,
     )
     expected = _message()
-    queue.submit(expected)
+    _submit(queue, expected)
     queue.consume(handler, until_empty=True)
     assert captured["worker_threads"] == 2
     assert captured["worker_timeout"] == 50
@@ -201,7 +206,7 @@ def test_submit_wraps_redis_errors(stub_broker: StubBroker) -> None:
 
     queue._actor.send = fail  # type: ignore[assignment]
     with pytest.raises(JobQueueError, match="enqueue") as exc_info:
-        queue.submit(_message())
+        _submit(queue, _message())
     assert isinstance(exc_info.value.__cause__, RedisConnectionError)
 
 
@@ -231,9 +236,9 @@ def test_rejects_consume_while_already_consuming(stub_broker: StubBroker) -> Non
 def test_consume_can_run_again_after_returning(stub_broker: StubBroker) -> None:
     handler = _Recorder()
     queue = _queue(stub_broker)
-    queue.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e31"))
+    _submit(queue, _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e31"))
     queue.consume(handler, until_empty=True)
-    queue.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e32"))
+    _submit(queue, _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e32"))
     queue.consume(handler, until_empty=True)
     assert handler.received == [
         _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e31"),
@@ -252,14 +257,14 @@ def test_consume_returns_when_handler_sets_stop(stub_broker: StubBroker) -> None
     stop = Event()
 
     class Stopper(_Recorder):
-        def handle(self, message: ParseJobMessage) -> None:
-            super().handle(message)
+        async def handle(self, message: ParseJobMessage) -> None:
+            await super().handle(message)
             stop.set()
 
     handler = Stopper()
     queue = _queue(stub_broker)
     expected = _message()
-    queue.submit(expected)
+    _submit(queue, expected)
     queue.consume(handler, stop=stop)
     assert handler.received == [expected]
 
@@ -269,7 +274,7 @@ def test_named_queues_are_independent(stub_broker: StubBroker) -> None:
     extract_handler = _Recorder()
     parse = _queue(stub_broker)
     extract = _queue(stub_broker, name="extract")
-    parse.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e33"))
+    _submit(parse, _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e33"))
     extract.consume(extract_handler, until_empty=True)
     parse.consume(parse_handler, until_empty=True)
     assert extract_handler.received == []
@@ -280,7 +285,7 @@ def test_malformed_payload_is_poisoned(stub_broker: StubBroker) -> None:
     handler = _Recorder()
     queue = _queue(stub_broker)
     queue._actor.send({"job_id": "only-id"})
-    queue.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35"))
+    _submit(queue, _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35"))
     queue.consume(handler, until_empty=True)
     assert handler.received == [_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35")]
     assert handler.malformed == [{"job_id": "only-id"}]
@@ -333,13 +338,13 @@ def test_malformed_log_names_fields_without_values(
 
 def test_malformed_hook_error_still_acks(stub_broker: StubBroker) -> None:
     class Boom(_Recorder):
-        def on_malformed(self, payload: object) -> None:
+        async def on_malformed(self, payload: object) -> None:
             raise RuntimeError("hook failed")
 
     handler = Boom()
     queue = _queue(stub_broker)
     queue._actor.send({"job_id": "only-id"})
-    queue.submit(_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35"))
+    _submit(queue, _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35"))
     queue.consume(handler, until_empty=True)
     assert handler.received == [_message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35")]
 
@@ -356,7 +361,7 @@ def test_deferred_message_is_sent_again_without_a_retry(stub_broker: StubBroker)
     queue = _queue(stub_broker, max_retries=0)
     expected = _message()
     payload = expected.model_dump(mode="json")
-    with queue._bind(handler):
+    with queue._bind(handler), queue._event_loop(handler):
         queue._actor.fn(payload)
 
     assert handler.received == [expected]
@@ -384,7 +389,7 @@ def test_a_later_deferral_waits_longer_without_inheriting_retries(
     )
     token = CurrentMessage._MESSAGE.set(current)
     try:
-        with queue._bind(handler):
+        with queue._bind(handler), queue._event_loop(handler):
             queue._actor.fn(payload)
     finally:
         CurrentMessage._MESSAGE.reset(token)
@@ -409,7 +414,7 @@ def test_a_deferral_past_the_deadline_is_not_sent_again(stub_broker: StubBroker)
     )
     token = CurrentMessage._MESSAGE.set(current)
     try:
-        with queue._bind(handler):
+        with queue._bind(handler), queue._event_loop(handler):
             queue._actor.fn(payload)
     finally:
         CurrentMessage._MESSAGE.reset(token)
@@ -428,7 +433,7 @@ def test_a_failed_attempt_starts_a_new_deferral_if_it_defers_later(stub_broker: 
             super().__init__()
             self._calls = 0
 
-        def handle(self, message: ParseJobMessage) -> None:
+        async def handle(self, message: ParseJobMessage) -> None:
             self.received.append(message)
             self._calls += 1
             if self._calls == 1:
@@ -445,7 +450,7 @@ def test_a_failed_attempt_starts_a_new_deferral_if_it_defers_later(stub_broker: 
     )
     token = CurrentMessage._MESSAGE.set(current)
     try:
-        with queue._bind(handler):
+        with queue._bind(handler), queue._event_loop(handler):
             with pytest.raises(RuntimeError):
                 queue._actor.fn(payload)
             assert "deferred_since" not in current.options
@@ -470,8 +475,10 @@ def test_a_retry_of_an_attempt_drops_the_deferral_clock(stub_broker: StubBroker)
     )
     token = CurrentMessage._MESSAGE.set(current)
     try:
+        handler = _Recorder(raises=RuntimeError("extract failed"))
         with (
-            queue._bind(_Recorder(raises=RuntimeError("extract failed"))),
+            queue._bind(handler),
+            queue._event_loop(handler),
             pytest.raises(RuntimeError),
         ):
             queue._actor.fn(payload)
@@ -492,7 +499,7 @@ def test_handler_failure_calls_on_failed_after_retries(stub_broker: StubBroker) 
     handler = _Recorder(raises=RuntimeError("parse failed"))
     queue = _queue(stub_broker, max_retries=2, min_backoff_ms=1)
     expected = _message()
-    queue.submit(expected)
+    _submit(queue, expected)
     queue.consume(handler, until_empty=True)
     assert handler.received == [expected] * 3
     assert len(handler.failed) == 1
@@ -504,46 +511,63 @@ def test_time_limit_calls_on_failed_after_retries(stub_broker: StubBroker) -> No
     handler = _Recorder(raises=JobTimeLimitExceeded())
     queue = _queue(stub_broker, max_retries=0)
     expected = _message()
-    queue.submit(expected)
+    _submit(queue, expected)
     queue.consume(handler, until_empty=True)
     assert len(handler.failed) == 1
     assert handler.failed[0][0] == expected
     assert isinstance(handler.failed[0][1], JobTimeLimitExceeded)
 
 
-class _Hanging(JobHandler[ParseJobMessage]):
-    """Handler that never finishes on its own."""
+class _Blocking(JobHandler[ParseJobMessage]):
+    """A parse that sits in a thread longer than the time limit."""
 
-    def __init__(self) -> None:
-        self.interrupted = Event()
+    def __init__(self, seconds: float) -> None:
+        self.seconds = seconds
+        self.cancelled = Event()
         self.calls = 0
+        self.started_at: list[float] = []
+        self.finished_at: float | None = None
         self.failed: list[BaseException] = []
 
-    def handle(self, message: ParseJobMessage) -> None:
+    async def handle(self, message: ParseJobMessage) -> None:
         self.calls += 1
+        call = self.calls
+        self.started_at.append(time.monotonic())
         try:
-            for _ in range(1000):
-                time.sleep(0.01)
-        except JobTimeLimitExceeded:
-            self.interrupted.set()
+            await blocking.call(self._block, call)
+        except asyncio.CancelledError:
+            self.cancelled.set()
             raise
 
-    def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
+    def _block(self, call: int) -> None:
+        if call > 1:
+            return
+        time.sleep(self.seconds)
+        self.finished_at = time.monotonic()
+
+    async def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
         self.failed.append(exc)
 
 
 def test_consume_enforces_the_time_limit(stub_broker: StubBroker) -> None:
-    """The broker is not booted by the test: consume must do what Dramatiq's CLI would."""
+    """The broker is not booted by the test: consume must do what Dramatiq's CLI would.
+
+    The blocking call runs past the limit. consume returns only after that call has
+    returned, so the next job cannot start while it is still running.
+    """
     (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
     time_limit.manager.interval = 0.05  # type: ignore[union-attr]
     queue = _queue(stub_broker, time_limit_ms=200, max_retries=0)
-    handler = _Hanging()
-    queue.submit(_message())
+    handler = _Blocking(0.6)
+    _submit(queue, _message())
+    _submit(queue, _message("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e35"))
 
     queue.consume(handler, until_empty=True)
 
-    assert handler.interrupted.is_set()
-    assert handler.calls == 1
+    assert handler.cancelled.is_set()
+    assert handler.calls == 2
+    assert handler.finished_at is not None
+    assert handler.started_at[1] >= handler.finished_at
     assert [type(exc) for exc in handler.failed] == [JobTimeLimitExceeded]
 
 
@@ -573,10 +597,9 @@ def test_submitter_leaves_retries_and_time_limit_to_the_consumer(
     submitter = DramatiqJobSubmitter(name="extract", broker=stub_broker)
     with pytest.raises(ActorNotFound):
         stub_broker.get_actor("extract")
-    submitter.submit(_message())
+    _submit(submitter, _message())
 
     assert time_limit.manager is manager
-    assert not isinstance(manager, _DeadlineThread)
     message = Message.decode(stub_broker.queues["extract"].queue[0])
     assert message.actor_name == "extract"
     assert "max_retries" not in message.options
@@ -601,14 +624,14 @@ def test_stop_waits_for_the_running_job_to_finish(stub_broker: StubBroker) -> No
     started, finished = Event(), Event()
 
     class _Slow(JobHandler[ParseJobMessage]):
-        def handle(self, message: ParseJobMessage) -> None:
+        async def handle(self, message: ParseJobMessage) -> None:
             started.set()
-            time.sleep(0.3)
+            await blocking.call(time.sleep, 0.3)
             finished.set()
 
     stop = Event()
     queue = _queue(stub_broker)
-    queue.submit(_message())
+    _submit(queue, _message())
 
     def stop_once_started() -> None:
         started.wait(5)
@@ -628,7 +651,6 @@ def test_several_queues_on_one_broker_share_one_job_time_limit(stub_broker: Stub
 
     _queue(stub_broker, name="second")
 
-    assert isinstance(manager, _DeadlineThread)
     assert time_limit.manager is manager
 
 
@@ -643,19 +665,23 @@ def test_process_boot_after_the_queue_is_built_leaves_the_timer_running() -> Non
         broker.emit_after("process_boot")
 
         assert time_limit.manager is manager
-        assert isinstance(manager, _DeadlineThread)
-        assert manager.is_alive()
+        assert cast(Any, manager).is_alive()
     finally:
         broker.close()
 
 
-def test_queue_refuses_a_broker_whose_time_limit_already_runs() -> None:
+def test_queue_keeps_a_time_limit_that_is_already_running() -> None:
+    """The timer raises Dramatiq's own type. The queue translates it, so it can already be running."""
     broker = StubBroker()
-    broker.emit_after("process_boot")  # starts Dramatiq's own timer, which raises its own type
-
-    with pytest.raises(JobQueueConfigError, match="time limit"):
+    broker.emit_after("process_boot")
+    try:
+        (time_limit,) = [m for m in broker.middleware if isinstance(m, TimeLimit)]
+        manager = time_limit.manager
         DramatiqJobQueue(name="parse", model=ParseJobMessage, broker=broker)
-    broker.close()
+        assert time_limit.manager is manager
+        assert cast(Any, manager).is_alive()
+    finally:
+        broker.close()
 
 
 def test_queue_refuses_a_broker_without_a_time_limit_middleware() -> None:
