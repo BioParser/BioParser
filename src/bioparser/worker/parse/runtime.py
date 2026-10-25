@@ -1,7 +1,7 @@
 from threading import Event
 from uuid import UUID
 
-from bioparser.jobqueue import ExtractJobMessage, JobQueue, ParseJobMessage
+from bioparser.jobqueue import ExtractJobMessage, JobConsumer, JobSubmitter, ParseJobMessage
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue, DramatiqJobSubmitter
 from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
@@ -16,9 +16,9 @@ from .handler import ParseJobHandler
 
 def build_worker(
     settings: WorkerSettings,
-) -> tuple[JobQueue[ParseJobMessage], ParseJobHandler]:
+) -> tuple[JobConsumer[ParseJobMessage], ParseJobHandler]:
     storage = FileSystemArtifactStorage(settings.artifact_storage_path)
-    queue: JobQueue[ParseJobMessage] = DramatiqJobQueue.from_redis(
+    queue: JobConsumer[ParseJobMessage] = DramatiqJobQueue.from_redis(
         str(settings.redis_url),
         name=settings.parse_queue_name,
         model=ParseJobMessage,
@@ -27,7 +27,7 @@ def build_worker(
         max_retries=settings.parse_max_retries,
     )
     # The extractor process owns retries and the time limit.
-    extract_queue = DramatiqJobSubmitter.from_redis(
+    extract_queue: JobSubmitter[ExtractJobMessage] = DramatiqJobSubmitter.from_redis(
         str(settings.redis_url),
         name=settings.extract_queue_name,
         timeout_s=settings.redis_timeout_seconds,

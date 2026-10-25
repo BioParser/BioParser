@@ -15,7 +15,7 @@ from stubs import MemoryStorage, StubJobs, bind_jobs, clear_jobs, fake_mineru
 
 from bioparser.artifact_paths import parse_result_path
 from bioparser.jobqueue import JobTimeLimitExceeded
-from bioparser.jobqueue.dramatiq import DramatiqJobQueue
+from bioparser.jobqueue.dramatiq import DramatiqJobQueue, DramatiqJobSubmitter
 from bioparser.jobqueue.messages import ParseJobMessage
 from bioparser.jobstate.errors import CorruptJobStateError, JobNotFoundError
 from bioparser.jobstate.models import JobState
@@ -575,7 +575,7 @@ def _consume(handler: ParseJobHandler, *, max_retries: int, time_limit_ms: int =
             time_limit_ms=time_limit_ms,
             worker_timeout_ms=50,
         )
-        asyncio.run(queue.submit(_message()))
+        asyncio.run(DramatiqJobSubmitter(name="parse", broker=broker).submit(_message()))
         queue.consume(handler, until_empty=True)
     finally:
         asyncio.run(handler.aclose())

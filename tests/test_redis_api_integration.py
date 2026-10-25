@@ -19,7 +19,7 @@ from bioparser.db import jobs as job_queries
 from bioparser.db.migrate import sync_database_url, upgrade
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.jobqueue import ParseJobMessage
-from bioparser.jobqueue.dramatiq import DramatiqJobQueue
+from bioparser.jobqueue.dramatiq import DramatiqJobQueue, DramatiqJobSubmitter
 from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
 from bioparser.jobstate import JobState
 from bioparser.parser import ParserArtifact
@@ -114,18 +114,20 @@ async def redis_api_dependencies(
     await database.open(bare)
 
     broker = _create_redis_broker(TEST_REDIS_URL, namespace=broker_namespace)
+    # The route only sends. This consumer drains the same broker afterwards.
     parse_queue = DramatiqJobQueue(
         name=queue_name,
         model=ParseJobMessage,
         broker=broker,
         worker_timeout_ms=50,
     )
+    submitter = DramatiqJobSubmitter(name=queue_name, broker=broker)
     artifact_storage = FileSystemArtifactStorage(tmp_path / "artifacts")
 
     # ASGITransport does not run the production lifespan here, so inject the
     # queue and storage the routes still read from app.state. Job queries are
     # the process-wide pool opened above.
-    monkeypatch.setattr(app.state, "parse_queue", parse_queue, raising=False)
+    monkeypatch.setattr(app.state, "parse_queue", submitter, raising=False)
     monkeypatch.setattr(app.state, "artifact_storage", artifact_storage, raising=False)
 
     try:

@@ -45,7 +45,7 @@ from ..errors import (
     JobTimeLimitExceeded,
     MalformedJob,
 )
-from ..protocol import JobHandler, JobQueue
+from ..protocol import JobConsumer, JobHandler, JobSubmitter
 
 LOGGER = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ _OPTION_DEFERRALS = "deferrals"
 _QUEUE_NAME_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9._-]*")
 
 
-class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
+class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
     """Named Redis queue bound to one pydantic message model."""
 
     def __init__(
@@ -144,17 +144,6 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
             min_backoff_ms=min_backoff_ms,
             worker_timeout_ms=worker_timeout_ms,
         )
-
-    async def submit(self, message: T) -> None:
-        # Dramatiq's producer is blocking, so the thread hop stays inside this backend.
-        await asyncio.to_thread(self._submit, message)
-
-    def _submit(self, message: T) -> None:
-        payload = message.model_dump(mode="json")
-        try:
-            self._actor.send(payload)
-        except redis.RedisError as exc:
-            raise JobQueueError(f"could not enqueue on queue {self._name!r}") from exc
 
     def consume(
         self,
@@ -398,7 +387,7 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
             LOGGER.exception("on_failed hook failed on queue %s", self._name)
 
 
-class DramatiqJobSubmitter:
+class DramatiqJobSubmitter(JobSubmitter[BaseModel]):
     """Sends to a queue that another process consumes.
 
     That process owns retries and the time limit. This one registers no actor,

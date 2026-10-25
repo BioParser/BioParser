@@ -18,7 +18,7 @@ from bioparser.db import documents as document_queries
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
 from bioparser.db.documents import DocumentRecord
-from bioparser.jobqueue import JobQueueError, ParseJobMessage
+from bioparser.jobqueue import JobQueueError, JobSubmitter, ParseJobMessage
 from bioparser.jobstate import ALLOWED_TRANSITIONS, JobState, JobStatus
 from bioparser.parser.models import (
     BlockKind,
@@ -593,7 +593,7 @@ def clear_jobs() -> None:
     _jobs.clear()
 
 
-class StubParseQueue:
+class StubParseQueue(JobSubmitter[ParseJobMessage]):
     def __init__(self, events: list[str]) -> None:
         self.messages: list[ParseJobMessage] = []
         self.events = events

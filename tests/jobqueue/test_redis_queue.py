@@ -45,7 +45,11 @@ def _message(job_id: str = "3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34") -> ParseJobMe
 def _submit(
     queue: DramatiqJobQueue[ParseJobMessage] | DramatiqJobSubmitter, message: ParseJobMessage
 ) -> None:
-    asyncio.run(queue.submit(message))
+    """Enqueue through a submitter. A consumer queue shares its broker with one."""
+    sender = queue
+    if isinstance(queue, DramatiqJobQueue):
+        sender = DramatiqJobSubmitter(name=queue._name, broker=queue._broker)
+    asyncio.run(sender.submit(message))
 
 
 def _queue(
@@ -192,14 +196,13 @@ def test_worker_settings_reach_the_dramatiq_worker(
 
 
 def test_submit_wraps_redis_errors(stub_broker: StubBroker) -> None:
-    queue = _queue(stub_broker)
-
-    def fail(_payload: object) -> None:
+    def fail(_message: object) -> None:
         raise RedisConnectionError("refused")
 
-    queue._actor.send = fail  # type: ignore[assignment]
+    stub_broker.enqueue = fail  # type: ignore[method-assign]
+    submitter = DramatiqJobSubmitter(name="parse", broker=stub_broker)
     with pytest.raises(JobQueueError, match="enqueue") as exc_info:
-        _submit(queue, _message())
+        asyncio.run(submitter.submit(_message()))
     assert isinstance(exc_info.value.__cause__, RedisConnectionError)
 
 
