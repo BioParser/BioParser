@@ -83,11 +83,15 @@ def run_pipeline(pdf: bytes, options: PipelineOptions) -> ExtractionArtifact:
 
     Blocks for the whole run and does CPU work: call it in a child process.
     """
+    return asyncio.run(_run(pdf, options))
+
+
+async def _run(pdf: bytes, options: PipelineOptions) -> ExtractionArtifact:
     # Every record logged inside, from any logger, carries the checksum
     with log_context(checksum=sha256_bytes(pdf)):
         try:
             with _stage("parse") as fields:
-                artifact = _parse(pdf, options)
+                artifact = await _parse(pdf, options)
                 fields["pages"] = len(artifact.pages)
         except ParserTimeoutError as exc:
             raise PipelineError("Parsing timed out") from exc
@@ -98,7 +102,7 @@ def run_pipeline(pdf: bytes, options: PipelineOptions) -> ExtractionArtifact:
 
         try:
             with _stage("extract") as fields:
-                extraction = asyncio.run(_extract(artifact, options))
+                extraction = await _extract(artifact, options)
                 fields["observations"] = len(extraction.observations)
         except ExtractionFailedError as exc:
             raise PipelineError(_extraction_failure(exc)) from exc
@@ -107,7 +111,7 @@ def run_pipeline(pdf: bytes, options: PipelineOptions) -> ExtractionArtifact:
     return extraction
 
 
-def _parse(pdf: bytes, options: PipelineOptions) -> ParserArtifact:
+async def _parse(pdf: bytes, options: PipelineOptions) -> ParserArtifact:
     """The parse worker's parser for ``options.parser``, with the same settings."""
     parser = get_parser(
         options.parser,
@@ -115,7 +119,7 @@ def _parse(pdf: bytes, options: PipelineOptions) -> ParserArtifact:
         mineru_base_url=options.mineru_base_url,
         mineru_tier=options.mineru_tier,
     )
-    return parse_pdf_bytes(parser, pdf)
+    return await parse_pdf_bytes(parser, pdf)
 
 
 async def _extract(artifact: ParserArtifact, options: PipelineOptions) -> ExtractionArtifact:
@@ -123,7 +127,7 @@ async def _extract(artifact: ParserArtifact, options: PipelineOptions) -> Extrac
 
     The worker checks the artifact before it stores it, so this run checks it too.
     """
-    # One client per run: each asyncio.run() has its own event loop.
+    # One client per run, closed on the run's own event loop.
     vllm = VLLMService()
     try:
         extractor = get_extractor(

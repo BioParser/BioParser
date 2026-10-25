@@ -58,9 +58,6 @@ def main() -> None:
         queue, handler = build_worker(settings)
         stop = Event()
         install_shutdown(stop)
-        try:
-            queue.consume(handler, stop=stop)
-        finally:
-            handler.close()
+        queue.consume(handler, stop=stop)
     finally:
         liveness.close()

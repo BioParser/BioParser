@@ -393,9 +393,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     }
 
     try:
-        pdf_ref = await asyncio.to_thread(
-            request.app.state.artifact_storage.store, pdf_bytes, artifact_metadata
-        )
+        pdf_ref = await request.app.state.artifact_storage.store(pdf_bytes, artifact_metadata)
     except ArtifactAlreadyExistsError:
         pdf_ref = artifact_metadata.artifact_path
     except StorageError as exc:
@@ -421,7 +419,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         LOGGER.error("job state create failed", extra=fields | error_fields(exc))
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
     try:
-        await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
+        await request.app.state.parse_queue.submit(parse_job_message)
     except JobQueueError as exc:
         LOGGER.error("parse job enqueue failed", extra=fields | error_fields(exc))
         try:

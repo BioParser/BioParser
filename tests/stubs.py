@@ -1,9 +1,9 @@
 """Fake network hops"""
 
+import asyncio
 import json
 import re
 import threading
-import time
 from collections.abc import Callable, Collection, Iterator, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
@@ -163,9 +163,9 @@ class StubParser:
         self.delay_s = delay_s
         self.pdfs: list[bytes] = []
 
-    def parse(self, path: Path) -> ParserArtifact:
+    async def parse(self, path: Path) -> ParserArtifact:
         self.pdfs.append(path.read_bytes())
-        time.sleep(self.delay_s)  # stands in for minutes of real parsing
+        await asyncio.sleep(self.delay_s)  # stands in for minutes of real parsing
         if self.error is not None:
             raise self.error
         return self.artifact
@@ -226,7 +226,7 @@ class StubArtifactStorage:
         self.store_error: StorageError | None = None
         self.retrieve_error: StorageError | None = None
 
-    def store(
+    async def store(
         self,
         content: bytes,
         metadata: ArtifactMetadata,
@@ -239,7 +239,7 @@ class StubArtifactStorage:
         self.artifacts[metadata.artifact_path] = (content, metadata)
         return metadata.artifact_path
 
-    def retrieve(self, artifact_path: str) -> bytes:
+    async def retrieve(self, artifact_path: str) -> bytes:
         self.events.append("artifact.retrieve")
         if self.retrieve_error is not None:
             raise self.retrieve_error
@@ -422,7 +422,7 @@ class StubParseQueue:
         self.events = events
         self.submit_error: JobQueueError | None = None
 
-    def submit(self, message: ParseJobMessage) -> None:
+    async def submit(self, message: ParseJobMessage) -> None:
         self.events.append("queue.submit")
         if self.submit_error is not None:
             raise self.submit_error

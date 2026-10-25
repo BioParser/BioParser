@@ -3,7 +3,9 @@
 Delivery is at-least-once: a worker crash or handler exception can re-run a job.
 
 Defaults:
-- ``time_limit``: 10 minutes (600_000 ms). Dramatiq kills the actor after this.
+- ``time_limit``: 10 minutes (600_000 ms). The handler's coroutine is cancelled after this.
+  A blocking call keeps running until it returns. The worker does not take the next
+  message until that call has returned. See ``bioparser.blocking``.
 - ``max_retries``: 3. Handler exceptions retry.
 - ``min_backoff``: 15 seconds before the first retry, backing off exponentially.
 - ``worker_threads``: 1, so handlers run serially. Raising it runs them concurrently.
@@ -11,19 +13,23 @@ Defaults:
 Messages that leave the queue without a successful handler run are poisoned.
 """
 
+import asyncio
+import concurrent.futures
 import logging
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Coroutine, Iterator, Mapping
 from contextlib import contextmanager
 from threading import Event, Lock
-from typing import Any
+from typing import Any, TypeVar
 
 import dramatiq
 import redis
 from dramatiq import Actor, Broker, Worker
+from dramatiq.asyncio import EventLoopThread, get_event_loop_thread, set_event_loop_thread
 from dramatiq.brokers.redis import RedisBroker
 from dramatiq.common import compute_backoff, current_millis
 from dramatiq.middleware import CurrentMessage
+from dramatiq.middleware.time_limit import TimeLimit, TimeLimitExceeded
 from pydantic import BaseModel, ValidationError
 
 from ..errors import (
@@ -35,9 +41,15 @@ from ..errors import (
     MalformedJob,
 )
 from ..protocol import JobHandler, JobQueue
-from .time_limit import use_job_time_limit
 
 LOGGER = logging.getLogger(__name__)
+
+_R = TypeVar("_R")
+
+# How often the worker thread surfaces a time-limit exception while it waits.
+# The exception is injected and lands at the next bytecode, so a blocking wait
+# has to return on a short interval.
+_WAIT_POLL_S = 0.1
 
 _DEFAULT_TIME_LIMIT_MS = 600_000
 _DEFAULT_MAX_RETRIES = 3
@@ -133,7 +145,7 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         self._consuming = Lock()
         try:
             _ensure_current_message(broker)
-            use_job_time_limit(broker)
+            _start_time_limit(broker)
             self._actor = self._register_actor(
                 time_limit_ms=time_limit_ms,
                 max_retries=max_retries,
@@ -169,7 +181,11 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
             worker_timeout_ms=worker_timeout_ms,
         )
 
-    def submit(self, message: T) -> None:
+    async def submit(self, message: T) -> None:
+        # Dramatiq's producer is blocking, so the thread hop stays inside this backend.
+        await asyncio.to_thread(self._submit, message)
+
+    def _submit(self, message: T) -> None:
         payload = message.model_dump(mode="json")
         try:
             self._actor.send(payload)
@@ -183,7 +199,7 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         until_empty: bool = False,
         stop: Event | None = None,
     ) -> None:
-        with self._bind(handler):
+        with self._bind(handler), self._event_loop(handler):
             worker = Worker(
                 self._broker,
                 queues={self._name},
@@ -201,6 +217,61 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
                     (stop if stop is not None else Event()).wait()
             finally:
                 worker.stop()
+
+    @contextmanager
+    def _event_loop(self, handler: JobHandler[T]) -> Iterator[None]:
+        """Run one event loop for every handler call, and close the handler on it."""
+        loop_thread = EventLoopThread(LOGGER)
+        loop_thread.start(timeout=5.0)
+        set_event_loop_thread(loop_thread)
+        try:
+            yield
+        finally:
+            try:
+                loop_thread.run_coroutine(handler.aclose())
+            except Exception:
+                LOGGER.exception("handler aclose failed on queue %s", self._name)
+            finally:
+                loop_thread.stop()  # type: ignore[no-untyped-call]
+                set_event_loop_thread(None)
+
+    @staticmethod
+    def _on_loop(coroutine: Coroutine[Any, Any, _R]) -> _R:
+        """Run a handler call on the consumer's loop and wait for it in this worker thread.
+
+        When the time limit passes, Dramatiq raises `TimeLimitExceeded` in this thread.
+        Cancelling the coroutine makes the handler see `asyncio.CancelledError`. This
+        wait does not return until the coroutine has finished, including a blocking
+        call that `bioparser.blocking.call` is joining. Dramatiq's own `run_coroutine`
+        gives that cleanup one second, which would let the next message start while
+        the thread was still parsing.
+        """
+        loop_thread = get_event_loop_thread()
+        if loop_thread is None:
+            coroutine.close()
+            raise JobQueueError("the queue is not consuming")
+        # Cancelling the concurrent future marks it done at once, before the
+        # coroutine has joined its blocking call. This event is set in the
+        # coroutine's finally, which runs after that join.
+        finished = Event()
+
+        async def watched() -> _R:
+            try:
+                return await coroutine
+            finally:
+                finished.set()
+
+        future = asyncio.run_coroutine_threadsafe(watched(), loop_thread.loop)
+        try:
+            return _wait(future)
+        except TimeLimitExceeded:
+            future.cancel()
+            while not finished.is_set():
+                try:
+                    finished.wait(timeout=_WAIT_POLL_S)
+                except TimeLimitExceeded:
+                    continue
+            raise
 
     @contextmanager
     def _bind(self, handler: JobHandler[T]) -> Iterator[None]:
@@ -239,11 +310,12 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
                 LOGGER.warning("malformed message on queue %s: %s", queue._name, exc)
                 queue._notify_malformed(payload)
                 raise
-            except (Exception, JobTimeLimitExceeded) as exc:
+            except (Exception, TimeLimitExceeded) as exc:
                 # A retry enqueues this same message. Drop the outage clock first.
                 queue._end_deferral()
                 if queue._is_last_retry():
-                    queue._notify_failed(payload, exc)
+                    reported = JobTimeLimitExceeded() if isinstance(exc, TimeLimitExceeded) else exc
+                    queue._notify_failed(payload, reported)
                 raise
             else:
                 queue._end_deferral()
@@ -304,7 +376,7 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         if handler is None:
             LOGGER.error("no handler set on queue %s; message will be retried", self._name)
             raise JobQueueError(f"no handler set on queue {self._name}")
-        handler.handle(message)
+        self._on_loop(handler.handle(message))
 
     def _is_last_retry(self) -> bool:
         current = CurrentMessage.get_current_message()
@@ -318,7 +390,7 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
         if handler is None:
             return
         try:
-            handler.on_malformed(payload)
+            self._on_loop(handler.on_malformed(payload))
         except Exception:
             LOGGER.exception("on_malformed hook failed on queue %s", self._name)
 
@@ -332,7 +404,7 @@ class DramatiqJobQueue[T: BaseModel](JobQueue[T]):
             self._notify_malformed(payload)
             return
         try:
-            handler.on_failed(message, exc)
+            self._on_loop(handler.on_failed(message, exc))
         except Exception:
             LOGGER.exception("on_failed hook failed on queue %s", self._name)
 
@@ -343,6 +415,47 @@ def _validation_summary(exc: ValidationError) -> str:
         f"{'.'.join(str(part) for part in error['loc']) or '<root>'}: {error['type']}"
         for error in exc.errors(include_url=False, include_input=False)
     )
+
+
+def _wait[R](future: concurrent.futures.Future[R]) -> R:
+    """Block until `future` finishes. A time-limit exception can land between polls."""
+    while True:
+        try:
+            return future.result(timeout=_WAIT_POLL_S)
+        except concurrent.futures.TimeoutError:
+            if future.done():
+                return future.result(timeout=0)
+
+
+def _start_time_limit(broker: Broker) -> None:
+    """Start the broker's TimeLimit timer, once.
+
+    Dramatiq's command line starts it by emitting `process_boot`. A `Worker` built here is
+    not run by that command line, so the timer thread is started directly. `Thread.start`
+    raises the second time, and `process_boot` calls it unconditionally, so a later boot
+    finds the thread already running and leaves it.
+
+    The timer raises `TimeLimitExceeded` in the worker thread, which is waiting in
+    `_on_loop`. That cancels the handler's coroutine.
+    """
+    for middleware in broker.middleware:
+        if isinstance(middleware, TimeLimit):
+            manager = middleware.manager
+            start = manager.start
+
+            def start_once(
+                manager: object = manager,
+                start: Callable[[], None] = start,
+            ) -> None:
+                alive = getattr(manager, "is_alive", None)
+                if callable(alive) and alive():
+                    return
+                start()
+
+            manager.start = start_once  # type: ignore[method-assign]
+            start_once()
+            return
+    raise JobQueueConfigError("the broker has no TimeLimit middleware to enforce limits")
 
 
 def _ensure_current_message(broker: Broker) -> None:
@@ -379,7 +492,10 @@ class DramatiqJobSubmitter:
             broker=_create_redis_broker(url, timeout_s=timeout_s, namespace=namespace),
         )
 
-    def submit(self, message: BaseModel) -> None:
+    async def submit(self, message: BaseModel) -> None:
+        await asyncio.to_thread(self._submit, message)
+
+    def _submit(self, message: BaseModel) -> None:
         payload = message.model_dump(mode="json")
         # The consumer registers an actor whose name is the queue name.
         envelope: dramatiq.Message[None] = dramatiq.Message(

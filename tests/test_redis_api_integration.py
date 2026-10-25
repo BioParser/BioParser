@@ -42,14 +42,17 @@ class _Recorder:
     def __init__(self) -> None:
         self.received: list[ParseJobMessage] = []
 
-    def handle(self, message: ParseJobMessage) -> None:
+    async def handle(self, message: ParseJobMessage) -> None:
         self.received.append(message)
 
-    def on_malformed(self, payload: object) -> None:
+    async def on_malformed(self, payload: object) -> None:
         pytest.fail(f"queue produced a malformed payload: {payload!r}")
 
-    def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
+    async def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
         pytest.fail(f"queue delivery failed for {message.job_id}: {exc}")
+
+    async def aclose(self) -> None:
+        return
 
 
 def _create_database(admin_url: str, name: str) -> None:
@@ -168,7 +171,7 @@ async def test_redis_backed_submission_and_polling(
             extractor=DEFAULT_EXTRACTOR_NAME,
             pdf_ref=expected_pdf_ref,
         )
-        assert artifact_storage.retrieve(queued.pdf_ref) == MINIMAL_PDF
+        assert await artifact_storage.retrieve(queued.pdf_ref) == MINIMAL_PDF
 
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
@@ -203,7 +206,7 @@ async def test_redis_backed_submission_and_polling(
 
         output_artifact_ref = f"art-result-{job_id}"
 
-        artifact_storage.store(
+        await artifact_storage.store(
             ParserArtifact(
                 schema_version="1",
                 checksum=hashlib.sha256(MINIMAL_PDF).hexdigest(),
@@ -258,7 +261,7 @@ async def test_same_pdf_can_be_submitted_twice(
     assert all(state is not None for state in states)
     pdf_refs = {state.pdf_ref for state in states if state is not None}
     assert pdf_refs == {f"pdf/{hashlib.sha256(MINIMAL_PDF).hexdigest()}"}
-    assert artifact_storage.retrieve(pdf_refs.pop()) == MINIMAL_PDF
+    assert await artifact_storage.retrieve(pdf_refs.pop()) == MINIMAL_PDF
 
     recorder = _Recorder()
     await asyncio.to_thread(parse_queue.consume, recorder, until_empty=True)

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from uuid import UUID
 
 from pydantic import ValidationError
 
+from bioparser import blocking
 from bioparser.artifact_paths import parse_result_path
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
@@ -45,7 +47,7 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
         parser_factory: Callable[[str], PdfParser],
         max_claims: int,
         mineru_tier: MinerUTier = DEFAULT_TIER,
-        enqueue_extraction: Callable[[UUID], None] | None = None,
+        enqueue_extraction: Callable[[UUID], Awaitable[None]] | None = None,
     ) -> None:
         super().__init__(
             database_url=database_url,
@@ -59,22 +61,22 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
         self._mineru_tier: MinerUTier = mineru_tier
         self._enqueue_extraction = enqueue_extraction
 
-    def handle(self, message: ParseJobMessage) -> None:
+    async def handle(self, message: ParseJobMessage) -> None:
         """After the delivery, send the extract message when the job is `parsed`.
 
         A failed send fails this delivery, so the queue tries it again. A failed
         read does not replace the delivery's own error.
         """
         try:
-            super().handle(message)
+            await super().handle(message)
         except BaseException:
-            self._wake_without_hiding_the_delivery_error(message.job_id)
+            await self._wake_without_hiding_the_delivery_error(message.job_id)
             raise
         else:
-            self._wake_extractor_if_parsed(message.job_id)
+            await self._wake_extractor_if_parsed(message.job_id)
 
     async def run(self, state: JobState) -> None:
-        artifact_path = self._ensure_parser_artifact(state.parser, state.pdf_ref)
+        artifact_path = await self._ensure_parser_artifact(state.parser, state.pdf_ref)
         async with database.transaction() as connection:
             wrote = await job_queries.record_parsed(connection, state.job_id, artifact_path)
         if not wrote:
@@ -82,27 +84,27 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
                 "another delivery moved the job on while it was parsing. Not recording 'parsed'"
             )
 
-    def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
+    async def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
         # The last delivery already failed. A job left at `parsed` cannot be
         # marked failed, so this is the last chance to send the extract wake-up.
         try:
-            self._wake_extractor_if_parsed(message.job_id)
+            await self._wake_extractor_if_parsed(message.job_id)
         finally:
-            super().on_failed(message, exc)
+            await super().on_failed(message, exc)
 
-    def _wake_without_hiding_the_delivery_error(self, job_id: UUID) -> None:
+    async def _wake_without_hiding_the_delivery_error(self, job_id: UUID) -> None:
         try:
-            self._wake_extractor_if_parsed(job_id)
+            await self._wake_extractor_if_parsed(job_id)
         except Exception as exc:  # noqa: BLE001 - the wake must not replace the delivery's error
             LOGGER.error(
                 f"extract message was not sent ({type(exc).__name__}). The delivery's error stands"
             )
 
-    def _wake_extractor_if_parsed(self, job_id: UUID) -> None:
+    async def _wake_extractor_if_parsed(self, job_id: UUID) -> None:
         if self._enqueue_extraction is None:
             return
-        if self.run_async(self._job_is_parsed(job_id)):
-            self._enqueue_extraction(job_id)
+        if await self._job_is_parsed(job_id):
+            await self._enqueue_extraction(job_id)
 
     async def _job_is_parsed(self, job_id: UUID) -> bool:
         async with database.transaction() as connection:
@@ -112,20 +114,21 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
                 return False
         return state is not None and state.status == "parsed"
 
-    def _ensure_parser_artifact(self, parser_name: str, pdf_ref: str) -> str:
+    async def _ensure_parser_artifact(self, parser_name: str, pdf_ref: str) -> str:
         """Return the artifact path for the parsed PDF, creating it if needed."""
-        pdf = self._retrieve_pdf(pdf_ref)
-        artifact_path = _parse_result_path(pdf, parser_name, self._mineru_tier)
-        stored = _retrieve_or_none(self._storage, artifact_path)
+        pdf = await self._retrieve_pdf(pdf_ref)
+        checksum = await blocking.call(sha256_bytes, pdf)
+        artifact_path = _parse_result_path(checksum, parser_name, self._mineru_tier)
+        stored = await _retrieve_or_none(self._storage, artifact_path)
         if stored is not None and _is_parser_artifact(stored):
             return artifact_path
         if stored is not None:
             # Storage cannot replace an artifact, so an invalid one is permanent.
             LOGGER.error("stored parser artifact is invalid and cannot be replaced")
             raise PermanentJobFailure("internal_error")
-        artifact = self._parse(parser_name, pdf)
+        artifact = await self._parse(parser_name, pdf)
         payload = artifact.model_dump_json().encode()
-        return store_json_artifact(
+        return await store_json_artifact(
             self._storage,
             schema_version=artifact.schema_version,
             payload=payload,
@@ -135,14 +138,14 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
             kind="parser artifact",
         )
 
-    def _retrieve_pdf(self, pdf_ref: str) -> bytes:
+    async def _retrieve_pdf(self, pdf_ref: str) -> bytes:
         try:
-            return self._storage.retrieve(pdf_ref)
+            return await self._storage.retrieve(pdf_ref)
         except ArtifactNotFoundError as exc:
             LOGGER.error("input PDF is not in artifact storage")
             raise PermanentJobFailure("internal_error") from exc
 
-    def _parse(self, parser_name: str, pdf: bytes) -> ParserArtifact:
+    async def _parse(self, parser_name: str, pdf: bytes) -> ParserArtifact:
         """Parse the input PDF. Known failures become `PermanentJobFailure`."""
         try:
             parser = self._parser_factory(parser_name)
@@ -150,22 +153,25 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
             LOGGER.error(f"parser backend {parser_name!r} cannot run: {exc}")
             raise PermanentJobFailure("parse_failed") from exc
         try:
-            return parse_pdf_bytes(parser, pdf)
+            return await parse_pdf_bytes(parser, pdf)
         except ParserBackendUnavailableError as exc:
             LOGGER.error(f"parser backend {parser_name!r} cannot run: {exc}")
             raise PermanentJobFailure("parse_failed") from exc
         except (ParserTimeoutError, JobTimeLimitExceeded) as exc:
-            # The parser's own limit or the queue's. The same parse would run out of time
-            # again, so it is not retried.
+            # The same parse would run out of time again, so it is not retried.
             LOGGER.error(f"parser {parser_name!r} timed out: {type(exc).__name__}")
+            raise PermanentJobFailure("timeout") from exc
+        except asyncio.CancelledError as exc:
+            # The queue cancelled this attempt. The parse is not retried.
+            LOGGER.error(f"parser {parser_name!r} was cancelled")
             raise PermanentJobFailure("timeout") from exc
         except UnsupportedDocumentError as exc:
             LOGGER.error(f"parser {parser_name!r} could not read the PDF: {type(exc).__name__}")
             raise PermanentJobFailure("invalid_pdf") from exc
 
 
-def _parse_result_path(pdf: bytes, parser_name: str, mineru_tier: MinerUTier) -> str:
-    """The conventional path for this PDF's parser artifact.
+def _parse_result_path(checksum: str, parser_name: str, mineru_tier: MinerUTier) -> str:
+    """The conventional path for this PDF's parser artifact, from the PDF's checksum.
 
     The same PDF and parser always give the same path, so a retry or another job with the
     same PDF reuses the stored artifact. MinerU's output also depends on its tier, so each
@@ -177,7 +183,7 @@ def _parse_result_path(pdf: bytes, parser_name: str, mineru_tier: MinerUTier) ->
         LOGGER.error(f"parser backend {parser_name!r} has no version")
         raise PermanentJobFailure("internal_error") from exc
     configuration = mineru_tier if parser_name == MINERU_PARSER_NAME else None
-    return parse_result_path(sha256_bytes(pdf), parser_name, version, configuration)
+    return parse_result_path(checksum, parser_name, version, configuration)
 
 
 def _is_parser_artifact(payload: bytes) -> bool:

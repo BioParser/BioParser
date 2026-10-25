@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from bioparser import blocking
 from bioparser.hashing import sha256_bytes
 from bioparser.parser.backend.mineru.mapper import (
     MiddleJsonContractError,
@@ -20,13 +21,15 @@ from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 from bioparser.services.mineru.client import (
     DEFAULT_TIER,
     MAX_WAIT_SECONDS,
+    MinerUClient,
     MinerUError,
     MinerUPermanentError,
     MinerUTier,
     MinerUTimeoutError,
-    SyncMinerUClient,
     wait_until_ready,
 )
+
+_CONNECT_TIMEOUT_S = 5.0
 
 
 class MinerUParser:
@@ -39,21 +42,26 @@ class MinerUParser:
         self._timeout_s = timeout_s
         self._tier: MinerUTier = tier
 
-    def parse(self, path: Path) -> ParserArtifact:
+    async def parse(self, path: Path) -> ParserArtifact:
         pdf_path = path.expanduser().resolve()
         if not pdf_path.is_file():
             raise FileNotFoundError("PDF not found")
-        content = pdf_path.read_bytes()
-        checksum = sha256_bytes(content)
+        content = await blocking.call(pdf_path.read_bytes)
+        checksum = await blocking.call(sha256_bytes, content)
         wait_s = MAX_WAIT_SECONDS if self._timeout_s is None else self._timeout_s
 
         try:
             # A restarting service holds the job for up to half its time, not its retries.
             started = time.monotonic()
-            wait_until_ready(self._base_url, wait_s / 2)
+            await wait_until_ready(self._base_url, wait_s / 2)
             parse_s = wait_s - (time.monotonic() - started)
-            with SyncMinerUClient(self._base_url, wait_s=parse_s, tier=self._tier) as client:
-                middle = client.parse(filename=f"{checksum}.pdf", content=content)
+            client = MinerUClient(
+                self._base_url, parse_s, connect_timeout=_CONNECT_TIMEOUT_S, tier=self._tier
+            )
+            try:
+                middle = await client.parse(filename=f"{checksum}.pdf", content=content)
+            finally:
+                await client.aclose()
         except MinerUTimeoutError as exc:
             raise ParserTimeoutError(f"MinerU ran longer than {parse_s:.0f} s. {exc}") from exc
         except MinerUPermanentError as exc:
