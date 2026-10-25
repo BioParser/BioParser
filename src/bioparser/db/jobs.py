@@ -190,22 +190,21 @@ async def mark_failed(
     if row is None:
         return "skipped"
     status = str(row.status)
-    if status in from_statuses and (
-        status not in ALLOWED_TRANSITIONS
-        or "failed" not in ALLOWED_TRANSITIONS[cast(JobStatus, status)]
-    ):
+    if status in from_statuses and not _can_fail(status):
         return "not_allowed"
     return "skipped"
 
 
+def _can_fail(status: str) -> bool:
+    """True when the job may move from `status` to `failed`."""
+    return (
+        status in ALLOWED_TRANSITIONS and "failed" in ALLOWED_TRANSITIONS[cast(JobStatus, status)]
+    )
+
+
 def _failable(from_statuses: Collection[str]) -> list[str]:
     """Statuses in `from_statuses` that may become `failed`."""
-    return [
-        status
-        for status in from_statuses
-        if status in ALLOWED_TRANSITIONS
-        and "failed" in ALLOWED_TRANSITIONS[cast(JobStatus, status)]
-    ]
+    return [status for status in from_statuses if _can_fail(status)]
 
 
 def _claim_count(status: JobStatus) -> InstrumentedAttribute[int]:

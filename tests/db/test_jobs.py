@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import get_args
 
@@ -498,30 +499,45 @@ async def test_pool_exhaustion_raises_database_error(
         await small.dispose()
 
 
+def _engine_that_records(events: list[str]) -> object:
+    class _Engine:
+        @asynccontextmanager
+        async def begin(self) -> AsyncIterator[object]:
+            try:
+                yield object()
+                events.append("commit")
+            except BaseException:
+                events.append("rollback")
+                raise
+            finally:
+                events.append("close")
+
+    return _Engine()
+
+
 @pytest.mark.anyio
-async def test_transaction_passes_through_an_error_from_the_body(
+@pytest.mark.parametrize("error", [TimeoutError, OSError])
+async def test_transaction_reports_a_driver_error_from_the_body(
+    monkeypatch: pytest.MonkeyPatch, error: type[Exception]
+) -> None:
+    events: list[str] = []
+    monkeypatch.setattr(db_engine, "_engine", _engine_that_records(events))
+    with pytest.raises(DatabaseError, match=error.__name__):
+        async with db_engine.transaction():
+            raise error
+    assert events == ["rollback", "close"]
+
+
+@pytest.mark.anyio
+async def test_transaction_passes_through_an_unrelated_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class _Connection:
-        closed = False
-
-        async def commit(self) -> None:
-            raise AssertionError("must not commit after an error")
-
-        async def close(self) -> None:
-            self.closed = True
-
-    connection = _Connection()
-
-    class _Engine:
-        async def connect(self) -> _Connection:
-            return connection
-
-    monkeypatch.setattr(db_engine, "_engine", _Engine())
-    with pytest.raises(OSError, match="not the database"):
+    events: list[str] = []
+    monkeypatch.setattr(db_engine, "_engine", _engine_that_records(events))
+    with pytest.raises(ValueError, match="not the database"):
         async with db_engine.transaction():
-            raise OSError("not the database")
-    assert connection.closed
+            raise ValueError("not the database")
+    assert events == ["rollback", "close"]
 
 
 def test_job_columns_match_the_job_state_fields() -> None:

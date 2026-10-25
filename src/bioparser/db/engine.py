@@ -69,9 +69,10 @@ def require() -> AsyncEngine:
     return _engine
 
 
-# What borrowing a connection or committing can raise. Pool exhaustion is a
-# SQLAlchemy error, not the builtin TimeoutError. A refused connection is an OSError.
-_BORROW_AND_COMMIT_ERRORS = (SQLAlchemyError, OSError, TimeoutError)
+# Pool exhaustion is a SQLAlchemy error. A stalled query under command_timeout
+# is a bare TimeoutError, which SQLAlchemy does not wrap. A refused or dropped
+# connection is an OSError.
+_DRIVER_ERRORS = (SQLAlchemyError, OSError, TimeoutError)
 
 
 @asynccontextmanager
@@ -79,26 +80,16 @@ async def transaction() -> AsyncIterator[AsyncConnection]:
     """Borrow one pooled connection. A clean exit commits; an exception rolls back.
 
     Query functions take this connection, so a caller can run several of them
-    in one transaction and pass the same connection through. A driver failure
-    becomes DatabaseError. The message names the error type and not the URL.
+    in one transaction and pass the same connection through. Logic between
+    those calls is fine. Other I/O is not: it holds a pooled connection, and
+    an OSError or TimeoutError from it is reported as DatabaseError.
 
-    Only the borrow, the commit, and SQLAlchemy's own errors in the body are
-    converted. An OSError or TimeoutError raised by other code in the body
-    passes through unchanged, so keep the body to database calls anyway.
+    A driver failure, including one raised by a statement, becomes
+    DatabaseError. The message names the error type and not the URL. Any
+    other error passes through.
     """
     try:
-        connection = await require().connect()
-    except _BORROW_AND_COMMIT_ERRORS as exc:
-        raise DatabaseError(f"Postgres query failed: {type(exc).__name__}") from exc
-    try:
-        try:
+        async with require().begin() as connection:
             yield connection
-        except SQLAlchemyError as exc:
-            raise DatabaseError(f"Postgres query failed: {type(exc).__name__}") from exc
-        try:
-            await connection.commit()
-        except _BORROW_AND_COMMIT_ERRORS as exc:
-            raise DatabaseError(f"Postgres query failed: {type(exc).__name__}") from exc
-    finally:
-        # Closing rolls back a transaction that did not commit.
-        await connection.close()
+    except _DRIVER_ERRORS as exc:
+        raise DatabaseError(f"Postgres query failed: {type(exc).__name__}") from exc
