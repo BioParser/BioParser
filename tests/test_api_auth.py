@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from starlette.routing import Route
 from starlette.types import Message, Scope
-from stubs import StubArtifactStorage, StubJobStateStore, StubParseQueue
+from stubs import StubArtifactStorage, StubJobs, StubParseQueue
 
 from bioparser.api.app import app
 from bioparser.api.auth import PUBLIC_PATHS
@@ -85,7 +85,7 @@ def test_invalid_api_key_returns_401(auth_enabled: None) -> None:
 
 def test_valid_api_key_succeeds(
     auth_enabled: None,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
     client = TestClient(app, headers={"X-API-Key": CANARY_API_KEY})
 
@@ -117,7 +117,7 @@ def test_health_and_ready_accessible_without_api_key(auth_enabled: None) -> None
 
 def test_auth_disabled_allows_requests_without_key(
     monkeypatch: pytest.MonkeyPatch,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
     monkeypatch.setenv("BIOPARSER_AUTH_DISABLED", "true")
     monkeypatch.delenv("BIOPARSER_API_KEY", raising=False)
@@ -156,7 +156,7 @@ def test_startup_logs_warning_when_auth_disabled(
     monkeypatch.delenv("BIOPARSER_API_KEY", raising=False)
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/15")
     monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path / "artifacts"))
-    for name in ("mineru", "vllm", "job_store", "parse_queue", "artifact_storage"):
+    for name in ("mineru", "vllm", "parse_queue", "artifact_storage"):
         monkeypatch.setattr(app.state, name, None, raising=False)
 
     with TestClient(app):
@@ -171,7 +171,7 @@ def test_startup_logs_warning_when_auth_disabled(
 
 def test_api_key_never_appears_in_logs_or_errors(
     auth_enabled: None,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
     capsys: pytest.CaptureFixture[str],

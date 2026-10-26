@@ -13,10 +13,10 @@ from stubs import (
     Handler,
     InlinePipeline,
     StubArtifactStorage,
-    StubJobStateStore,
+    StubJobs,
     StubParseQueue,
     StubParser,
-    bind_job_store,
+    bind_jobs,
 )
 
 # The API requires these. A developer .env must not be the only way tests import the app.
@@ -37,21 +37,21 @@ TEST_API_KEY = "test-api-key-at-least-32-characters-long"
 @pytest.fixture
 def stub_api_adapters(
     monkeypatch: pytest.MonkeyPatch,
-) -> tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]]:
+) -> tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]]:
     events: list[str] = []
     artifact_storage = StubArtifactStorage(events)
-    job_store = StubJobStateStore(events=events)
+    jobs = StubJobs(events=events)
     parse_queue = StubParseQueue(events)
 
     monkeypatch.setattr(app.state, "artifact_storage", artifact_storage, raising=False)
     monkeypatch.setattr(app.state, "parse_queue", parse_queue, raising=False)
-    bind_job_store(monkeypatch)
-    return artifact_storage, job_store, parse_queue, events
+    bind_jobs(monkeypatch)
+    return artifact_storage, jobs, parse_queue, events
 
 
 @pytest.fixture
 def client(
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> TestClient:
     return TestClient(app, headers={"X-API-Key": TEST_API_KEY})
 

@@ -11,7 +11,7 @@ from uuid import UUID
 import pytest
 from dramatiq.brokers.stub import StubBroker
 from dramatiq.middleware.time_limit import TimeLimit
-from stubs import StubJobStateStore, bind_job_store, clear_job_stores, fake_mineru
+from stubs import StubJobs, bind_jobs, clear_jobs, fake_mineru
 
 from bioparser.artifact_paths import parse_result_path
 from bioparser.jobqueue import JobTimeLimitExceeded
@@ -55,9 +55,9 @@ RESULT_PATH = parse_result_path(PDF_CHECKSUM, "default", "1")
 
 @pytest.fixture(autouse=True)
 def _stub_job_queries(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    bind_job_store(monkeypatch)
+    bind_jobs(monkeypatch)
     yield
-    clear_job_stores()
+    clear_jobs()
 
 
 class MemoryStorage:
@@ -155,7 +155,7 @@ def _message(**overrides: object) -> ParseJobMessage:
 
 
 def _handler(
-    jobs: StubJobStateStore,
+    jobs: StubJobs,
     storage: MemoryStorage,
     parser: RecordingParser,
     *,
@@ -178,7 +178,7 @@ def _handler(
 
 
 def test_success_stores_artifact_and_marks_parsed() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     storage = MemoryStorage()
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, storage, parser)
@@ -197,7 +197,7 @@ def test_success_stores_artifact_and_marks_parsed() -> None:
 
 
 def test_success_wakes_the_extractor_and_a_duplicate_wakes_it_again() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     woken: list[UUID] = []
     handler = _handler(
         jobs,
@@ -216,7 +216,7 @@ def test_success_wakes_the_extractor_and_a_duplicate_wakes_it_again() -> None:
 
 
 def test_a_lost_wake_up_is_sent_again_on_the_next_delivery() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     calls = 0
 
     def _enqueue(job_id: UUID) -> None:
@@ -239,7 +239,7 @@ def test_a_lost_wake_up_is_sent_again_on_the_next_delivery() -> None:
 
 
 def test_duplicate_delivery_does_not_parse_again() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     storage = MemoryStorage()
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, storage, parser)
@@ -257,7 +257,7 @@ def test_duplicate_delivery_does_not_parse_again() -> None:
 
 
 def test_claim_is_counted_and_a_further_start_stops_at_the_cap() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     storage = MemoryStorage()
     parser = RecordingParser(_artifact(), error=RuntimeError("backend blip"))
     handler = _handler(jobs, storage, parser, max_claims=1)
@@ -277,7 +277,7 @@ def test_claim_is_counted_and_a_further_start_stops_at_the_cap() -> None:
 
 
 def test_retry_after_parser_error_can_succeed() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     storage = MemoryStorage()
     parser = RecordingParser(_artifact(), error=RuntimeError("backend blip"))
     handler = _handler(jobs, storage, parser)
@@ -296,7 +296,7 @@ def test_retry_after_parser_error_can_succeed() -> None:
 
 
 def test_parser_comes_from_job_state() -> None:
-    jobs = StubJobStateStore(_queued().with_changes(parser="mineru"))
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
     seen: list[str] = []
 
     def _factory(name: str) -> PdfParser:
@@ -318,7 +318,7 @@ def test_parser_comes_from_job_state() -> None:
 
 
 def test_malformed_message_fails_the_job() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()))
     handler.on_malformed({"job_id": str(JOB_ID), "extra": "nope"})
     handler.close()
@@ -327,7 +327,7 @@ def test_malformed_message_fails_the_job() -> None:
 
 
 def test_unsupported_document_is_invalid_pdf() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     storage = MemoryStorage()
     parser = RecordingParser(_artifact(), error=UnsupportedDocumentError("empty"))
     handler = _handler(jobs, storage, parser)
@@ -339,7 +339,7 @@ def test_unsupported_document_is_invalid_pdf() -> None:
 
 
 def test_missing_input_fails_without_retry() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     storage = MemoryStorage()
     storage.payloads.clear()
     parser = RecordingParser(_artifact())
@@ -354,7 +354,7 @@ def test_missing_input_fails_without_retry() -> None:
 
 def test_parser_without_a_version_is_internal_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("bioparser.worker.parse.handler.PARSER_VERSIONS", {})
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, MemoryStorage(), parser)
     handler.handle(_message())
@@ -366,7 +366,7 @@ def test_parser_without_a_version_is_internal_error(monkeypatch: pytest.MonkeyPa
 
 
 def test_unavailable_parser_fails_without_retry() -> None:
-    jobs = StubJobStateStore(_queued().with_changes(parser="mineru"))
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, MemoryStorage(), parser)
     handler.handle(_message())
@@ -383,7 +383,7 @@ def test_a_mineru_failure_is_retried_not_failed_as_invalid_pdf() -> None:
     entry = {"name": "a.pdf", "status": "failed", "error": {"code": "parse_failed"}}
     reply = (409, {"task_id": "job_1", "status": "failed", "files": [entry]})
 
-    jobs = StubJobStateStore(_queued().with_changes(parser="mineru"))
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
     with fake_mineru(reply) as (url, _seen):
         handler = ParseJobHandler(
             database_url="postgresql://unused",
@@ -407,7 +407,7 @@ def test_parser_timeout_fails_with_timeout_without_retry(error: BaseException) -
         def parse(self, path: Path) -> ParserArtifact:
             raise error
 
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     handler = _handler(
         jobs, MemoryStorage(), RecordingParser(_artifact()), factory=lambda _name: _SlowParser()
     )
@@ -420,7 +420,7 @@ def test_parser_timeout_fails_with_timeout_without_retry(error: BaseException) -
 
 
 def test_invalid_existing_artifact_fails_the_job() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     storage = MemoryStorage()
     invalid = b'{"old":true}'
     storage.payloads[RESULT_PATH] = invalid
@@ -438,7 +438,7 @@ def test_invalid_existing_artifact_fails_the_job() -> None:
 
 
 def test_different_valid_artifact_is_reused_without_parsing() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     storage = MemoryStorage()
     stored = _artifact().model_copy(update={"checksum": "b" * 64}).model_dump_json().encode()
     storage.payloads[RESULT_PATH] = stored
@@ -456,7 +456,7 @@ def test_different_valid_artifact_is_reused_without_parsing() -> None:
 
 
 def test_identical_existing_artifact_is_reused() -> None:
-    jobs = StubJobStateStore(_queued().with_changes(status="parsing"))
+    jobs = StubJobs(_queued().with_changes(status="parsing"))
     storage = MemoryStorage()
     payload = _artifact().model_dump_json().encode()
     storage.payloads[RESULT_PATH] = payload
@@ -472,14 +472,14 @@ def test_identical_existing_artifact_is_reused() -> None:
 
 
 def test_missing_job_state_is_retried() -> None:
-    jobs = StubJobStateStore(None)
+    jobs = StubJobs(None)
     handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()))
     with pytest.raises(JobNotFoundError):
         handler.handle(_message())
     handler.close()
 
 
-class CorruptJobs(StubJobStateStore):
+class CorruptJobs(StubJobs):
     async def get(self, connection: object, job_id: object) -> JobState | None:
         raise CorruptJobStateError(str(job_id))
 
@@ -498,7 +498,7 @@ def test_on_failed_tolerates_corrupt_state() -> None:
 
 def test_on_failed_records_timeout(capsys: pytest.CaptureFixture[str]) -> None:
     setup_logging("INFO")
-    jobs = StubJobStateStore(_queued().with_changes(status="parsing"))
+    jobs = StubJobs(_queued().with_changes(status="parsing"))
     handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()))
     handler.on_failed(_message(), JobTimeLimitExceeded())
     handler.close()
@@ -513,7 +513,7 @@ def test_on_failed_does_not_reopen_a_finished_job(capsys: pytest.CaptureFixture[
     finished = _queued().with_changes(
         status="parsed", parse_result_ref="7c2e1d3b-8e55-4f2b-ad4c-3a9f6b1e7d22"
     )
-    jobs = StubJobStateStore(finished)
+    jobs = StubJobs(finished)
     handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()))
     handler.on_failed(_message(), RuntimeError("late"))
     handler.close()
@@ -532,7 +532,7 @@ def test_job_past_the_parse_stage_is_left_alone(status: str) -> None:
     if status == "done":
         fields["extract_result_ref"] = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
     later = _queued().with_changes(**fields)
-    jobs = StubJobStateStore(later)
+    jobs = StubJobs(later)
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, MemoryStorage(), parser)
     handler.handle(_message())
@@ -542,7 +542,7 @@ def test_job_past_the_parse_stage_is_left_alone(status: str) -> None:
 
 
 def test_malformed_message_with_non_string_job_id_is_ignored() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     handler = _handler(jobs, MemoryStorage(), RecordingParser(_artifact()))
     handler.on_malformed({"job_id": 12345})  # must not raise
     handler.close()
@@ -550,7 +550,7 @@ def test_malformed_message_with_non_string_job_id_is_ignored() -> None:
 
 
 def test_killed_parser_process_is_retried_not_failed_as_invalid_pdf() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     parser = RecordingParser(_artifact(), error=ParserProcessError("killed by signal 9"))
     handler = _handler(jobs, MemoryStorage(), parser)
     with pytest.raises(ParserProcessError):
@@ -571,7 +571,7 @@ def test_records_logged_while_a_job_runs_carry_its_job_id(
 
     setup_logging("INFO")
     handler = _handler(
-        StubJobStateStore(_queued()),
+        StubJobs(_queued()),
         MemoryStorage(),
         RecordingParser(_artifact()),
         factory=lambda _name: _LoggingParser(),
@@ -611,7 +611,7 @@ def _consume(handler: ParseJobHandler, *, max_retries: int, time_limit_ms: int =
 
 
 def test_exhausted_wake_retries_try_once_more_when_the_job_is_parsed() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     calls: list[UUID] = []
 
     def _enqueue(job_id: UUID) -> None:
@@ -629,7 +629,7 @@ def test_exhausted_wake_retries_try_once_more_when_the_job_is_parsed() -> None:
 
 
 def test_a_job_runs_from_the_queue_to_parsed() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     storage = MemoryStorage()
     parser = RecordingParser(_artifact())
 
@@ -642,7 +642,7 @@ def test_a_job_runs_from_the_queue_to_parsed() -> None:
 
 
 def test_a_failing_parse_is_retried_then_fails_the_job() -> None:
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     parser = RecordingParser(_artifact(), error=RuntimeError("boom"))
 
     _consume(_handler(jobs, MemoryStorage(), parser, max_claims=3), max_retries=2)
@@ -655,7 +655,7 @@ def test_a_failing_parse_is_retried_then_fails_the_job() -> None:
 
 def test_claim_cap_stops_retries_that_the_queue_would_still_allow() -> None:
     """A job started max_claims times is not parsed again, even with retries left."""
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     parser = RecordingParser(_artifact(), error=RuntimeError("boom"))
 
     _consume(_handler(jobs, MemoryStorage(), parser, max_claims=2), max_retries=5)
@@ -676,7 +676,7 @@ def test_queue_time_limit_fails_the_job_as_timeout_without_retry() -> None:
                 time.sleep(0.01)
             raise AssertionError("the time limit never interrupted the parse")
 
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     handler = _handler(
         jobs, MemoryStorage(), RecordingParser(_artifact()), factory=lambda _name: _HangingParser()
     )
@@ -692,13 +692,13 @@ def test_queue_time_limit_fails_the_job_as_timeout_without_retry() -> None:
 def test_second_job_with_the_same_pdf_reuses_the_artifact() -> None:
     storage = MemoryStorage()
     parser = RecordingParser(_artifact())
-    first = StubJobStateStore(_queued())
+    first = StubJobs(_queued())
     handler = _handler(first, storage, parser)
     handler.handle(_message())
     handler.close()
 
     other_id = UUID("9d0c6a52-1b7e-4c3f-a2d8-5e6f7a8b9c01")
-    second = StubJobStateStore(_queued().with_changes(job_id=other_id))
+    second = StubJobs(_queued().with_changes(job_id=other_id))
     handler = _handler(second, storage, parser)
     handler.handle(_message(job_id=str(other_id)))
     handler.close()
@@ -710,7 +710,7 @@ def test_second_job_with_the_same_pdf_reuses_the_artifact() -> None:
 
 
 def test_the_mineru_result_path_has_the_tier_as_its_last_segment() -> None:
-    jobs = StubJobStateStore(_queued().with_changes(parser="mineru"))
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
     parser = RecordingParser(_artifact())
     handler = ParseJobHandler(
         database_url="postgresql://unused",
@@ -727,7 +727,7 @@ def test_the_mineru_result_path_has_the_tier_as_its_last_segment() -> None:
 
 
 def test_each_backend_gets_its_own_result_path() -> None:
-    jobs = StubJobStateStore(_queued().with_changes(parser="mineru"))
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
     storage = MemoryStorage()
     parser = RecordingParser(_artifact())
     handler = _handler(jobs, storage, parser, factory=lambda _name: parser)
@@ -759,7 +759,7 @@ def test_the_parser_reads_a_closed_temp_file_that_is_removed_afterwards(
             seen.append((handles[-1].closed, path))
             return super().parse(path)
 
-    jobs = StubJobStateStore(_queued())
+    jobs = StubJobs(_queued())
     parser = _ClosedFileParser(_artifact())
     handler = _handler(jobs, MemoryStorage(), parser)
     handler.handle(_message())

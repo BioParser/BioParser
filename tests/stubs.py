@@ -249,14 +249,14 @@ class StubArtifactStorage:
             raise ArtifactNotFoundError(f"Artifact not found: {artifact_path}") from exc
 
 
-_job_stores: list["StubJobStateStore"] = []
+_jobs: list["StubJobs"] = []
 
 
-class StubJobStateStore:
+class StubJobs:
     """One in-memory jobs table for the API tests and both worker handler tests."""
 
     def __init__(self, state: JobState | None = None, *, events: list[str] | None = None) -> None:
-        _job_stores.append(self)
+        _jobs.append(self)
         self.states: dict[str, JobState] = {}
         if state is not None:
             self.states[str(state.job_id)] = state
@@ -350,15 +350,15 @@ class StubJobStateStore:
         return "recorded"
 
 
-def bind_job_store(monkeypatch: Any) -> None:
-    """Point job queries and the pool at the store most recently constructed."""
-    store = _job_stores
+def bind_jobs(monkeypatch: Any) -> None:
+    """Point job queries and the pool at the jobs table most recently constructed."""
+    tables = _jobs
 
     async def get(connection: object, job_id: object) -> JobState | None:
-        return await store[-1].get(connection, job_id)
+        return await tables[-1].get(connection, job_id)
 
     async def create(connection: object, state: JobState) -> None:
-        await store[-1].create(connection, state)
+        await tables[-1].create(connection, state)
 
     async def claim(
         connection: object,
@@ -368,7 +368,7 @@ def bind_job_store(monkeypatch: Any) -> None:
         from_statuses: Collection[str],
         max_claims: int,
     ) -> str:
-        return await store[-1].claim(
+        return await tables[-1].claim(
             connection,
             job_id,
             status=status,
@@ -377,10 +377,10 @@ def bind_job_store(monkeypatch: Any) -> None:
         )
 
     async def record_parsed(connection: object, job_id: object, artifact_path: str) -> bool:
-        return await store[-1].record_parsed(connection, job_id, artifact_path)
+        return await tables[-1].record_parsed(connection, job_id, artifact_path)
 
     async def record_done(connection: object, job_id: object, artifact_path: str) -> bool:
-        return await store[-1].record_done(connection, job_id, artifact_path)
+        return await tables[-1].record_done(connection, job_id, artifact_path)
 
     async def mark_failed(
         connection: object,
@@ -389,7 +389,7 @@ def bind_job_store(monkeypatch: Any) -> None:
         *,
         from_statuses: Collection[str],
     ) -> str:
-        return await store[-1].mark_failed(connection, job_id, code, from_statuses=from_statuses)
+        return await tables[-1].mark_failed(connection, job_id, code, from_statuses=from_statuses)
 
     async def open_pool(url: str) -> None:
         return None
@@ -412,8 +412,8 @@ def bind_job_store(monkeypatch: Any) -> None:
     monkeypatch.setattr(database, "transaction", _transaction)
 
 
-def clear_job_stores() -> None:
-    _job_stores.clear()
+def clear_jobs() -> None:
+    _jobs.clear()
 
 
 class StubParseQueue:
