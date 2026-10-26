@@ -1,8 +1,8 @@
 from threading import Event
 from uuid import UUID
 
-from bioparser.jobqueue import ExtractJobMessage, JobConsumer, JobSubmitter, ParseJobMessage
-from bioparser.jobqueue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
+from bioparser.jobs.queue import ExtractJobMessage, JobConsumer, JobSubmitter, ParseJobMessage
+from bioparser.jobs.queue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
 from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
 from bioparser.parser.protocol import PdfParser

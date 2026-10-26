@@ -14,7 +14,7 @@ from bioparser.api.schema import DocumentMetadataResponse
 from bioparser.db.documents import DocumentRecord
 from bioparser.db.engine import DatabaseError
 from bioparser.hashing import sha256_bytes
-from bioparser.jobqueue import JobQueueError
+from bioparser.jobs.queue import JobQueueError
 from bioparser.storage import ArtifactMetadata, StorageError
 
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"

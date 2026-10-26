@@ -7,7 +7,6 @@ from collections.abc import Callable
 
 from pydantic import ValidationError
 
-from bioparser.artifact_paths import ArtifactPathError, extract_result_path
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
 from bioparser.extract.checks import checked_artifact
@@ -15,11 +14,12 @@ from bioparser.extract.errors import ExtractionFailedError, ExtractorBackendUnav
 from bioparser.extract.models import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
 from bioparser.extract.protocol import Extractor
 from bioparser.extractor_names import EXTRACTOR_VERSIONS
-from bioparser.jobqueue import ExtractJobMessage, JobDeferred
-from bioparser.jobstate import JobState, JobStatus
+from bioparser.jobs import JobState, JobStatus
+from bioparser.jobs.queue import ExtractJobMessage, JobDeferred
 from bioparser.parser.models import ParserArtifact
 from bioparser.services.vllm.vllm import VLLMService
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
+from bioparser.storage.artifact_paths import ArtifactPathError, extract_result_path
 
 from ..json_artifact import _retrieve_or_none, store_json_artifact
 from ..stage import PermanentJobFailure, StageJobHandler

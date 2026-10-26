@@ -13,11 +13,6 @@ from stubs import (
     clear_jobs,
 )
 
-from bioparser.artifact_paths import (
-    ARTIFACT_PATH_MAX_LENGTH,
-    extract_result_path,
-    parse_result_path,
-)
 from bioparser.extract.backend.default.extractor import extract_observations
 from bioparser.extract.backend.default.locate import cited_observations
 from bioparser.extract.backend.default.schema import Extraction, ModelObservation
@@ -36,13 +31,13 @@ from bioparser.extract.models import (
 )
 from bioparser.extract.protocol import Extractor
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
-from bioparser.jobqueue import (
+from bioparser.jobs import JobState
+from bioparser.jobs.queue import (
     ExtractJobMessage,
     JobDeferralExpired,
     JobDeferred,
     JobTimeLimitExceeded,
 )
-from bioparser.jobstate import JobState
 from bioparser.parser.models import (
     PARSER_ARTIFACT_SCHEMA_VERSION,
     BlockKind,
@@ -55,6 +50,11 @@ from bioparser.parser.models import (
 )
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.vllm import VLLMError, VLLMRequestRejectedError, VLLMTruncatedError
+from bioparser.storage.artifact_paths import (
+    ARTIFACT_PATH_MAX_LENGTH,
+    extract_result_path,
+    parse_result_path,
+)
 from bioparser.worker.extract.config import DEFAULT_EXTRACT_MAX_RETRIES
 from bioparser.worker.extract.handler import ExtractJobHandler
 
@@ -618,7 +618,7 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
 
 
 def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("bioparser.jobstate.models.EXTRACTORS", ("default", "other"))
+    monkeypatch.setattr("bioparser.jobs.state.EXTRACTORS", ("default", "other"))
     monkeypatch.setattr(
         "bioparser.worker.extract.handler.EXTRACTOR_VERSIONS",
         {"other": "4"},

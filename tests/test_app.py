@@ -18,12 +18,12 @@ from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
 from bioparser.db.engine import DatabaseError
 from bioparser.extract.models import ExtractionArtifact
-from bioparser.jobqueue import JobQueueError
-from bioparser.jobstate import (
+from bioparser.jobs import (
     CorruptJobStateError,
     JobState,
     JobStatus,
 )
+from bioparser.jobs.queue import JobQueueError
 from bioparser.storage import (
     ArtifactMetadata,
     ArtifactNotFoundError,

@@ -215,7 +215,7 @@ component (API or worker) builds it from the content checksum and the pipeline
 configuration, so the same input always gives the same path and a stored artifact can be
 reused.
 
-Rules (`validate_artifact_path` in `bioparser.artifact_paths`):
+Rules (`validate_artifact_path` in `bioparser.storage.artifact_paths`):
 
 - Segments are separated by a single `/`. No empty segments, and no leading or trailing `/`.
 - No `.` or `..` segments.
@@ -248,7 +248,7 @@ Convention:
   on the job and takes its version from `bioparser.extractor_names.EXTRACTOR_VERSIONS` when
   the extraction runs. The job does not store that version. New jobs name the extractor
   `default`, whose version is `1`. Bumping it gives new results a new path, so
-  results from the old version are not reused. The builders live in `bioparser.artifact_paths`.
+  results from the old version are not reused. The builders live in `bioparser.storage.artifact_paths`.
 - Build paths with the builders, never by string formatting. Each builder argument must be
   a single valid segment, so a value like `a/b` cannot change the shape of the path.
 

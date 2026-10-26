@@ -16,7 +16,7 @@ from uuid import UUID
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ValidationError
 
-from bioparser.artifact_paths import pdf_path
+from bioparser.storage.artifact_paths import pdf_path
 from bioparser.db import documents as document_queries
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
@@ -25,18 +25,18 @@ from bioparser.db.engine import DatabaseError
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.hashing import Sha256Hex, is_sha256_hex, sha256_bytes
-from bioparser.jobqueue import (
-    JobQueueError,
-    JobSubmitter,
-    ParseJobMessage,
-)
-from bioparser.jobqueue.dramatiq import DramatiqJobSubmitter
-from bioparser.jobstate import (
+from bioparser.jobs import (
     CorruptJobStateError,
     JobState,
     JobStatus,
     SafeError,
 )
+from bioparser.jobs.queue import (
+    JobQueueError,
+    JobSubmitter,
+    ParseJobMessage,
+)
+from bioparser.jobs.queue.dramatiq import DramatiqJobSubmitter
 from bioparser.logging_config import error_fields, redact_url, setup_logging
 from bioparser.parser.models import ParserArtifact
 from bioparser.parser_names import DEFAULT_PARSER_NAME

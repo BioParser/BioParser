@@ -4,9 +4,22 @@ from typing import Literal, Self
 
 from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from bioparser.artifact_paths import ArtifactPath
 from bioparser.extractor_names import EXTRACTORS
 from bioparser.parser_names import PARSER_BACKENDS
+from bioparser.storage.artifact_paths import ArtifactPath
+
+
+class JobStateError(RuntimeError):
+    """A pipeline rule rejected a job read or write."""
+
+
+class JobNotFoundError(JobStateError):
+    """No state exists for the given job ID."""
+
+
+class CorruptJobStateError(JobStateError):
+    """Stored state could not be parsed into a valid JobState."""
+
 
 # One linear pipeline. The parse worker owns queued -> parsing -> parsed.
 # The extract worker owns parsed -> extracting -> done. `failed` ends the stage

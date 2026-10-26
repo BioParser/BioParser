@@ -13,8 +13,7 @@ Convention (build paths with the functions below, never by string formatting):
   artifact made from that parser artifact. It keeps every segment of the parse path,
   including a backend configuration such as a MinerU tier.
 
-This module only defines what a well-formed path looks like and how to build one. It has no
-dependency on storage, so the job modules can use it without importing the storage package.
+This module only defines what a well-formed path looks like and how to build one.
 """
 
 from __future__ import annotations

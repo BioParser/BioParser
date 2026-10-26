@@ -2,8 +2,8 @@ from threading import Event
 
 from bioparser.extract.backend.factory import get_extractor
 from bioparser.extract.protocol import Extractor
-from bioparser.jobqueue import ExtractJobMessage, JobConsumer
-from bioparser.jobqueue.dramatiq import DramatiqJobConsumer
+from bioparser.jobs.queue import ExtractJobMessage, JobConsumer
+from bioparser.jobs.queue.dramatiq import DramatiqJobConsumer
 from bioparser.logging_config import setup_logging
 from bioparser.services.vllm import VLLMService
 from bioparser.storage.filesystem import FileSystemArtifactStorage

@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTORS
 from bioparser.hashing import Sha256Hex
-from bioparser.jobstate import SafeError
+from bioparser.jobs import SafeError
 from bioparser.parser_names import DEFAULT_PARSER_NAME, PARSER_BACKENDS
 
 
