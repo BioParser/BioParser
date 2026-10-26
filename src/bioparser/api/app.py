@@ -310,7 +310,7 @@ async def _read_job(request: Request, job_id: UUID) -> JobState:
         raise http_error(500, JOB_STATE_UNREADABLE) from exc
     except DatabaseError as exc:
         LOGGER.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
-        raise http_error(503, REDIS_UNAVAILABLE) from exc
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
     if record is None:
         raise http_error(404, JOB_NOT_FOUND)
     return record
@@ -335,7 +335,7 @@ def _artifact_responses(model: type[BaseModel], description: str) -> dict[int | 
         409: error_response(ARTIFACT_NOT_AVAILABLE),
         422: error_response(INVALID_JOB_ID),
         500: error_response(JOB_STATE_UNREADABLE, ARTIFACT_INVALID),
-        503: error_response(REDIS_UNAVAILABLE, STORAGE_UNAVAILABLE),
+        503: error_response(DATABASE_UNAVAILABLE, STORAGE_UNAVAILABLE),
     }
 
 
