@@ -201,17 +201,18 @@ class StageJobHandler[T: JobMessage]:
         LOGGER.info(f"job moved on before this delivery could start {claim}. Skipping")
         return False
 
-    async def _mark_failed(
+    async def _mark_failed(self, job_id: UUID, code: SafeErrorCode) -> bool:
+        """Record `failed` when this stage still owns the job. True when the write lands."""
+        await self._open()
+        async with database.transaction() as connection:
+            return await self._mark_failed_in(connection, job_id, code)
+
+    async def _mark_failed_in(
         self,
+        connection: AsyncConnection,
         job_id: UUID,
         code: SafeErrorCode,
-        connection: AsyncConnection | None = None,
     ) -> bool:
-        """Record `failed` when this stage still owns the job. True when the write lands."""
-        if connection is None:
-            await self._open()
-            async with database.transaction() as owned:
-                return await self._mark_failed(job_id, code, owned)
         outcome = await job_queries.mark_failed(connection, job_id, code, from_statuses=self._owned)
         if outcome == "recorded":
             return True
