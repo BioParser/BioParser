@@ -370,9 +370,9 @@ def test_a_mineru_failure_is_retried_not_failed_as_invalid_pdf() -> None:
     assert jobs.state.status == "parsing"
 
 
-@pytest.mark.parametrize("error", [ParserTimeoutError("too slow"), JobTimeLimitExceeded()])
+@pytest.mark.parametrize("error", [ParserTimeoutError("too slow"), asyncio.CancelledError()])
 def test_parser_timeout_fails_with_timeout_without_retry(error: BaseException) -> None:
-    """Both the parser's own limit and the queue's time limit end the job as a timeout."""
+    """Both the parser's own limit and the queue's cancellation at its time limit end the job as a timeout."""
 
     class _SlowParser:
         async def parse(self, path: Path) -> ParserArtifact:

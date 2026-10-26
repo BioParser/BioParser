@@ -30,7 +30,7 @@ from typing import Any, TypeVar
 import dramatiq
 import redis
 from dramatiq import Actor, Broker, Worker
-from dramatiq.asyncio import EventLoopThread, get_event_loop_thread, set_event_loop_thread
+from dramatiq.asyncio import EventLoopThread
 from dramatiq.brokers.redis import RedisBroker
 from dramatiq.common import compute_backoff, current_millis
 from dramatiq.middleware import CurrentMessage
@@ -108,6 +108,7 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
         self._time_limit_ms = time_limit_ms
         self._worker_timeout_ms = worker_timeout_ms
         self._handler: JobHandler[T] | None = None
+        self._loop_thread: EventLoopThread | None = None
         self._consuming = Lock()
         try:
             _ensure_current_message(broker)
@@ -176,7 +177,7 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
         """Run every handler on one loop, then close the handler on it."""
         loop_thread = EventLoopThread(LOGGER)
         loop_thread.start(timeout=5.0)
-        set_event_loop_thread(loop_thread)
+        self._loop_thread = loop_thread
         # One thread, so a handler's blocking calls run in submission order. The join
         # after a time limit queues behind them.
         executor = concurrent.futures.ThreadPoolExecutor(
@@ -193,7 +194,7 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
             finally:
                 executor.shutdown(wait=True)
                 loop_thread.stop()  # type: ignore[no-untyped-call]
-                set_event_loop_thread(None)
+                self._loop_thread = None
 
     def _hook_bound_s(self) -> float:
         """How long a reporting hook or shutdown may run before the process exits."""
@@ -213,7 +214,7 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
         `bound_s` is how long this call may sit here. Past that, the process exits:
         a stuck thread cannot be interrupted, and a live worker would keep reporting healthy.
         """
-        loop_thread = get_event_loop_thread()
+        loop_thread = self._loop_thread
         if loop_thread is None:
             coroutine.close()
             raise JobQueueError("the queue is not consuming")
@@ -228,9 +229,13 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
             daemon=True,
         ).start()
 
+        completed: list[_R] = []
+
         async def watched() -> _R:
             try:
-                return await coroutine
+                result = await coroutine
+                completed.append(result)
+                return result
             finally:
                 finished.set()
 
@@ -247,6 +252,11 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
                 future.cancel()
                 _wait_for(finished)
                 _join_blocking(loop_thread.loop)
+                if completed:
+                    # The handler took the cancellation and returned, for example after
+                    # recording a permanent failure. The delivery is handled: no retry.
+                    LOGGER.warning("handler on queue %s returned after the time limit", self._name)
+                    return completed[0]
                 raise
         finally:
             returned.set()
