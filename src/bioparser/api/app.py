@@ -22,17 +22,17 @@ from bioparser.db.engine import DatabaseError
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.hashing import sha256_bytes
-from bioparser.jobqueue import (
-    JobQueueError,
-    JobSubmitter,
-    ParseJobMessage,
-)
-from bioparser.jobqueue.dramatiq import DramatiqJobSubmitter
-from bioparser.jobstate import (
+from bioparser.jobs import (
     CorruptJobStateError,
     JobState,
     SafeError,
 )
+from bioparser.jobs.queue import (
+    JobQueueError,
+    JobSubmitter,
+    ParseJobMessage,
+)
+from bioparser.jobs.queue.dramatiq import DramatiqJobSubmitter
 from bioparser.logging_config import error_fields, redact_url, setup_logging
 from bioparser.parser.models import ParserArtifact
 from bioparser.parser_names import DEFAULT_PARSER_NAME

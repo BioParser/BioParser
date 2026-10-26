@@ -15,8 +15,8 @@ import httpx2
 
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
-from bioparser.jobqueue import JobQueueError, JobSubmitter, ParseJobMessage
-from bioparser.jobstate import ALLOWED_TRANSITIONS, JobState, JobStatus
+from bioparser.jobs import ALLOWED_TRANSITIONS, JobState, JobStatus
+from bioparser.jobs.queue import JobQueueError, JobSubmitter, ParseJobMessage
 from bioparser.parser.models import (
     BlockKind,
     BlockRole,

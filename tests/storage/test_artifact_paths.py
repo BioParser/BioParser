@@ -1,7 +1,7 @@
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from bioparser.artifact_paths import (
+from bioparser.storage.artifact_paths import (
     ARTIFACT_PATH_MAX_LENGTH,
     ARTIFACT_PATH_MAX_SEGMENT_LENGTH,
     ArtifactPath,

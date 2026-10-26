@@ -10,12 +10,12 @@ from pathlib import Path
 
 from pydantic import Field, ValidationError
 
-from bioparser.artifact_paths import (
+from bioparser.hashing import sha256_bytes
+from bioparser.storage.artifact_paths import (
     ArtifactPathError,
     ArtifactPathTraversalError,
     validate_artifact_path,
 )
-from bioparser.hashing import sha256_bytes
 from bioparser.storage.errors import (
     ArtifactAlreadyExistsError,
     ArtifactNotFoundError,

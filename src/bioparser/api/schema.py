@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from bioparser.jobstate import SafeError
+from bioparser.jobs import SafeError
 
 
 class HealthResponse(BaseModel):

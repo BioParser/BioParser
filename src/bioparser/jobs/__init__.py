@@ -1,12 +1,10 @@
-from .errors import (
-    CorruptJobStateError,
-    JobNotFoundError,
-    JobStateError,
-)
-from .models import (
+from .state import (
     ALLOWED_TRANSITIONS,
     JOB_STATE_SCHEMA_VERSION,
+    CorruptJobStateError,
+    JobNotFoundError,
     JobState,
+    JobStateError,
     JobStatus,
     SafeError,
     SafeErrorCode,

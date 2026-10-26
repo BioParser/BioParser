@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from bioparser.jobqueue import ParseJobMessage
+from bioparser.jobs.queue import ParseJobMessage
 
 
 def _valid(**overrides: object) -> ParseJobMessage:
