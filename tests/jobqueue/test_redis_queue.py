@@ -28,6 +28,7 @@ from bioparser.jobqueue import (
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue, DramatiqJobSubmitter
 from bioparser.jobqueue.dramatiq import redis_queue as redis_queue_module
 from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
+from bioparser.jobqueue.dramatiq.watchdog import DeliveryGuard
 
 
 @pytest.fixture
@@ -654,7 +655,7 @@ def test_a_blocking_call_that_never_returns_exits_the_process(
         exits.append(code)
         release.set()
 
-    monkeypatch.setattr("bioparser.jobqueue.dramatiq.redis_queue.os._exit", fake_exit)
+    monkeypatch.setattr("os._exit", fake_exit)
 
     class _Stuck(JobHandler[ParseJobMessage]):
         async def handle(self, message: ParseJobMessage) -> None:
@@ -693,7 +694,7 @@ def test_a_blocking_call_that_never_returns_is_sent_again_before_exit(
         exits.append(code)
         release.set()
 
-    monkeypatch.setattr("bioparser.jobqueue.dramatiq.redis_queue.os._exit", fake_exit)
+    monkeypatch.setattr("os._exit", fake_exit)
 
     class _Stuck(JobHandler[ParseJobMessage]):
         async def handle(self, message: ParseJobMessage) -> None:
@@ -711,6 +712,67 @@ def test_a_blocking_call_that_never_returns_is_sent_again_before_exit(
     assert retries_at_exit == [1]
 
 
+def test_a_stuck_last_attempt_is_reported_before_the_process_exits(
+    stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """on_failed gets to finish: the job is marked failed before the exit."""
+    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
+    time_limit.manager.interval = 0.05  # type: ignore[union-attr]
+    release = Event()
+    reported: list[BaseException] = []
+    reported_at_exit: list[int] = []
+
+    def fake_exit(code: int) -> None:
+        reported_at_exit.append(len(reported))
+        release.set()
+
+    monkeypatch.setattr("os._exit", fake_exit)
+
+    class _Stuck(JobHandler[ParseJobMessage]):
+        async def handle(self, message: ParseJobMessage) -> None:
+            await asyncio.to_thread(release.wait)
+
+        async def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
+            await asyncio.sleep(0.2)
+            reported.append(exc)
+
+    queue = _queue(stub_broker, time_limit_ms=200, max_retries=0)
+    _submit(queue, _message())
+
+    queue.consume(_Stuck(), until_empty=True)
+
+    assert reported_at_exit == [1]
+    assert [type(exc) for exc in reported] == [JobTimeLimitExceeded]
+
+
+def test_a_call_that_returned_in_time_is_not_marked_stuck() -> None:
+    guard = DeliveryGuard("parse")
+    with guard.watch(60, count_attempt=True) as watch:
+        pass
+
+    watch.expire()
+
+    assert not watch.stuck.is_set()
+    assert not guard.exit_after_ack.is_set()
+
+
+def test_a_stuck_delivery_on_one_queue_does_not_exit_for_another(
+    stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exits: list[int] = []
+    monkeypatch.setattr("os._exit", exits.append)
+    first = _queue(stub_broker, name="first")
+    second = _queue(stub_broker, name="second")
+    first._guard.exit_after_ack.set()
+    handler = _Recorder()
+    _submit(second, _message())
+
+    second.consume(handler, until_empty=True)
+
+    assert exits == []
+    assert handler.received == [_message()]
+
+
 def test_a_hook_that_never_returns_exits_the_process(
     stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -722,7 +784,7 @@ def test_a_hook_that_never_returns_exits_the_process(
         exits.append(code)
         release.set()
 
-    monkeypatch.setattr("bioparser.jobqueue.dramatiq.redis_queue.os._exit", fake_exit)
+    monkeypatch.setattr("os._exit", fake_exit)
 
     class _StuckHook(JobHandler[ParseJobMessage]):
         async def handle(self, message: ParseJobMessage) -> None:
@@ -749,7 +811,7 @@ def test_shutdown_that_never_returns_exits_the_process(
         exits.append(code)
         release.set()
 
-    monkeypatch.setattr("bioparser.jobqueue.dramatiq.redis_queue.os._exit", fake_exit)
+    monkeypatch.setattr("os._exit", fake_exit)
 
     class _StuckClose(JobHandler[ParseJobMessage]):
         async def aclose(self) -> None:
