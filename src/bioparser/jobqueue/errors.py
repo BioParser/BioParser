@@ -44,6 +44,7 @@ class JobTimeLimitExceeded(Exception):
     The handler is cancelled and sees `asyncio.CancelledError` at its next await.
     `asyncio.to_thread` keeps running; the queue joins it before `on_failed` and
     before the next message. `on_failed` receives this on the last attempt.
-    A hook or shutdown that runs past the time limit exits the process, as does
-    a handler still running one limit after it was cancelled.
+    A handler or hook still running when its bound passes fails the delivery
+    with this, so the attempt counts, and the process then exits. Shutdown
+    exits without a delivery to record.
     """
