@@ -197,7 +197,7 @@ def test_ready_postgres_timeout_is_bounded(
 def test_ready_multi_host_database_url_checks_the_first_host(
     monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:
-    monkeypatch.setenv("BIOPARSER_REDIS_URL", "")
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setenv(
         "BIOPARSER_DATABASE_URL", "postgresql://bioparser:canary-db-pass@db1:6000,db2/bioparser"
     )
@@ -215,7 +215,7 @@ def test_ready_multi_host_database_url_checks_the_first_host(
 
     response = client.get("/ready")
     assert response.status_code == 200
-    assert seen == [("db1", 6000)]
+    assert seen == [("localhost", 6379), ("db1", 6000)]
     assert "canary-db-pass" not in response.text
 
 
