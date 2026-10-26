@@ -484,18 +484,21 @@ async def test_unreachable_postgres_raises_database_error() -> None:
 
 @pytest.mark.integration
 @pytest.mark.anyio
-async def test_pool_exhaustion_raises_database_error(
-    database: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_pool_exhaustion_raises_database_error(database: str) -> None:
     small = create_async_engine(
         db_engine.async_database_url(database), pool_size=1, max_overflow=0, pool_timeout=0.2
     )
-    monkeypatch.setattr(db_engine, "_engine", small)
+    # Swap the pool directly. monkeypatch would put the real pool back after this
+    # fixture has already closed whichever pool it found, and the next test would
+    # see that pool still open.
+    original = db_engine._engine
+    db_engine._engine = small
     try:
         async with db_engine.transaction():
             with pytest.raises(DatabaseError, match="TimeoutError"):
                 await _get(uuid.uuid4())
     finally:
+        db_engine._engine = original
         await small.dispose()
 
 
