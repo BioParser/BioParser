@@ -23,7 +23,6 @@ from bioparser.jobstate import (
     CorruptJobStateError,
     JobState,
     JobStatus,
-    SafeError,
 )
 from bioparser.storage import (
     ArtifactMetadata,
@@ -44,7 +43,7 @@ _STATUS_FIELDS: dict[JobStatus, dict[str, Any]] = {
     "parsed": {"parse_result_ref": PARSE_REF},
     "extracting": {"parse_result_ref": PARSE_REF},
     "done": {"parse_result_ref": PARSE_REF, "extract_result_ref": EXTRACT_REF},
-    "failed": {"parse_result_ref": PARSE_REF, "error": SafeError(code="extraction_failed")},
+    "failed": {"parse_result_ref": PARSE_REF, "error_code": "extraction_failed"},
 }
 
 
@@ -502,7 +501,7 @@ def test_a_job_that_failed_before_parsing_has_no_parser_artifact(
     stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
 ) -> None:
     job_store = stub_api_adapters[1]
-    state = _job("failed", parse_result_ref=None, error=SafeError(code="invalid_pdf"))
+    state = _job("failed", parse_result_ref=None, error_code="invalid_pdf")
     job_store.states[str(state.job_id)] = state
 
     response = client.get(f"/api/jobs/{state.job_id}/artifacts/parser")
