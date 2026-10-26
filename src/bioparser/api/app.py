@@ -457,28 +457,9 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     },
 )
 async def job_status(request: Request, job_id: str) -> JobStatusResponse:
-    try:
-        parsed_job_id = UUID(job_id)
-    except ValueError as exc:
-        raise http_error(422, INVALID_JOB_ID) from exc
-    if parsed_job_id.version != 4:
-        raise http_error(422, INVALID_JOB_ID)
-    try:
-        async with database.transaction() as connection:
-            record = await job_queries.get(connection, parsed_job_id)
-    except CorruptJobStateError as exc:
-        LOGGER.error("job state unreadable", extra={"job_id": str(job_id), **error_fields(exc)})
-        raise http_error(500, JOB_STATE_UNREADABLE) from exc
-
-    except DatabaseError as exc:
-        LOGGER.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
-        raise http_error(503, DATABASE_UNAVAILABLE) from exc
-
-    if record is None:
-        raise http_error(404, JOB_NOT_FOUND)
     # One Postgres read. The worker validated the artifact before it recorded the ref, so this
     # route does not read it again: that cost grows with the paper and ran on the event loop.
-    return _job_state_response(record)
+    return _job_state_response(await _read_job(request, _parse_job_id(job_id)))
 
 
 @app.get(
