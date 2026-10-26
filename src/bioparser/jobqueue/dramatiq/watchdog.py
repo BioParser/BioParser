@@ -11,7 +11,7 @@ import concurrent.futures
 import logging
 import os
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from threading import Event, Lock, Timer
 
@@ -98,10 +98,8 @@ class Watch:
     ) -> R:
         """Block until `future` finishes.
 
-        Raises `JobTimeLimitExceeded` once this call's bound has passed. Dramatiq's
-        `TimeLimitExceeded` is injected into this thread and passes through, unless
-        `ignore_injected_limit` is set. Set it while cleaning up after that exception
-        was already handled.
+        Raises `JobTimeLimitExceeded` once this call's bound has passed.
+        `TimeLimitExceeded` passes through unless `ignore_injected_limit` is set.
         """
         while True:
             try:
@@ -138,7 +136,8 @@ class _ExitAfterRecordedAttempt(Middleware):
             return
         guard.recorded.set()
         os._exit(1)
-        # Reached only when the exit is patched, so a later delivery in this process can run.
+        # Tests patch os._exit, so this returns. Clear the flags or the next delivery
+        # in that process is treated as another stuck exit.
         guard.exit_after_ack.clear()
         guard.recorded.clear()
 
@@ -146,31 +145,18 @@ class _ExitAfterRecordedAttempt(Middleware):
 
 
 def start_time_limit(broker: Broker) -> None:
-    """Start the broker's TimeLimit timer, once.
+    """Start the broker's TimeLimit timer if it is not already running.
 
-    Dramatiq's command line starts it by emitting `process_boot`. A `Worker` built by
-    the queue is not run by that command line, so the timer thread is started directly.
-    `Thread.start` raises the second time, and `process_boot` calls it unconditionally,
-    so a later boot finds the thread already running and leaves it.
-
-    The timer raises `TimeLimitExceeded` in the worker thread waiting in `Watch.wait`.
+    A `Worker` built here does not emit `process_boot`, which is what normally
+    starts the timer. One broker has one timer.
     """
     for middleware in broker.middleware:
         if isinstance(middleware, TimeLimit):
             manager = middleware.manager
-            start = manager.start
-
-            def start_once(
-                manager: object = manager,
-                start: Callable[[], None] = start,
-            ) -> None:
-                alive = getattr(manager, "is_alive", None)
-                if callable(alive) and alive():
-                    return
-                start()
-
-            manager.start = start_once  # type: ignore[method-assign]
-            start_once()
+            alive = getattr(manager, "is_alive", None)
+            if callable(alive) and alive():
+                return
+            manager.start()
             return
     raise JobQueueConfigError("the broker has no TimeLimit middleware to enforce limits")
 
