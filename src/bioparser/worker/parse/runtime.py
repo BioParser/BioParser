@@ -2,7 +2,7 @@ from threading import Event
 from uuid import UUID
 
 from bioparser.jobqueue import ExtractJobMessage, JobConsumer, JobSubmitter, ParseJobMessage
-from bioparser.jobqueue.dramatiq import DramatiqJobQueue, DramatiqJobSubmitter
+from bioparser.jobqueue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
 from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
 from bioparser.parser.protocol import PdfParser
@@ -18,7 +18,7 @@ def build_worker(
     settings: WorkerSettings,
 ) -> tuple[JobConsumer[ParseJobMessage], ParseJobHandler]:
     storage = FileSystemArtifactStorage(settings.artifact_storage_path)
-    queue: JobConsumer[ParseJobMessage] = DramatiqJobQueue.from_redis(
+    queue: JobConsumer[ParseJobMessage] = DramatiqJobConsumer.from_redis(
         str(settings.redis_url),
         name=settings.parse_queue_name,
         model=ParseJobMessage,

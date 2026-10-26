@@ -19,7 +19,7 @@ from bioparser.db import jobs as job_queries
 from bioparser.db.migrate import sync_database_url, upgrade
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.jobqueue import ParseJobMessage
-from bioparser.jobqueue.dramatiq import DramatiqJobQueue, DramatiqJobSubmitter
+from bioparser.jobqueue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
 from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
 from bioparser.jobstate import JobState
 from bioparser.parser import ParserArtifact
@@ -81,7 +81,7 @@ def _drop_database(admin_url: str, name: str) -> None:
 async def redis_api_dependencies(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> AsyncGenerator[tuple[DramatiqJobQueue[ParseJobMessage], FileSystemArtifactStorage]]:
+) -> AsyncGenerator[tuple[DramatiqJobConsumer[ParseJobMessage], FileSystemArtifactStorage]]:
     # The queue stays on Redis. Job rows go to a throwaway Postgres database.
     raw = os.environ.get("BIOPARSER_TEST_DATABASE_URL")
     if not raw:
@@ -115,7 +115,7 @@ async def redis_api_dependencies(
 
     broker = _create_redis_broker(TEST_REDIS_URL, namespace=broker_namespace)
     # The route only sends. This consumer drains the same broker afterwards.
-    parse_queue = DramatiqJobQueue(
+    parse_queue = DramatiqJobConsumer(
         name=queue_name,
         model=ParseJobMessage,
         broker=broker,
@@ -141,7 +141,7 @@ async def redis_api_dependencies(
 
 
 async def test_redis_backed_submission_and_polling(
-    redis_api_dependencies: tuple[DramatiqJobQueue[ParseJobMessage], FileSystemArtifactStorage],
+    redis_api_dependencies: tuple[DramatiqJobConsumer[ParseJobMessage], FileSystemArtifactStorage],
 ) -> None:
     """Submit and poll through Postgres job rows and a real Redis queue."""
     parse_queue, artifact_storage = redis_api_dependencies
@@ -235,7 +235,7 @@ async def test_redis_backed_submission_and_polling(
 
 
 async def test_same_pdf_can_be_submitted_twice(
-    redis_api_dependencies: tuple[DramatiqJobQueue[ParseJobMessage], FileSystemArtifactStorage],
+    redis_api_dependencies: tuple[DramatiqJobConsumer[ParseJobMessage], FileSystemArtifactStorage],
 ) -> None:
     parse_queue, artifact_storage = redis_api_dependencies
 
