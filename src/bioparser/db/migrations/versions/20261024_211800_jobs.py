@@ -1,8 +1,8 @@
 """Create the jobs table.
 
-Revision ID: 20261024_2118
+Revision ID: 20261024_211800
 Revises:
-Create Date: 2026-10-24
+Create Date: 2026-10-24 21:18:00
 """
 
 from collections.abc import Sequence
@@ -10,7 +10,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "20261024_2118"
+revision: str = "20261024_211800"
 down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
