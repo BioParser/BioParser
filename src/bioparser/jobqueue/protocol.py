@@ -23,8 +23,9 @@ class JobHandler[T: BaseModel](Protocol):
 
         When the time limit passes, this coroutine is cancelled and sees
         `asyncio.CancelledError` at its next await. `asyncio.to_thread` keeps running;
-        the queue joins that thread before the next message. The attempt is retried
-        like any other failure.
+        the queue joins that thread before the next message. If this coroutine
+        raises, the attempt is retried like any other failure. If it catches the
+        cancellation and returns, the delivery counts as handled and is not retried.
         """
         ...
 

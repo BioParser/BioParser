@@ -579,6 +579,69 @@ def test_consume_enforces_the_time_limit(stub_broker: StubBroker) -> None:
     assert [type(exc) for exc in handler.failed] == [JobTimeLimitExceeded]
 
 
+class _Absorbing(JobHandler[ParseJobMessage]):
+    """Takes the cancellation and returns, as the parse handler does for a permanent failure."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.failed: list[BaseException] = []
+
+    async def handle(self, message: ParseJobMessage) -> None:
+        self.calls += 1
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            return
+
+    async def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
+        self.failed.append(exc)
+
+
+def test_a_handler_that_returns_after_the_time_limit_is_not_retried(
+    stub_broker: StubBroker,
+) -> None:
+    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
+    time_limit.manager.interval = 0.05  # type: ignore[union-attr]
+    queue = _queue(stub_broker, time_limit_ms=300, max_retries=3, min_backoff_ms=1)
+    handler = _Absorbing()
+    _submit(queue, _message())
+
+    queue.consume(handler, until_empty=True)
+
+    assert handler.calls == 1
+    assert handler.failed == []
+
+
+def test_two_queues_in_one_process_consume_without_sharing_a_loop(
+    stub_broker: StubBroker,
+) -> None:
+    first = _queue(stub_broker, name="first")
+    second = _queue(stub_broker, name="second")
+    seen: dict[str, asyncio.AbstractEventLoop] = {}
+    inner_done = Event()
+
+    class _Inner(JobHandler[ParseJobMessage]):
+        async def handle(self, message: ParseJobMessage) -> None:
+            seen["second"] = asyncio.get_running_loop()
+            inner_done.set()
+
+    class _Outer(JobHandler[ParseJobMessage]):
+        async def handle(self, message: ParseJobMessage) -> None:
+            seen["first"] = asyncio.get_running_loop()
+            # Run the second consumer to completion while this handler is still running.
+            await asyncio.to_thread(second.consume, _Inner(), until_empty=True)
+            assert inner_done.is_set()
+            # Closing the second consumer must leave this queue's loop in place.
+            await asyncio.to_thread(lambda: None)
+
+    _submit(first, _message())
+    _submit(second, _message())
+
+    first.consume(_Outer(), until_empty=True)
+
+    assert seen["first"] is not seen["second"]
+
+
 def test_a_blocking_call_that_never_returns_exits_the_process(
     stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
 ) -> None:

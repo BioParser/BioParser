@@ -13,7 +13,7 @@ from bioparser.artifact_paths import parse_result_path
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
 from bioparser.hashing import sha256_bytes
-from bioparser.jobqueue import JobTimeLimitExceeded, ParseJobMessage
+from bioparser.jobqueue import ParseJobMessage
 from bioparser.jobstate import CorruptJobStateError, JobState, JobStatus
 from bioparser.parser import (
     ParserArtifact,
@@ -156,12 +156,13 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
         except ParserBackendUnavailableError as exc:
             LOGGER.error(f"parser backend {parser_name!r} cannot run: {exc}")
             raise PermanentJobFailure("parse_failed") from exc
-        except (ParserTimeoutError, JobTimeLimitExceeded) as exc:
+        except ParserTimeoutError as exc:
             # The same parse would run out of time again, so it is not retried.
             LOGGER.error(f"parser {parser_name!r} timed out: {type(exc).__name__}")
             raise PermanentJobFailure("timeout") from exc
         except asyncio.CancelledError as exc:
-            # The queue cancelled this attempt. The parse is not retried.
+            # The queue's time limit cancelled this attempt. The same parse would run out of
+            # time again. The job is marked failed and the queue does not retry the delivery.
             LOGGER.error(f"parser {parser_name!r} was cancelled")
             raise PermanentJobFailure("timeout") from exc
         except UnsupportedDocumentError as exc:
