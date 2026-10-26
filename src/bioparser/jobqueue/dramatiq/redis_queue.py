@@ -3,9 +3,7 @@
 Delivery is at-least-once: a worker crash or handler exception can re-run a job.
 
 Defaults:
-- ``time_limit``: 10 minutes (600_000 ms). Cancels the handler. See ``_on_loop``.
-  A handler or hook still going past its bound fails that delivery through the
-  normal retry path, and the process then exits. Shutdown exits immediately.
+- ``time_limit``: 10 minutes (600_000 ms). Cancels the handler.
 - ``max_retries``: 3. Handler exceptions retry.
 - ``min_backoff``: 15 seconds before the first retry, backing off exponentially.
 
@@ -103,6 +101,8 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
         self._worker_timeout_ms = worker_timeout_ms
         self._handler: JobHandler[T] | None = None
         self._loop_thread: EventLoopThread | None = None
+        self._blocking: concurrent.futures.ThreadPoolExecutor | None = None
+        self._abandoned: list[concurrent.futures.ThreadPoolExecutor] = []
         self._consuming = Lock()
         self._guard = DeliveryGuard(name)
         try:
@@ -176,11 +176,11 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
         self._loop_thread = loop_thread
         # One thread, so a handler's blocking calls run in submission order. The join
         # after a time limit queues behind them.
-        executor = concurrent.futures.ThreadPoolExecutor(
+        self._blocking = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix=f"{self._name}-blocking"
         )
         try:
-            use_blocking_executor(loop_thread.loop, executor)
+            use_blocking_executor(loop_thread.loop, self._blocking)
             yield
         finally:
             try:
@@ -190,9 +190,33 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
             except Exception:
                 LOGGER.exception("handler aclose failed on queue %s", self._name)
             finally:
-                executor.shutdown(wait=True)
+                self._close_blocking()
                 loop_thread.stop()  # type: ignore[no-untyped-call]
                 self._loop_thread = None
+
+    def _close_blocking(self) -> None:
+        """Stop the blocking pools. A thread that is still inside a call is not waited on."""
+        current = self._blocking
+        self._blocking = None
+        for executor in self._abandoned:
+            executor.shutdown(wait=False)
+        self._abandoned.clear()
+        if current is not None:
+            current.shutdown(wait=True)
+
+    def _replace_blocking_executor(self) -> None:
+        loop_thread = self._loop_thread
+        if loop_thread is None:
+            return
+        stuck = self._blocking
+        if stuck is not None:
+            self._abandoned.append(stuck)
+            stuck.shutdown(wait=False)
+        replacement = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix=f"{self._name}-blocking"
+        )
+        use_blocking_executor(loop_thread.loop, replacement)
+        self._blocking = replacement
 
     def _on_loop(
         self,
@@ -210,35 +234,48 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
         if loop_thread is None:
             coroutine.close()
             raise JobQueueError("the queue is not consuming")
-        # The worker waits on this, because cancelling the future completes it
-        # before the coroutine has unwound.
+        # Set from the task callback. A cancel before the first step never enters the
+        # coroutine, so a `finally` there would not run.
         unwound: concurrent.futures.Future[None] = concurrent.futures.Future()
         completed: list[_R] = []
+        failed: list[BaseException] = []
+        task: asyncio.Task[_R] | None = None
 
-        async def watched() -> _R:
-            try:
-                result = await coroutine
-                completed.append(result)
-                return result
-            finally:
-                unwound.set_result(None)
+        def finished(done: asyncio.Task[_R]) -> None:
+            if not done.cancelled():
+                error = done.exception()
+                if error is None:
+                    completed.append(done.result())
+                else:
+                    failed.append(error)
+            unwound.set_result(None)
+
+        def start() -> None:
+            nonlocal task
+            task = loop_thread.loop.create_task(coroutine)
+            task.add_done_callback(finished)
+
+        def cancel() -> None:
+            if task is not None:
+                task.cancel()
 
         # Used instead of EventLoopThread.run_coroutine, which returns one second after
         # the time limit and would let this worker take the next message while a blocking
         # call was still running.
         with self._guard.watch(bound_s, count_attempt=count_attempt) as watch:
-            future = asyncio.run_coroutine_threadsafe(watched(), loop_thread.loop)
+            loop_thread.loop.call_soon_threadsafe(start)
             try:
-                return watch.wait(future)
+                watch.wait(unwound)
             except TimeLimitExceeded:
-                # The handler sees CancelledError. A call already on the blocking
-                # thread keeps running; the next one waits behind it.
-                future.cancel()
+                # Dramatiq injects this once per delivery. This except is that injection.
+                loop_thread.loop.call_soon_threadsafe(cancel)
                 watch.wait(unwound, ignore_injected_limit=True)
                 try:
                     watch.join_blocking(loop_thread.loop)
                 except JobTimeLimitExceeded:
                     if not completed:
+                        # The blocking thread is still inside the handler. Free it for the hook.
+                        self._replace_blocking_executor()
                         raise
                 if completed:
                     # The handler took the cancellation and returned, for example after
@@ -246,6 +283,11 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
                     LOGGER.warning("handler on queue %s returned after the time limit", self._name)
                     return completed[0]
                 raise
+            if failed:
+                raise failed[0]
+            if not completed:
+                raise concurrent.futures.CancelledError
+            return completed[0]
 
     @contextmanager
     def _bind(self, handler: JobHandler[T]) -> Iterator[None]:

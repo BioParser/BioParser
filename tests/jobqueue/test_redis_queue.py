@@ -745,6 +745,35 @@ def test_a_stuck_last_attempt_is_reported_before_the_process_exits(
     assert [type(exc) for exc in reported] == [JobTimeLimitExceeded]
 
 
+def test_a_stuck_blocking_call_does_not_block_the_failure_hook(
+    stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """on_failed runs on a new thread. The stuck parse thread cannot be killed."""
+    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
+    time_limit.manager.interval = 0.05  # type: ignore[union-attr]
+    release = Event()
+    reported: list[BaseException] = []
+
+    def fake_exit(code: int) -> None:
+        release.set()
+
+    monkeypatch.setattr("os._exit", fake_exit)
+
+    class _Stuck(JobHandler[ParseJobMessage]):
+        async def handle(self, message: ParseJobMessage) -> None:
+            await asyncio.to_thread(release.wait)
+
+        async def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
+            await asyncio.to_thread(reported.append, exc)
+
+    queue = _queue(stub_broker, time_limit_ms=200, max_retries=0)
+    _submit(queue, _message())
+
+    queue.consume(_Stuck(), until_empty=True)
+
+    assert [type(exc) for exc in reported] == [JobTimeLimitExceeded]
+
+
 def test_a_call_that_returned_in_time_is_not_marked_stuck() -> None:
     guard = DeliveryGuard("parse")
     with guard.watch(60, count_attempt=True) as watch:

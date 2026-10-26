@@ -5,11 +5,7 @@ from pydantic import BaseModel
 
 
 class JobHandler[T: BaseModel](Protocol):
-    """Consumer of one queue's messages.
-
-    Every method runs on the consumer's one event loop. Subclass to inherit the
-    reporting hooks as no-ops.
-    """
+    """Consumer of one queue's messages."""
 
     async def handle(self, message: T) -> None:
         """Process one message. Raising retries it up to the queue's retry limit.
@@ -66,10 +62,11 @@ class JobConsumer[T: BaseModel](Protocol):
         until_empty: bool = False,
         stop: Event | None = None,
     ) -> None:
-        """Deliver each message to handler.
+        """Deliver each message to one handler, then close it.
 
         Blocks until ``stop`` is set. If stop is omitted, waits until the
         process is interrupted. If until_empty is True, process queued
-        messages and return when the queue is empty.
+        messages and return when the queue is empty. The handler is closed
+        when this returns, including when this raises.
         """
         ...

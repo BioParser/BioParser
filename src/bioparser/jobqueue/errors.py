@@ -41,10 +41,6 @@ class JobDeferred(Exception):
 class JobTimeLimitExceeded(Exception):
     """The job ran past the queue's time limit.
 
-    The handler is cancelled and sees `asyncio.CancelledError` at its next await.
-    `asyncio.to_thread` keeps running; the queue joins it before `on_failed` and
-    before the next message. `on_failed` receives this on the last attempt.
-    A handler or hook still running when its bound passes fails the delivery
-    with this, so the attempt counts, and the process then exits. Shutdown
-    exits without a delivery to record.
+    The handler is cancelled. See `JobHandler.handle`. `on_failed` receives this
+    on the last attempt.
     """
