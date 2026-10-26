@@ -4,8 +4,8 @@ Delivery is at-least-once: a worker crash or handler exception can re-run a job.
 
 Defaults:
 - ``time_limit``: 10 minutes (600_000 ms). Cancels the handler. See ``_on_loop``.
-  The process exits if the handler is still going after another limit, or if a
-  reporting hook or shutdown runs past one limit.
+  A handler or hook still going past its bound fails that delivery through the
+  normal retry path, and the process then exits. Shutdown exits immediately.
 - ``max_retries``: 3. Handler exceptions retry.
 - ``min_backoff``: 15 seconds before the first retry, backing off exponentially.
 
@@ -33,7 +33,7 @@ from dramatiq import Actor, Broker, Worker
 from dramatiq.asyncio import EventLoopThread
 from dramatiq.brokers.redis import RedisBroker
 from dramatiq.common import compute_backoff, current_millis
-from dramatiq.middleware import CurrentMessage
+from dramatiq.middleware import CurrentMessage, Middleware
 from dramatiq.middleware.time_limit import TimeLimit, TimeLimitExceeded
 from pydantic import BaseModel, ValidationError
 
@@ -74,6 +74,12 @@ _OPTION_DEFERRED_SINCE = "deferred_since"
 _OPTION_DEFERRALS = "deferrals"
 # The same pattern Dramatiq checks when the actor is declared.
 _QUEUE_NAME_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9._-]*")
+# Set when a delivery's bound passes, so the worker thread fails that delivery
+# and the middleware exits once Dramatiq has acked or rejected it.
+_STUCK = Event()
+# Set once that ack or rejection has happened. The watcher exits on its own
+# if this never arrives.
+_RECORDED = Event()
 
 
 class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
@@ -113,6 +119,7 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
         try:
             _ensure_current_message(broker)
             _start_time_limit(broker)
+            _ensure_exit_after_recorded_attempt(broker)
             self._actor = self._register_actor(
                 time_limit_ms=time_limit_ms,
                 max_retries=max_retries,
@@ -188,7 +195,7 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
             yield
         finally:
             try:
-                self._on_loop(handler.aclose(), bound_s=self._hook_bound_s())
+                self._on_loop(handler.aclose(), bound_s=self._hook_bound_s(), count_attempt=False)
             except Exception:
                 LOGGER.exception("handler aclose failed on queue %s", self._name)
             finally:
@@ -197,22 +204,30 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
                 self._loop_thread = None
 
     def _hook_bound_s(self) -> float:
-        """How long a reporting hook or shutdown may run before the process exits."""
+        """How long a reporting hook or shutdown may run before its bound passes."""
         return self._time_limit_ms / 1000
 
     def _handler_bound_s(self) -> float:
-        """How long the handler may run before the process exits.
+        """How long the handler may run before its bound passes.
 
         Dramatiq cancels it at the time limit. The same limit again is for the
         blocking thread to finish, including cleanup started while cancelling.
         """
         return 2 * self._time_limit_ms / 1000
 
-    def _on_loop(self, coroutine: Coroutine[Any, Any, _R], *, bound_s: float) -> _R:
+    def _on_loop(
+        self,
+        coroutine: Coroutine[Any, Any, _R],
+        *,
+        bound_s: float,
+        count_attempt: bool,
+    ) -> _R:
         """Run `coroutine` on the consumer loop. Return when this worker can take another message.
 
-        `bound_s` is how long this call may sit here. Past that, the process exits:
-        a stuck thread cannot be interrupted, and a live worker would keep reporting healthy.
+        `bound_s` is how long this call may sit here. Past that, a stuck thread cannot be
+        interrupted and a live worker would keep reporting healthy. A delivery
+        (`count_attempt`) raises so Dramatiq records the retry, then the process exits.
+        Shutdown has no delivery to record, so it exits immediately.
         """
         loop_thread = self._loop_thread
         if loop_thread is None:
@@ -224,7 +239,7 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
         returned = Event()
         Thread(
             target=_exit_when_stuck,
-            args=(returned, bound_s),
+            args=(returned, bound_s, count_attempt),
             name="bioparser-stuck-call",
             daemon=True,
         ).start()
@@ -251,7 +266,11 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
                 # thread keeps running; the next one waits behind it.
                 future.cancel()
                 _wait_for(finished)
-                _join_blocking(loop_thread.loop)
+                try:
+                    _join_blocking(loop_thread.loop)
+                except JobTimeLimitExceeded:
+                    if not completed:
+                        raise
                 if completed:
                     # The handler took the cancellation and returned, for example after
                     # recording a permanent failure. The delivery is handled: no retry.
@@ -364,7 +383,7 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
         if handler is None:
             LOGGER.error("no handler set on queue %s; message will be retried", self._name)
             raise JobQueueError(f"no handler set on queue {self._name}")
-        self._on_loop(handler.handle(message), bound_s=self._handler_bound_s())
+        self._on_loop(handler.handle(message), bound_s=self._handler_bound_s(), count_attempt=True)
 
     def _is_last_retry(self) -> bool:
         current = CurrentMessage.get_current_message()
@@ -378,7 +397,9 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
         if handler is None:
             return
         try:
-            self._on_loop(handler.on_malformed(payload), bound_s=self._hook_bound_s())
+            self._on_loop(
+                handler.on_malformed(payload), bound_s=self._hook_bound_s(), count_attempt=True
+            )
         except Exception:
             LOGGER.exception("on_malformed hook failed on queue %s", self._name)
 
@@ -392,7 +413,9 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
             self._notify_malformed(payload)
             return
         try:
-            self._on_loop(handler.on_failed(message, exc), bound_s=self._hook_bound_s())
+            self._on_loop(
+                handler.on_failed(message, exc), bound_s=self._hook_bound_s(), count_attempt=True
+            )
         except Exception:
             LOGGER.exception("on_failed hook failed on queue %s", self._name)
 
@@ -541,19 +564,64 @@ def _use_blocking_executor(
         raise JobQueueError("the consumer loop did not install its blocking thread")
 
 
-def _exit_when_stuck(returned: Event, bound_s: float) -> None:
+class _ExitAfterRecordedAttempt(Middleware):
+    """Exit once Dramatiq has stored the retry for a call that would not return."""
+
+    def after_ack(self, broker: Broker, message: object) -> None:
+        """The retry is stored and the message is settled. Leave before the next one starts."""
+        if not _STUCK.is_set():
+            return
+        _RECORDED.set()
+        os._exit(1)
+        # Reached only when the exit is patched, so a later delivery in this process can run.
+        _STUCK.clear()
+        _RECORDED.clear()
+
+    after_nack = after_ack
+
+
+def _ensure_exit_after_recorded_attempt(broker: Broker) -> None:
+    if any(isinstance(middleware, _ExitAfterRecordedAttempt) for middleware in broker.middleware):
+        return
+    broker.add_middleware(_ExitAfterRecordedAttempt())
+
+
+def _exit_when_stuck(returned: Event, bound_s: float, count_attempt: bool) -> None:
     if returned.wait(timeout=bound_s):
         return
-    message = f"a queue call was still running {bound_s:.0f} seconds after it started; exiting"
+    if not count_attempt:
+        _report_stuck(bound_s, counted=False)
+        os._exit(1)
+        return
+    # The worker thread is polling. It fails the delivery, Dramatiq records the
+    # retry, and the ack or rejection ends the process. Exit here too if that
+    # never happens.
+    _RECORDED.clear()
+    _report_stuck(bound_s, counted=True)
+    _STUCK.set()
+    if _RECORDED.wait(timeout=bound_s):
+        return
+    _report_stuck(bound_s, counted=False)
+    os._exit(1)
+
+
+def _report_stuck(bound_s: float, *, counted: bool) -> None:
+    action = "recording the attempt and exiting" if counted else "exiting"
+    message = f"a queue call was still running {bound_s:.0f} seconds after it started; {action}"
     LOGGER.critical(message)
     sys.stderr.write(message + "\n")
     sys.stderr.flush()
-    os._exit(1)
+
+
+def _raise_if_stuck() -> None:
+    if _STUCK.is_set():
+        raise JobTimeLimitExceeded()
 
 
 def _wait_for(event: Event) -> None:
     """Block until `event` is set. A time-limit exception during the wait is ignored."""
     while not event.is_set():
+        _raise_if_stuck()
         try:
             event.wait(timeout=_WAIT_POLL_S)
         except TimeLimitExceeded:
@@ -565,7 +633,7 @@ def _join_blocking(loop: asyncio.AbstractEventLoop) -> None:
 
     This call is queued behind the handler's, and the thread runs them in order,
     so it returns only after those calls have. A time-limit exception during the
-    wait is ignored. A call that never returns is ended by `_exit_when_stuck`.
+    wait is ignored. A call that never returns fails the delivery.
     """
     idle = asyncio.run_coroutine_threadsafe(asyncio.to_thread(_idle), loop)
     while True:
@@ -583,8 +651,10 @@ def _idle() -> None:
 def _wait[R](future: concurrent.futures.Future[R]) -> R:
     """Block until `future` finishes. A time-limit exception can land between polls."""
     while True:
+        if future.done():
+            return future.result(timeout=0)
+        _raise_if_stuck()
         try:
             return future.result(timeout=_WAIT_POLL_S)
         except concurrent.futures.TimeoutError:
-            if future.done():
-                return future.result(timeout=0)
+            continue

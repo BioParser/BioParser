@@ -26,6 +26,9 @@ class JobHandler[T: BaseModel](Protocol):
         the queue joins that thread before the next message. If this coroutine
         raises, the attempt is retried like any other failure. If it catches the
         cancellation and returns, the delivery counts as handled and is not retried.
+        A blocking call that is still running when the queue's bound passes fails
+        this delivery with `JobTimeLimitExceeded`. That attempt is retried like
+        any other failure, and the process then exits.
         """
         ...
 

@@ -670,6 +670,45 @@ def test_a_blocking_call_that_never_returns_exits_the_process(
     queue.consume(_Stuck(), until_empty=True)
 
     assert exits == [1]
+    # No retries left, so Dramatiq rejects the delivery instead of sending it again.
+    assert [message.options.get("retries") for message in stub_broker.dead_letters] == [1]
+
+
+def test_a_blocking_call_that_never_returns_is_sent_again_before_exit(
+    stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The retry is stored before the process exits, so a restart does not start from zero."""
+    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
+    time_limit.manager.interval = 0.05  # type: ignore[union-attr]
+    release = Event()
+    exits: list[int] = []
+    calls = 0
+    calls_at_exit: list[int] = []
+    retries_at_exit: list[object] = []
+
+    def fake_exit(code: int) -> None:
+        waiting = list(stub_broker.queues[dq_name("parse")].queue)
+        retries_at_exit.extend(Message.decode(item).options.get("retries") for item in waiting)
+        calls_at_exit.append(calls)
+        exits.append(code)
+        release.set()
+
+    monkeypatch.setattr("bioparser.jobqueue.dramatiq.redis_queue.os._exit", fake_exit)
+
+    class _Stuck(JobHandler[ParseJobMessage]):
+        async def handle(self, message: ParseJobMessage) -> None:
+            nonlocal calls
+            calls += 1
+            await asyncio.to_thread(release.wait)
+
+    queue = _queue(stub_broker, time_limit_ms=200, max_retries=1, min_backoff_ms=1)
+    _submit(queue, _message())
+
+    queue.consume(_Stuck(), until_empty=True)
+
+    assert calls_at_exit == [1]
+    assert exits == [1]
+    assert retries_at_exit == [1]
 
 
 def test_a_hook_that_never_returns_exits_the_process(
