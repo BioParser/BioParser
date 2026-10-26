@@ -22,3 +22,15 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
+          env:
+            - name: BIOPARSER_VLLM_BASE_URL
+              value: http://vllm:8000/v1
+            - name: BIOPARSER_MINERU_BASE_URL
+              value: http://mineru:8000
+          resources:
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+            requests:
+              memory: "50Mi"
+              cpu: "50m"
