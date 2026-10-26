@@ -337,7 +337,7 @@ Holds the FastAPI app, its startup/shutdown lifecycle, and all seven route handl
 [Logging](#logging)), then builds a `VLLMService` (`bioparser.services.vllm`) from
 `config.get_api_settings()` and probes the vLLM model id once. The probe is best-effort: a failure logs one WARNING
 and startup continues. When configured, the lifecycle also opens
-the async Postgres pool (`bioparser.db.engine`, asyncpg), a Redis-backed `DramatiqJobQueue`, and a
+the async Postgres pool (`bioparser.db.engine`, asyncpg), a Redis-backed `DramatiqJobSubmitter`, and a
 `FileSystemArtifactStorage`. For `POST /extract` it creates a `ProcessPoolExecutor` and an
 `asyncio.Semaphore`, both sized `config.extract_concurrency`. On shutdown, the pool stops
 taking work (a running child is not waited for), and network clients and the Postgres

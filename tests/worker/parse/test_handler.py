@@ -15,7 +15,7 @@ from stubs import MemoryStorage, StubJobs, bind_jobs, clear_jobs, fake_mineru
 
 from bioparser.artifact_paths import parse_result_path
 from bioparser.jobqueue import JobTimeLimitExceeded
-from bioparser.jobqueue.dramatiq import DramatiqJobQueue, DramatiqJobSubmitter
+from bioparser.jobqueue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
 from bioparser.jobqueue.messages import ParseJobMessage
 from bioparser.jobstate.errors import CorruptJobStateError, JobNotFoundError
 from bioparser.jobstate.models import JobState
@@ -566,7 +566,7 @@ def _consume(handler: ParseJobHandler, *, max_retries: int, time_limit_ms: int =
     try:
         (time_limit,) = [m for m in broker.middleware if isinstance(m, TimeLimit)]
         time_limit.manager.interval = 0.05  # type: ignore[union-attr]
-        queue = DramatiqJobQueue(
+        queue = DramatiqJobConsumer(
             name="parse",
             model=ParseJobMessage,
             broker=broker,

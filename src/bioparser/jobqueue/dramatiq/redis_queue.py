@@ -68,8 +68,8 @@ _OPTION_DEFERRALS = "deferrals"
 _QUEUE_NAME_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9._-]*")
 
 
-class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
-    """Named Redis queue bound to one pydantic message model."""
+class DramatiqJobConsumer[T: BaseModel](JobConsumer[T]):
+    """Consumes one named Redis queue bound to one pydantic message model."""
 
     def __init__(
         self,
@@ -130,7 +130,7 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
         max_retries: int = _DEFAULT_MAX_RETRIES,
         min_backoff_ms: int = _DEFAULT_MIN_BACKOFF_MS,
         worker_timeout_ms: int = _DEFAULT_WORKER_TIMEOUT_MS,
-    ) -> "DramatiqJobQueue[T]":
+    ) -> "DramatiqJobConsumer[T]":
         """A queue backed by Redis. The broker stays inside this backend."""
         return cls(
             name=name,
@@ -269,19 +269,24 @@ class DramatiqJobQueue[T: BaseModel](JobConsumer[T]):
             except TimeLimitExceeded:
                 # Dramatiq injects this once per delivery. This except is that injection.
                 loop_thread.loop.call_soon_threadsafe(cancel)
-                watch.wait(unwound, ignore_injected_limit=True)
                 try:
+                    watch.wait(unwound, ignore_injected_limit=True)
                     watch.join_blocking(loop_thread.loop)
                 except JobTimeLimitExceeded:
+                    # The blocking thread is still inside the handler, or cleanup is queued
+                    # behind it so this task never finishes. Free the pool for the hook.
                     if not completed:
-                        # The blocking thread is still inside the handler. Free it for the hook.
                         self._replace_blocking_executor()
+                        if failed:
+                            raise failed[0] from None
                         raise
                 if completed:
                     # The handler took the cancellation and returned, for example after
                     # recording a permanent failure. The delivery is handled: no retry.
                     LOGGER.warning("handler on queue %s returned after the time limit", self._name)
                     return completed[0]
+                if failed:
+                    raise failed[0] from None
                 raise
             if failed:
                 raise failed[0]
