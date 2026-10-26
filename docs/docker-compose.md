@@ -1,12 +1,13 @@
 # Docker Compose
 
-Compose runs seven services:
+Compose runs eight services:
 
 - `vllm` is a local OpenAI-compatible model server on host port `VLLM_PORT` (default 8000).  
 - `mineru` is the PDF parser service (MinerU 4 `mineru-api`: Basic tier on the CPU stack, Standard with its VLM on the GPU stack) on internal network port 8000. It is only on that internal network, so it is never published to the host; the host scripts use a separately run container (see [parser.md](parser.md)). The CPU stack builds `bioparser-mineru:cpu`, the GPU stack `bioparser-mineru:gpu`, from the same Dockerfile.  
 - `redis` is the job queue and the job state records on port 6379 (accessed inside the Docker network using `redis:6379`).  
-- `postgres` is a Postgres 18 database on the internal network (`postgres:5432`), with its data on the `postgres-data` volume. Job state still lives in Redis. This service is there so a later change can store that state. It is not published to the host.  
-- `bioparser` is FastAPI on host port `BIOPARSER_PORT` (default 8080).  
+- `postgres` is a Postgres 18 database on the internal network (`postgres:5432`), with its data on the `postgres-data` volume. It is not published to the host. Job records still live in Redis.  
+- `migrate` runs `bioparser-migrate` from the API image (`bioparser-api`), creates the `jobs` table, and exits. `docker compose up` runs it again on the next start; upgrading an already current database changes nothing.  
+- `bioparser` is FastAPI on host port `BIOPARSER_PORT` (default 8080). It starts after `migrate` has exited successfully. The API process does not migrate.  
 - `parser-worker` consumes the `parse` queue and sends `mineru` jobs to the `mineru` service. It is not published to the host, and the same image `bioparser-parser-worker` serves the CPU and GPU stacks.  
 - `extractor-worker` consumes the `extract` queue. It is not published to the host. Both stacks build `bioparser-extractor-worker` from `docker/extractor-worker.Dockerfile`. It calls the `vllm` service. The model is not in this image.  
 
@@ -46,7 +47,7 @@ Optional:
 `BIOPARSER_PARSE_TIME_LIMIT_SECONDS`: the worker's limit for one parse (default `1800`, at most `3600`).  
 `BIOPARSER_MINERU_TIMEOUT_SECONDS`: how long `POST /extract` waits for MinerU (default `600`, at most `3600`).  
 `MINERU_API_CONCURRENCY`: how many parse jobs the `mineru` service runs at once (default `1`); more wait in its queue. Each running job needs its own memory, so raise the `mineru` `mem_limit` in the overlay with it.  
-`POSTGRES_PASSWORD` (required): password of the `bioparser` database user. Compose puts it in `BIOPARSER_DATABASE_URL` for the API. Keep it URL-safe (`@`, `:`, `/`, `#` and `%` break that URL).  
+`POSTGRES_PASSWORD` (required): password of the `bioparser` database user. Compose puts it in `BIOPARSER_DATABASE_URL` for the API and for `migrate`. Keep it URL-safe (`@`, `:`, `/`, `#` and `%` break that URL).  
 
 With `docker-compose.logging.yml`:
 
@@ -67,7 +68,7 @@ Weights cache on the host at `~/.cache/huggingface`.
 
 ## Start
 
-All services are included in the Compose stack; the API container starts only after `vllm`, `mineru`, `redis`, and `postgres` health checks pass, and the parser worker after `mineru` and `redis`. The extractor worker starts after `vllm` and `redis` do. MinerU's check passes once its models are loaded. The first model download can take several minutes (vLLM's health-check `start_period` is 180s for GPU and 600s for CPU).
+All services are included in the Compose stack. `migrate` starts after `postgres` is healthy, upgrades the database, and exits. The API container starts only after that exit and after `vllm`, `mineru`, and `redis` health checks pass. The parser worker starts after `mineru` and `redis`. The extractor worker starts after `vllm` and `redis`. MinerU's check passes once its models are loaded. The first model download can take several minutes (vLLM's health-check `start_period` is 180s for GPU and 600s for CPU).
 
 ```sh
 docker compose up --build

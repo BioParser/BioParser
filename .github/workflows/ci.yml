@@ -93,5 +93,23 @@ jobs:
           done
           docker exec redis redis-cli ping
 
+      - name: Start Postgres
+        run: |
+          # Same image as services.postgres in docker-compose.yml. Dependabot does
+          # not update this line; bump it in the same change as the Compose pin.
+          # The password exists only in this job.
+          docker run -d --name postgres -p 5432:5432 \
+            -e POSTGRES_USER=bioparser \
+            -e POSTGRES_PASSWORD=ci-postgres \
+            -e POSTGRES_DB=bioparser \
+            postgres:18.6@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6
+          for i in $(seq 1 30); do
+            docker exec postgres pg_isready -U bioparser -d bioparser && break
+            sleep 1
+          done
+          docker exec postgres pg_isready -U bioparser -d bioparser
+
       - name: Run integration tests
+        env:
+          BIOPARSER_TEST_DATABASE_URL: postgresql://bioparser:ci-postgres@localhost:5432/bioparser
         run: uv run pytest -m integration

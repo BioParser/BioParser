@@ -47,6 +47,7 @@ services:
     build:
       context: .
       dockerfile: docker/api.Dockerfile
+    image: bioparser-api
     depends_on:
       mineru:
         condition: service_healthy
@@ -56,6 +57,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       BIOPARSER_VLLM_BASE_URL: http://vllm:8000/v1
       BIOPARSER_MINERU_BASE_URL: http://mineru:8000
@@ -177,6 +180,29 @@ services:
     # The image's postgres user. A new named volume gets this owner from the image,
     # so the entrypoint needs no root step and no capabilities. Same as redis.
     user: "999:999"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: bioparser-api
+    # command replaces the image CMD. The entrypoint stays tini, which runs this.
+    command: ["bioparser-migrate"]
+    # The API image checks http://127.0.0.1:8080/health. This container runs the
+    # migration and exits, so that inherited check would mark a success unhealthy.
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BIOPARSER_DATABASE_URL: postgresql://bioparser:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/bioparser
+    restart: "no"
+    mem_limit: 512m
+    memswap_limit: 512m
+    networks: [backend]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
 
