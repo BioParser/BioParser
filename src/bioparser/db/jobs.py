@@ -103,7 +103,7 @@ async def get(connection: AsyncConnection, job_id: UUID) -> JobState | None:
 
 
 ClaimOutcome = Literal["claimed", "exhausted", "skipped", "missing"]
-MarkOutcome = Literal["recorded", "not_allowed", "skipped"]
+MarkOutcome = Literal["recorded", "not_allowed", "skipped", "missing"]
 
 
 async def claim(
@@ -175,7 +175,7 @@ async def mark_failed(
 
     `recorded` means the row changed. `not_allowed` means the stored status is
     one of `from_statuses` but cannot become `failed`. `skipped` means the row
-    is missing or has another status.
+    has another status. `missing` means no row.
     """
     failable = _failable(from_statuses)
     if failable:
@@ -188,7 +188,7 @@ async def mark_failed(
             return "recorded"
     row = (await connection.execute(select(Job.status).where(Job.job_id == job_id))).one_or_none()
     if row is None:
-        return "skipped"
+        return "missing"
     status = str(row.status)
     if status in from_statuses and not _can_fail(status):
         return "not_allowed"

@@ -340,7 +340,9 @@ class StubJobStateStore:
     ) -> str:
         self.events.append("job_state.mark_failed")
         state = self.states.get(str(job_id))
-        if state is None or state.status not in from_statuses:
+        if state is None:
+            return "missing"
+        if state.status not in from_statuses:
             return "skipped"
         if "failed" not in ALLOWED_TRANSITIONS[state.status]:
             return "not_allowed"

@@ -218,5 +218,8 @@ class StageJobHandler[T: JobMessage]:
         if outcome == "not_allowed":
             LOGGER.error("job cannot be marked failed.")
             return False
+        if outcome == "missing":
+            LOGGER.info(f"no stored job state exists. Not marking it failed ({code})")
+            return False
         LOGGER.info(f"job already finished or moved on. Not marking it failed ({code})")
         return False

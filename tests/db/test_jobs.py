@@ -328,7 +328,7 @@ async def test_mark_failed_skips_a_missing_job(database: str) -> None:
             await job_queries.mark_failed(
                 connection, missing, "internal_error", from_statuses=("queued",)
             )
-            == "skipped"
+            == "missing"
         )
         assert (
             await job_queries.claim(
