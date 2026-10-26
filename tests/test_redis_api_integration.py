@@ -231,7 +231,7 @@ async def test_redis_backed_submission_and_polling(
 
         artifact = await client.get(f"/api/jobs/{job_id}/artifacts/parser")
         assert artifact.status_code == 200
-        assert artifact.content == artifact_storage.retrieve(output_artifact_ref)
+        assert artifact.content == await artifact_storage.retrieve(output_artifact_ref)
 
 
 async def test_same_pdf_can_be_submitted_twice(
