@@ -350,7 +350,7 @@ async def _stored_artifact(request: Request, job: JobState, ref: str | None, kin
         raise http_error(409, ARTIFACT_NOT_AVAILABLE)
     fields = {"job_id": str(job.job_id), "artifact": kind}
     try:
-        payload: bytes = await asyncio.to_thread(request.app.state.artifact_storage.retrieve, ref)
+        payload: bytes = await request.app.state.artifact_storage.retrieve(ref)
     except (ArtifactNotFoundError, StoragePayloadError) as exc:
         LOGGER.error("job artifact missing or invalid", extra=fields | error_fields(exc))
         raise http_error(500, ARTIFACT_INVALID) from exc
