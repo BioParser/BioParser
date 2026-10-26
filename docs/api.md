@@ -295,14 +295,18 @@ Readiness behaviour:
   `BIOPARSER_DEPENDENCY_CHECK_TIMEOUT_SECONDS` (seconds, default `1.0`). On failure the
   endpoint returns `503`; FastAPI places the readiness payload under `detail`, e.g.
   `{"detail": {"status": "not ready", "unavailable": ["redis"]}}`.
+- If `BIOPARSER_DATABASE_URL` is set, the endpoint does the same kind of TCP connect
+  against that URL (default port 5432), with the same timeout. On failure `503` is
+  returned with `"postgres"` in the `unavailable` list. The response does not include
+  the URL or its password.
 - If `BIOPARSER_ARTIFACT_STORAGE_PATH` is set, the endpoint attempts to create and remove
   a temporary file in that directory to confirm writability. On failure `503` is returned
   with `"storage"` in the `unavailable` list.
-- If neither environment variable is set the endpoint returns `200`.
+- If none of these environment variables is set the endpoint returns `200`.
 
-Checks are intentionally minimal: they use a raw TCP connect for Redis and a local
-file operation for storage so that checks are fast, require no credentials, and do not
-expose secrets in error messages.
+Checks are intentionally minimal: they use a raw TCP connect for Redis and Postgres and a
+local file operation for storage so that checks are fast, require no credentials, and do
+not expose secrets in error messages.
 
 ---
 
@@ -444,6 +448,7 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 | `extraction_max_tokens` | `1024` | max generation tokens passed to vLLM extraction |
 | `redis_url` | `None` | required at API startup; Redis URL for shared job state and the parse queue |
 | `redis_timeout_seconds` | `5.0` | Redis connect and operation timeout |
+| `database_url` | `None` | optional `postgresql` URL (`PostgresDsn`); when set, `/ready` TCP-connects to it. Not used for job state yet |
 | `parse_queue_name` | `parse` | Redis/Dramatiq queue name shared with the parser worker |
 | `api_key` | `None` | Shared API key (`BIOPARSER_API_KEY`). Required when `auth_disabled` is false. Redacted in logs and errors (`SecretStr`). |
 | `auth_disabled` | `False` | Disables authentication checks for local development (`BIOPARSER_AUTH_DISABLED`). Emits a warning at startup if true. |

@@ -241,6 +241,19 @@ def test_the_redis_password_never_appears_in_logs(
     assert password not in repr(config.get_api_settings())
 
 
+def test_a_malformed_database_url_does_not_echo_its_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "BIOPARSER_DATABASE_URL", "postgresql://bioparser:canary-db-pass@postgres:99999/bioparser"
+    )
+
+    with pytest.raises(ValidationError, match="database_url") as failure:
+        config.ApiSettings()
+
+    assert "canary-db-pass" not in str(failure.value)
+
+
 def test_a_malformed_redis_url_does_not_echo_its_password(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
