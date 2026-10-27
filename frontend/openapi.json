@@ -1,0 +1,781 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FastAPI",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/extractions": {
+      "post": {
+        "summary": "Submit Job",
+        "operationId": "submit_job_api_extractions_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_submit_job_api_extractions_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueuedJobResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missing_file": {
+                    "summary": "No file part in the request",
+                    "value": {
+                      "detail": {
+                        "code": "missing_file",
+                        "message": "No file part in the request"
+                      }
+                    }
+                  },
+                  "empty_file": {
+                    "summary": "Uploaded file is empty",
+                    "value": {
+                      "detail": {
+                        "code": "empty_file",
+                        "message": "Uploaded file is empty"
+                      }
+                    }
+                  },
+                  "invalid_pdf": {
+                    "summary": "File does not look like a PDF",
+                    "value": {
+                      "detail": {
+                        "code": "invalid_pdf",
+                        "message": "File does not look like a PDF"
+                      }
+                    }
+                  },
+                  "invalid_content_length": {
+                    "summary": "Content-Length header must be a non-negative integer",
+                    "value": {
+                      "detail": {
+                        "code": "invalid_content_length",
+                        "message": "Content-Length header must be a non-negative integer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Content Too Large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "content_too_large": {
+                    "summary": "Content Too Large",
+                    "value": {
+                      "detail": {
+                        "code": "content_too_large",
+                        "message": "Content Too Large"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "unsupported_content_type": {
+                    "summary": "Only application/pdf uploads are accepted",
+                    "value": {
+                      "detail": {
+                        "code": "unsupported_content_type",
+                        "message": "Only application/pdf uploads are accepted"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "job_state_unreadable": {
+                    "summary": "Stored job state is unreadable",
+                    "value": {
+                      "detail": {
+                        "code": "job_state_unreadable",
+                        "message": "Stored job state is unreadable"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "storage_unavailable": {
+                    "summary": "Artifact storage is unavailable",
+                    "value": {
+                      "detail": {
+                        "code": "storage_unavailable",
+                        "message": "Artifact storage is unavailable"
+                      }
+                    }
+                  },
+                  "redis_unavailable": {
+                    "summary": "Job state service is unavailable",
+                    "value": {
+                      "detail": {
+                        "code": "redis_unavailable",
+                        "message": "Job state service is unavailable"
+                      }
+                    }
+                  },
+                  "queue_unavailable": {
+                    "summary": "Parse queue is unavailable",
+                    "value": {
+                      "detail": {
+                        "code": "queue_unavailable",
+                        "message": "Parse queue is unavailable"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}": {
+      "get": {
+        "summary": "Job Status",
+        "operationId": "job_status_api_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/QueuedJobResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RunningJobResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SucceededJobResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/FailedJobResponse"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "status",
+                    "mapping": {
+                      "queued": "#/components/schemas/QueuedJobResponse",
+                      "parsing": "#/components/schemas/RunningJobResponse",
+                      "extracting": "#/components/schemas/RunningJobResponse",
+                      "parsed": "#/components/schemas/SucceededJobResponse",
+                      "done": "#/components/schemas/SucceededJobResponse",
+                      "failed": "#/components/schemas/FailedJobResponse"
+                    }
+                  },
+                  "title": "Response Job Status Api Jobs  Job Id  Get"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "job_not_found": {
+                    "summary": "Job not found",
+                    "value": {
+                      "detail": {
+                        "code": "job_not_found",
+                        "message": "Job not found"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_job_id": {
+                    "summary": "job_id must be a version 4 UUID",
+                    "value": {
+                      "detail": {
+                        "code": "invalid_job_id",
+                        "message": "job_id must be a version 4 UUID"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "job_state_unreadable": {
+                    "summary": "Stored job state is unreadable",
+                    "value": {
+                      "detail": {
+                        "code": "job_state_unreadable",
+                        "message": "Stored job state is unreadable"
+                      }
+                    }
+                  },
+                  "artifact_invalid": {
+                    "summary": "Stored parser artifact is invalid",
+                    "value": {
+                      "detail": {
+                        "code": "artifact_invalid",
+                        "message": "Stored parser artifact is invalid"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "redis_unavailable": {
+                    "summary": "Job state service is unavailable",
+                    "value": {
+                      "detail": {
+                        "code": "redis_unavailable",
+                        "message": "Job state service is unavailable"
+                      }
+                    }
+                  },
+                  "storage_unavailable": {
+                    "summary": "Artifact storage is unavailable",
+                    "value": {
+                      "detail": {
+                        "code": "storage_unavailable",
+                        "message": "Artifact storage is unavailable"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/extract": {
+      "post": {
+        "summary": "Extract",
+        "description": "Runs validate -> mineru -> mapper -> vLLM pipeline for testing,\nsynchronously",
+        "operationId": "extract_extract_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_extract_extract_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Extract Extract Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "summary": "Readiness",
+        "operationId": "readiness_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "One or more dependencies are unavailable or misconfigured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessUnavailableResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_extract_extract_post": {
+        "properties": {
+          "file": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "title": "Body_extract_extract_post"
+      },
+      "Body_submit_job_api_extractions_post": {
+        "properties": {
+          "file": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "title": "Body_submit_job_api_extractions_post"
+      },
+      "ErrorDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "missing_file",
+              "empty_file",
+              "invalid_pdf",
+              "unsupported_content_type",
+              "invalid_content_length",
+              "job_not_found",
+              "invalid_job_id",
+              "content_too_large",
+              "storage_unavailable",
+              "artifact_invalid",
+              "job_state_unreadable",
+              "redis_unavailable",
+              "queue_unavailable"
+            ],
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorDetail"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse"
+      },
+      "FailedJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "failed",
+            "title": "Status"
+          },
+          "error": {
+            "$ref": "#/components/schemas/SafeError"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "error"
+        ],
+        "title": "FailedJobResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "HealthResponse",
+        "examples": [
+          {
+            "status": "ok"
+          }
+        ]
+      },
+      "QueuedJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "queued",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "QueuedJobResponse"
+      },
+      "ReadinessResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ready",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "ReadinessResponse",
+        "examples": [
+          {
+            "status": "ready"
+          }
+        ]
+      },
+      "ReadinessUnavailableDetail": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "not ready",
+            "title": "Status"
+          },
+          "unavailable": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unavailable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "unavailable"
+        ],
+        "title": "ReadinessUnavailableDetail"
+      },
+      "ReadinessUnavailableResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ReadinessUnavailableDetail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ReadinessUnavailableResponse",
+        "examples": [
+          {
+            "detail": {
+              "status": "not ready",
+              "unavailable": [
+                "redis"
+              ]
+            }
+          }
+        ]
+      },
+      "RunningJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "parsing",
+              "extracting"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "RunningJobResponse"
+      },
+      "SafeError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "invalid_pdf",
+              "parse_failed",
+              "extraction_failed",
+              "timeout",
+              "internal_error"
+            ],
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "SafeError",
+        "description": "A short, non-sensitive description of why a job failed."
+      },
+      "SucceededJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "parsed",
+              "done"
+            ],
+            "title": "Status"
+          },
+          "output_artifact_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Artifact Ref"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "SucceededJobResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

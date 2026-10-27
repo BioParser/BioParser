@@ -246,3 +246,9 @@ target/
 # Partial code execution
 tempCodeRunnerFile.py
 
+# =========================
+# Frontend
+# =========================
+
+node_modules/
+frontend/dist/
