@@ -39,6 +39,10 @@ class JobHandler[T: BaseModel](Protocol):
         """
         return
 
+    async def aopen(self) -> None:
+        """Prepare the handler on the consumer loop, once, before the first message."""
+        return
+
     async def aclose(self) -> None:
         """Release what the handler holds. The queue calls this once, after the last message."""
         return
@@ -62,7 +66,7 @@ class JobConsumer[T: BaseModel](Protocol):
         until_empty: bool = False,
         stop: Event | None = None,
     ) -> None:
-        """Deliver each message to one handler, then close it.
+        """Open the handler, deliver each message, then close it.
 
         Blocks until ``stop`` is set. If stop is omitted, waits until the
         process is interrupted. If until_empty is True, process queued

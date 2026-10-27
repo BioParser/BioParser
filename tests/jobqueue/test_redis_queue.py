@@ -167,6 +167,28 @@ def test_rejects_duplicate_queue_name_on_same_broker(stub_broker: StubBroker) ->
         DramatiqJobConsumer(name="parse", model=ParseJobMessage, broker=stub_broker)
 
 
+def test_consume_opens_the_handler_before_messages_and_closes_it_after(
+    stub_broker: StubBroker,
+) -> None:
+    events: list[str] = []
+
+    class _Lifecycle(JobHandler[ParseJobMessage]):
+        async def aopen(self) -> None:
+            events.append("open")
+
+        async def handle(self, message: ParseJobMessage) -> None:
+            events.append("handle")
+
+        async def aclose(self) -> None:
+            events.append("close")
+
+    queue = _queue(stub_broker)
+    _submit(queue, _message())
+    queue.consume(_Lifecycle(), until_empty=True)
+
+    assert events == ["open", "handle", "close"]
+
+
 def test_submit_and_consume_round_trip(stub_broker: StubBroker) -> None:
     handler = _Recorder()
     queue = _queue(stub_broker)
