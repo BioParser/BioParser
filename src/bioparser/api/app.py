@@ -76,6 +76,7 @@ from .schema import (
     RunningJobResponse,
     SucceededJobResponse,
 )
+from .ui import router as ui_router
 from .uploads import (
     read_upload,
     require_file,
@@ -183,6 +184,7 @@ app.add_middleware(
     TypedRequestBodyLimitMiddleware,
     max_body_size=config.get_api_settings().max_upload_bytes,
 )
+app.include_router(ui_router)
 
 
 async def _validated_upload(request: Request, file: UploadFile | None) -> tuple[str, bytes]:

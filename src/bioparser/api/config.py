@@ -30,6 +30,8 @@ class ApiSettings(BaseSettings):
     extract_queue_timeout_seconds: float = Field(default=5.0, gt=0)
     dependency_check_timeout_seconds: float = Field(default=1.0, gt=0)
     artifact_storage_path: str | None = None
+    # The built UI (frontend/dist). None: the API serves no UI and /ui returns 404.
+    ui_dist_path: str | None = None
     # NOTE: char budget not token budget
     # --max-model-len is cap for all tokens
     extraction_char_budget: int = Field(default=8000, ge=50)
