@@ -170,7 +170,7 @@ class DramatiqJobConsumer[T: BaseModel](JobConsumer[T]):
 
     @contextmanager
     def _event_loop(self, handler: JobHandler[T]) -> Iterator[None]:
-        """Run every handler on one loop, then close the handler on it."""
+        """Open the handler on one loop, run it, then close the handler on it."""
         loop_thread = EventLoopThread(LOGGER)
         loop_thread.start(timeout=5.0)
         self._loop_thread = loop_thread
@@ -181,6 +181,7 @@ class DramatiqJobConsumer[T: BaseModel](JobConsumer[T]):
         )
         try:
             use_blocking_executor(loop_thread.loop, self._blocking)
+            self._on_loop(handler.aopen(), bound_s=self._time_limit_ms / 1000, count_attempt=False)
             yield
         finally:
             try:

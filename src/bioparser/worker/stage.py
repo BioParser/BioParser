@@ -66,6 +66,9 @@ class StageJobHandler[T: JobMessage]:
         self._claim_status = claim_status
         self._max_claims = max_claims
 
+    async def aopen(self) -> None:
+        await database.open(self._database_url)
+
     async def aclose(self) -> None:
         await database.aclose()
 
@@ -115,11 +118,7 @@ class StageJobHandler[T: JobMessage]:
         """
         raise NotImplementedError
 
-    async def _open(self) -> None:
-        await database.open(self._database_url)
-
     async def _handle(self, job_id: UUID) -> None:
-        await self._open()
         async with database.transaction() as connection:
             try:
                 state = await job_queries.get(connection, job_id)
@@ -169,7 +168,6 @@ class StageJobHandler[T: JobMessage]:
 
     async def _mark_failed(self, job_id: UUID, code: SafeErrorCode) -> bool:
         """Record `failed` when this stage still owns the job. True when the write lands."""
-        await self._open()
         async with database.transaction() as connection:
             outcome = await job_queries.mark_failed(
                 connection, job_id, code, from_statuses=self._owned
