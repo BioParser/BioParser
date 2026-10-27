@@ -1,1 +1,1 @@
-"""Database migrations. Nothing in the API or the workers queries Postgres yet."""
+"""Database migrations, the shared async connection, and one module per table."""

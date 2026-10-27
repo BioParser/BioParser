@@ -16,6 +16,9 @@ from uuid import UUID
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ValidationError
 
+from bioparser.db import engine as database
+from bioparser.db import jobs as job_queries
+from bioparser.db.engine import DatabaseError
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.hashing import sha256_bytes
@@ -27,8 +30,6 @@ from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobstate import (
     CorruptJobStateError,
     JobState,
-    JobStateError,
-    RedisJobStateStore,
     SafeError,
 )
 from bioparser.logging_config import error_fields, redact_url, setup_logging
@@ -54,6 +55,7 @@ from .errors import (
     ARTIFACT_INVALID,
     ARTIFACT_NOT_AVAILABLE,
     CONTENT_TOO_LARGE,
+    DATABASE_UNAVAILABLE,
     EMPTY_FILE,
     INVALID_CONTENT_LENGTH,
     INVALID_JOB_ID,
@@ -62,7 +64,6 @@ from .errors import (
     JOB_STATE_UNREADABLE,
     MISSING_FILE,
     QUEUE_UNAVAILABLE,
-    REDIS_UNAVAILABLE,
     STORAGE_UNAVAILABLE,
     UNAUTHORIZED,
     UNSUPPORTED_CONTENT_TYPE,
@@ -121,11 +122,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 raise RuntimeError(
                     "BIOPARSER_API_KEY is required when BIOPARSER_AUTH_DISABLED is false"
                 )
-            if settings.redis_url is None:
-                raise RuntimeError("BIOPARSER_REDIS_URL is required")
-            if settings.artifact_storage_path is None:
-                raise RuntimeError("BIOPARSER_ARTIFACT_STORAGE_PATH is required")
-
             app.state.vllm = VLLMService()
             vllm_base_url = redact_url(get_vllm_settings().vllm_base_url)
             try:
@@ -144,10 +140,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
             redis_url = str(settings.redis_url)
             redis_timeout = settings.redis_timeout_seconds
-            app.state.job_store = RedisJobStateStore(
-                redis_url,
-                operation_timeout_seconds=redis_timeout,
-            )
+            await database.open(str(settings.database_url))
             app.state.parse_queue = DramatiqJobQueue.from_redis(
                 redis_url,
                 name=settings.parse_queue_name,
@@ -173,12 +166,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             if pool is not None:
                 # A running child cannot be stopped; the shutdown does not wait for it.
                 pool.shutdown(wait=False, cancel_futures=True)
-            for client in (
-                getattr(app.state, "vllm", None),
-                getattr(app.state, "job_store", None),
-            ):
-                if client is not None:
-                    await client.aclose()
+            vllm = getattr(app.state, "vllm", None)
+            if vllm is not None:
+                await vllm.aclose()
+            await database.aclose()
 
 
 def _pipeline_start_method() -> str:
@@ -290,8 +281,13 @@ def _job_state_response(state: JobState) -> JobStatusResponse:
         case "parsed" | "done":
             return SucceededJobResponse(job_id=state.job_id, status=state.status)
         case "failed":
-            assert state.error is not None  # JobState._fields_match_status
-            return FailedJobResponse(job_id=state.job_id, status="failed", error=state.error)
+            if state.error_code is None:
+                raise ValueError("Failed job is missing error_code")
+            return FailedJobResponse(
+                job_id=state.job_id,
+                status="failed",
+                error=SafeError(code=state.error_code),
+            )
 
 
 def _parse_job_id(job_id: str) -> UUID:
@@ -307,13 +303,14 @@ def _parse_job_id(job_id: str) -> UUID:
 async def _read_job(request: Request, job_id: UUID) -> JobState:
     """The stored job, or the route's 404, 500 or 503."""
     try:
-        record: JobState | None = await request.app.state.job_store.get(job_id)
+        async with database.transaction() as connection:
+            record = await job_queries.get(connection, job_id)
     except CorruptJobStateError as exc:
         LOGGER.error("job state unreadable", extra={"job_id": str(job_id), **error_fields(exc)})
         raise http_error(500, JOB_STATE_UNREADABLE) from exc
-    except JobStateError as exc:
+    except DatabaseError as exc:
         LOGGER.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
-        raise http_error(503, REDIS_UNAVAILABLE) from exc
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
     if record is None:
         raise http_error(404, JOB_NOT_FOUND)
     return record
@@ -338,7 +335,7 @@ def _artifact_responses(model: type[BaseModel], description: str) -> dict[int | 
         409: error_response(ARTIFACT_NOT_AVAILABLE),
         422: error_response(INVALID_JOB_ID),
         500: error_response(JOB_STATE_UNREADABLE, ARTIFACT_INVALID),
-        503: error_response(REDIS_UNAVAILABLE, STORAGE_UNAVAILABLE),
+        503: error_response(DATABASE_UNAVAILABLE, STORAGE_UNAVAILABLE),
     }
 
 
@@ -374,7 +371,7 @@ async def _stored_artifact(request: Request, job: JobState, ref: str | None, kin
         413: error_response(CONTENT_TOO_LARGE),
         415: error_response(UNSUPPORTED_CONTENT_TYPE),
         500: error_response(JOB_STATE_UNREADABLE),
-        503: error_response(STORAGE_UNAVAILABLE, REDIS_UNAVAILABLE, QUEUE_UNAVAILABLE),
+        503: error_response(STORAGE_UNAVAILABLE, DATABASE_UNAVAILABLE, QUEUE_UNAVAILABLE),
     },
 )
 async def submit_job(request: Request, file: UploadFile | None = None) -> QueuedJobResponse:
@@ -412,25 +409,37 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         extractor=DEFAULT_EXTRACTOR_NAME,
         pdf_ref=pdf_ref,
     )
-    try:
-        await request.app.state.job_store.create(job_state)
-    except JobStateError as exc:
-        LOGGER.error("job state create failed", extra=fields | error_fields(exc))
-        raise http_error(503, REDIS_UNAVAILABLE) from exc
-
     parse_job_message = ParseJobMessage(
         job_id=job_id,
     )
+    # Commit the row before calling Redis, so a queue round trip does not hold a
+    # pooled connection. A failed enqueue marks that row failed afterwards.
+    try:
+        async with database.transaction() as connection:
+            await job_queries.create(connection, job_state)
+    except DatabaseError as exc:
+        LOGGER.error("job state create failed", extra=fields | error_fields(exc))
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
     try:
         await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
     except JobQueueError as exc:
         LOGGER.error("parse job enqueue failed", extra=fields | error_fields(exc))
-        failed_state = job_state.with_changes(
-            status="failed",
-            error=SafeError(code="internal_error"),
-        )
-        with contextlib.suppress(JobStateError):
-            await request.app.state.job_store.update(failed_state)
+        try:
+            async with database.transaction() as connection:
+                outcome = await job_queries.mark_failed(
+                    connection,
+                    job_id,
+                    "internal_error",
+                    from_statuses=("queued",),
+                )
+        except DatabaseError as mark_error:
+            LOGGER.error(
+                "queued job remains after the enqueue failed",
+                extra=fields | error_fields(mark_error),
+            )
+        else:
+            if outcome != "recorded":
+                LOGGER.error("queued job remains after the enqueue failed", extra=fields)
         raise http_error(503, QUEUE_UNAVAILABLE) from exc
 
     return QueuedJobResponse(job_id=job_id, status="queued")
@@ -444,11 +453,12 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         404: error_response(JOB_NOT_FOUND),
         422: error_response(INVALID_JOB_ID),
         500: error_response(JOB_STATE_UNREADABLE),
-        503: error_response(REDIS_UNAVAILABLE),
+        503: error_response(DATABASE_UNAVAILABLE),
     },
 )
 async def job_status(request: Request, job_id: str) -> JobStatusResponse:
-    # One Redis read. This route never reads an artifact: that cost grows with the paper.
+    # One Postgres read. The worker validated the artifact before it recorded the ref, so this
+    # route does not read it again: that cost grows with the paper and ran on the event loop.
     return _job_state_response(await _read_job(request, _parse_job_id(job_id)))
 
 
@@ -595,16 +605,15 @@ async def readiness() -> ReadinessResponse:
     timeout = settings.dependency_check_timeout_seconds
 
     redis = settings.redis_url
-    if redis and not await _check_tcp(redis.host, redis.port or 6379, timeout):
+    if not await _check_tcp(redis.host, redis.port or 6379, timeout):
         unavailable.append("redis")
 
     # PostgresDsn can hold several hosts. Check the first, as libpq tries it first.
-    if settings.database_url:
-        db = settings.database_url.hosts()[0]
-        if not await _check_tcp(db["host"], db["port"] or 5432, timeout):
-            unavailable.append("postgres")
+    db = settings.database_url.hosts()[0]
+    if not await _check_tcp(db["host"], db["port"] or 5432, timeout):
+        unavailable.append("postgres")
 
-    if settings.artifact_storage_path and not await _check_storage(
+    if not await _check_storage(
         settings.artifact_storage_path,
         timeout,
     ):

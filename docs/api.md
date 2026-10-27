@@ -12,8 +12,9 @@ configurable size limit. `POST /extract` is a dev route: it runs a queued job's 
 
 **Current API scope:**
 
-- **Job state is stored in Redis.** The API and parser worker share the typed,
-  versioned `JobState` model through `RedisJobStateStore`.
+- **Job state is stored in Postgres.** The API and both workers share the typed,
+  versioned `JobState` model through `bioparser.db.jobs`. The `Job` class there
+  is the table, and Alembic diffs it when generating a revision. Redis is the queue.
 - **The parser worker is a separate process.** `POST /api/extractions` enqueues a
   `ParseJobMessage`; `python -m bioparser.worker.parse` consumes it and advances
   the job from `queued` through `parsing` to `parsed` or `failed`.
@@ -35,7 +36,7 @@ configurable size limit. `POST /extract` is a dev route: it runs a queued job's 
 ## Scope
 
 The API container accepts a born-digital PDF, creates a job, and lets the client poll
-for its status. `POST /api/extractions` stores the PDF, creates Redis job state, and
+for its status. `POST /api/extractions` stores the PDF, creates the Postgres job row, and
 enqueues parsing without parsing in the request process. The separate parser worker
 advances the stored state. `POST /extract` runs the same upload through the same
 pipeline in one request, for manual testing outside the job lifecycle.
@@ -104,7 +105,7 @@ The checks run in a fixed order: `Content-Length` header format and size →
 | 400 | the Content-Length header is not a valid non-negative integer |
 | 413 | the file exceeds `config.MAX_UPLOAD_BYTES` |
 | 415 | content type is not `application/pdf` |
-| 503 | artifact storage, Redis job state, or the parse queue is unavailable |
+| 503 | artifact storage, the database, or the parse queue is unavailable |
 
 
 **Validation error body:**
@@ -158,7 +159,7 @@ Poll a job.
 | 404 | no job with that id |
 | 422 | `job_id` is not a version 4 UUID |
 | 500 | stored job state is unreadable |
-| 503 | Redis is unavailable |
+| 503 | the database is unavailable |
 
 The route reads only the job state. It never reads an artifact.
 
@@ -265,9 +266,8 @@ dependencies are touched.
 
 ### `GET /ready`
 
-Readiness. Performs optional, bounded dependency checks and returns `200 {"status": "ready"}`
-when the process can accept work. Behaviour is opt-in via environment variables so the
-default developer experience remains simple.
+Readiness. Checks Redis, Postgres, and the artifact directory, each with a bounded
+timeout, and returns `200 {"status": "ready"}` when all three succeed.
 
 **Success — `200 OK`:**
 
@@ -290,19 +290,19 @@ default developer experience remains simple.
 
 Readiness behaviour:
 
-- If `BIOPARSER_REDIS_URL` is set, the endpoint parses the Redis URL and attempts a TCP
-  connection to the host/port from that URL with a per-check timeout controlled by
-  `BIOPARSER_DEPENDENCY_CHECK_TIMEOUT_SECONDS` (seconds, default `1.0`). On failure the
-  endpoint returns `503`; FastAPI places the readiness payload under `detail`, e.g.
+- The endpoint parses the Redis URL and attempts a TCP connection to the host and port
+  from that URL. The per-check timeout is `BIOPARSER_DEPENDENCY_CHECK_TIMEOUT_SECONDS`
+  (seconds, default `1.0`). On failure the endpoint returns `503`; FastAPI places the
+  readiness payload under `detail`, e.g.
   `{"detail": {"status": "not ready", "unavailable": ["redis"]}}`.
-- If `BIOPARSER_DATABASE_URL` is set, the endpoint does the same kind of TCP connect
-  against that URL (default port 5432), with the same timeout. On failure `503` is
-  returned with `"postgres"` in the `unavailable` list. The response does not include
-  the URL or its password.
-- If `BIOPARSER_ARTIFACT_STORAGE_PATH` is set, the endpoint attempts to create and remove
-  a temporary file in that directory to confirm writability. On failure `503` is returned
-  with `"storage"` in the `unavailable` list.
-- If none of these environment variables is set the endpoint returns `200`.
+- It does the same kind of TCP connect against the Postgres URL (default port 5432),
+  with the same timeout. On failure `503` is returned with `"postgres"` in the
+  `unavailable` list. The response does not include the URL or its password.
+- It attempts to create and remove a temporary file in the artifact directory to confirm
+  writability. On failure `503` is returned with `"storage"` in the `unavailable` list.
+- Invalid configuration, including an empty required setting, returns `503` with
+  `"config"` in the `unavailable` list. The API also refuses to start when these
+  settings are missing.
 
 Checks are intentionally minimal: they use a raw TCP connect for Redis and Postgres and a
 local file operation for storage so that checks are fast, require no credentials, and do
@@ -336,23 +336,24 @@ Holds the FastAPI app, its startup/shutdown lifecycle, and all seven route handl
 **Lifespan:** on startup, first calls `setup_logging(settings.log_level)` (see
 [Logging](#logging)), then builds a `VLLMService` (`bioparser.services.vllm`) from
 `config.get_api_settings()` and probes the vLLM model id once. The probe is best-effort: a failure logs one WARNING
-and startup continues. When configured, the lifecycle also creates a
-`RedisJobStateStore`, a Redis-backed `DramatiqJobQueue`, and a
+and startup continues. When configured, the lifecycle also opens
+the async Postgres pool (`bioparser.db.engine`, asyncpg), a Redis-backed `DramatiqJobQueue`, and a
 `FileSystemArtifactStorage`. For `POST /extract` it creates a `ProcessPoolExecutor` and an
 `asyncio.Semaphore`, both sized `config.extract_concurrency`. On shutdown, the pool stops
-taking work (a running child is not waited for), and network clients and the Redis
-job-state client are closed.
+taking work (a running child is not waited for), and network clients and the Postgres
+pool are closed. Migrations stay on the sync psycopg driver.
 
 - `POST /api/extractions` — runs `_validated_upload()` (the [`uploads.py`](#uploadspy) helpers,
   in order: `validate_content_length`, `require_file`, `validate_content_type`,
   `read_upload`, `validate_pdf_content`), persists the content-addressed PDF,
-  creates a `JobState` through `RedisJobStateStore`, enqueues a `ParseJobMessage`,
-  and returns `202`.
+  creates a `JobState` in Postgres, commits it, then enqueues a `ParseJobMessage`,
+  and returns `202`. The enqueue is outside the database transaction. A failed
+  enqueue marks that row `failed` in a later transaction.
   Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it is still
   being received. A missing or understated `Content-Length` is still capped while
   reading the file in chunks.
-- `GET /api/jobs/{job_id}` — reads the typed state from `RedisJobStateStore` and
-  maps it to the public status response. One Redis read; no artifact read.
+- `GET /api/jobs/{job_id}` — reads the typed state from Postgres and
+  maps it to the public status response. One Postgres read; no artifact read.
 - `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`
   when it has no such ref, then return the stored bytes. The read runs in a thread.
 - `POST /extract` — runs the same `_validated_upload()` as `POST /api/extractions`, takes a
@@ -360,7 +361,7 @@ job-state client are closed.
   pool. A `PipelineError` becomes a `502 HTTPException`. If a child died (for example out
   of memory), the broken pool is replaced and the request gets `502`. Not wired to the job store.
 - `GET /health` — returns `HealthResponse(status="ok")` directly, no dependencies.
-- `GET /ready` — optional dependency checks controlled by environment variables.
+- `GET /ready` — checks Redis, Postgres, and the artifact directory.
 
 Errors use `fastapi.HTTPException` directly — raised from the `uploads.py` helpers for
 upload validation, inline in `job_status` for the 404, inline in `extract` for the 502,
@@ -401,14 +402,14 @@ for the OpenAPI docs' `responses=` examples:
 
 Error types and the named `ErrorDetail` instances used across `uploads.py` and `app.py`.
 
-- `ErrorCode` — the fixed set of validation, job-state, storage, Redis, and queue
+- `ErrorCode` — the fixed set of validation, job-state, storage, database, and queue
   error codes returned by the API.
 - `ErrorDetail` — `{code: ErrorCode, message: str}`, the shape used as
   `HTTPException.detail` for typed API failures.
 - `ErrorResponse` — `{detail: ErrorDetail}`, used only in `responses=` schemas for
   OpenAPI documentation; it is never constructed at runtime.
 - Named `ErrorDetail` constants provide one source of truth for each
-  validation, job-state, storage, Redis, and queue error's code and message.
+  validation, job-state, storage, database, and queue error's code and message.
 - `http_error(status_code, detail)` — builds the `HTTPException` raised at each
   failure site from one of the constants above.
 - `error_response(*details)` — builds the `responses=` OpenAPI entry (schema +
@@ -442,13 +443,13 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 | `mineru_tier` | `basic` | MinerU parse tier (`basic`, `standard`, `advanced`); the GPU stack sets `standard`, see [parser.md](parser.md) |
 | `extract_concurrency` | `2` | number of `POST /extract` processes, and of slots for them |
 | `extract_queue_timeout_seconds` | `5.0` | how long `POST /extract` waits for a semaphore slot before returning `503` |
-| `dependency_check_timeout_seconds` | `1.0` | timeout for each optional readiness dependency check |
-| `artifact_storage_path` | `None` | required at API startup; filesystem artifact root |
+| `dependency_check_timeout_seconds` | `1.0` | timeout for each readiness dependency check |
+| `artifact_storage_path` | required | filesystem artifact root |
 | `extraction_char_budget` | `8000` | character (not token) budget passed to vLLM extraction |
 | `extraction_max_tokens` | `1024` | max generation tokens passed to vLLM extraction |
-| `redis_url` | `None` | required at API startup; Redis URL for shared job state and the parse queue |
+| `redis_url` | required | Redis URL for the parse queue |
 | `redis_timeout_seconds` | `5.0` | Redis connect and operation timeout |
-| `database_url` | `None` | optional `postgresql` URL (`PostgresDsn`); when set, `/ready` TCP-connects to it. Not used for job state yet |
+| `database_url` | required | `postgresql` URL (`PostgresDsn`) for job state; `/ready` TCP-connects to it |
 | `parse_queue_name` | `parse` | Redis/Dramatiq queue name shared with the parser worker |
 | `api_key` | `None` | Shared API key (`BIOPARSER_API_KEY`). Required when `auth_disabled` is false. Redacted in logs and errors (`SecretStr`). |
 | `auth_disabled` | `False` | Disables authentication checks for local development (`BIOPARSER_AUTH_DISABLED`). Emits a warning at startup if true. |

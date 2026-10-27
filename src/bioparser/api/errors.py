@@ -15,7 +15,7 @@ ErrorCode = Literal[
     "storage_unavailable",
     "artifact_invalid",
     "job_state_unreadable",
-    "redis_unavailable",
+    "database_unavailable",
     "queue_unavailable",
     "artifact_not_available",
     "unauthorized",
@@ -66,9 +66,9 @@ JOB_STATE_UNREADABLE = ErrorDetail(
     message="Stored job state is unreadable",
 )
 
-REDIS_UNAVAILABLE = ErrorDetail(
-    code="redis_unavailable",
-    message="Job state service is unavailable",
+DATABASE_UNAVAILABLE = ErrorDetail(
+    code="database_unavailable",
+    message="Database is unavailable",
 )
 
 QUEUE_UNAVAILABLE = ErrorDetail(code="queue_unavailable", message="Parse queue is unavailable")

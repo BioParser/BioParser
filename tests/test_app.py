@@ -9,21 +9,20 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from httpx2 import ASGITransport
 from pydantic import TypeAdapter
-from stubs import StubArtifactStorage, StubJobStateStore, StubParseQueue
+from stubs import StubArtifactStorage, StubJobs, StubParseQueue
 
 from bioparser.api import config
 from bioparser.api.app import app as api_app
 from bioparser.api.errors import ErrorResponse
 from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
+from bioparser.db.engine import DatabaseError
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.jobqueue import JobQueueError
 from bioparser.jobstate import (
     CorruptJobStateError,
     JobState,
-    JobStateError,
     JobStatus,
-    SafeError,
 )
 from bioparser.storage import (
     ArtifactMetadata,
@@ -44,7 +43,7 @@ _STATUS_FIELDS: dict[JobStatus, dict[str, Any]] = {
     "parsed": {"parse_result_ref": PARSE_REF},
     "extracting": {"parse_result_ref": PARSE_REF},
     "done": {"parse_result_ref": PARSE_REF, "extract_result_ref": EXTRACT_REF},
-    "failed": {"parse_result_ref": PARSE_REF, "error": SafeError(code="extraction_failed")},
+    "failed": {"parse_result_ref": PARSE_REF, "error_code": "extraction_failed"},
 }
 
 
@@ -62,9 +61,9 @@ def _job(status: JobStatus, **fields: Any) -> JobState:
 
 def test_submit_and_retrieve_job(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
-    artifact_storage, job_store, parse_queue, events = stub_api_adapters
+    artifact_storage, jobs, parse_queue, events = stub_api_adapters
     response = client.post(
         "/api/extractions",
         files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
@@ -77,7 +76,7 @@ def test_submit_and_retrieve_job(
     assert record["status"] == "queued"
     assert events == ["artifact.store", "job_state.create", "queue.submit"]
 
-    state = job_store.states[record["job_id"]]
+    state = jobs.states[record["job_id"]]
     message = parse_queue.messages[0]
     assert message.schema_version == 1
     assert state.pdf_ref in artifact_storage.artifacts
@@ -153,11 +152,11 @@ def test_submit_pdf(client: TestClient) -> None:
 
 @pytest.mark.anyio
 async def test_duplicate_pdf_submission_reuses_stored_artifact(
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _, job_store, parse_queue, _ = stub_api_adapters
+    _, jobs, parse_queue, _ = stub_api_adapters
     artifact_storage = FileSystemArtifactStorage(tmp_path / "artifacts")
     monkeypatch.setattr(api_app.state, "artifact_storage", artifact_storage)
 
@@ -177,7 +176,7 @@ async def test_duplicate_pdf_submission_reuses_stored_artifact(
     assert [response.status_code for response in responses] == [202, 202]
     job_ids = [response.json()["job_id"] for response in responses]
     assert job_ids[0] != job_ids[1]
-    pdf_refs = {job_store.states[job_id].pdf_ref for job_id in job_ids}
+    pdf_refs = {jobs.states[job_id].pdf_ref for job_id in job_ids}
     assert len(pdf_refs) == 1
     pdf_ref = pdf_refs.pop()
     assert artifact_storage.retrieve(pdf_ref) == MINIMAL_PDF
@@ -251,7 +250,11 @@ def test_submit_non_pdf_bytes(client: TestClient) -> None:
 
 
 def test_submit_file_too_large(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(config, "get_api_settings", lambda: config.ApiSettings(max_upload_bytes=10))
+    monkeypatch.setattr(
+        config,
+        "get_api_settings",
+        lambda: config.ApiSettings(max_upload_bytes=10),  # type: ignore[call-arg]
+    )
 
     response = client.post(
         "/api/extractions",
@@ -342,9 +345,9 @@ def test_streamed_body_too_large_with_understated_content_length() -> None:
 
 def test_running_job_status(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
-    job_store = stub_api_adapters[1]
+    jobs = stub_api_adapters[1]
     job_id = uuid4()
 
     state = JobState(
@@ -354,7 +357,7 @@ def test_running_job_status(
         status="parsing",
         pdf_ref="art-pdf-test",
     )
-    job_store.states[str(job_id)] = state
+    jobs.states[str(job_id)] = state
 
     response = client.get(f"/api/jobs/{job_id}")
 
@@ -365,11 +368,11 @@ def test_running_job_status(
 
 def test_succeeded_job_status(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
-    job_store = stub_api_adapters[1]
+    jobs = stub_api_adapters[1]
     job_id = uuid4()
-    job_store.states[str(job_id)] = JobState(
+    jobs.states[str(job_id)] = JobState(
         job_id=job_id,
         parser="default",
         extractor="default",
@@ -387,13 +390,13 @@ def test_succeeded_job_status(
 
 def test_job_status_does_not_read_the_artifact(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
     """Re-reading the artifact on every poll ran its validation on the event loop."""
-    artifact_storage, job_store, _queue, events = stub_api_adapters
+    artifact_storage, jobs, _queue, events = stub_api_adapters
     artifact_storage.retrieve_error = StorageError("storage unavailable")
     job_id = uuid4()
-    job_store.states[str(job_id)] = JobState(
+    jobs.states[str(job_id)] = JobState(
         job_id=job_id,
         parser="default",
         extractor="default",
@@ -411,12 +414,12 @@ def test_job_status_does_not_read_the_artifact(
 @pytest.mark.parametrize("status", ["parsed", "done"])
 def test_a_finished_stage_names_no_storage_path(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
     status: JobStatus,
 ) -> None:
-    job_store = stub_api_adapters[1]
+    jobs = stub_api_adapters[1]
     state = _job(status)
-    job_store.states[str(state.job_id)] = state
+    jobs.states[str(state.job_id)] = state
 
     response = client.get(f"/api/jobs/{state.job_id}")
 
@@ -447,14 +450,14 @@ def _store(storage: StubArtifactStorage, ref: str, payload: bytes) -> None:
 )
 def test_a_job_returns_its_artifact_as_stored(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
     kind: str,
     ref: str,
     status: JobStatus,
 ) -> None:
-    artifact_storage, job_store = stub_api_adapters[:2]
+    artifact_storage, jobs = stub_api_adapters[:2]
     state = _job(status)
-    job_store.states[str(state.job_id)] = state
+    jobs.states[str(state.job_id)] = state
     stored = EXTRACTION.model_dump_json().encode() + b"\n"  # bytes, not a re-serialization
     _store(artifact_storage, ref, stored)
 
@@ -477,13 +480,13 @@ def test_a_job_returns_its_artifact_as_stored(
 )
 def test_a_job_without_the_artifact_gets_409(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
     kind: str,
     status: JobStatus,
 ) -> None:
-    _storage, job_store, _queue, events = stub_api_adapters
+    _storage, jobs, _queue, events = stub_api_adapters
     state = _job(status)
-    job_store.states[str(state.job_id)] = state
+    jobs.states[str(state.job_id)] = state
 
     response = client.get(f"/api/jobs/{state.job_id}/artifacts/{kind}")
 
@@ -495,11 +498,11 @@ def test_a_job_without_the_artifact_gets_409(
 
 def test_a_job_that_failed_before_parsing_has_no_parser_artifact(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
-    job_store = stub_api_adapters[1]
-    state = _job("failed", parse_result_ref=None, error=SafeError(code="invalid_pdf"))
-    job_store.states[str(state.job_id)] = state
+    jobs = stub_api_adapters[1]
+    state = _job("failed", parse_result_ref=None, error_code="invalid_pdf")
+    jobs.states[str(state.job_id)] = state
 
     response = client.get(f"/api/jobs/{state.job_id}/artifacts/parser")
 
@@ -532,16 +535,16 @@ def test_an_artifact_route_needs_a_version_4_job_id(client: TestClient, kind: st
 )
 def test_an_artifact_that_cannot_be_read(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
     caplog: pytest.LogCaptureFixture,
     error: StorageError,
     status_code: int,
     code: str,
     message: str,
 ) -> None:
-    artifact_storage, job_store = stub_api_adapters[:2]
+    artifact_storage, jobs = stub_api_adapters[:2]
     state = _job("done")
-    job_store.states[str(state.job_id)] = state
+    jobs.states[str(state.job_id)] = state
     artifact_storage.retrieve_error = error
 
     response = client.get(f"/api/jobs/{state.job_id}/artifacts/extraction")
@@ -567,9 +570,9 @@ def test_the_artifact_routes_are_documented_as_internal(kind: str, schema: str) 
 
 def test_failed_job_status(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
-    job_store = stub_api_adapters[1]
+    jobs = stub_api_adapters[1]
     job_id = uuid4()
 
     state = JobState(
@@ -578,12 +581,10 @@ def test_failed_job_status(
         extractor="default",
         status="failed",
         pdf_ref="art-pdf-test",
-        error=SafeError(
-            code="parse_failed",
-        ),
+        error_code="parse_failed",
     )
 
-    job_store.states[str(job_id)] = state
+    jobs.states[str(job_id)] = state
 
     response = client.get(f"/api/jobs/{job_id}")
 
@@ -596,26 +597,26 @@ def test_failed_job_status(
     }
 
 
-def test_job_status_returns_503_when_redis_unavailable(
+def test_job_status_returns_503_when_postgres_unavailable(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
-    job_store = stub_api_adapters[1]
-    job_store.get_error = JobStateError("Redis unavailable")
+    jobs = stub_api_adapters[1]
+    jobs.get_error = DatabaseError("Postgres query failed: OperationalError")
 
     response = client.get(f"/api/jobs/{uuid4()}")
 
     assert response.status_code == 503
     ErrorResponse.model_validate(response.json())
-    assert response.json()["detail"]["code"] == "redis_unavailable"
+    assert response.json()["detail"]["code"] == "database_unavailable"
 
 
 def test_job_status_returns_500_when_stored_state_is_unreadable(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
-    job_store = stub_api_adapters[1]
-    job_store.get_error = CorruptJobStateError("invalid stored state")
+    jobs = stub_api_adapters[1]
+    jobs.get_error = CorruptJobStateError("invalid stored state")
 
     response = client.get(f"/api/jobs/{uuid4()}")
 
@@ -629,12 +630,12 @@ def test_job_status_returns_500_when_stored_state_is_unreadable(
     }
 
 
-def test_submit_returns_503_when_redis_unavailable(
+def test_submit_returns_503_when_postgres_unavailable(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
-    artifact_storage, job_store, parse_queue, events = stub_api_adapters
-    job_store.create_error = JobStateError("Redis unavailable")
+    artifact_storage, jobs, parse_queue, events = stub_api_adapters
+    jobs.create_error = DatabaseError("Postgres query failed: OperationalError")
 
     response = client.post(
         "/api/extractions",
@@ -643,7 +644,7 @@ def test_submit_returns_503_when_redis_unavailable(
 
     assert response.status_code == 503
     ErrorResponse.model_validate(response.json())
-    assert response.json()["detail"]["code"] == "redis_unavailable"
+    assert response.json()["detail"]["code"] == "database_unavailable"
     assert len(artifact_storage.artifacts) == 1
     assert parse_queue.messages == []
     assert events == ["artifact.store", "job_state.create"]
@@ -651,9 +652,9 @@ def test_submit_returns_503_when_redis_unavailable(
 
 def test_submit_returns_503_when_storage_unavailable(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
-    artifact_storage, job_store, parse_queue, events = stub_api_adapters
+    artifact_storage, jobs, parse_queue, events = stub_api_adapters
     artifact_storage.store_error = StorageError("Storage unavailable")
 
     response = client.post(
@@ -665,16 +666,16 @@ def test_submit_returns_503_when_storage_unavailable(
     ErrorResponse.model_validate(response.json())
     assert response.json()["detail"]["code"] == "storage_unavailable"
     assert artifact_storage.artifacts == {}
-    assert job_store.states == {}
+    assert jobs.states == {}
     assert parse_queue.messages == []
     assert events == ["artifact.store"]
 
 
 def test_submit_returns_503_when_queue_unavailable(
     client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobStateStore, StubParseQueue, list[str]],
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
-    artifact_storage, job_store, parse_queue, events = stub_api_adapters
+    artifact_storage, jobs, parse_queue, events = stub_api_adapters
     parse_queue.submit_error = JobQueueError("Queue unavailable")
     response = client.post(
         "/api/extractions",
@@ -685,13 +686,13 @@ def test_submit_returns_503_when_queue_unavailable(
     assert response.json()["detail"]["code"] == "queue_unavailable"
     assert len(artifact_storage.artifacts) == 1
     assert parse_queue.messages == []
-    assert len(job_store.states) == 2
-    failed_state = next(state for state in job_store.states.values() if state.status == "failed")
+    assert len(jobs.states) == 1
+    failed_state = next(iter(jobs.states.values()))
     assert failed_state.status == "failed"
-    assert failed_state.error == SafeError(code="internal_error")
+    assert failed_state.error_code == "internal_error"
     assert events == [
         "artifact.store",
         "job_state.create",
         "queue.submit",
-        "job_state.update",
+        "job_state.mark_failed",
     ]

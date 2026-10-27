@@ -3,7 +3,6 @@ from uuid import UUID
 
 from bioparser.jobqueue import ExtractJobMessage, JobQueue, ParseJobMessage
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue, DramatiqJobSubmitter
-from bioparser.jobstate import RedisJobStateStore
 from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
 from bioparser.parser.protocol import PdfParser
@@ -18,7 +17,6 @@ from .handler import ParseJobHandler
 def build_worker(
     settings: WorkerSettings,
 ) -> tuple[JobQueue[ParseJobMessage], ParseJobHandler]:
-    jobs = RedisJobStateStore(str(settings.redis_url))
     storage = FileSystemArtifactStorage(settings.artifact_storage_path)
     queue: JobQueue[ParseJobMessage] = DramatiqJobQueue.from_redis(
         str(settings.redis_url),
@@ -50,7 +48,7 @@ def build_worker(
         extract_queue.submit(ExtractJobMessage(job_id=job_id))
 
     handler = ParseJobHandler(
-        jobs=jobs,
+        database_url=str(settings.database_url),
         storage=storage,
         parser_factory=parser_factory,
         max_claims=settings.parse_max_claims,

@@ -31,15 +31,14 @@ class ApiSettings(BaseSettings):
     extract_concurrency: int = Field(default=2, ge=1)
     extract_queue_timeout_seconds: float = Field(default=5.0, gt=0)
     dependency_check_timeout_seconds: float = Field(default=1.0, gt=0)
-    artifact_storage_path: str | None = None
+    artifact_storage_path: str
     # NOTE: char budget not token budget
     # --max-model-len is cap for all tokens
     extraction_char_budget: int = Field(default=8000, ge=50)
     extraction_max_tokens: int = Field(default=1024, ge=64)
 
-    # redis
-    # repr=False: the URL can hold the password; keep it out of repr(settings)
-    redis_url: AnyUrl | None = Field(default=None, repr=False)
+    # redis. repr=False: the URL can hold the password.
+    redis_url: AnyUrl = Field(repr=False)
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
     parse_queue_name: str = Field(default="parse", min_length=1)
 
@@ -47,9 +46,8 @@ class ApiSettings(BaseSettings):
     api_key: SecretStr | None = None
     auth_disabled: bool = False
 
-    # Postgres. Optional until job state moves here. The URL can hold the password.
-    # PostgresDsn rejects any other scheme when settings load.
-    database_url: PostgresDsn | None = Field(default=None, repr=False)
+    # Postgres holds job state. The URL can hold the password.
+    database_url: PostgresDsn = Field(repr=False)
 
     @field_validator("log_level", mode="before")
     @classmethod
@@ -74,17 +72,31 @@ class ApiSettings(BaseSettings):
             )
         return value
 
-    @field_validator("redis_url", "database_url", mode="before")
+    @field_validator("redis_url", mode="before")
     @classmethod
-    def empty_url_becomes_none(cls, value: object) -> object:
+    def empty_redis_url_is_rejected(cls, value: object) -> object:
         if value == "":
-            return None
+            raise ValueError("BIOPARSER_REDIS_URL is set but empty")
+        return value
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def empty_database_url_is_rejected(cls, value: object) -> object:
+        if value == "":
+            raise ValueError("BIOPARSER_DATABASE_URL is set but empty")
+        return value
+
+    @field_validator("artifact_storage_path", mode="before")
+    @classmethod
+    def empty_artifact_storage_path_is_rejected(cls, value: object) -> object:
+        if value == "":
+            raise ValueError("BIOPARSER_ARTIFACT_STORAGE_PATH is set but empty")
         return value
 
 
 @lru_cache(maxsize=1)
 def get_api_settings() -> ApiSettings:
-    return ApiSettings()
+    return ApiSettings()  # type: ignore[call-arg]
 
 
 def invalid_settings(exc: ValidationError) -> list[dict[str, str]]:

@@ -9,9 +9,11 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from bioparser.artifact_paths import parse_result_path
+from bioparser.db import engine as database
+from bioparser.db import jobs as job_queries
 from bioparser.hashing import sha256_bytes
 from bioparser.jobqueue import JobTimeLimitExceeded, ParseJobMessage
-from bioparser.jobstate import JobState, JobStateStore, JobStatus, StaleJobStateWriteError
+from bioparser.jobstate import CorruptJobStateError, JobState, JobStatus
 from bioparser.parser import (
     ParserArtifact,
     ParserBackendUnavailableError,
@@ -24,7 +26,6 @@ from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
 
-from ..job import CorruptJobRecord, MissingJobRecord, fetch_job
 from ..json_artifact import _retrieve_or_none, store_json_artifact
 from ..stage import PermanentJobFailure, StageJobHandler
 
@@ -39,7 +40,7 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
     def __init__(
         self,
         *,
-        jobs: JobStateStore,
+        database_url: str,
         storage: ArtifactStorage,
         parser_factory: Callable[[str], PdfParser],
         max_claims: int,
@@ -47,7 +48,7 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
         enqueue_extraction: Callable[[UUID], None] | None = None,
     ) -> None:
         super().__init__(
-            jobs=jobs,
+            database_url=database_url,
             owned=_PARSE_STAGE,
             claim_status="parsing",
             max_claims=max_claims,
@@ -74,22 +75,12 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
 
     async def run(self, state: JobState) -> None:
         artifact_path = self._ensure_parser_artifact(state.parser, state.pdf_ref)
-        # `state` is from before the claim. `update` replaces the whole record, so
-        # writing `parsed` from it would drop the claim count just stored.
-        match await fetch_job(self._jobs, state.job_id):
-            case CorruptJobRecord():
-                LOGGER.error("stored job state is unreadable. Not recording 'parsed'")
-            case JobState() as latest if latest.status in _PARSE_STAGE:
-                try:
-                    updated = latest.with_changes(status="parsed", parse_result_ref=artifact_path)
-                    await self._jobs.update(updated)
-                except StaleJobStateWriteError:
-                    LOGGER.info(
-                        "another delivery moved the job on while it was parsing. "
-                        "Not recording 'parsed'"
-                    )
-            case MissingJobRecord() | JobState():
-                return
+        async with database.transaction() as connection:
+            wrote = await job_queries.record_parsed(connection, state.job_id, artifact_path)
+        if not wrote:
+            LOGGER.info(
+                "another delivery moved the job on while it was parsing. Not recording 'parsed'"
+            )
 
     def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
         # The last delivery already failed. A job left at `parsed` cannot be
@@ -114,11 +105,12 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
             self._enqueue_extraction(job_id)
 
     async def _job_is_parsed(self, job_id: UUID) -> bool:
-        match await fetch_job(self._jobs, job_id):
-            case JobState(status="parsed"):
-                return True
-            case JobState() | CorruptJobRecord() | MissingJobRecord():
+        async with database.transaction() as connection:
+            try:
+                state = await job_queries.get(connection, job_id)
+            except CorruptJobStateError:
                 return False
+        return state is not None and state.status == "parsed"
 
     def _ensure_parser_artifact(self, parser_name: str, pdf_ref: str) -> str:
         """Return the artifact path for the parsed PDF, creating it if needed."""

@@ -1,26 +1,10 @@
 class JobStateError(RuntimeError):
-    """Base class for job-state adapter errors."""
+    """A pipeline rule rejected a job read or write."""
 
 
 class JobNotFoundError(JobStateError):
     """No state exists for the given job ID."""
 
 
-class JobAlreadyExistsError(JobStateError):
-    """A job with this ID already has state."""
-
-
 class CorruptJobStateError(JobStateError):
     """Stored state could not be parsed into a valid JobState."""
-
-
-class JobStateConnectionError(JobStateError):
-    """Redis was unreachable, refused the connection, or timed out."""
-
-
-class JobStateBackendError(JobStateError):
-    """Redis answered with an error other than a connectivity failure (OOM, WRONGTYPE, NOPERM, READONLY, ...)."""
-
-
-class StaleJobStateWriteError(JobStateError):
-    """The update is not an allowed transition from the stored status (stale or duplicate write)."""

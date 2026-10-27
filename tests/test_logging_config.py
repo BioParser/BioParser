@@ -354,7 +354,7 @@ def test_log_level_comes_from_bioparser_log_level(
     else:
         monkeypatch.setenv("BIOPARSER_LOG_LEVEL", raw)
 
-    assert config.ApiSettings().log_level == expected
+    assert config.ApiSettings().log_level == expected  # type: ignore[call-arg]
 
 
 @pytest.mark.parametrize("raw", ["verbose", "NOTSET", "0", "-10", "1.5", ""])
@@ -365,7 +365,7 @@ def test_an_unknown_log_level_fails_at_startup(
     monkeypatch.setenv("BIOPARSER_LOG_LEVEL", raw)
 
     with pytest.raises(ValidationError, match="log_level") as failure:
-        config.ApiSettings()
+        config.ApiSettings()  # type: ignore[call-arg]
 
     assert "expected a logging level name" in str(failure.value)  # says what would work
 
@@ -444,13 +444,14 @@ def test_lifespan_sets_up_logging_once_across_restarts(
         "get_api_settings",
         lambda: config.ApiSettings(
             redis_url=AnyUrl("redis://localhost:6379/15"),
+            database_url="postgresql://bioparser@127.0.0.1:1/bioparser",  # type: ignore[arg-type]
             artifact_storage_path=str(tmp_path / "artifacts"),
             parse_queue_name="parse_test",
         ),
     )
 
     # The lifespan overwrites these; registering them lets monkeypatch restore them.
-    for name in ("mineru", "vllm", "job_store", "parse_queue", "artifact_storage"):
+    for name in ("mineru", "vllm", "parse_queue", "artifact_storage"):
         monkeypatch.setattr(app.state, name, None, raising=False)
 
     for _ in range(2):  # every TestClient context runs the lifespan again

@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-import json
 import os
 import uuid
 from collections.abc import AsyncGenerator
@@ -11,13 +10,18 @@ import httpx2
 import pytest
 from conftest import TEST_API_KEY
 from httpx2 import ASGITransport
+from redis.asyncio import Redis
+from sqlalchemy.engine import make_url
 
 from bioparser.api.app import app
+from bioparser.db import engine as database
+from bioparser.db import jobs as job_queries
+from bioparser.db.migrate import sync_database_url, upgrade
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.jobqueue import ParseJobMessage
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
-from bioparser.jobstate import JobState, RedisJobStateStore
+from bioparser.jobstate import JobState
 from bioparser.parser import ParserArtifact
 from bioparser.parser.models import ParserInfo
 from bioparser.parser_names import DEFAULT_PARSER_NAME
@@ -48,33 +52,63 @@ class _Recorder:
         pytest.fail(f"queue delivery failed for {message.job_id}: {exc}")
 
 
+def _create_database(admin_url: str, name: str) -> None:
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    with engine.connect() as connection:
+        connection.execute(text(f'CREATE DATABASE "{name}"'))
+    engine.dispose()
+
+
+def _drop_database(admin_url: str, name: str) -> None:
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    with engine.connect() as connection:
+        connection.execute(
+            text("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = :name"),
+            {"name": name},
+        )
+        connection.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+    engine.dispose()
+
+
 @pytest.fixture
 async def redis_api_dependencies(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-) -> AsyncGenerator[
-    tuple[
-        RedisJobStateStore,
-        DramatiqJobQueue[ParseJobMessage],
-        FileSystemArtifactStorage,
-    ]
-]:
-    # Isolate both Redis adapters per test without flushing a shared database.
+) -> AsyncGenerator[tuple[DramatiqJobQueue[ParseJobMessage], FileSystemArtifactStorage]]:
+    # The queue stays on Redis. Job rows go to a throwaway Postgres database.
+    raw = os.environ.get("BIOPARSER_TEST_DATABASE_URL")
+    if not raw:
+        pytest.skip("BIOPARSER_TEST_DATABASE_URL is not set")
+    probe = Redis.from_url(TEST_REDIS_URL)
+    try:
+        await probe.ping()
+    except Exception as exc:  # noqa: BLE001 - any connection failure means "skip"
+        await probe.aclose()
+        pytest.skip(f"no Redis available at {TEST_REDIS_URL}: {exc}")
+    await probe.aclose()
+
     unique_id = uuid.uuid4().hex
-    state_prefix = f"bioparser:test:api:{unique_id}:"
     broker_namespace = f"bioparser-test-api-{unique_id}"
     queue_name = f"parse_{unique_id}"
-
-    job_store = RedisJobStateStore(
-        TEST_REDIS_URL,
-        key_prefix=state_prefix,
-        ttl_seconds=60,
+    admin_url = (
+        make_url(sync_database_url(raw))
+        .set(database="postgres")
+        .render_as_string(hide_password=False)
     )
-    try:
-        await job_store._redis.ping()
-    except Exception as exc:  # noqa: BLE001 - any connection failure means "skip"
-        await job_store.aclose()
-        pytest.skip(f"no Redis available at {TEST_REDIS_URL}: {exc}")
+    name = f"api_{unique_id}"
+    _create_database(admin_url, name)
+    bare = (
+        make_url(raw)
+        .set(database=name)
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
+    upgrade(bare)
+    await database.open(bare)
 
     broker = _create_redis_broker(TEST_REDIS_URL, namespace=broker_namespace)
     parse_queue = DramatiqJobQueue(
@@ -86,34 +120,26 @@ async def redis_api_dependencies(
     artifact_storage = FileSystemArtifactStorage(tmp_path / "artifacts")
 
     # ASGITransport does not run the production lifespan here, so inject the
-    # same concrete adapters that lifespan would create.
-    monkeypatch.setattr(app.state, "job_store", job_store, raising=False)
+    # queue and storage the routes still read from app.state. Job queries are
+    # the process-wide pool opened above.
     monkeypatch.setattr(app.state, "parse_queue", parse_queue, raising=False)
     monkeypatch.setattr(app.state, "artifact_storage", artifact_storage, raising=False)
 
     try:
-        yield job_store, parse_queue, artifact_storage
+        yield parse_queue, artifact_storage
     finally:
-        # Remove only this test's queue namespace and state prefix. Redis may
-        # be shared with other tests or a developer's local environment.
         broker.flush_all()
         broker.client.delete(broker_namespace)
         broker.client.close()
-        keys = [key async for key in job_store._redis.scan_iter(match=f"{state_prefix}*")]
-        if keys:
-            await job_store._redis.delete(*keys)
-        await job_store.aclose()
+        await database.aclose()
+        _drop_database(admin_url, name)
 
 
 async def test_redis_backed_submission_and_polling(
-    redis_api_dependencies: tuple[
-        RedisJobStateStore,
-        DramatiqJobQueue[ParseJobMessage],
-        FileSystemArtifactStorage,
-    ],
+    redis_api_dependencies: tuple[DramatiqJobQueue[ParseJobMessage], FileSystemArtifactStorage],
 ) -> None:
-    """Exercise submission and polling across the real Redis adapter boundary."""
-    job_store, parse_queue, artifact_storage = redis_api_dependencies
+    """Submit and poll through Postgres job rows and a real Redis queue."""
+    parse_queue, artifact_storage = redis_api_dependencies
 
     async with httpx2.AsyncClient(
         transport=ASGITransport(app),
@@ -132,7 +158,8 @@ async def test_redis_backed_submission_and_polling(
 
         expected_pdf_ref = f"pdf/{hashlib.sha256(MINIMAL_PDF).hexdigest()}"
         parsed_job_id = UUID(job_id)
-        queued = await job_store.get(parsed_job_id)
+        async with database.transaction() as connection:
+            queued = await job_queries.get(connection, parsed_job_id)
         assert queued is not None
         assert queued == JobState(
             job_id=parsed_job_id,
@@ -142,13 +169,6 @@ async def test_redis_backed_submission_and_polling(
             pdf_ref=expected_pdf_ref,
         )
         assert artifact_storage.retrieve(queued.pdf_ref) == MINIMAL_PDF
-
-        # Redis must contain only typed state and artifact references, never
-        # the uploaded PDF payload itself.
-        raw_state = await job_store._redis.get(job_store._key(parsed_job_id))
-        assert raw_state is not None
-        assert MINIMAL_PDF not in raw_state
-        assert json.loads(raw_state) == queued.model_dump(mode="json")
 
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
@@ -166,18 +186,22 @@ async def test_redis_backed_submission_and_polling(
 
         # Worker execution is outside this issue, so simulate only its state
         # transitions through the real store and verify the public mappings.
-        running = queued.with_claim("parsing")
-        await job_store.update(running)
+        async with database.transaction() as connection:
+            assert (
+                await job_queries.claim(
+                    connection,
+                    queued.job_id,
+                    status="parsing",
+                    from_statuses=("queued", "parsing"),
+                    max_claims=2,
+                )
+                == "claimed"
+            )
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
         assert poll.json() == {"job_id": job_id, "status": "parsing"}
 
-        succeeded = running.with_changes(
-            status="parsed",
-            parse_result_ref=f"art-result-{job_id}",
-        )
-        parse_ref = succeeded.parse_result_ref
-        assert parse_ref is not None
+        output_artifact_ref = f"art-result-{job_id}"
 
         artifact_storage.store(
             ParserArtifact(
@@ -189,11 +213,12 @@ async def test_redis_backed_submission_and_polling(
             .model_dump_json()
             .encode(),
             ArtifactMetadata(
-                artifact_path=parse_ref,
+                artifact_path=output_artifact_ref,
                 media_type="application/json",
             ),
         )
-        await job_store.update(succeeded)
+        async with database.transaction() as connection:
+            assert await job_queries.record_parsed(connection, queued.job_id, output_artifact_ref)
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
         # The status names no storage path
@@ -201,17 +226,13 @@ async def test_redis_backed_submission_and_polling(
 
         artifact = await client.get(f"/api/jobs/{job_id}/artifacts/parser")
         assert artifact.status_code == 200
-        assert artifact.content == artifact_storage.retrieve(parse_ref)
+        assert artifact.content == artifact_storage.retrieve(output_artifact_ref)
 
 
 async def test_same_pdf_can_be_submitted_twice(
-    redis_api_dependencies: tuple[
-        RedisJobStateStore,
-        DramatiqJobQueue[ParseJobMessage],
-        FileSystemArtifactStorage,
-    ],
+    redis_api_dependencies: tuple[DramatiqJobQueue[ParseJobMessage], FileSystemArtifactStorage],
 ) -> None:
-    job_store, parse_queue, artifact_storage = redis_api_dependencies
+    parse_queue, artifact_storage = redis_api_dependencies
 
     async with httpx2.AsyncClient(
         transport=ASGITransport(app),
@@ -230,7 +251,10 @@ async def test_same_pdf_can_be_submitted_twice(
     job_ids = [UUID(response.json()["job_id"]) for response in responses]
     assert job_ids[0] != job_ids[1]
 
-    states = [await job_store.get(job_id) for job_id in job_ids]
+    states = []
+    async with database.transaction() as connection:
+        for job_id in job_ids:
+            states.append(await job_queries.get(connection, job_id))
     assert all(state is not None for state in states)
     pdf_refs = {state.pdf_ref for state in states if state is not None}
     assert pdf_refs == {f"pdf/{hashlib.sha256(MINIMAL_PDF).hexdigest()}"}

@@ -324,11 +324,12 @@ def test_extract_runs_the_pipeline_in_a_child_process(
 ) -> None:
     """The lifespan's own pool: the real pdfplumber parse in a child, which reaches no vLLM."""
     monkeypatch.setenv("BIOPARSER_VLLM_BASE_URL", "http://127.0.0.1:9/v1")  # nothing answers
-    # The lifespan needs both. It only builds the Redis clients; nothing connects.
+    # The lifespan opens the pool and the queue client; nothing connects yet.
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://127.0.0.1:9/15")
+    monkeypatch.setenv("BIOPARSER_DATABASE_URL", "postgresql://bioparser@127.0.0.1:1/bioparser")
     monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path / "artifacts"))
     # The lifespan overwrites these; registering them lets monkeypatch restore them.
-    for name in ("vllm", "job_store", "parse_queue", "artifact_storage", "extract_sem"):
+    for name in ("vllm", "parse_queue", "artifact_storage", "extract_sem"):
         monkeypatch.setattr(app.state, name, None, raising=False)
     monkeypatch.setattr(app.state, "pipeline_pool", None, raising=False)
     config.get_api_settings.cache_clear()  # read before the environment was set

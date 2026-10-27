@@ -1,10 +1,10 @@
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from typing import Any, cast
 from uuid import UUID
 
 import pytest
-from stubs import StubVLLMService
+from stubs import StubJobs, StubVLLMService, bind_jobs, clear_jobs
 
 from bioparser.artifact_paths import (
     ARTIFACT_PATH_MAX_LENGTH,
@@ -35,8 +35,7 @@ from bioparser.jobqueue import (
     JobDeferred,
     JobTimeLimitExceeded,
 )
-from bioparser.jobstate import JobNotFoundError, JobState, SafeError, StaleJobStateWriteError
-from bioparser.jobstate.models import ALLOWED_TRANSITIONS
+from bioparser.jobstate import JobState
 from bioparser.parser.models import (
     PARSER_ARTIFACT_SCHEMA_VERSION,
     BlockKind,
@@ -78,27 +77,11 @@ def _stub() -> StubVLLMService:
     )
 
 
-class MemoryJobs:
-    def __init__(self, state: JobState | None) -> None:
-        self.state = state
-
-    async def create(self, state: JobState) -> None:
-        self.state = state
-
-    async def get(self, job_id: UUID) -> JobState | None:
-        if self.state is None or self.state.job_id != job_id:
-            return None
-        return self.state
-
-    async def update(self, state: JobState) -> None:
-        if self.state is None or self.state.job_id != state.job_id:
-            raise JobNotFoundError(str(state.job_id))
-        if state.status not in ALLOWED_TRANSITIONS[self.state.status]:
-            raise StaleJobStateWriteError(state.status)
-        self.state = state
-
-    async def aclose(self) -> None:
-        return
+@pytest.fixture(autouse=True)
+def _stub_job_queries(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    bind_jobs(monkeypatch)
+    yield
+    clear_jobs()
 
 
 class MemoryStorage:
@@ -242,14 +225,14 @@ def _registered(vllm: StubVLLMService) -> Callable[[str], Extractor]:
 
 
 def _handler(
-    jobs: MemoryJobs,
+    jobs: StubJobs,
     storage: MemoryStorage,
     extract: Callable[[ParserArtifact], Awaitable[ExtractionArtifact]],
     *,
     max_claims: int = DEFAULT_EXTRACT_MAX_RETRIES + 1,
 ) -> ExtractJobHandler:
     return ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=storage,
         extractor_factory=_factory(extract),
         max_claims=max_claims,
@@ -257,7 +240,7 @@ def _handler(
 
 
 def test_success_stores_the_report_and_marks_done() -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     storage = MemoryStorage()
     vllm = _stub()
     handler = _handler(jobs, storage, _real_extract(vllm))
@@ -284,7 +267,7 @@ def test_success_stores_the_report_and_marks_done() -> None:
 
 
 def test_duplicate_delivery_does_not_call_the_model_again() -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     storage = MemoryStorage()
     vllm = _stub()
     handler = _handler(jobs, storage, _real_extract(vllm))
@@ -301,7 +284,7 @@ def test_duplicate_delivery_does_not_call_the_model_again() -> None:
 
 
 def test_an_unlocated_observation_is_not_stored() -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     storage = MemoryStorage()
     vllm = StubVLLMService(
         observations=[
@@ -326,7 +309,7 @@ def test_an_unlocated_observation_is_not_stored() -> None:
 
 
 def test_schema_failure_is_permanent() -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
 
     async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         raise ExtractionFailedError("schema")
@@ -337,14 +320,14 @@ def test_schema_failure_is_permanent() -> None:
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="extraction_failed")
+    assert jobs.state.error_code == "extraction_failed"
     assert jobs.state.parse_result_ref == PARSE_REF
 
 
 def test_truncated_output_is_permanent() -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=MemoryStorage(),
         extractor_factory=_registered(_FailingVLLM(VLLMTruncatedError("cut off"))),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -354,14 +337,14 @@ def test_truncated_output_is_permanent() -> None:
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="extraction_failed")
+    assert jobs.state.error_code == "extraction_failed"
     assert jobs.state.claims("extracting") == 1
 
 
 def test_a_rejected_request_is_permanent() -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=MemoryStorage(),
         extractor_factory=_registered(
             _FailingVLLM(VLLMRequestRejectedError("vLLM rejected the request: BadRequestError"))
@@ -373,12 +356,12 @@ def test_a_rejected_request_is_permanent() -> None:
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="extraction_failed")
+    assert jobs.state.error_code == "extraction_failed"
     assert jobs.state.claims("extracting") == 1
 
 
 def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     vllm = _stub()
     vllm.up = False
     called = False
@@ -389,7 +372,7 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
         raise AssertionError("model was called")
 
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=MemoryStorage(),
         extractor_factory=_factory(extract),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -410,11 +393,11 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
 
 
 def test_vllm_answering_still_extracts() -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     storage = MemoryStorage()
     vllm = _stub()
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=storage,
         extractor_factory=_factory(_real_extract(vllm)),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -431,7 +414,7 @@ def test_vllm_answering_still_extracts() -> None:
 def test_on_failed_on_a_parsed_job_says_it_cannot_be_marked_failed(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     handler = _handler(jobs, MemoryStorage(), _real_extract(_stub()))
     with caplog.at_level(logging.INFO, logger="bioparser.worker.stage"):
         handler.on_failed(_message(), RuntimeError("wake-up failed"))
@@ -444,9 +427,9 @@ def test_on_failed_on_a_parsed_job_says_it_cannot_be_marked_failed(
 
 
 def test_vllm_errors_are_retried() -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=MemoryStorage(),
         extractor_factory=_registered(_FailingVLLM(VLLMError("down"))),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -460,7 +443,7 @@ def test_vllm_errors_are_retried() -> None:
 
 
 def test_a_missing_parser_artifact_fails_without_retry() -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     storage = MemoryStorage()
     storage.payloads.pop(PARSE_REF)
 
@@ -472,11 +455,11 @@ def test_a_missing_parser_artifact_fails_without_retry() -> None:
     handler.close()
 
     assert jobs.state is not None
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_an_invalid_parser_artifact_fails_without_calling_the_model() -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     storage = MemoryStorage()
     invalid = b'{"old":true}'
     storage.payloads[PARSE_REF] = invalid
@@ -492,14 +475,14 @@ def test_an_invalid_parser_artifact_fails_without_calling_the_model() -> None:
     assert storage.retrieve(PARSE_REF) == invalid
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_a_job_still_parsing_is_left_alone() -> None:
     state = JobState(
         job_id=JOB_ID, status="parsing", parser="default", extractor="default", pdf_ref="pdf/abc"
     )
-    jobs = MemoryJobs(state)
+    jobs = StubJobs(state)
     called = False
 
     async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
@@ -516,39 +499,39 @@ def test_a_job_still_parsing_is_left_alone() -> None:
 
 
 def test_deferral_expiry_marks_an_extracting_job_failed() -> None:
-    jobs = MemoryJobs(_parsed().with_claim("extracting"))
+    jobs = StubJobs(_parsed().with_changes(status="extracting", extracting_claims=1))
     handler = _handler(jobs, MemoryStorage(), _real_extract(_stub()))
     handler.on_failed(_message(), JobDeferralExpired())
     handler.close()
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
     assert jobs.state.parse_result_ref == PARSE_REF
 
 
 def test_on_failed_records_timeout_and_keeps_the_parser_artifact() -> None:
-    jobs = MemoryJobs(_parsed().with_claim("extracting"))
+    jobs = StubJobs(_parsed().with_changes(status="extracting", extracting_claims=1))
     handler = _handler(jobs, MemoryStorage(), _real_extract(_stub()))
     handler.on_failed(_message(), JobTimeLimitExceeded())
     handler.close()
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="timeout")
+    assert jobs.state.error_code == "timeout"
     assert jobs.state.parse_result_ref == PARSE_REF
 
 
 def test_second_job_with_the_same_parser_artifact_reuses_the_result() -> None:
     storage = MemoryStorage()
     vllm = _stub()
-    first = MemoryJobs(_parsed())
+    first = StubJobs(_parsed())
     handler = _handler(first, storage, _real_extract(vllm))
     handler.handle(_message())
     handler.close()
 
     other_id = UUID("9d0c6a52-1b7e-4c3f-a2d8-5e6f7a8b9c01")
-    second = MemoryJobs(_parsed().with_changes(job_id=other_id))
+    second = StubJobs(_parsed().with_changes(job_id=other_id))
     handler = _handler(second, storage, _real_extract(vllm))
     handler.handle(ExtractJobMessage(job_id=other_id))
     handler.close()
@@ -561,7 +544,7 @@ def test_second_job_with_the_same_parser_artifact_reuses_the_result() -> None:
 
 
 def test_an_invalid_stored_extraction_fails_without_calling_the_model() -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     storage = MemoryStorage()
     invalid = b'{"old":true}'
     storage.payloads[RESULT_PATH] = invalid
@@ -577,7 +560,7 @@ def test_an_invalid_stored_extraction_fails_without_calling_the_model() -> None:
     assert storage.retrieve(RESULT_PATH) == invalid
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_a_parse_path_that_cannot_take_an_extraction_is_internal_error() -> None:
@@ -585,7 +568,7 @@ def test_a_parse_path_that_cannot_take_an_extraction_is_internal_error() -> None
     ref = "/".join(("a" * 200, "b" * 200, "c" * 93))
     assert len(ref) <= ARTIFACT_PATH_MAX_LENGTH
     assert len(ref) + len(suffix) > ARTIFACT_PATH_MAX_LENGTH
-    jobs = MemoryJobs(_parsed().with_changes(parse_result_ref=ref))
+    jobs = StubJobs(_parsed().with_changes(parse_result_ref=ref))
     storage = MemoryStorage()
     storage.payloads[ref] = _parser_artifact().model_dump_json().encode()
 
@@ -597,7 +580,7 @@ def test_a_parse_path_that_cannot_take_an_extraction_is_internal_error() -> None
     handler.close()
 
     assert jobs.state is not None
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
     assert storage.stores == 0
 
 
@@ -625,13 +608,13 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
         )
         return _artifact(cited_observations(Extraction(observations=[observation]), artifact))
 
-    basic = MemoryJobs(_parsed().with_changes(parse_result_ref=basic_ref))
+    basic = StubJobs(_parsed().with_changes(parse_result_ref=basic_ref))
     handler = _handler(basic, storage, extract)
     handler.handle(_message())
     handler.close()
 
     other_id = UUID("9d0c6a52-1b7e-4c3f-a2d8-5e6f7a8b9c01")
-    standard = MemoryJobs(_parsed().with_changes(job_id=other_id, parse_result_ref=standard_ref))
+    standard = StubJobs(_parsed().with_changes(job_id=other_id, parse_result_ref=standard_ref))
     handler = _handler(standard, storage, extract)
     handler.handle(ExtractJobMessage(job_id=other_id))
     handler.close()
@@ -660,7 +643,7 @@ def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPa
         "bioparser.worker.extract.handler.EXTRACTOR_VERSIONS",
         {"other": "4"},
     )
-    jobs = MemoryJobs(_parsed().with_changes(extractor="other"))
+    jobs = StubJobs(_parsed().with_changes(extractor="other"))
     storage = MemoryStorage()
     seen: list[str] = []
 
@@ -672,7 +655,7 @@ def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPa
         return _CallableExtractor(extract)
 
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=storage,
         extractor_factory=extractor_factory,
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -699,7 +682,7 @@ def _observation_with_range(start: int, end: int, text: str) -> Observation:
 
 
 def _failed_with(returned: ExtractionArtifact) -> MemoryStorage:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     storage = MemoryStorage()
 
     async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
@@ -711,7 +694,7 @@ def _failed_with(returned: ExtractionArtifact) -> MemoryStorage:
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="extraction_failed")
+    assert jobs.state.error_code == "extraction_failed"
     assert RESULT_PATH not in storage.payloads
     return storage
 
@@ -727,7 +710,7 @@ def test_an_artifact_for_another_extractor_fails_the_job() -> None:
 
 
 def test_registered_extractor_stores_the_resolved_version() -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     storage = MemoryStorage()
     vllm = _stub()
     seen: list[str] = []
@@ -742,7 +725,7 @@ def test_registered_extractor_stores_the_resolved_version() -> None:
         )
 
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=storage,
         extractor_factory=extractor_factory,
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -768,7 +751,7 @@ def test_artifact_path_uses_the_version_resolved_for_the_run(
         "bioparser.worker.extract.handler.EXTRACTOR_VERSIONS",
         {DEFAULT_EXTRACTOR_NAME: "4"},
     )
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     storage = MemoryStorage()
 
     async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
@@ -786,7 +769,7 @@ def test_artifact_path_uses_the_version_resolved_for_the_run(
 
 def test_an_extractor_with_no_version_is_internal_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("bioparser.worker.extract.handler.EXTRACTOR_VERSIONS", {})
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     storage = MemoryStorage()
 
     async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
@@ -799,11 +782,11 @@ def test_an_extractor_with_no_version_is_internal_error(monkeypatch: pytest.Monk
     assert storage.stores == 0
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_an_extractor_that_cannot_run_is_internal_error() -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     storage = MemoryStorage()
 
     class _Down:
@@ -811,7 +794,7 @@ def test_an_extractor_that_cannot_run_is_internal_error() -> None:
             raise ExtractorBackendUnavailableError("cannot run")
 
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=storage,
         extractor_factory=lambda _name: _Down(),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -822,18 +805,18 @@ def test_an_extractor_that_cannot_run_is_internal_error() -> None:
     assert storage.stores == 0
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_an_unknown_extractor_is_internal_error() -> None:
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     storage = MemoryStorage()
 
     def extractor_factory(name: str) -> Extractor:
         raise ExtractorBackendUnavailableError(f"Unknown extractor {name!r}.")
 
     handler = ExtractJobHandler(
-        jobs=jobs,
+        database_url="postgresql://unused",
         storage=storage,
         extractor_factory=extractor_factory,
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
@@ -844,16 +827,16 @@ def test_an_unknown_extractor_is_internal_error() -> None:
     assert storage.stores == 0
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error == SafeError(code="internal_error")
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_malformed_message_cannot_fail_a_parsed_job() -> None:
     """`parsed` has no transition to `failed`. The job stays for a valid wake-up."""
-    jobs = MemoryJobs(_parsed())
+    jobs = StubJobs(_parsed())
     handler = _handler(jobs, MemoryStorage(), _real_extract(_stub()))
     handler.on_malformed({"job_id": str(JOB_ID), "extra": "nope"})
     handler.close()
 
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
-    assert jobs.state.error is None
+    assert jobs.state.error_code is None

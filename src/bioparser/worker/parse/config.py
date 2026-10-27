@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from pydantic import AnyHttpUrl, AnyUrl, Field, field_validator
+from pydantic import AnyHttpUrl, AnyUrl, Field, PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from bioparser.logging_config import parse_level
@@ -41,6 +41,8 @@ class WorkerSettings(BaseSettings):
     log_level: int = logging.INFO
 
     redis_url: AnyUrl
+    # The URL can hold the password. repr=False keeps it out of repr(settings).
+    database_url: PostgresDsn = Field(repr=False)
     artifact_storage_path: Path
     parse_queue_name: str = Field(min_length=1)
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
@@ -78,4 +80,11 @@ class WorkerSettings(BaseSettings):
     def empty_redis_url_is_rejected(cls, value: object) -> object:
         if value == "":
             raise ValueError("BIOPARSER_REDIS_URL is set but empty")
+        return value
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def empty_database_url_is_rejected(cls, value: object) -> object:
+        if value == "":
+            raise ValueError("BIOPARSER_DATABASE_URL is set but empty")
         return value

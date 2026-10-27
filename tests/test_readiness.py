@@ -25,13 +25,15 @@ app_module = import_module("bioparser.api.app")
 def test_ready_empty_redis_url(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "")
     response = client.get("/ready")
-    assert response.status_code == 200
-    ReadinessResponse.model_validate(response.json())
-    assert response.json() == {"status": "ready"}
+    assert response.status_code == 503
+    assert response.json()["detail"]["unavailable"] == ["config"]
 
 
-def test_ready_redis_available(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
+def test_ready_redis_available(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient, tmp_path: Path
+) -> None:
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path))
 
     class FakeSocket:
         def close(self) -> None:
@@ -101,12 +103,15 @@ def test_ready_invalid_redis_url(monkeypatch: pytest.MonkeyPatch, client: TestCl
 def test_ready_empty_database_url(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
     monkeypatch.setenv("BIOPARSER_DATABASE_URL", "")
     response = client.get("/ready")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ready"}
+    assert response.status_code == 503
+    assert response.json()["detail"]["unavailable"] == ["config"]
 
 
-def test_ready_postgres_available(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
-    monkeypatch.setenv("BIOPARSER_REDIS_URL", "")
+def test_ready_postgres_available(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path))
     monkeypatch.setenv(
         "BIOPARSER_DATABASE_URL", "postgresql://bioparser:canary-db-pass@localhost:5432/bioparser"
     )
@@ -125,21 +130,28 @@ def test_ready_postgres_available(monkeypatch: pytest.MonkeyPatch, client: TestC
     response = client.get("/ready")
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
-    assert seen == [(("localhost", 5432), 1.0)]
+    assert seen == [(("localhost", 6379), 1.0), (("localhost", 5432), 1.0)]
     assert "canary-db-pass" not in response.text
 
 
 def test_ready_postgres_unavailable_hides_the_url(
-    monkeypatch: pytest.MonkeyPatch, client: TestClient
+    monkeypatch: pytest.MonkeyPatch, client: TestClient, tmp_path: Path
 ) -> None:
     password = "canary-db-pass"
-    monkeypatch.setenv("BIOPARSER_REDIS_URL", "")
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path))
     monkeypatch.setenv(
         "BIOPARSER_DATABASE_URL", f"postgresql://bioparser:{password}@127.0.0.1:1/bioparser"
     )
 
-    def fake_create_connection(addr: tuple[str, int], timeout: float | None = None) -> None:
-        raise OSError("connection refused")
+    class FakeSocket:
+        def close(self) -> None:
+            pass
+
+    def fake_create_connection(addr: tuple[str, int], timeout: float | None = None) -> FakeSocket:
+        if addr[1] != 6379:
+            raise OSError("connection refused")
+        return FakeSocket()
 
     monkeypatch.setattr(app_module.socket, "create_connection", fake_create_connection)
 
@@ -154,18 +166,25 @@ def test_ready_postgres_unavailable_hides_the_url(
 
 
 def test_ready_postgres_timeout_is_bounded(
-    monkeypatch: pytest.MonkeyPatch, client: TestClient
+    monkeypatch: pytest.MonkeyPatch, client: TestClient, tmp_path: Path
 ) -> None:
     password = "canary-db-pass"
-    monkeypatch.setenv("BIOPARSER_REDIS_URL", "")
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path))
     monkeypatch.setenv("BIOPARSER_DEPENDENCY_CHECK_TIMEOUT_SECONDS", "0.05")
     monkeypatch.setenv(
         "BIOPARSER_DATABASE_URL", f"postgresql://bioparser:{password}@localhost:5432/bioparser"
     )
 
-    def fake_create_connection(addr: tuple[str, int], timeout: float | None = None) -> None:
-        assert timeout == 0.05
-        raise TimeoutError
+    class FakeSocket:
+        def close(self) -> None:
+            pass
+
+    def fake_create_connection(addr: tuple[str, int], timeout: float | None = None) -> FakeSocket:
+        if addr[1] == 5432:
+            assert timeout == 0.05
+            raise TimeoutError
+        return FakeSocket()
 
     monkeypatch.setattr(app_module.socket, "create_connection", fake_create_connection)
 
@@ -178,7 +197,7 @@ def test_ready_postgres_timeout_is_bounded(
 def test_ready_multi_host_database_url_checks_the_first_host(
     monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:
-    monkeypatch.setenv("BIOPARSER_REDIS_URL", "")
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setenv(
         "BIOPARSER_DATABASE_URL", "postgresql://bioparser:canary-db-pass@db1:6000,db2/bioparser"
     )
@@ -196,7 +215,7 @@ def test_ready_multi_host_database_url_checks_the_first_host(
 
     response = client.get("/ready")
     assert response.status_code == 200
-    assert seen == [("db1", 6000)]
+    assert seen == [("localhost", 6379), ("db1", 6000)]
     assert "canary-db-pass" not in response.text
 
 

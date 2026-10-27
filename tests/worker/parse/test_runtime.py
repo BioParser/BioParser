@@ -33,6 +33,7 @@ def test_main_logs_json_to_stderr_with_dramatiq_at_warning(
 ) -> None:
     monkeypatch.chdir(tmp_path)  # no developer .env
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("BIOPARSER_DATABASE_URL", "postgresql://localhost/bioparser")
     monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path))
     monkeypatch.setenv("BIOPARSER_PARSE_QUEUE_NAME", "parse")
     monkeypatch.setenv("BIOPARSER_EXTRACT_QUEUE_NAME", "extract")
@@ -66,6 +67,7 @@ def test_one_tier_setting_names_the_request_and_the_result_path(tmp_path: Path) 
     with fake_mineru(file_parse_reply()) as (url, seen):
         settings = WorkerSettings(
             redis_url="redis://127.0.0.1:1/0",  # type: ignore[arg-type]  # never reached
+            database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
             parse_queue_name="parse",
             extract_queue_name="extract",

@@ -15,15 +15,10 @@ class _Message(BaseModel):
     job_id: UUID = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
 
 
-class _Jobs:
-    async def aclose(self) -> None:
-        return
-
-
 class _Idle(StageJobHandler[_Message]):
     def __init__(self) -> None:
         super().__init__(
-            jobs=_Jobs(),  # type: ignore[arg-type]
+            database_url="postgresql://unused",
             owned=frozenset[JobStatus](("queued",)),
             claim_status="parsing",
             max_claims=1,
