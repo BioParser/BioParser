@@ -15,8 +15,6 @@ from collections.abc import Awaitable
 from typing import Protocol
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncConnection
-
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
 from bioparser.jobqueue import JobTimeLimitExceeded
@@ -66,7 +64,6 @@ class StageJobHandler[T: JobMessage]:
         claim_status: JobStatus,
         max_claims: int,
     ) -> None:
-        self._database_url = database_url
         self._owned = owned
         self._claim_status = claim_status
         self._max_claims = max_claims
@@ -77,6 +74,10 @@ class StageJobHandler[T: JobMessage]:
         # queue behind a running stage, including its blocking parse or extract work.
         # Scale with more worker replicas, not threads.
         self._loop_lock = threading.Lock()
+        # Build the pool before the first delivery. open does not connect, and a later
+        # call with this URL returns immediately, so a failure hook can write without
+        # an earlier delivery having reached the database.
+        self.run_async(database.open(database_url))
 
     def close(self) -> None:
         if self._loop.is_closed():
@@ -149,11 +150,7 @@ class StageJobHandler[T: JobMessage]:
         """
         raise NotImplementedError
 
-    async def _open(self) -> None:
-        await database.open(self._database_url)
-
     async def _handle(self, job_id: UUID) -> None:
-        await self._open()
         async with database.transaction() as connection:
             try:
                 state = await job_queries.get(connection, job_id)
@@ -203,17 +200,10 @@ class StageJobHandler[T: JobMessage]:
 
     async def _mark_failed(self, job_id: UUID, code: SafeErrorCode) -> bool:
         """Record `failed` when this stage still owns the job. True when the write lands."""
-        await self._open()
         async with database.transaction() as connection:
-            return await self._mark_failed_in(connection, job_id, code)
-
-    async def _mark_failed_in(
-        self,
-        connection: AsyncConnection,
-        job_id: UUID,
-        code: SafeErrorCode,
-    ) -> bool:
-        outcome = await job_queries.mark_failed(connection, job_id, code, from_statuses=self._owned)
+            outcome = await job_queries.mark_failed(
+                connection, job_id, code, from_statuses=self._owned
+            )
         if outcome == "recorded":
             return True
         if outcome == "not_allowed":
