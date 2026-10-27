@@ -51,6 +51,9 @@ class _Recorder:
     async def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
         pytest.fail(f"queue delivery failed for {message.job_id}: {exc}")
 
+    async def aopen(self) -> None:
+        return
+
     async def aclose(self) -> None:
         return
 
