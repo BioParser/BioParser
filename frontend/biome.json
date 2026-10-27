@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!src/api/schema.d.ts"]
+    "includes": ["**", "!openapi.json", "!src/api/schema.d.ts"]
   },
   "formatter": {
     "enabled": true,
