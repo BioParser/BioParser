@@ -23,7 +23,7 @@ ENV UV_CACHE_DIR=/root/.cache/uv \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_NO_DEV=1
-
+    
 WORKDIR /app
 
 # Locked dependencies first, then the project, so a code change reuses the dependency layer.
@@ -40,6 +40,23 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 #-------------------------------------------
 
+# Builds the UI into static files. Node stays in this stage; the runtime image has none.
+# Same version as frontend/.nvmrc. Index digest so amd64 and arm64 both resolve.
+# $BUILDPLATFORM: the output is the same on every platform, so it builds natively.
+FROM --platform=$BUILDPLATFORM node:24.22.1-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS ui
+
+WORKDIR /ui
+
+# Locked dependencies first, then the source, so a code change reuses the dependency layer.
+COPY frontend/package.json frontend/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund
+
+COPY frontend/ ./
+RUN npm run build
+
+#-------------------------------------------
+
 FROM base AS runtime
 
 RUN groupadd --system --gid 10001 app \
@@ -49,12 +66,16 @@ RUN groupadd --system --gid 10001 app \
     && chown app:app /data
 
 ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    BIOPARSER_UI_DIST_PATH=/app/ui
 
 WORKDIR /app
 
 # Non-editable install: the project lives in the venv, so src is not copied.
 COPY --from=build --chown=app:app /app/.venv /app/.venv
+
+# The built UI. Owned by root: the app user only reads it.
+COPY --from=ui /ui/dist /app/ui
 
 USER app:app
 
