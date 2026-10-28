@@ -81,7 +81,7 @@ from .schema import (
     RunningJobResponse,
     SucceededJobResponse,
 )
-from .ui import router as ui_router
+from .ui import add_ui_routes
 from .uploads import (
     read_upload,
     require_file,
@@ -210,7 +210,7 @@ app.add_middleware(
 # Added last, so it runs first: a request without the key gets 401 before the body
 # limit, the form parser or a route reads any of its body.
 app.add_middleware(ApiKeyMiddleware)
-app.include_router(ui_router)
+add_ui_routes(app)
 
 
 async def _validated_upload(request: Request, file: UploadFile | None) -> bytes:

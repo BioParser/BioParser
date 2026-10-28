@@ -1,7 +1,10 @@
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+
+from bioparser.api.app import app
 
 INDEX = "<!doctype html><div id=root></div>"
 ASSET = "console.log('ui');"
@@ -65,3 +68,28 @@ def test_ui_missing_asset_is_404(ui_dist: Path, client: TestClient) -> None:
 def test_ui_never_serves_files_outside_dist(ui_dist: Path, client: TestClient, path: str) -> None:
     response = client.get(path)
     assert "top secret" not in response.text
+
+
+@pytest.fixture
+def auth_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BIOPARSER_AUTH_DISABLED", "false")
+    monkeypatch.setenv("BIOPARSER_API_KEY", "ui-test-api-key-at-least-32-characters")
+
+
+@pytest.mark.parametrize("path", ["/ui/", "/ui/jobs/abc", "/ui/assets/index-abc123.js"])
+def test_ui_needs_no_api_key(ui_dist: Path, auth_enabled: None, path: str) -> None:
+    response = TestClient(app).get(path)  # no X-API-Key header
+    assert response.status_code == 200
+
+
+def test_ui_root_redirect_needs_no_api_key(ui_dist: Path, auth_enabled: None) -> None:
+    assert TestClient(app).get("/ui", follow_redirects=False).status_code == 307
+
+
+def test_ui_prefix_opens_only_the_ui(ui_dist: Path, auth_enabled: None) -> None:
+    client = TestClient(app)
+    # An encoded "../" stays under /ui/: the UI route answers, not the job route.
+    response = client.get(f"/ui/..%2fapi%2fjobs%2f{uuid4()}")
+    assert response.text == INDEX
+    # The prefix is "/ui/", so a path that only starts with "/ui" still needs the key.
+    assert client.get("/uix").status_code == 401

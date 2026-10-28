@@ -275,6 +275,7 @@ built files (`frontend/dist`); the API image sets it. Without it, every `/ui` pa
 - Any other path returns `index.html` (`Cache-Control: no-cache`), so a deep link such as
   `/ui/jobs/{job_id}` loads the app. A missing file under `assets/` is `404`.
 - Not in the OpenAPI schema.
+- No API key: the UI is static files with no data, and a browser cannot send `X-API-Key` when it opens a page. The UI sends the key on its own API calls (#253). `ApiKeyMiddleware` lets `/ui` and every path under `/ui/` through.
 
 
 ### `GET /ready`

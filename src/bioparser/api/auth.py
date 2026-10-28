@@ -14,11 +14,27 @@ from bioparser.api.errors import UNAUTHORIZED, ErrorResponse, http_error
 
 API_KEY_HEADER = "X-API-Key"
 
-# The probes (Docker's HEALTHCHECK sends no key) and the pages Swagger UI loads
-# before the user can enter a key. Every other path needs the key.
+# The probes (Docker's HEALTHCHECK sends no key), the pages Swagger UI loads before the
+# user can enter a key, and the web UI. Every other path needs the key.
 PUBLIC_PATHS = frozenset(
-    {"/health", "/ready", "/docs", "/docs/oauth2-redirect", "/openapi.json", "/redoc"}
+    {
+        "/health",
+        "/ready",
+        "/docs",
+        "/docs/oauth2-redirect",
+        "/openapi.json",
+        "/redoc",
+        "/ui",
+    }
 )
+# The built web UI under /ui/: static files that hold no data. The browser loads them
+# without a key; the UI sends the key on its own API calls.
+PUBLIC_PREFIX = "/ui/"
+
+
+def is_public_path(path: str) -> bool:
+    return path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIX)
+
 
 # RFC 9110: a 401 response names the scheme the client must use.
 _CHALLENGE = {"WWW-Authenticate": "ApiKey"}
@@ -56,7 +72,7 @@ class ApiKeyMiddleware:
         # scope["path"] is the path the router matches.
         if (
             scope["type"] != "http"
-            or scope["path"] in PUBLIC_PATHS
+            or is_public_path(scope["path"])
             or api_key_matches(Headers(scope=scope).get(API_KEY_HEADER))
         ):
             await self.app(scope, receive, send)

@@ -1,12 +1,9 @@
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 
 from . import config
-
-# Not API endpoints, so not in the OpenAPI schema or on /docs.
-router = APIRouter(include_in_schema=False)
 
 # index.html names the current asset files, so the browser checks it on every load.
 _INDEX_CACHE = "no-cache"
@@ -14,12 +11,18 @@ _INDEX_CACHE = "no-cache"
 _ASSET_CACHE = "public, max-age=31536000, immutable"
 
 
-@router.get("/ui")
+def add_ui_routes(app: FastAPI) -> None:
+    """Add the UI routes to the app itself. include_router would add them behind one
+    wrapper entry, and the auth tests check each route in app.routes."""
+    # Not API endpoints, so not in the OpenAPI schema or on /docs.
+    app.add_api_route("/ui", ui_root, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/ui/{path:path}", ui, methods=["GET"], include_in_schema=False)
+
+
 def ui_root() -> RedirectResponse:
     return RedirectResponse("/ui/")
 
 
-@router.get("/ui/{path:path}")
 def ui(path: str) -> FileResponse:
     """A file of the built UI, or index.html for any other path so a deep link loads."""
     dist_path = config.get_api_settings().ui_dist_path
