@@ -38,6 +38,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{job_id}/artifacts/parser": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Job Parser Artifact
+         * @description For the BioParser UI. The body is the artifact as stored; its shape follows its `schema_version` and can change.
+         */
+        get: operations["job_parser_artifact_api_jobs__job_id__artifacts_parser_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/artifacts/extraction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Job Extraction Artifact
+         * @description For the BioParser UI. The body is the artifact as stored; its shape follows its `schema_version` and can change.
+         */
+        get: operations["job_extraction_artifact_api_jobs__job_id__artifacts_extraction_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/extract": {
         parameters: {
             query?: never;
@@ -49,8 +89,10 @@ export interface paths {
         put?: never;
         /**
          * Extract
-         * @description Runs validate -> mineru -> mapper -> vLLM pipeline for testing,
-         *     synchronously
+         * @description Dev route: a queued job's pipeline in one request, without the queue and the workers.
+         *
+         *     The same parser, extractor and settings as a job from `POST /api/extractions`. Nothing is
+         *     stored. The response is the extraction artifact that the job stores.
          */
         post: operations["extract_extract_post"];
         delete?: never;
@@ -97,6 +139,16 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * BlockKind
+         * @enum {string}
+         */
+        BlockKind: "text" | "table";
+        /**
+         * BlockRole
+         * @enum {string}
+         */
+        BlockRole: "title" | "heading" | "body" | "list" | "caption" | "footnote" | "header" | "footer" | "reference";
         /** Body_extract_extract_post */
         Body_extract_extract_post: {
             /** File */
@@ -107,19 +159,99 @@ export interface components {
             /** File */
             file?: string | null;
         };
+        /**
+         * BoundingBox
+         * @description Axis-aligned box in page space, top-left origin, normalized to [0, 1].
+         */
+        BoundingBox: {
+            /** X0 */
+            x0: number;
+            /** Y0 */
+            y0: number;
+            /** X1 */
+            x1: number;
+            /** Y1 */
+            y1: number;
+        };
+        /**
+         * Citation
+         * @description Printed text. On a citation-only column, this text is the ETS value.
+         *
+         *     A range list, when present, concatenates to ``text``.
+         */
+        Citation: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "citation";
+            /** Text */
+            text: string;
+            /** Evidence */
+            evidence: components["schemas"]["TextRange"][];
+        };
+        /** ContentBlock */
+        ContentBlock: {
+            /** Block Id */
+            block_id: string;
+            /** Order */
+            order: number;
+            kind: components["schemas"]["BlockKind"];
+            role: components["schemas"]["BlockRole"];
+            /** Content */
+            content: components["schemas"]["TextContent"] | components["schemas"]["TableContent"];
+            bbox?: components["schemas"]["BoundingBox"] | null;
+            /** Continuation Of */
+            continuation_of?: string | null;
+        };
+        /**
+         * Correction
+         * @description A narrow citation kept beside an interpretation.
+         *
+         *     ``citation`` is the narrow printed token. The interpretation's passage is
+         *     the wider text its value was read from. The adapter uses the
+         *     interpretation value. The citation stays for tracing and highlighting.
+         */
+        Correction: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "correction";
+            citation: components["schemas"]["Citation"];
+            interpretation: components["schemas"]["Interpretation"];
+        };
         /** ErrorDetail */
         ErrorDetail: {
             /**
              * Code
              * @enum {string}
              */
-            code: "missing_file" | "empty_file" | "invalid_pdf" | "unsupported_content_type" | "invalid_content_length" | "job_not_found" | "invalid_job_id" | "content_too_large" | "storage_unavailable" | "artifact_invalid" | "job_state_unreadable" | "redis_unavailable" | "queue_unavailable";
+            code: "missing_file" | "empty_file" | "invalid_pdf" | "unsupported_content_type" | "invalid_content_length" | "job_not_found" | "invalid_job_id" | "content_too_large" | "storage_unavailable" | "artifact_invalid" | "job_state_unreadable" | "database_unavailable" | "queue_unavailable" | "artifact_not_available" | "unauthorized";
             /** Message */
             message: string;
         };
         /** ErrorResponse */
         ErrorResponse: {
             detail: components["schemas"]["ErrorDetail"];
+        };
+        /**
+         * ExtractionArtifact
+         * @description Versioned extraction result stored for a job.
+         */
+        ExtractionArtifact: {
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: "1";
+            /** Extractor */
+            extractor: string;
+            /** Extractor Version */
+            extractor_version: string;
+            /** Observations */
+            observations?: components["schemas"]["Observation"][];
         };
         /** FailedJobResponse */
         FailedJobResponse: {
@@ -152,6 +284,177 @@ export interface components {
              * @constant
              */
             status: "ok";
+        };
+        /**
+         * Interpretation
+         * @description A value read from one citation. ``passage`` is that citation.
+         */
+        Interpretation: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "interpretation";
+            /** Value */
+            value: string;
+            passage: components["schemas"]["Citation"];
+        };
+        /**
+         * Observation
+         * @description One measurement.
+         *
+         *     A citation-only field is printed text. A citation or correction is that citation, or a
+         *     correction that keeps the narrow citation beside an interpretation. A citation
+         *     or interpretation has no verbatim sibling. Its check can reject the printed
+         *     text, so it is a citation or an interpretation of one passage. The passage
+         *     fails that check, so it is not a usable column value. ``basisOfRecord``,
+         *     ``aggregateMeasure``, ``centralKind``, and ``dispersionKind``
+         *     are interpretations only. A paper does not print those tokens. The adapter
+         *     uses ``centralKind`` and ``dispersionKind`` to write ``statisticalMethod``
+         *     when no phrase was stored, and ``dispersionKind`` to convert the dispersion.
+         *     The minimum and the maximum use the same factor as the trait value. One
+         *     unit covers the measurement.
+         *
+         *     ``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations
+         *     beside a required verbatim citation. The interpretation is omitted when the
+         *     printed token is already the value. ``traitValue`` and ``traitUnit`` are
+         *     that printed number and unit, cleaned up, not a converted pair.
+         *     ``scientificName`` is another name a later taxonomy lookup can try.
+         *
+         *     The artifact does not enforce a closed set of values. An interpretation's
+         *     ``value`` is any non-empty string, including ``trait``. An extractor may
+         *     constrain it, and the adapter decides what a value means.
+         *
+         *     Every other column a paper can state is optional. An extractor leaves it null.
+         */
+        Observation: {
+            trait: components["schemas"]["Interpretation"];
+            /** Verbatimtraitname */
+            verbatimTraitName?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            scientificName?: components["schemas"]["Interpretation"] | null;
+            verbatimScientificName: components["schemas"]["Citation"];
+            traitValue?: components["schemas"]["Interpretation"] | null;
+            verbatimTraitValue: components["schemas"]["Citation"];
+            traitUnit?: components["schemas"]["Interpretation"] | null;
+            verbatimTraitUnit: components["schemas"]["Citation"];
+            /** Taxonrank */
+            taxonRank?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Kingdom */
+            kingdom?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Phylum */
+            phylum?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Taxonclass */
+            taxonClass?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Order */
+            order?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Family */
+            family?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Genus */
+            genus?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Sex */
+            sex?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            /** Lifestage */
+            lifeStage?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Age */
+            age?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            /** Morphotype */
+            morphotype?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            basisOfRecord?: components["schemas"]["Interpretation"] | null;
+            /** Basisofrecorddescription */
+            basisOfRecordDescription?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Measurementmethod */
+            measurementMethod?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Measurementresolution */
+            measurementResolution?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Measurementremarks */
+            measurementRemarks?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Measurementdeterminedby */
+            measurementDeterminedBy?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Measurementdetermineddate */
+            measurementDeterminedDate?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            aggregateMeasure?: components["schemas"]["Interpretation"] | null;
+            /** Statisticalmethod */
+            statisticalMethod?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            centralKind?: components["schemas"]["Interpretation"] | null;
+            dispersionKind?: components["schemas"]["Interpretation"] | null;
+            /** Individualcount */
+            individualCount?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            /** Dispersion */
+            dispersion?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            /** Measurementvaluemin */
+            measurementValueMin?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            /** Measurementvaluemax */
+            measurementValueMax?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            /** Measurementaccuracy */
+            measurementAccuracy?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Occurrenceid */
+            occurrenceID?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Eventid */
+            eventID?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Preparations */
+            preparations?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Samplingprotocol */
+            samplingProtocol?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Year */
+            year?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            /** Month */
+            month?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            /** Day */
+            day?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            /** Eventdate */
+            eventDate?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            /** Locationid */
+            locationID?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Habitat */
+            habitat?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Decimallongitude */
+            decimalLongitude?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            /** Decimallatitude */
+            decimalLatitude?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            /** Elevation */
+            elevation?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            /** Geodeticdatum */
+            geodeticDatum?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Verbatimlocality */
+            verbatimLocality?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Country */
+            country?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            /** Countrycode */
+            countryCode?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            /** Occurrenceremarks */
+            occurrenceRemarks?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+        };
+        /** Page */
+        Page: {
+            /** Page Number */
+            page_number: number;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /** Blocks */
+            blocks: components["schemas"]["ContentBlock"][];
+        };
+        /** ParserArtifact */
+        ParserArtifact: {
+            /** Schema Version */
+            schema_version: string;
+            /** Checksum */
+            checksum: string;
+            parser: components["schemas"]["ParserInfo"];
+            /** Pages */
+            pages: components["schemas"]["Page"][];
+        };
+        /** ParserInfo */
+        ParserInfo: {
+            /** Name */
+            name: string;
+            /** Version */
+            version: string;
+            /** Configuration */
+            configuration: {
+                [key: string]: string | number | boolean;
+            };
         };
         /** QueuedJobResponse */
         QueuedJobResponse: {
@@ -195,7 +498,8 @@ export interface components {
          *       "detail": {
          *         "status": "not ready",
          *         "unavailable": [
-         *           "redis"
+         *           "redis",
+         *           "postgres"
          *         ]
          *       }
          *     }
@@ -239,8 +543,78 @@ export interface components {
              * @enum {string}
              */
             status: "parsed" | "done";
-            /** Output Artifact Ref */
-            output_artifact_ref?: string | null;
+        };
+        /** TableCell */
+        TableCell: {
+            /** Row */
+            row: number;
+            /** Column */
+            column: number;
+            /** Text */
+            text: string;
+            /**
+             * Rowspan
+             * @default 1
+             */
+            rowspan: number;
+            /**
+             * Colspan
+             * @default 1
+             */
+            colspan: number;
+            bbox?: components["schemas"]["BoundingBox"] | null;
+        };
+        /** TableContent */
+        TableContent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "table";
+            /** Cells */
+            cells: components["schemas"]["TableCell"][];
+        };
+        /** TextContent */
+        TextContent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "text";
+            /** Text */
+            text: string;
+            /** Heading Level */
+            heading_level?: number | null;
+            /** Spans */
+            spans?: components["schemas"]["TextSpan"][];
+        };
+        /**
+         * TextRange
+         * @description Half-open character range in one parser block.
+         *
+         *     ``start`` and ``end`` are Unicode code points, the same indexes as a Python
+         *     ``str``. ``end`` is greater than ``start``.
+         */
+        TextRange: {
+            /** Block Id */
+            block_id: string;
+            /** Start */
+            start: number;
+            /** End */
+            end: number;
+        };
+        /**
+         * TextSpan
+         * @description Word box mapped onto `TextContent.text` as a half-open character range.
+         */
+        TextSpan: {
+            /** Start */
+            start: number;
+            /** End */
+            end: number;
+            /** Line */
+            line: number;
+            bbox: components["schemas"]["BoundingBox"];
         };
         /** ValidationError */
         ValidationError: {
@@ -288,6 +662,15 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -362,8 +745,169 @@ export interface operations {
                     "application/json": components["schemas"]["QueuedJobResponse"] | components["schemas"]["RunningJobResponse"] | components["schemas"]["SucceededJobResponse"] | components["schemas"]["FailedJobResponse"];
                 };
             };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    job_parser_artifact_api_jobs__job_id__artifacts_parser_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The job's parser artifact: blocks, text and bounding boxes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParserArtifact"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    job_extraction_artifact_api_jobs__job_id__artifacts_extraction_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The job's extraction artifact: observations and their evidence */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionArtifact"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -419,9 +963,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ExtractionArtifact"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -432,6 +983,20 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+            /** @description The pipeline gave no result. `detail` names the failed step. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Every pipeline process is busy. Retry after `Retry-After`. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

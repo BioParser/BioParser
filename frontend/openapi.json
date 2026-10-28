@@ -77,6 +77,27 @@
               }
             }
           },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "unauthorized": {
+                    "summary": "Invalid or missing API key",
+                    "value": {
+                      "detail": {
+                        "code": "unauthorized",
+                        "message": "Invalid or missing API key"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
           "413": {
             "description": "Content Too Large",
             "content": {
@@ -157,12 +178,12 @@
                       }
                     }
                   },
-                  "redis_unavailable": {
-                    "summary": "Job state service is unavailable",
+                  "database_unavailable": {
+                    "summary": "Database is unavailable",
                     "value": {
                       "detail": {
-                        "code": "redis_unavailable",
-                        "message": "Job state service is unavailable"
+                        "code": "database_unavailable",
+                        "message": "Database is unavailable"
                       }
                     }
                   },
@@ -189,13 +210,23 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
       }
     },
     "/api/jobs/{job_id}": {
       "get": {
         "summary": "Job Status",
         "operationId": "job_status_api_jobs__job_id__get",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "job_id",
@@ -242,6 +273,27 @@
                 }
               }
             }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "unauthorized": {
+                    "summary": "Invalid or missing API key",
+                    "value": {
+                      "detail": {
+                        "code": "unauthorized",
+                        "message": "Invalid or missing API key"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
           },
           "404": {
             "content": {
@@ -297,13 +349,177 @@
                         "message": "Stored job state is unreadable"
                       }
                     }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "database_unavailable": {
+                    "summary": "Database is unavailable",
+                    "value": {
+                      "detail": {
+                        "code": "database_unavailable",
+                        "message": "Database is unavailable"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/artifacts/parser": {
+      "get": {
+        "tags": [
+          "internal"
+        ],
+        "summary": "Job Parser Artifact",
+        "description": "For the BioParser UI. The body is the artifact as stored; its shape follows its `schema_version` and can change.",
+        "operationId": "job_parser_artifact_api_jobs__job_id__artifacts_parser_get",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The job's parser artifact: blocks, text and bounding boxes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParserArtifact"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "unauthorized": {
+                    "summary": "Invalid or missing API key",
+                    "value": {
+                      "detail": {
+                        "code": "unauthorized",
+                        "message": "Invalid or missing API key"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "job_not_found": {
+                    "summary": "Job not found",
+                    "value": {
+                      "detail": {
+                        "code": "job_not_found",
+                        "message": "Job not found"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "artifact_not_available": {
+                    "summary": "The job has no such artifact. GET /api/jobs/{job_id} shows the job status",
+                    "value": {
+                      "detail": {
+                        "code": "artifact_not_available",
+                        "message": "The job has no such artifact. GET /api/jobs/{job_id} shows the job status"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_job_id": {
+                    "summary": "job_id must be a version 4 UUID",
+                    "value": {
+                      "detail": {
+                        "code": "invalid_job_id",
+                        "message": "job_id must be a version 4 UUID"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "job_state_unreadable": {
+                    "summary": "Stored job state is unreadable",
+                    "value": {
+                      "detail": {
+                        "code": "job_state_unreadable",
+                        "message": "Stored job state is unreadable"
+                      }
+                    }
                   },
                   "artifact_invalid": {
-                    "summary": "Stored parser artifact is invalid",
+                    "summary": "Stored artifact is missing or invalid",
                     "value": {
                       "detail": {
                         "code": "artifact_invalid",
-                        "message": "Stored parser artifact is invalid"
+                        "message": "Stored artifact is missing or invalid"
                       }
                     }
                   }
@@ -319,12 +535,194 @@
             "content": {
               "application/json": {
                 "examples": {
-                  "redis_unavailable": {
-                    "summary": "Job state service is unavailable",
+                  "database_unavailable": {
+                    "summary": "Database is unavailable",
                     "value": {
                       "detail": {
-                        "code": "redis_unavailable",
-                        "message": "Job state service is unavailable"
+                        "code": "database_unavailable",
+                        "message": "Database is unavailable"
+                      }
+                    }
+                  },
+                  "storage_unavailable": {
+                    "summary": "Artifact storage is unavailable",
+                    "value": {
+                      "detail": {
+                        "code": "storage_unavailable",
+                        "message": "Artifact storage is unavailable"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/artifacts/extraction": {
+      "get": {
+        "tags": [
+          "internal"
+        ],
+        "summary": "Job Extraction Artifact",
+        "description": "For the BioParser UI. The body is the artifact as stored; its shape follows its `schema_version` and can change.",
+        "operationId": "job_extraction_artifact_api_jobs__job_id__artifacts_extraction_get",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The job's extraction artifact: observations and their evidence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionArtifact"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "unauthorized": {
+                    "summary": "Invalid or missing API key",
+                    "value": {
+                      "detail": {
+                        "code": "unauthorized",
+                        "message": "Invalid or missing API key"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "job_not_found": {
+                    "summary": "Job not found",
+                    "value": {
+                      "detail": {
+                        "code": "job_not_found",
+                        "message": "Job not found"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "artifact_not_available": {
+                    "summary": "The job has no such artifact. GET /api/jobs/{job_id} shows the job status",
+                    "value": {
+                      "detail": {
+                        "code": "artifact_not_available",
+                        "message": "The job has no such artifact. GET /api/jobs/{job_id} shows the job status"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_job_id": {
+                    "summary": "job_id must be a version 4 UUID",
+                    "value": {
+                      "detail": {
+                        "code": "invalid_job_id",
+                        "message": "job_id must be a version 4 UUID"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "job_state_unreadable": {
+                    "summary": "Stored job state is unreadable",
+                    "value": {
+                      "detail": {
+                        "code": "job_state_unreadable",
+                        "message": "Stored job state is unreadable"
+                      }
+                    }
+                  },
+                  "artifact_invalid": {
+                    "summary": "Stored artifact is missing or invalid",
+                    "value": {
+                      "detail": {
+                        "code": "artifact_invalid",
+                        "message": "Stored artifact is missing or invalid"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "database_unavailable": {
+                    "summary": "Database is unavailable",
+                    "value": {
+                      "detail": {
+                        "code": "database_unavailable",
+                        "message": "Database is unavailable"
                       }
                     }
                   },
@@ -351,7 +749,7 @@
     "/extract": {
       "post": {
         "summary": "Extract",
-        "description": "Runs validate -> mineru -> mapper -> vLLM pipeline for testing,\nsynchronously",
+        "description": "Dev route: a queued job's pipeline in one request, without the queue and the workers.\n\nThe same parser, extractor and settings as a job from `POST /api/extractions`. Nothing is\nstored. The response is the extraction artifact that the job stores.",
         "operationId": "extract_extract_post",
         "requestBody": {
           "content": {
@@ -368,12 +766,37 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Extract Extract Post"
+                  "$ref": "#/components/schemas/ExtractionArtifact"
                 }
               }
             }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "unauthorized": {
+                    "summary": "Invalid or missing API key",
+                    "value": {
+                      "detail": {
+                        "code": "unauthorized",
+                        "message": "Invalid or missing API key"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The pipeline gave no result. `detail` names the failed step."
+          },
+          "503": {
+            "description": "Every pipeline process is busy. Retry after `Retry-After`."
           },
           "422": {
             "description": "Validation Error",
@@ -385,7 +808,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
       }
     },
     "/health": {
@@ -437,6 +865,29 @@
   },
   "components": {
     "schemas": {
+      "BlockKind": {
+        "type": "string",
+        "enum": [
+          "text",
+          "table"
+        ],
+        "title": "BlockKind"
+      },
+      "BlockRole": {
+        "type": "string",
+        "enum": [
+          "title",
+          "heading",
+          "body",
+          "list",
+          "caption",
+          "footnote",
+          "header",
+          "footer",
+          "reference"
+        ],
+        "title": "BlockRole"
+      },
       "Body_extract_extract_post": {
         "properties": {
           "file": {
@@ -473,6 +924,158 @@
         "type": "object",
         "title": "Body_submit_job_api_extractions_post"
       },
+      "BoundingBox": {
+        "properties": {
+          "x0": {
+            "type": "number",
+            "title": "X0"
+          },
+          "y0": {
+            "type": "number",
+            "title": "Y0"
+          },
+          "x1": {
+            "type": "number",
+            "title": "X1"
+          },
+          "y1": {
+            "type": "number",
+            "title": "Y1"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "x0",
+          "y0",
+          "x1",
+          "y1"
+        ],
+        "title": "BoundingBox",
+        "description": "Axis-aligned box in page space, top-left origin, normalized to [0, 1]."
+      },
+      "Citation": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "citation",
+            "title": "Kind",
+            "default": "citation"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Text"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/TextRange"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Evidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text",
+          "evidence"
+        ],
+        "title": "Citation",
+        "description": "Printed text. On a citation-only column, this text is the ETS value.\n\nA range list, when present, concatenates to ``text``."
+      },
+      "ContentBlock": {
+        "properties": {
+          "block_id": {
+            "type": "string",
+            "title": "Block Id"
+          },
+          "order": {
+            "type": "integer",
+            "title": "Order"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/BlockKind"
+          },
+          "role": {
+            "$ref": "#/components/schemas/BlockRole"
+          },
+          "content": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TextContent"
+              },
+              {
+                "$ref": "#/components/schemas/TableContent"
+              }
+            ],
+            "title": "Content",
+            "discriminator": {
+              "propertyName": "type",
+              "mapping": {
+                "table": "#/components/schemas/TableContent",
+                "text": "#/components/schemas/TextContent"
+              }
+            }
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BoundingBox"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "continuation_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuation Of"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "block_id",
+          "order",
+          "kind",
+          "role",
+          "content"
+        ],
+        "title": "ContentBlock"
+      },
+      "Correction": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "correction",
+            "title": "Kind",
+            "default": "correction"
+          },
+          "citation": {
+            "$ref": "#/components/schemas/Citation"
+          },
+          "interpretation": {
+            "$ref": "#/components/schemas/Interpretation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "citation",
+          "interpretation"
+        ],
+        "title": "Correction",
+        "description": "A narrow citation kept beside an interpretation.\n\n``citation`` is the narrow printed token. The interpretation's passage is\nthe wider text its value was read from. The adapter uses the\ninterpretation value. The citation stays for tracing and highlighting."
+      },
       "ErrorDetail": {
         "properties": {
           "code": {
@@ -489,8 +1092,10 @@
               "storage_unavailable",
               "artifact_invalid",
               "job_state_unreadable",
-              "redis_unavailable",
-              "queue_unavailable"
+              "database_unavailable",
+              "queue_unavailable",
+              "artifact_not_available",
+              "unauthorized"
             ],
             "title": "Code"
           },
@@ -517,6 +1122,41 @@
           "detail"
         ],
         "title": "ErrorResponse"
+      },
+      "ExtractionArtifact": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1",
+            "title": "Schema Version",
+            "default": "1"
+          },
+          "extractor": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Extractor"
+          },
+          "extractor_version": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Extractor Version"
+          },
+          "observations": {
+            "items": {
+              "$ref": "#/components/schemas/Observation"
+            },
+            "type": "array",
+            "title": "Observations"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "extractor",
+          "extractor_version"
+        ],
+        "title": "ExtractionArtifact",
+        "description": "Versioned extraction result stored for a job."
       },
       "FailedJobResponse": {
         "properties": {
@@ -573,6 +1213,1282 @@
             "status": "ok"
           }
         ]
+      },
+      "Interpretation": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "interpretation",
+            "title": "Kind",
+            "default": "interpretation"
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Value"
+          },
+          "passage": {
+            "$ref": "#/components/schemas/Citation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "value",
+          "passage"
+        ],
+        "title": "Interpretation",
+        "description": "A value read from one citation. ``passage`` is that citation."
+      },
+      "Observation": {
+        "properties": {
+          "trait": {
+            "$ref": "#/components/schemas/Interpretation"
+          },
+          "verbatimTraitName": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verbatimtraitname"
+          },
+          "scientificName": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Interpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verbatimScientificName": {
+            "$ref": "#/components/schemas/Citation"
+          },
+          "traitValue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Interpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verbatimTraitValue": {
+            "$ref": "#/components/schemas/Citation"
+          },
+          "traitUnit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Interpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verbatimTraitUnit": {
+            "$ref": "#/components/schemas/Citation"
+          },
+          "taxonRank": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taxonrank"
+          },
+          "kingdom": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kingdom"
+          },
+          "phylum": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phylum"
+          },
+          "taxonClass": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taxonclass"
+          },
+          "order": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Family"
+          },
+          "genus": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Genus"
+          },
+          "sex": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sex"
+          },
+          "lifeStage": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifestage"
+          },
+          "age": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age"
+          },
+          "morphotype": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Morphotype"
+          },
+          "basisOfRecord": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Interpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "basisOfRecordDescription": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basisofrecorddescription"
+          },
+          "measurementMethod": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementmethod"
+          },
+          "measurementResolution": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementresolution"
+          },
+          "measurementRemarks": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementremarks"
+          },
+          "measurementDeterminedBy": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementdeterminedby"
+          },
+          "measurementDeterminedDate": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementdetermineddate"
+          },
+          "aggregateMeasure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Interpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "statisticalMethod": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statisticalmethod"
+          },
+          "centralKind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Interpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dispersionKind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Interpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "individualCount": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Individualcount"
+          },
+          "dispersion": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispersion"
+          },
+          "measurementValueMin": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementvaluemin"
+          },
+          "measurementValueMax": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementvaluemax"
+          },
+          "measurementAccuracy": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementaccuracy"
+          },
+          "occurrenceID": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurrenceid"
+          },
+          "eventID": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eventid"
+          },
+          "preparations": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preparations"
+          },
+          "samplingProtocol": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Samplingprotocol"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          },
+          "month": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Month"
+          },
+          "day": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day"
+          },
+          "eventDate": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eventdate"
+          },
+          "locationID": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locationid"
+          },
+          "habitat": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Habitat"
+          },
+          "decimalLongitude": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decimallongitude"
+          },
+          "decimalLatitude": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decimallatitude"
+          },
+          "elevation": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation"
+          },
+          "geodeticDatum": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geodeticdatum"
+          },
+          "verbatimLocality": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verbatimlocality"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "countryCode": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Interpretation"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "interpretation": "#/components/schemas/Interpretation"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Countrycode"
+          },
+          "occurrenceRemarks": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Citation"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Correction"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "citation": "#/components/schemas/Citation",
+                    "correction": "#/components/schemas/Correction"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurrenceremarks"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "trait",
+          "verbatimScientificName",
+          "verbatimTraitValue",
+          "verbatimTraitUnit"
+        ],
+        "title": "Observation",
+        "description": "One measurement.\n\nA citation-only field is printed text. A citation or correction is that citation, or a\ncorrection that keeps the narrow citation beside an interpretation. A citation\nor interpretation has no verbatim sibling. Its check can reject the printed\ntext, so it is a citation or an interpretation of one passage. The passage\nfails that check, so it is not a usable column value. ``basisOfRecord``,\n``aggregateMeasure``, ``centralKind``, and ``dispersionKind``\nare interpretations only. A paper does not print those tokens. The adapter\nuses ``centralKind`` and ``dispersionKind`` to write ``statisticalMethod``\nwhen no phrase was stored, and ``dispersionKind`` to convert the dispersion.\nThe minimum and the maximum use the same factor as the trait value. One\nunit covers the measurement.\n\n``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations\nbeside a required verbatim citation. The interpretation is omitted when the\nprinted token is already the value. ``traitValue`` and ``traitUnit`` are\nthat printed number and unit, cleaned up, not a converted pair.\n``scientificName`` is another name a later taxonomy lookup can try.\n\nThe artifact does not enforce a closed set of values. An interpretation's\n``value`` is any non-empty string, including ``trait``. An extractor may\nconstrain it, and the adapter decides what a value means.\n\nEvery other column a paper can state is optional. An extractor leaves it null."
+      },
+      "Page": {
+        "properties": {
+          "page_number": {
+            "type": "integer",
+            "title": "Page Number"
+          },
+          "width": {
+            "type": "number",
+            "title": "Width"
+          },
+          "height": {
+            "type": "number",
+            "title": "Height"
+          },
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/ContentBlock"
+            },
+            "type": "array",
+            "title": "Blocks"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "page_number",
+          "width",
+          "height",
+          "blocks"
+        ],
+        "title": "Page"
+      },
+      "ParserArtifact": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version"
+          },
+          "checksum": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Checksum"
+          },
+          "parser": {
+            "$ref": "#/components/schemas/ParserInfo"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/Page"
+            },
+            "type": "array",
+            "title": "Pages"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "checksum",
+          "parser",
+          "pages"
+        ],
+        "title": "ParserArtifact"
+      },
+      "ParserInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "configuration": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Configuration"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "configuration"
+        ],
+        "title": "ParserInfo"
       },
       "QueuedJobResponse": {
         "properties": {
@@ -651,7 +2567,8 @@
             "detail": {
               "status": "not ready",
               "unavailable": [
-                "redis"
+                "redis",
+                "postgres"
               ]
             }
           }
@@ -716,17 +2633,6 @@
               "done"
             ],
             "title": "Status"
-          },
-          "output_artifact_ref": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Output Artifact Ref"
           }
         },
         "type": "object",
@@ -735,6 +2641,166 @@
           "status"
         ],
         "title": "SucceededJobResponse"
+      },
+      "TableCell": {
+        "properties": {
+          "row": {
+            "type": "integer",
+            "title": "Row"
+          },
+          "column": {
+            "type": "integer",
+            "title": "Column"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "rowspan": {
+            "type": "integer",
+            "title": "Rowspan",
+            "default": 1
+          },
+          "colspan": {
+            "type": "integer",
+            "title": "Colspan",
+            "default": 1
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BoundingBox"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "row",
+          "column",
+          "text"
+        ],
+        "title": "TableCell"
+      },
+      "TableContent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "table",
+            "title": "Type",
+            "default": "table"
+          },
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/TableCell"
+            },
+            "type": "array",
+            "title": "Cells"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "cells"
+        ],
+        "title": "TableContent"
+      },
+      "TextContent": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "text",
+            "title": "Type",
+            "default": "text"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "heading_level": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading Level"
+          },
+          "spans": {
+            "items": {
+              "$ref": "#/components/schemas/TextSpan"
+            },
+            "type": "array",
+            "title": "Spans"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "TextContent"
+      },
+      "TextRange": {
+        "properties": {
+          "block_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Block Id"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "block_id",
+          "start",
+          "end"
+        ],
+        "title": "TextRange",
+        "description": "Half-open character range in one parser block.\n\n``start`` and ``end`` are Unicode code points, the same indexes as a Python\n``str``. ``end`` is greater than ``start``."
+      },
+      "TextSpan": {
+        "properties": {
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "line": {
+            "type": "integer",
+            "title": "Line"
+          },
+          "bbox": {
+            "$ref": "#/components/schemas/BoundingBox"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "start",
+          "end",
+          "line",
+          "bbox"
+        ],
+        "title": "TextSpan",
+        "description": "Word box mapped onto `TextContent.text` as a half-open character range."
       },
       "ValidationError": {
         "properties": {
@@ -775,6 +2841,14 @@
           "type"
         ],
         "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "description": "Shared API key required for all /api/* and /extract operations.",
+        "in": "header",
+        "name": "X-API-Key"
       }
     }
   }
