@@ -59,25 +59,17 @@ class JobState(BaseModel):
     pdf_ref: ArtifactPath
     parse_result_ref: ArtifactPath | None = None
     extract_result_ref: ArtifactPath | None = None
-    error: SafeError | None = None
-    # Claims per stage.
-    claim_counts: dict[JobStatus, int] = Field(default_factory=dict)
+    error_code: SafeErrorCode | None = None
+    parsing_claims: int = Field(default=0, ge=0)
+    extracting_claims: int = Field(default=0, ge=0)
 
     def claims(self, status: JobStatus) -> int:
-        """How many times status has been claimed."""
-        return self.claim_counts.get(status, 0)
-
-    def with_claim(self, status: JobStatus) -> Self:
-        """Return this job moved to status, counting one start of that stage.
-
-        The count includes this start. A stage that cannot be re-entered is not a claim.
-        Store the result before the heavy work, then read the job again before a later write.
-        """
-        if status not in ALLOWED_TRANSITIONS[status]:
-            raise ValueError(f"status={status!r} cannot be claimed")
-        counts = dict(self.claim_counts)
-        counts[status] = counts.get(status, 0) + 1
-        return self.with_changes(status=status, claim_counts=counts)
+        """How many times this stage has been claimed. Other statuses are not claims."""
+        if status == "parsing":
+            return self.parsing_claims
+        if status == "extracting":
+            return self.extracting_claims
+        return 0
 
     def with_changes(self, **changes: object) -> Self:
         """Return a new, validated JobState with the given fields changed.
@@ -101,21 +93,11 @@ class JobState(BaseModel):
             raise ValueError(f"must be one of: {', '.join(EXTRACTORS)}")
         return value
 
-    @field_validator("claim_counts")
-    @classmethod
-    def claim_counts_are_per_stage(cls, value: dict[JobStatus, int]) -> dict[JobStatus, int]:
-        for status, count in value.items():
-            if status not in ALLOWED_TRANSITIONS[status]:
-                raise ValueError(f"status={status!r} cannot be claimed")
-            if count < 0:
-                raise ValueError(f"claim count for {status!r} must be >= 0")
-        return value
-
     @model_validator(mode="after")
     def _fields_match_status(self) -> Self:
         has_parse = self.parse_result_ref is not None
         has_extract = self.extract_result_ref is not None
-        has_error = self.error is not None
+        has_error = self.error_code is not None
         # `failed` may keep the parser artifact. Extraction fails after that artifact exists,
         # and dropping the reference would hide a successful parse. The extraction artifact
         # is only recorded on `done`.
@@ -148,5 +130,5 @@ class JobState(BaseModel):
         raise ValueError(
             f"status={self.status!r} requires {required}, "
             f"got parse_result_ref={self.parse_result_ref!r}, "
-            f"extract_result_ref={self.extract_result_ref!r}, error={self.error!r}"
+            f"extract_result_ref={self.extract_result_ref!r}, error_code={self.error_code!r}"
         )

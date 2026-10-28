@@ -32,7 +32,7 @@ class ReadinessUnavailableResponse(BaseModel):
                 {
                     "detail": {
                         "status": "not ready",
-                        "unavailable": ["redis"],
+                        "unavailable": ["redis", "postgres"],
                     }
                 }
             ]
@@ -53,7 +53,6 @@ class RunningJobResponse(BaseModel):
 class SucceededJobResponse(BaseModel):
     job_id: UUID
     status: Literal["parsed", "done"]
-    output_artifact_ref: str | None = None
 
 
 class FailedJobResponse(BaseModel):

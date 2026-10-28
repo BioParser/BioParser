@@ -3,15 +3,29 @@
 import json
 import re
 import threading
-from collections.abc import Callable, Iterator, Sequence
-from contextlib import contextmanager
+import time
+from collections.abc import Callable, Collection, Iterator, Sequence
+from contextlib import asynccontextmanager, contextmanager
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 
 import httpx2
 
+from bioparser.db import engine as database
+from bioparser.db import jobs as job_queries
 from bioparser.jobqueue import JobQueueError, ParseJobMessage
-from bioparser.jobstate import JobState, JobStateError
+from bioparser.jobstate import ALLOWED_TRANSITIONS, JobState, JobStatus
+from bioparser.parser.models import (
+    BlockKind,
+    BlockRole,
+    ContentBlock,
+    Page,
+    ParserArtifact,
+    ParserInfo,
+    TextContent,
+)
 from bioparser.storage import ArtifactMetadata, ArtifactNotFoundError, StorageError
 
 # What httpx2.MockTransport calls for every request a client sends
@@ -19,32 +33,34 @@ type Handler = Callable[[httpx2.Request], httpx2.Response]
 
 # stub json one page and one text block for mineru mapper
 STUB_JSON: dict[str, Any] = {
-    "_backend": "pipeline",
-    "_version_name": "3.4.5",
-    "pdf_info": [
+    "schema": "docvortex.middle",
+    "schema_version": "2.0",
+    "metadata": {"file_suffix": "pdf", "producer": {"name": "mineru", "version": "4.0.12"}},
+    "extensions": {
+        "docvortex_layout": {
+            "version": 1,
+            "pages": [{"page_idx": 0, "width_pt": 595.0, "height_pt": 842.0}],
+        }
+    },
+    "pages": [
         {
             "page_idx": 0,
-            "page_size": [595.0, 842.0],
-            "para_blocks": [
+            "blocks": [
                 {
                     "type": "text",
-                    "bbox": [10.0, 10.0, 500.0, 40.0],
-                    "lines": [
+                    "index": 0,
+                    "bbox": [0.017, 0.012, 0.84, 0.048],
+                    "content": [
                         {
-                            "bbox": [10.0, 10.0, 500.0, 40.0],
-                            "spans": [
-                                {
-                                    "type": "text",
-                                    "bbox": [10.0, 10.0, 500.0, 40.0],
-                                    "content": "Adult body mass averaged 12.5 g in the sampled population.",
-                                }
-                            ],
+                            "type": "text",
+                            "content": "Adult body mass averaged 12.5 g in the sampled population.",
                         }
                     ],
                 }
             ],
         }
     ],
+    "is_full_document": True,
 }
 
 
@@ -101,19 +117,58 @@ def fake_mineru(
         server.server_close()
 
 
-class StubMinerUClient:
-    """HTTP hop to mineru-api"""
+STUB_TEXT = "Adult body mass averaged 12.5 g in the sampled population."
+# The quotation holds the taxon, the value and the unit once each, so the default extractor
+# locates all of them. Use it with stub_parser_artifact(LOCATABLE_TEXT).
+LOCATABLE_TEXT = "Mus musculus: adult body mass 12.5 g."
+LOCATABLE_OBSERVATION: dict[str, Any] = {
+    "taxon": "Mus musculus",
+    "trait": "body_mass",
+    "value": 12.5,
+    "unit": "g",
+    "evidence_block_id": "stub-p1-b0000",
+    "quotation": "Mus musculus: adult body mass 12.5 g",
+}
 
-    def __init__(self, payload: dict[str, Any] | None = None) -> None:
-        self.payload = payload if payload is not None else STUB_JSON
-        self.calls: list[str] = []
 
-    async def parse(self, *, filename: str, content: bytes) -> dict[str, Any]:
-        self.calls.append(filename)
-        return self.payload
+def stub_parser_artifact(text: str = STUB_TEXT) -> ParserArtifact:
+    """A parser artifact with one page and one text block holding ``text``."""
+    block = ContentBlock(
+        block_id="stub-p1-b0000",
+        order=0,
+        kind=BlockKind.TEXT,
+        role=BlockRole.BODY,
+        content=TextContent(text=text),
+    )
+    return ParserArtifact(
+        schema_version="1",
+        checksum="0" * 64,
+        parser=ParserInfo(name="default", version="1", configuration={}),
+        pages=[Page(page_number=1, width=595.0, height=842.0, blocks=[block])],
+    )
 
-    async def aclose(self) -> None:
-        return None
+
+class StubParser:
+    """A parser backend: returns ``artifact`` or raises ``error``. Records the PDF of each call."""
+
+    def __init__(
+        self,
+        artifact: ParserArtifact | None = None,
+        *,
+        error: Exception | None = None,
+        delay_s: float = 0.0,
+    ) -> None:
+        self.artifact = artifact if artifact is not None else stub_parser_artifact()
+        self.error = error
+        self.delay_s = delay_s
+        self.pdfs: list[bytes] = []
+
+    def parse(self, path: Path) -> ParserArtifact:
+        self.pdfs.append(path.read_bytes())
+        time.sleep(self.delay_s)  # stands in for minutes of real parsing
+        if self.error is not None:
+            raise self.error
+        return self.artifact
 
 
 class StubVLLMService:
@@ -194,28 +249,171 @@ class StubArtifactStorage:
             raise ArtifactNotFoundError(f"Artifact not found: {artifact_path}") from exc
 
 
-class StubJobStateStore:
-    def __init__(self, events: list[str]) -> None:
-        self.states: dict[object, JobState] = {}
-        self.events = events
-        self.create_error: JobStateError | None = None
-        self.get_error: JobStateError | None = None
+_jobs: list["StubJobs"] = []
 
-    async def create(self, state: JobState) -> None:
+
+class StubJobs:
+    """One in-memory jobs table for the API tests and both worker handler tests."""
+
+    def __init__(self, state: JobState | None = None, *, events: list[str] | None = None) -> None:
+        _jobs.append(self)
+        self.states: dict[str, JobState] = {}
+        if state is not None:
+            self.states[str(state.job_id)] = state
+        self.events = events if events is not None else []
+        self.create_error: Exception | None = None
+        self.get_error: Exception | None = None
+
+    @property
+    def state(self) -> JobState | None:
+        if not self.states:
+            return None
+        return next(iter(self.states.values()))
+
+    async def create(self, connection: object, state: JobState) -> None:
         self.events.append("job_state.create")
         if self.create_error is not None:
             raise self.create_error
         self.states[str(state.job_id)] = state
 
-    async def get(self, job_id: object) -> JobState | None:
+    async def get(self, connection: object, job_id: object) -> JobState | None:
         if self.get_error is not None:
             raise self.get_error
         self.events.append("job_state.get")
         return self.states.get(str(job_id))
 
-    async def update(self, state: JobState) -> None:
-        self.events.append("job_state.update")
-        self.states[state.job_id] = state
+    async def claim(
+        self,
+        connection: object,
+        job_id: object,
+        *,
+        status: JobStatus,
+        from_statuses: Collection[str],
+        max_claims: int,
+    ) -> str:
+        state = self.states.get(str(job_id))
+        if state is None:
+            return "missing"
+        if state.status not in from_statuses:
+            return "skipped"
+        if state.claims(status) >= max_claims:
+            if "failed" not in ALLOWED_TRANSITIONS[state.status]:
+                return "skipped"
+            self.states[str(job_id)] = state.with_changes(
+                status="failed", error_code="internal_error"
+            )
+            return "exhausted"
+        if status == "parsing":
+            claimed = state.with_changes(status=status, parsing_claims=state.parsing_claims + 1)
+        else:
+            claimed = state.with_changes(
+                status=status, extracting_claims=state.extracting_claims + 1
+            )
+        self.states[str(job_id)] = claimed
+        return "claimed"
+
+    async def record_parsed(self, connection: object, job_id: object, artifact_path: str) -> bool:
+        state = self.states.get(str(job_id))
+        if state is None or state.status not in ("queued", "parsing"):
+            return False
+        self.states[str(job_id)] = state.with_changes(
+            status="parsed", parse_result_ref=artifact_path
+        )
+        return True
+
+    async def record_done(self, connection: object, job_id: object, artifact_path: str) -> bool:
+        state = self.states.get(str(job_id))
+        if state is None or state.status not in ("parsed", "extracting"):
+            return False
+        self.states[str(job_id)] = state.with_changes(
+            status="done", extract_result_ref=artifact_path
+        )
+        return True
+
+    async def mark_failed(
+        self,
+        connection: object,
+        job_id: object,
+        code: str,
+        *,
+        from_statuses: Collection[str],
+    ) -> str:
+        self.events.append("job_state.mark_failed")
+        state = self.states.get(str(job_id))
+        if state is None:
+            return "missing"
+        if state.status not in from_statuses:
+            return "skipped"
+        if "failed" not in ALLOWED_TRANSITIONS[state.status]:
+            return "not_allowed"
+        self.states[str(job_id)] = state.with_changes(status="failed", error_code=code)
+        return "recorded"
+
+
+def bind_jobs(monkeypatch: Any) -> None:
+    """Point job queries and the pool at the jobs table most recently constructed."""
+    tables = _jobs
+
+    async def get(connection: object, job_id: object) -> JobState | None:
+        return await tables[-1].get(connection, job_id)
+
+    async def create(connection: object, state: JobState) -> None:
+        await tables[-1].create(connection, state)
+
+    async def claim(
+        connection: object,
+        job_id: object,
+        *,
+        status: JobStatus,
+        from_statuses: Collection[str],
+        max_claims: int,
+    ) -> str:
+        return await tables[-1].claim(
+            connection,
+            job_id,
+            status=status,
+            from_statuses=from_statuses,
+            max_claims=max_claims,
+        )
+
+    async def record_parsed(connection: object, job_id: object, artifact_path: str) -> bool:
+        return await tables[-1].record_parsed(connection, job_id, artifact_path)
+
+    async def record_done(connection: object, job_id: object, artifact_path: str) -> bool:
+        return await tables[-1].record_done(connection, job_id, artifact_path)
+
+    async def mark_failed(
+        connection: object,
+        job_id: object,
+        code: str,
+        *,
+        from_statuses: Collection[str],
+    ) -> str:
+        return await tables[-1].mark_failed(connection, job_id, code, from_statuses=from_statuses)
+
+    async def open_pool(url: str) -> None:
+        return None
+
+    async def close_pool() -> None:
+        return None
+
+    @asynccontextmanager
+    async def _transaction():  # type: ignore[no-untyped-def]
+        yield object()
+
+    monkeypatch.setattr(job_queries, "get", get)
+    monkeypatch.setattr(job_queries, "create", create)
+    monkeypatch.setattr(job_queries, "claim", claim)
+    monkeypatch.setattr(job_queries, "record_parsed", record_parsed)
+    monkeypatch.setattr(job_queries, "record_done", record_done)
+    monkeypatch.setattr(job_queries, "mark_failed", mark_failed)
+    monkeypatch.setattr(database, "open", open_pool)
+    monkeypatch.setattr(database, "aclose", close_pool)
+    monkeypatch.setattr(database, "transaction", _transaction)
+
+
+def clear_jobs() -> None:
+    _jobs.clear()
 
 
 class StubParseQueue:
@@ -229,3 +427,13 @@ class StubParseQueue:
         if self.submit_error is not None:
             raise self.submit_error
         self.messages.append(message)
+
+
+@dataclass
+class InlinePipeline:
+    """What /extract and run_pipeline() get. Replace either field to change it for the test."""
+
+    parser: StubParser = field(default_factory=StubParser)
+    vllm: StubVLLMService = field(default_factory=StubVLLMService)
+    # (name, keyword arguments) of each get_parser() call
+    parser_requests: list[tuple[str, dict[str, Any]]] = field(default_factory=list)

@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,16 @@ def test_mineru_image_pins_the_schema_version() -> None:
     assert pins == {MINERU_VERSION}
 
 
+def test_mineru_fixtures_come_from_the_pinned_service() -> None:
+    # The image, the mapper and the fixtures move together. A fixture from another
+    # version would let the mapper tests pass against a document the service never sends.
+    fixtures = sorted(_DOCKERFILE.parents[1].glob("tests/parser/fixtures/mineru-middle*.json"))
+    assert fixtures
+    for path in fixtures:
+        producer = json.loads(path.read_text(encoding="utf-8"))["metadata"]["producer"]
+        assert producer == {"name": "mineru", "version": MINERU_VERSION}, path.name
+
+
 def test_each_mineru_target_serves_the_tier_it_bakes_in() -> None:
     # cpu serves the client's default tier; gpu serves Standard, the tier the GPU stack asks for.
     stages = dict(_STAGE.findall(_DOCKERFILE.read_text(encoding="utf-8")))
@@ -40,7 +51,9 @@ def test_compose_leaves_the_mineru_command_to_the_image() -> None:
         assert "--tier" not in path.read_text(encoding="utf-8"), path.name
 
 
-@pytest.mark.skipif(shutil.which("sh") is None, reason="needs a POSIX shell")
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("sh") is None, reason="needs a POSIX shell"
+)
 def test_mineru_entrypoint_passes_the_concurrency_as_one_argument(tmp_path: Path) -> None:
     # The ENTRYPOINT's sh script, run against a mineru-api stub that prints its arguments.
     dockerfile = _DOCKERFILE.read_text(encoding="utf-8").replace("\\\n", "")

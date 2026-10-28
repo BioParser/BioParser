@@ -23,27 +23,37 @@ Scanned PDFs and OCR are not part of the initial proof of concept.
 flowchart TB
     Client[API client]
     API[API container<br/>FastAPI and ETS adapter]
-    Redis[(Redis<br/>queue and job state)]
+    Redis[(Redis<br/>queue)]
+    Postgres[(Postgres<br/>job state)]
     Store[(Artifact storage<br/>volume, PVC, or object store)]
     Parser[Parser worker container<br/>PDF parser]
+    MinerU[MinerU container<br/>layout models]
     Extractor[Extractor worker container<br/>local model and validator]
 
     Client -->|submit PDF / poll| API
-    API -->|enqueue / read state| Redis
+    API -->|enqueue| Redis
+    API -->|read and write job state| Postgres
     API <-->|PDFs and results| Store
     Redis -->|parse job reference| Parser
+    Parser -->|PDF / middle.json| MinerU
     Parser -->|parser artifact| Store
+    Parser -->|update job state| Postgres
     Parser -->|enqueue extraction| Redis
     Redis -->|extraction reference| Extractor
+    Extractor -->|update job state| Postgres
     Extractor -->|canonical observations| Store
     API -->|ETS JSON| Client
 ```
 
-Redis holds two things: the job queue and the job state records. Queue messages carry
-only a job ID and a schema version. Each job state record holds that job's artifact
-paths (`pdf_ref`, `parse_result_ref`), which workers and the API read from it. Neither
-holds PDF bytes or model results; those stay in artifact storage. This keeps Redis small
-and lets storage change on its own.
+Redis is the job queue. Queue messages carry only a job ID and a schema version.
+Postgres holds one `jobs` row per job, including that job's artifact paths
+(`pdf_ref`, `parse_result_ref`, `extract_result_ref`). The API and both workers
+read and write those rows. Neither Redis nor Postgres holds PDF bytes or model
+results; those stay in artifact storage.
+
+Compose gives the API and both workers `BIOPARSER_DATABASE_URL`. A one-shot
+`migrate` container uses the API image to create the `jobs` table, then exits.
+The API and the workers start after that exit and do not migrate themselves.
 
 ## Components
 
@@ -62,37 +72,43 @@ ETS deterministically.
 
 ### Queue and storage
 
-Redis carries job references, state, retries, and timeouts. It is not an artifact
+Redis carries job references, retries, and timeouts. It is not an artifact
 archive. PDFs and versioned outputs live behind an artifact storage interface:
 
 - a named volume in Docker Compose
 - a shared persistent volume on OpenShift
 - an S3 compatible backend such as MinIO if shared storage is unavailable
 
-### Job-state keys, retention, and timeouts
+### Job state
 
-- **Key format:** `bioparser:job:<job_id>` — one Redis key per job,
-  holding that job's `JobState` as JSON.
-- **Retention:** every write refreshes a 90-day TTL. Once 90 days pass
-  without an update, Redis deletes the key automatically. This only
-  bounds how long a job is findable by `job_id` — Redis holds a
-  reference to extraction output, never the output itself, so nothing
-  about the extracted result is deleted when a job's state expires.
-- **Operation timeouts:** Redis connection and command operations are
-  bounded to 2 seconds by default, so a reachable-but-slow Redis can't
-  hang a caller indefinitely. A fully unreachable Redis is a separate,
-  already-handled case (`JobStateConnectionError`).
+- **Table:** `jobs`, one row per `job_id`. The `Job` class in `bioparser.db.jobs`
+  is that table. The API and both workers query it, and Alembic diffs the class
+  when generating a revision.
+- **Writes:** a claim, a recorded result, and a failure are each one statement.
+  The statement changes its own columns and matches only a status that may make
+  that change. No matching row leaves the job as it is. `created_at` and
+  `updated_at` are set by the database. The update trigger sets `updated_at`.
+- **Retention:** a row stays until something deletes it.
+- **Timeouts:** a driver failure, including one raised by a statement inside
+  the transaction, reports `DatabaseError`. The message names the driver error
+  type and not the URL.
 
 ### Workers
 
 The CPU oriented parser worker reads a PDF artifact, invokes the selected parser, stores
 a validated parser artifact, and updates job state. It has no dependency on ETS or the
-language model.
+language model. The `mineru` backend sends the PDF to a separate MinerU service, which
+holds the layout models and is the only parser part that needs a GPU.
 
 The independently deployable extractor worker consumes parser artifacts, runs the local
-model, validates canonical observations, rejects candidates without evidence, and stores
-the result. It may have separate memory and GPU requirements. Initial milestones define this
-boundary and evaluate runtimes; production inference comes later.
+model, and stores the result. An extractor returns the whole extraction artifact. An
+extractor drops what it cannot ground. Before storing, the worker checks the artifact against its
+schema, checks that it names the extractor and version the job runs, and checks every
+range against the slice it names. A failure fails the job. The worker does not drop or
+repair a field. It may have separate memory and GPU
+requirements.
+Initial milestones define this boundary and evaluate runtimes; production inference
+comes later.
 
 Health and readiness for workers
 
@@ -113,36 +129,39 @@ sequenceDiagram
     participant API as FastAPI
     participant Store as Artifact storage
     participant Redis
+    participant Postgres
     participant Parser as Parser worker
     participant Extractor as Extractor worker
 
     Client->>API: POST /api/extractions (PDF)
     API->>API: Validate and calculate checksum
     API->>Store: Store PDF artifact
-    API->>Redis: Create state and enqueue artifact reference
+    API->>Postgres: Create job state
+    API->>Redis: Enqueue job id
     API-->>Client: 202 Accepted + job_id
 
     Redis-->>Parser: Parse job
     Parser->>Store: Load PDF artifact
     Parser->>Parser: Parse and validate blocks
     Parser->>Store: Store parser artifact
-    Parser->>Redis: Update state / enqueue extraction
+    Parser->>Postgres: Update job state
+    Parser->>Redis: Enqueue extraction
 
     Redis-->>Extractor: Extraction job
     Extractor->>Store: Load parser artifact
     Extractor->>Extractor: Infer and validate canonical observations
     Extractor->>Store: Store canonical observation artifact
-    Extractor->>Redis: Record extraction result
+    Extractor->>Postgres: Record extraction result
 
     loop Until terminal state
         Client->>API: GET /api/jobs/{job_id}
-        API->>Redis: Read job state
+        API->>Postgres: Read job state
         API-->>Client: Current state
     end
 
     API->>Store: Load canonical observations
     API->>API: Map observations through ETS adapter
-    API-->>Client: ETS JSON with evidence
+    API-->>Client: ETS JSON
 ```
 
 The parser-only path terminates successfully after storing the parser artifact.
@@ -271,20 +290,13 @@ source coordinates.
 
 ### Canonical extraction artifact
 
-The model produces a standard independent candidate with taxon text, trait, value,
-unit, biological qualifiers, statistical context, evidence block and quotation,
-model/prompt versions, and validation status. Candidates without valid evidence are
-not returned as verified observations.
+A finished extraction stores one observation per measurement. Each paper field keeps the printed text and a character range in a parser block. A field that cannot be located is not stored, and an observation missing a required field is dropped by its extractor.
 
-### ETS response
+The stored file checks its shape: the trait code, a required string, and that a range is ordered. The worker checks every range against the slice it names before storing, for any extractor. A mismatch fails the job. An unresolved name and a unit that cannot be converted are stored as printed. The file does not decide whether a measurement is good enough to show.
 
-The API adapter maps validated observations to an explicit ETS version. Keeping it
-outside the model:
+The ETS adapter is the quality gate for what a user is shown. It resolves the name, converts the unit, and decides whether a weak field becomes a warning, an empty id, or a dropped row. An extractor may call those same checks while it is still working, and drop or repair a field before storing it. It does not have to. The stored file can hold a value the response rejects, such as a unit that does not fit the trait.
 
-- prevents model retraining for ETS mapping changes
-- makes mappings reviewable and testable
-- allows other output standards to be added later
-- distinguishes source supported values from normalized or derived fields
+The field list and the evidence rules are in [extraction-artifact.md](extraction-artifact.md). What the ETS adapter derives is in [ets-adapter.md](ets-adapter.md).
 
 ```mermaid
 flowchart LR
@@ -295,9 +307,9 @@ flowchart LR
 
     PDF -->|PDF parser| Parsed
     Parsed -->|local extraction model| Canonical
-    Canonical -->|deterministic adapter| ETS
+    Canonical -->|ETS adapter| ETS
 
-    Parsed -. block IDs and quotations .-> Canonical
+    Parsed -. block ranges .-> Canonical
     Canonical -. provenance .-> ETS
 ```
 
@@ -323,8 +335,8 @@ artifacts never rely on pod local storage.
 - File size, page count, processing time, and retry limits protect the service.
 - Uploaded filenames are metadata only and are never used directly as storage paths.
 - Configuration and errors do not expose secrets.
-- Tests can replace Redis and storage with in memory or temporary implementations.
-- Integration tests cover the real Redis and shared storage path.
+- Tests can replace the queue, job queries, and storage with in-memory stand-ins.
+- Integration tests cover the real Redis queue, Postgres job rows, and shared storage path.
 - Production requires an artifact retention and deletion policy.
 
 ## Evolution points

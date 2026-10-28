@@ -8,18 +8,19 @@ from collections.abc import Callable
 from pydantic import ValidationError
 
 from bioparser.artifact_paths import ArtifactPathError, extract_result_path
+from bioparser.db import engine as database
+from bioparser.db import jobs as job_queries
+from bioparser.extract.checks import checked_artifact
 from bioparser.extract.errors import ExtractionFailedError, ExtractorBackendUnavailableError
+from bioparser.extract.models import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
 from bioparser.extract.protocol import Extractor
-from bioparser.extract.report import artifact_from_report
-from bioparser.extract.schema import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
 from bioparser.extractor_names import EXTRACTOR_VERSIONS
 from bioparser.jobqueue import ExtractJobMessage, JobDeferred
-from bioparser.jobstate import JobState, JobStateStore, JobStatus, StaleJobStateWriteError
+from bioparser.jobstate import JobState, JobStatus
 from bioparser.parser.models import ParserArtifact
 from bioparser.services.vllm.vllm import VLLMService
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
 
-from ..job import CorruptJobRecord, MissingJobRecord, fetch_job
 from ..json_artifact import _retrieve_or_none, store_json_artifact
 from ..stage import PermanentJobFailure, StageJobHandler
 
@@ -34,14 +35,14 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
     def __init__(
         self,
         *,
-        jobs: JobStateStore,
+        database_url: str,
         storage: ArtifactStorage,
         extractor_factory: Callable[[str], Extractor],
         max_claims: int,
         vllm: VLLMService | None = None,
     ) -> None:
         super().__init__(
-            jobs=jobs,
+            database_url=database_url,
             owned=_EXTRACT_STAGE,
             claim_status="extracting",
             max_claims=max_claims,
@@ -63,23 +64,12 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
 
     async def run(self, state: JobState) -> None:
         artifact_path = await self._ensure_extraction_artifact(state)
-        # `state` is from before the claim. `update` replaces the whole record, so
-        # writing `done` from it would drop the claim count just stored.
-        match await fetch_job(self._jobs, state.job_id):
-            case CorruptJobRecord():
-                LOGGER.error("stored job state is unreadable. Not recording 'done'")
-            case JobState() as latest if latest.status in _EXTRACT_STAGE:
-                try:
-                    await self._jobs.update(
-                        latest.with_changes(status="done", extract_result_ref=artifact_path)
-                    )
-                except StaleJobStateWriteError:
-                    LOGGER.info(
-                        "another delivery moved the job on while it was extracting. "
-                        "Not recording 'done'"
-                    )
-            case MissingJobRecord() | JobState():
-                return
+        async with database.transaction() as connection:
+            wrote = await job_queries.record_done(connection, state.job_id, artifact_path)
+        if not wrote:
+            LOGGER.info(
+                "another delivery moved the job on while it was extracting. Not recording 'done'"
+            )
 
     async def _ensure_extraction_artifact(self, state: JobState) -> str:
         ref = state.parse_result_ref
@@ -97,7 +87,12 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             raise PermanentJobFailure("internal_error")
         try:
             extractor = self._extractor_factory(state.extractor)
-            report = await extractor.extract(parser_artifact)
+            artifact = checked_artifact(
+                await extractor.extract(parser_artifact),
+                parser_artifact,
+                extractor=state.extractor,
+                version=EXTRACTOR_VERSIONS.get(state.extractor),
+            )
         except ExtractorBackendUnavailableError as exc:
             LOGGER.error(f"extractor {state.extractor!r} cannot run: {exc}")
             raise PermanentJobFailure("internal_error") from exc
@@ -108,7 +103,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
                 "Marking the job failed (extraction_failed)"
             )
             raise PermanentJobFailure("extraction_failed") from exc
-        payload = artifact_from_report(report).model_dump_json().encode()
+        payload = artifact.model_dump_json().encode()
         return store_json_artifact(
             self._storage,
             schema_version=EXTRACTION_ARTIFACT_SCHEMA_VERSION,

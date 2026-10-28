@@ -14,6 +14,7 @@ from bioparser.artifact_paths import (
     ArtifactPathTraversalError,
     validate_artifact_path,
 )
+from bioparser.hashing import sha256_bytes
 from bioparser.storage.errors import (
     ArtifactAlreadyExistsError,
     ArtifactNotFoundError,
@@ -153,6 +154,15 @@ class FileSystemArtifactStorage:
             raise StoragePayloadError(
                 f"Metadata size_bytes ({metadata.size_bytes}) does not match "
                 f"content length ({len(content)})"
+            )
+
+        checksum = sha256_bytes(content)
+        if metadata.checksum is None:
+            metadata = metadata.model_copy(update={"checksum": checksum})
+        elif metadata.checksum != checksum:
+            raise StoragePayloadError(
+                f"Metadata checksum ({metadata.checksum}) does not match "
+                f"content checksum ({checksum})"
             )
 
         blob_id = uuid.uuid4().hex

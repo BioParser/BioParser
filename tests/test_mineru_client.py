@@ -102,6 +102,19 @@ def test_the_request_asks_for_basic_middle_json_with_only_a_file_field(kind: str
     assert b'name="files"; filename="a.pdf"' in body
 
 
+@both_clients
+def test_the_tier_is_the_one_the_client_was_given(kind: str) -> None:
+    seen: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        return httpx2.Response(200, content=_result())
+
+    _parse(kind, handler, tier="advanced")
+
+    assert seen[0].url.params["tier"] == "advanced"
+
+
 @pytest.mark.anyio
 async def test_neither_client_sends_through_a_proxy_from_the_environment() -> None:
     # The PDF goes straight to the internal service, whatever HTTP_PROXY says.
@@ -171,6 +184,33 @@ def test_a_parse_still_running_after_the_wait_is_cancelled(kind: str) -> None:
 
 
 @both_clients
+def test_a_parse_that_never_left_the_queue_is_cancelled_and_retryable(kind: str) -> None:
+    deleted: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.method == "DELETE":
+            deleted.append(request.url.path)
+            return httpx2.Response(200, json={})
+        return httpx2.Response(202, json={"task_id": "job_1", "status": "queued"})
+
+    with pytest.raises(MinerUError, match="did not start") as caught:
+        _parse(kind, handler)
+    assert type(caught.value) is MinerUError
+    assert deleted == ["/v1/tasks/job_1"]
+
+
+@both_clients
+def test_a_failed_cancel_still_reports_the_timeout(kind: str) -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.method == "DELETE":
+            raise httpx2.ConnectError("gone", request=request)
+        return httpx2.Response(202, json={"task_id": "job_1"})
+
+    with pytest.raises(MinerUTimeoutError):
+        _parse(kind, handler)
+
+
+@both_clients
 @pytest.mark.parametrize(
     ("code", "message"),
     [("parse_failed", "parse failed \\(parse_failed\\)"), ("Not a code\n", "unknown")],
@@ -185,6 +225,56 @@ def test_a_failed_parse_is_retryable_and_keeps_only_its_code(
         _parse(kind, lambda _request: httpx2.Response(409, content=body))
     assert type(caught.value) is MinerUError
     assert "secret text" not in str(caught.value)
+
+
+@both_clients
+@pytest.mark.parametrize(
+    "exc",
+    [httpx2.ReadTimeout("slow"), httpx2.ConnectTimeout("no route"), httpx2.ConnectError("refused")],
+    ids=["read-timeout", "connect-timeout", "refused"],
+)
+def test_transport_failures_are_retryable(kind: str, exc: httpx2.HTTPError) -> None:
+    # The read timeout outlasts the server's wait: running out of it means no answer came.
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        raise exc
+
+    with pytest.raises(MinerUError, match="unreachable") as caught:
+        _parse(kind, handler)
+    assert type(caught.value) is MinerUError
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"not json",
+        b'"not an object"',
+        b'["not", "an", "object"]',
+        b"{}",
+        b'{"files": []}',
+        b'{"files": [{}, {}]}',
+        b'{"files": ["not an object"]}',
+        _result(content={}),
+        _result(middle="{}"),
+        _result(middle={}),
+    ],
+    ids=[
+        "not-json",
+        "body-str",
+        "body-list",
+        "no-files",
+        "zero-files",
+        "two-files",
+        "entry-str",
+        "no-middle-json",
+        "middle-json-str",
+        "middle-json-empty",
+    ],
+)
+@both_clients
+def test_malformed_bodies_are_retryable_errors(kind: str, body: bytes) -> None:
+    with pytest.raises(MinerUError) as caught:
+        _parse(kind, lambda _request: httpx2.Response(200, content=body))
+    assert type(caught.value) is MinerUError
 
 
 # --- logging ---------------------------------------------------------------

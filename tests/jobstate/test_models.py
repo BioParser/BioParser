@@ -26,27 +26,19 @@ def _queued(**overrides: object) -> JobState:
 # --- round trips -------------------------------------------------------
 
 
-def test_claim_counts_a_start_of_that_stage_only() -> None:
-    claimed = _queued().with_claim("parsing")
-    assert claimed.status == "parsing"
-    assert claimed.claim_counts == {"parsing": 1}
-    again = _queued(status="parsing", claim_counts={"parsing": 1, "extracting": 2}).with_claim(
-        "parsing"
-    )
-    assert again.claim_counts == {"parsing": 2, "extracting": 2}
+def test_claim_counts_default_to_zero() -> None:
+    state = _queued()
+    assert state.parsing_claims == 0
+    assert state.extracting_claims == 0
+    assert state.claims("parsing") == 0
+    assert state.claims("extracting") == 0
 
 
-def test_a_stage_that_cannot_be_reentered_is_not_a_claim() -> None:
-    with pytest.raises(ValueError, match="cannot be claimed"):
-        _queued().with_claim("parsed")
-
-
-def test_stored_state_without_claim_counts_reads_as_empty() -> None:
-    raw = _queued().model_dump()
-    del raw["claim_counts"]
-    restored = JobState.model_validate(raw)
-    assert restored.claims("parsing") == 0
-    assert restored.claims("extracting") == 0
+def test_a_negative_claim_count_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        _queued(parsing_claims=-1)
+    with pytest.raises(ValidationError):
+        _queued(extracting_claims=-1)
 
 
 def test_every_status_has_a_transition_row() -> None:
@@ -83,7 +75,7 @@ def test_extracting_requires_parse_result_and_rejects_error() -> None:
         _queued(
             status="extracting",
             parse_result_ref=RESULT_REF,
-            error=SafeError(code="extraction_failed"),
+            error_code="extraction_failed",
         )
 
 
@@ -99,16 +91,15 @@ def test_done_requires_both_artifact_refs() -> None:
             status="done",
             parse_result_ref=RESULT_REF,
             extract_result_ref=EXTRACT_REF,
-            error=SafeError(code="extraction_failed"),
+            error_code="extraction_failed",
         )
 
 
 def test_failed_job_round_trips_through_json() -> None:
-    state = _queued(status="failed", error=SafeError(code="parse_failed"))
+    state = _queued(status="failed", error_code="parse_failed")
     restored = JobState.model_validate_json(state.model_dump_json())
     assert restored == state
-    assert restored.error is not None
-    assert restored.error.code == "parse_failed"
+    assert restored.error_code == "parse_failed"
 
 
 # --- status/field invariants --------------------------------------------
@@ -124,7 +115,7 @@ def test_succeeded_job_rejects_error() -> None:
         _queued(
             status="parsed",
             parse_result_ref=RESULT_REF,
-            error=SafeError(code="parse_failed"),
+            error_code="parse_failed",
         )
 
 
@@ -137,7 +128,7 @@ def test_failed_job_may_keep_the_parser_artifact() -> None:
     state = _queued(
         status="failed",
         parse_result_ref=RESULT_REF,
-        error=SafeError(code="extraction_failed"),
+        error_code="extraction_failed",
     )
     assert state.parse_result_ref == RESULT_REF
     assert state.extract_result_ref is None
@@ -149,7 +140,7 @@ def test_failed_job_rejects_extraction_result() -> None:
             status="failed",
             parse_result_ref=RESULT_REF,
             extract_result_ref=EXTRACT_REF,
-            error=SafeError(code="extraction_failed"),
+            error_code="extraction_failed",
         )
 
 
@@ -162,7 +153,7 @@ def test_non_terminal_job_rejects_parse_result(status: str) -> None:
 @pytest.mark.parametrize("status", ["queued", "parsing"])
 def test_non_terminal_job_rejects_error(status: str) -> None:
     with pytest.raises(ValidationError):
-        _queued(status=status, error=SafeError(code="parse_failed"))
+        _queued(status=status, error_code="parse_failed")
 
 
 def test_with_changes_returns_new_validated_instance() -> None:

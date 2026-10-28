@@ -15,8 +15,10 @@ ErrorCode = Literal[
     "storage_unavailable",
     "artifact_invalid",
     "job_state_unreadable",
-    "redis_unavailable",
+    "database_unavailable",
     "queue_unavailable",
+    "artifact_not_available",
+    "unauthorized",
 ]
 
 
@@ -46,6 +48,10 @@ CONTENT_TOO_LARGE = ErrorDetail(
     code="content_too_large",
     message="Content Too Large",
 )
+UNAUTHORIZED = ErrorDetail(
+    code="unauthorized",
+    message="Invalid or missing API key",
+)
 
 STORAGE_UNAVAILABLE = ErrorDetail(
     code="storage_unavailable",
@@ -53,23 +59,32 @@ STORAGE_UNAVAILABLE = ErrorDetail(
 )
 ARTIFACT_INVALID = ErrorDetail(
     code="artifact_invalid",
-    message="Stored parser artifact is invalid",
+    message="Stored artifact is missing or invalid",
 )
 JOB_STATE_UNREADABLE = ErrorDetail(
     code="job_state_unreadable",
     message="Stored job state is unreadable",
 )
 
-REDIS_UNAVAILABLE = ErrorDetail(
-    code="redis_unavailable",
-    message="Job state service is unavailable",
+DATABASE_UNAVAILABLE = ErrorDetail(
+    code="database_unavailable",
+    message="Database is unavailable",
 )
 
 QUEUE_UNAVAILABLE = ErrorDetail(code="queue_unavailable", message="Parse queue is unavailable")
 
+ARTIFACT_NOT_AVAILABLE = ErrorDetail(
+    code="artifact_not_available",
+    message="The job has no such artifact. GET /api/jobs/{job_id} shows the job status",
+)
 
-def http_error(status_code: int, detail: ErrorDetail) -> HTTPException:
-    return HTTPException(status_code=status_code, detail=detail.model_dump())
+
+def http_error(
+    status_code: int,
+    detail: ErrorDetail,
+    headers: dict[str, str] | None = None,
+) -> HTTPException:
+    return HTTPException(status_code=status_code, detail=detail.model_dump(), headers=headers)
 
 
 def error_response(*details: ErrorDetail) -> dict[str, object]:

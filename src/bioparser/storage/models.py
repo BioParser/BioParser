@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from bioparser.artifact_paths import ArtifactPath
+from bioparser.hashing import Sha256Hex
 
 ARTIFACT_METADATA_SCHEMA_VERSION: Literal["1"] = "1"
 
@@ -37,6 +38,7 @@ class ArtifactMetadata(BaseModel):
     creation_info: CreationInfo = Field(default_factory=CreationInfo)
     content_schema_version: str | None = None
     size_bytes: int | None = Field(default=None, ge=0)
+    checksum: Sha256Hex | None = None
 
     @model_validator(mode="before")
     @classmethod

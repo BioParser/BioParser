@@ -4,7 +4,10 @@ import time
 from pathlib import Path
 
 from bioparser.hashing import sha256_bytes
-from bioparser.parser.backend.mineru.mapper import artifact_from_middle_json
+from bioparser.parser.backend.mineru.mapper import (
+    MiddleJsonContractError,
+    artifact_from_middle_json,
+)
 from bioparser.parser.backend.mineru.schema import parse_configuration
 from bioparser.parser.errors import (
     ParserBackendUnavailableError,
@@ -67,5 +70,8 @@ class MinerUParser:
                 parser_version=PARSER_VERSIONS[MINERU_PARSER_NAME],
                 configuration=parse_configuration(self._tier),
             )
+        except MiddleJsonContractError as exc:
+            # The service and this mapper disagree (a MinerU upgrade on one side): not the PDF.
+            raise ParserBackendUnavailableError(str(exc)) from exc
         except ValueError as exc:
             raise UnsupportedDocumentError(str(exc)) from exc

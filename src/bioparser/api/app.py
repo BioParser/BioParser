@@ -1,22 +1,27 @@
 import asyncio
 import contextlib
-import hashlib
-import json
 import logging
+import multiprocessing
 import os
 import socket
 import tempfile
 import uuid
 from collections.abc import AsyncIterator
+from concurrent.futures import Executor, ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
 from typing import Any
-from urllib.parse import urlparse
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile
-from pydantic import ValidationError
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
+from pydantic import BaseModel, ValidationError
 
+from bioparser.db import engine as database
+from bioparser.db import jobs as job_queries
+from bioparser.db.engine import DatabaseError
+from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
+from bioparser.hashing import sha256_bytes
 from bioparser.jobqueue import (
     JobQueueError,
     ParseJobMessage,
@@ -25,14 +30,12 @@ from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobstate import (
     CorruptJobStateError,
     JobState,
-    JobStateError,
-    RedisJobStateStore,
     SafeError,
 )
 from bioparser.logging_config import error_fields, redact_url, setup_logging
-from bioparser.parser import ParserArtifact
+from bioparser.parser.models import ParserArtifact
 from bioparser.parser_names import DEFAULT_PARSER_NAME
-from bioparser.services.mineru import MinerUClient
+from bioparser.pipeline import PipelineError, PipelineOptions, run_pipeline
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.config import get_settings as get_vllm_settings
 from bioparser.services.vllm.vllm import VLLMError
@@ -47,9 +50,12 @@ from bioparser.storage import (
 )
 
 from . import config
+from .auth import ApiKeyMiddleware, require_api_key
 from .errors import (
     ARTIFACT_INVALID,
+    ARTIFACT_NOT_AVAILABLE,
     CONTENT_TOO_LARGE,
+    DATABASE_UNAVAILABLE,
     EMPTY_FILE,
     INVALID_CONTENT_LENGTH,
     INVALID_JOB_ID,
@@ -58,14 +64,13 @@ from .errors import (
     JOB_STATE_UNREADABLE,
     MISSING_FILE,
     QUEUE_UNAVAILABLE,
-    REDIS_UNAVAILABLE,
     STORAGE_UNAVAILABLE,
+    UNAUTHORIZED,
     UNSUPPORTED_CONTENT_TYPE,
     error_response,
     http_error,
 )
 from .middleware import TypedRequestBodyLimitMiddleware
-from .pipeline import PipelineError, run_pipeline
 from .schema import (
     FailedJobResponse,
     HealthResponse,
@@ -98,7 +103,9 @@ async def _failure_logged_redacted(phase: str) -> AsyncIterator[None]:
         yield
     except Exception as exc:
         LOGGER.critical(
-            "lifespan failed", exc_info=True, extra={"phase": phase, **error_fields(exc)}
+            "lifespan failed",
+            exc_info=True,
+            extra={"phase": phase, **error_fields(exc)},
         )
         raise LifespanError(f"{phase} failed: {type(exc).__name__}") from None
 
@@ -109,18 +116,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with _failure_logged_redacted("startup"):
             settings = config.get_api_settings()
             setup_logging(settings.log_level)
-            if settings.redis_url is None:
-                raise RuntimeError("BIOPARSER_REDIS_URL is required")
-            if settings.artifact_storage_path is None:
-                raise RuntimeError("BIOPARSER_ARTIFACT_STORAGE_PATH is required")
-
-            app.state.mineru = MinerUClient(
-                settings.mineru_base_url,
-                settings.mineru_timeout_seconds,
-                settings.mineru_connect_timeout_seconds,
-                tier=settings.mineru_tier,
-            )
-
+            if settings.auth_disabled:
+                LOGGER.warning("authentication is disabled (BIOPARSER_AUTH_DISABLED=true)")
+            elif not settings.api_key or not settings.api_key.get_secret_value():
+                LOGGER.critical(
+                    "BIOPARSER_API_KEY must be set when BIOPARSER_AUTH_DISABLED is false"
+                )
+                raise RuntimeError(
+                    "BIOPARSER_API_KEY is required when BIOPARSER_AUTH_DISABLED is false"
+                )
             app.state.vllm = VLLMService()
             vllm_base_url = redact_url(get_vllm_settings().vllm_base_url)
             try:
@@ -139,10 +143,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
             redis_url = str(settings.redis_url)
             redis_timeout = settings.redis_timeout_seconds
-            app.state.job_store = RedisJobStateStore(
-                redis_url,
-                operation_timeout_seconds=redis_timeout,
-            )
+            await database.open(str(settings.database_url))
             app.state.parse_queue = DramatiqJobQueue.from_redis(
                 redis_url,
                 name=settings.parse_queue_name,
@@ -154,19 +155,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 root_path=settings.artifact_storage_path
             )
 
-            # Bounds /extract only. The queue replaces this once the worker lands.
+            # /extract runs the whole pipeline in these processes, never on this event loop.
+            # The semaphore holds one slot per process, so the pool never queues work.
+            app.state.pipeline_pool = _new_pipeline_pool(
+                settings.extract_concurrency, settings.log_level
+            )
             app.state.extract_sem = asyncio.Semaphore(settings.extract_concurrency)
 
         yield
     finally:
         async with _failure_logged_redacted("shutdown"):
-            for client in (
-                getattr(app.state, "mineru", None),
-                getattr(app.state, "vllm", None),
-                getattr(app.state, "job_store", None),
-            ):
-                if client is not None:
-                    await client.aclose()
+            pool = getattr(app.state, "pipeline_pool", None)
+            if pool is not None:
+                # A running child cannot be stopped; the shutdown does not wait for it.
+                pool.shutdown(wait=False, cancel_futures=True)
+            vllm = getattr(app.state, "vllm", None)
+            if vllm is not None:
+                await vllm.aclose()
+            await database.aclose()
+
+
+def _pipeline_start_method() -> str:
+    """forkserver: forking this threaded process is unsafe. Windows has no forkserver, so spawn."""
+    return "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
+
+
+def _new_pipeline_pool(workers: int, log_level: int) -> Executor:
+    """Processes for /extract."""
+    return ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=multiprocessing.get_context(_pipeline_start_method()),
+        initializer=setup_logging,
+        initargs=(log_level,),
+    )
 
 
 # Uvicorn imports the app before emitting its first log line.
@@ -175,7 +196,8 @@ try:
     setup_logging(config.get_api_settings().log_level)
 except ValidationError as exc:
     LOGGER.critical(
-        "invalid configuration", extra={"invalid_settings": config.invalid_settings(exc)}
+        "invalid configuration",
+        extra={"invalid_settings": config.invalid_settings(exc)},
     )
     raise
 
@@ -184,91 +206,191 @@ app.add_middleware(
     TypedRequestBodyLimitMiddleware,
     max_body_size=config.get_api_settings().max_upload_bytes,
 )
+
+# Added last, so it runs first: a request without the key gets 401 before the body
+# limit, the form parser or a route reads any of its body.
+app.add_middleware(ApiKeyMiddleware)
 app.include_router(ui_router)
 
 
-async def _validated_upload(request: Request, file: UploadFile | None) -> tuple[str, bytes]:
+async def _validated_upload(request: Request, file: UploadFile | None) -> bytes:
     validate_content_length(request.headers.get("content-length"))
     file = require_file(file)
     validate_content_type(file)
     content = await read_upload(file)
     validate_pdf_content(content)
-    # If we use sha256 as digest then same files get same digest
-    # Can be used as job id etc
-    return hashlib.sha256(content).hexdigest(), content
+    return content
 
 
-@asynccontextmanager
-async def _extract_slot(app: FastAPI) -> AsyncIterator[None]:
-    """Used for /extract sync runs
+async def _start_pipeline(
+    app: FastAPI, content: bytes, options: PipelineOptions
+) -> tuple[asyncio.Future[ExtractionArtifact], Executor]:
+    """Take a pipeline slot and start one run. Returns the run and the pool it runs in.
 
-    /api/extractions should use async runs when redis implemented
+    503 when no slot frees up in time.
+
+    The run, not the request, frees the slot: a client that goes away cannot stop a running
+    child, and the pool must not queue the next run behind it.
     """
+    sem: asyncio.Semaphore = app.state.extract_sem
     timeout = config.get_api_settings().extract_queue_timeout_seconds
     try:
         async with asyncio.timeout(timeout):
-            await app.state.extract_sem.acquire()
+            await sem.acquire()
     except TimeoutError as exc:
         raise HTTPException(
             status_code=503,
             detail="Pipeline is saturated, retry shortly",
             headers={"Retry-After": "30"},
         ) from exc
+    loop = asyncio.get_running_loop()
+    pool: Executor = app.state.pipeline_pool
     try:
-        yield
-    finally:
-        app.state.extract_sem.release()
+        try:
+            run = loop.run_in_executor(pool, run_pipeline, content, options)
+        except BrokenProcessPool:
+            # An earlier child died, for example out of memory, and the pool takes no more work.
+            pool = _replace_pipeline_pool(app, pool)
+            run = loop.run_in_executor(pool, run_pipeline, content, options)
+    except BaseException:
+        sem.release()
+        raise
+    run.add_done_callback(lambda finished: _free_slot(sem, finished))
+    return run, pool
+
+
+def _free_slot(sem: asyncio.Semaphore, finished: asyncio.Future[ExtractionArtifact]) -> None:
+    sem.release()
+    if not finished.cancelled():
+        finished.exception()  # read: a run whose client went away logs no "never retrieved"
+
+
+def _replace_pipeline_pool(app: FastAPI, broken: Executor) -> Executor:
+    """Put a new pool in place of a broken one, unless another request already did."""
+    if app.state.pipeline_pool is broken:
+        settings = config.get_api_settings()
+        app.state.pipeline_pool = _new_pipeline_pool(
+            settings.extract_concurrency, settings.log_level
+        )
+        broken.shutdown(wait=False, cancel_futures=True)
+    pool: Executor = app.state.pipeline_pool
+    return pool
 
 
 def _job_state_response(state: JobState) -> JobStatusResponse:
-    if state.status == "queued":
-        return QueuedJobResponse(
-            job_id=state.job_id,
-            status="queued",
-        )
+    """The public status. No storage paths: they are internal, and no route takes one."""
+    match state.status:
+        case "queued":
+            return QueuedJobResponse(job_id=state.job_id, status="queued")
+        case "parsing" | "extracting":
+            return RunningJobResponse(job_id=state.job_id, status=state.status)
+        case "parsed" | "done":
+            return SucceededJobResponse(job_id=state.job_id, status=state.status)
+        case "failed":
+            if state.error_code is None:
+                raise ValueError("Failed job is missing error_code")
+            return FailedJobResponse(
+                job_id=state.job_id,
+                status="failed",
+                error=SafeError(code=state.error_code),
+            )
 
-    if state.status in ("parsing", "extracting"):
-        return RunningJobResponse(
-            job_id=state.job_id,
-            status=state.status,
-        )
 
-    if state.status in ("parsed", "done"):
-        if state.parse_result_ref is None:
-            raise ValueError("Parsed job is missing parse_result_ref")
+def _parse_job_id(job_id: str) -> UUID:
+    try:
+        parsed_job_id = UUID(job_id)
+    except ValueError as exc:
+        raise http_error(422, INVALID_JOB_ID) from exc
+    if parsed_job_id.version != 4:
+        raise http_error(422, INVALID_JOB_ID)
+    return parsed_job_id
 
-        return SucceededJobResponse(
-            job_id=state.job_id,
-            status=state.status,
-            output_artifact_ref=state.parse_result_ref,
-        )
 
-    if state.status == "failed":
-        if state.error is None:
-            raise ValueError("Failed job is missing error")
+async def _read_job(request: Request, job_id: UUID) -> JobState:
+    """The stored job, or the route's 404, 500 or 503."""
+    try:
+        async with database.transaction() as connection:
+            record = await job_queries.get(connection, job_id)
+    except CorruptJobStateError as exc:
+        LOGGER.error("job state unreadable", extra={"job_id": str(job_id), **error_fields(exc)})
+        raise http_error(500, JOB_STATE_UNREADABLE) from exc
+    except DatabaseError as exc:
+        LOGGER.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
+    if record is None:
+        raise http_error(404, JOB_NOT_FOUND)
+    return record
 
-        return FailedJobResponse(
-            job_id=state.job_id,
-            status="failed",
-            error=state.error,
-        )
-    else:
-        raise ValueError(f"Unknown job status: {state.status}")
+
+# The artifact routes are for the BioParser UI, not part of the core job flow.
+_INTERNAL = "internal"
+_INTERNAL_NOTE = (
+    "For the BioParser UI. The body is the artifact as stored; its shape follows its "
+    "`schema_version` and can change."
+)
+# A job's artifact never changes: its path holds the checksum of the input and the
+# producer's version, storage cannot replace it, and the job keeps the same ref.
+_IMMUTABLE = "private, max-age=31536000, immutable"
+
+
+def _artifact_responses(model: type[BaseModel], description: str) -> dict[int | str, Any]:
+    return {
+        200: {
+            "model": model,
+            "description": description,
+            "content": {"application/json": {}},
+        },
+        401: error_response(UNAUTHORIZED),
+        404: error_response(JOB_NOT_FOUND),
+        409: error_response(ARTIFACT_NOT_AVAILABLE),
+        422: error_response(INVALID_JOB_ID),
+        500: error_response(JOB_STATE_UNREADABLE, ARTIFACT_INVALID),
+        503: error_response(DATABASE_UNAVAILABLE, STORAGE_UNAVAILABLE),
+    }
+
+
+async def _stored_artifact(request: Request, job: JobState, ref: str | None, kind: str) -> Response:
+    """The artifact at ``ref`` as stored, or 409 when the job has none yet.
+
+    The bytes are read in a thread and not parsed: the worker validated them before it
+    recorded the ref, and a parser artifact can be several MB.
+    """
+    if ref is None:
+        raise http_error(409, ARTIFACT_NOT_AVAILABLE)
+    fields = {"job_id": str(job.job_id), "artifact": kind}
+    try:
+        payload: bytes = await asyncio.to_thread(request.app.state.artifact_storage.retrieve, ref)
+    except (ArtifactNotFoundError, StoragePayloadError) as exc:
+        LOGGER.error("job artifact missing or invalid", extra=fields | error_fields(exc))
+        raise http_error(500, ARTIFACT_INVALID) from exc
+    except StorageError as exc:
+        LOGGER.warning("job artifact read failed", extra=fields | error_fields(exc))
+        raise http_error(503, STORAGE_UNAVAILABLE) from exc
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Cache-Control": _IMMUTABLE},
+    )
 
 
 @app.post(
     "/api/extractions",
     status_code=202,
+    dependencies=[Depends(require_api_key)],
     responses={
         400: error_response(MISSING_FILE, EMPTY_FILE, INVALID_PDF, INVALID_CONTENT_LENGTH),
+        401: error_response(UNAUTHORIZED),
         413: error_response(CONTENT_TOO_LARGE),
         415: error_response(UNSUPPORTED_CONTENT_TYPE),
         500: error_response(JOB_STATE_UNREADABLE),
-        503: error_response(STORAGE_UNAVAILABLE, REDIS_UNAVAILABLE, QUEUE_UNAVAILABLE),
+        503: error_response(STORAGE_UNAVAILABLE, DATABASE_UNAVAILABLE, QUEUE_UNAVAILABLE),
     },
 )
 async def submit_job(request: Request, file: UploadFile | None = None) -> QueuedJobResponse:
-    document_id, pdf_bytes = await _validated_upload(request, file)
+    pdf_bytes = await _validated_upload(request, file)
+    # The same PDF always gets the same id. hashlib releases the GIL, so a thread keeps the
+    # hashing of up to max_upload_bytes off the event loop.
+    document_id = await asyncio.to_thread(sha256_bytes, pdf_bytes)
     job_id = uuid.uuid4()
     creation_info = CreationInfo(created_by="api-upload")
     artifact_metadata = ArtifactMetadata(
@@ -299,25 +421,37 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         extractor=DEFAULT_EXTRACTOR_NAME,
         pdf_ref=pdf_ref,
     )
-    try:
-        await request.app.state.job_store.create(job_state)
-    except JobStateError as exc:
-        LOGGER.error("job state create failed", extra=fields | error_fields(exc))
-        raise http_error(503, REDIS_UNAVAILABLE) from exc
-
     parse_job_message = ParseJobMessage(
         job_id=job_id,
     )
+    # Commit the row before calling Redis, so a queue round trip does not hold a
+    # pooled connection. A failed enqueue marks that row failed afterwards.
+    try:
+        async with database.transaction() as connection:
+            await job_queries.create(connection, job_state)
+    except DatabaseError as exc:
+        LOGGER.error("job state create failed", extra=fields | error_fields(exc))
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
     try:
         await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
     except JobQueueError as exc:
         LOGGER.error("parse job enqueue failed", extra=fields | error_fields(exc))
-        failed_state = job_state.with_changes(
-            status="failed",
-            error=SafeError(code="internal_error"),
-        )
-        with contextlib.suppress(JobStateError):
-            await request.app.state.job_store.update(failed_state)
+        try:
+            async with database.transaction() as connection:
+                outcome = await job_queries.mark_failed(
+                    connection,
+                    job_id,
+                    "internal_error",
+                    from_statuses=("queued",),
+                )
+        except DatabaseError as mark_error:
+            LOGGER.error(
+                "queued job remains after the enqueue failed",
+                extra=fields | error_fields(mark_error),
+            )
+        else:
+            if outcome != "recorded":
+                LOGGER.error("queued job remains after the enqueue failed", extra=fields)
         raise http_error(503, QUEUE_UNAVAILABLE) from exc
 
     return QueuedJobResponse(job_id=job_id, status="queued")
@@ -325,85 +459,90 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
 
 @app.get(
     "/api/jobs/{job_id}",
+    dependencies=[Depends(require_api_key)],
     responses={
+        401: error_response(UNAUTHORIZED),
         404: error_response(JOB_NOT_FOUND),
         422: error_response(INVALID_JOB_ID),
-        500: error_response(JOB_STATE_UNREADABLE, ARTIFACT_INVALID),
-        503: error_response(
-            REDIS_UNAVAILABLE,
-            STORAGE_UNAVAILABLE,
-        ),
+        500: error_response(JOB_STATE_UNREADABLE),
+        503: error_response(DATABASE_UNAVAILABLE),
     },
 )
 async def job_status(request: Request, job_id: str) -> JobStatusResponse:
-    try:
-        parsed_job_id = UUID(job_id)
-    except ValueError as exc:
-        raise http_error(422, INVALID_JOB_ID) from exc
-    if parsed_job_id.version != 4:
-        raise http_error(422, INVALID_JOB_ID)
-    try:
-        record = await request.app.state.job_store.get(parsed_job_id)
-
-    except CorruptJobStateError as exc:
-        LOGGER.error("job state unreadable", extra={"job_id": str(job_id), **error_fields(exc)})
-        raise http_error(500, JOB_STATE_UNREADABLE) from exc
-
-    except JobStateError as exc:
-        LOGGER.warning("job state read failed", extra={"job_id": str(job_id), **error_fields(exc)})
-        raise http_error(503, REDIS_UNAVAILABLE) from exc
-
-    if record is None:
-        raise http_error(404, JOB_NOT_FOUND)
-    if record.status in ("parsed", "done"):
-        if record.parse_result_ref is None:
-            LOGGER.error("parser artifact invalid", extra={"job_id": str(job_id)})
-            raise http_error(500, ARTIFACT_INVALID)
-        artifact_fields = {
-            "job_id": str(job_id),
-            "artifact_ref": str(record.parse_result_ref),
-        }
-        try:
-            payload = await asyncio.to_thread(
-                request.app.state.artifact_storage.retrieve,
-                record.parse_result_ref,
-            )
-        except (ArtifactNotFoundError, StoragePayloadError) as exc:
-            LOGGER.error(
-                "parser artifact missing or invalid",
-                extra=artifact_fields | error_fields(exc),
-            )
-            raise http_error(500, ARTIFACT_INVALID) from exc
-        except StorageError as exc:
-            LOGGER.warning("parser artifact read failed", extra=artifact_fields | error_fields(exc))
-            raise http_error(503, STORAGE_UNAVAILABLE) from exc
-        try:
-            ParserArtifact.model_validate(json.loads(payload))
-        except (UnicodeDecodeError, json.JSONDecodeError, ValidationError) as exc:
-            LOGGER.error("parser artifact invalid", extra=artifact_fields | error_fields(exc))
-            raise http_error(500, ARTIFACT_INVALID) from exc
-    return _job_state_response(record)
+    # One Postgres read. The worker validated the artifact before it recorded the ref, so this
+    # route does not read it again: that cost grows with the paper and ran on the event loop.
+    return _job_state_response(await _read_job(request, _parse_job_id(job_id)))
 
 
-@app.post("/extract")
-async def extract(request: Request, file: UploadFile | None = None) -> dict[str, Any]:
-    """Runs validate -> mineru -> mapper -> vLLM pipeline for testing,
-    synchronously"""
-    checksum, content = await _validated_upload(request, file)
+@app.get(
+    "/api/jobs/{job_id}/artifacts/parser",
+    dependencies=[Depends(require_api_key)],
+    tags=[_INTERNAL],
+    description=_INTERNAL_NOTE,
+    response_class=Response,
+    responses=_artifact_responses(
+        ParserArtifact, "The job's parser artifact: blocks, text and bounding boxes"
+    ),
+)
+async def job_parser_artifact(request: Request, job_id: str) -> Response:
+    """The parser artifact of a job, from `parsed` on (also for a job that failed later)."""
+    job = await _read_job(request, _parse_job_id(job_id))
+    return await _stored_artifact(request, job, job.parse_result_ref, "parser")
+
+
+@app.get(
+    "/api/jobs/{job_id}/artifacts/extraction",
+    dependencies=[Depends(require_api_key)],
+    tags=[_INTERNAL],
+    description=_INTERNAL_NOTE,
+    response_class=Response,
+    responses=_artifact_responses(
+        ExtractionArtifact,
+        "The job's extraction artifact: observations and their evidence",
+    ),
+)
+async def job_extraction_artifact(request: Request, job_id: str) -> Response:
+    """The extraction artifact of a `done` job."""
+    job = await _read_job(request, _parse_job_id(job_id))
+    return await _stored_artifact(request, job, job.extract_result_ref, "extraction")
+
+
+@app.post(
+    "/extract",
+    dependencies=[Depends(require_api_key)],
+    responses={
+        401: error_response(UNAUTHORIZED),
+        502: {"description": "The pipeline gave no result. `detail` names the failed step."},
+        503: {"description": "Every pipeline process is busy. Retry after `Retry-After`."},
+    },
+)
+async def extract(request: Request, file: UploadFile | None = None) -> ExtractionArtifact:
+    """Dev route: a queued job's pipeline in one request, without the queue and the workers.
+
+    The same parser, extractor and settings as a job from `POST /api/extractions`. Nothing is
+    stored. The response is the extraction artifact that the job stores.
+    """
+    content = await _validated_upload(request, file)
     settings = config.get_api_settings()
-    async with _extract_slot(request.app):
-        try:
-            return await run_pipeline(
-                mineru=request.app.state.mineru,
-                vllm=request.app.state.vllm,
-                checksum=checksum,
-                content=content,
-                tier=settings.mineru_tier,
-                char_budget=settings.extraction_char_budget,
-                max_tokens=settings.extraction_max_tokens,
-            )
-        except PipelineError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+    options = PipelineOptions(
+        parser=DEFAULT_PARSER_NAME,
+        extractor=DEFAULT_EXTRACTOR_NAME,
+        parser_timeout_s=settings.mineru_timeout_seconds,
+        mineru_base_url=settings.mineru_base_url,
+        mineru_tier=settings.mineru_tier,
+        char_budget=settings.extraction_char_budget,
+        max_tokens=settings.extraction_max_tokens,
+    )
+    run, pool = await _start_pipeline(request.app, content, options)
+    try:
+        # Shielded: a client that goes away must not cancel the run that holds the slot.
+        return await asyncio.shield(run)
+    except PipelineError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except BrokenProcessPool as exc:
+        LOGGER.error("pipeline process died", extra=error_fields(exc))
+        _replace_pipeline_pool(request.app, pool)
+        raise HTTPException(status_code=502, detail="Pipeline process died") from exc
 
 
 @app.get("/health")
@@ -411,22 +550,25 @@ def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
-async def _check_redis(redis_url: str, timeout: float) -> bool:
-    def _connect_to_redis() -> bool:
-        parsed = urlparse(redis_url)
-        host = parsed.hostname
-        port = parsed.port or 6379
+async def _check_tcp(host: str | None, port: int, timeout: float) -> bool:
+    """True when a TCP connection to host and port succeeds.
+
+    The caller passes host and port, never the URL, so the password does not
+    reach this function. The wait bounds the response. A hung DNS lookup still
+    keeps its thread until DNS answers.
+    """
+
+    def _connect() -> bool:
         if not host:
             return False
         try:
-            conn = socket.create_connection((host, port), timeout=timeout)
-            conn.close()
-            return True
+            socket.create_connection((host, port), timeout=timeout).close()
         except OSError:
             return False
+        return True
 
     try:
-        return await asyncio.wait_for(asyncio.to_thread(_connect_to_redis), timeout=timeout)
+        return await asyncio.wait_for(asyncio.to_thread(_connect), timeout=timeout)
     except TimeoutError:
         return False
 
@@ -475,10 +617,16 @@ async def readiness() -> ReadinessResponse:
 
     timeout = settings.dependency_check_timeout_seconds
 
-    if settings.redis_url and not await _check_redis(str(settings.redis_url), timeout):
+    redis = settings.redis_url
+    if not await _check_tcp(redis.host, redis.port or 6379, timeout):
         unavailable.append("redis")
 
-    if settings.artifact_storage_path and not await _check_storage(
+    # PostgresDsn can hold several hosts. Check the first, as libpq tries it first.
+    db = settings.database_url.hosts()[0]
+    if not await _check_tcp(db["host"], db["port"] or 5432, timeout):
+        unavailable.append("postgres")
+
+    if not await _check_storage(
         settings.artifact_storage_path,
         timeout,
     ):

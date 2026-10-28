@@ -15,20 +15,17 @@ from collections.abc import Awaitable
 from typing import Protocol
 from uuid import UUID
 
+from bioparser.db import engine as database
+from bioparser.db import jobs as job_queries
 from bioparser.jobqueue import JobTimeLimitExceeded
 from bioparser.jobstate import (
-    ALLOWED_TRANSITIONS,
+    CorruptJobStateError,
     JobNotFoundError,
     JobState,
-    JobStateStore,
     JobStatus,
-    SafeError,
     SafeErrorCode,
-    StaleJobStateWriteError,
 )
 from bioparser.logging_config import log_context
-
-from .job import CorruptJobRecord, MissingJobRecord, fetch_job
 
 LOGGER = logging.getLogger(__name__)
 
@@ -62,24 +59,31 @@ class StageJobHandler[T: JobMessage]:
     def __init__(
         self,
         *,
-        jobs: JobStateStore,
+        database_url: str,
         owned: frozenset[JobStatus],
         claim_status: JobStatus,
         max_claims: int,
     ) -> None:
-        self._jobs = jobs
         self._owned = owned
         self._claim_status = claim_status
         self._max_claims = max_claims
         self._loop = asyncio.new_event_loop()
-        # One loop serves every callback, so calls from different threads take turns.
+        # One thread per worker process is the supported setup (`worker_threads=1` in each
+        # runtime). The loop and the process-wide pool in `bioparser.db.engine` belong to
+        # that one thread. This lock keeps extra threads correct, not fast: they would
+        # queue behind a running stage, including its blocking parse or extract work.
+        # Scale with more worker replicas, not threads.
         self._loop_lock = threading.Lock()
+        # Build the pool before the first delivery. open does not connect, and a later
+        # call with this URL returns immediately, so a failure hook can write without
+        # an earlier delivery having reached the database.
+        self.run_async(database.open(database_url))
 
     def close(self) -> None:
         if self._loop.is_closed():
             return
         try:
-            self.run_async(self._jobs.aclose())
+            self.run_async(database.aclose())
         finally:
             self._loop.close()
 
@@ -141,27 +145,26 @@ class StageJobHandler[T: JobMessage]:
     async def run(self, state: JobState) -> None:
         """Do the stage's work. The claim is already stored.
 
-        `state` is the job from before the claim. Read it again before writing
-        a result: `update` replaces the whole record, so a write from `state`
-        would drop the claim count just stored.
+        `state` was read before the claim. The claim changes the status and that
+        stage's count. A later write sets only the columns for its outcome.
         """
         raise NotImplementedError
 
     async def _handle(self, job_id: UUID) -> None:
-        match await fetch_job(self._jobs, job_id):
-            case CorruptJobRecord():
+        async with database.transaction() as connection:
+            try:
+                state = await job_queries.get(connection, job_id)
+            except CorruptJobStateError:
                 LOGGER.error(
                     "stored job state is unreadable. Dropping the message without retry, "
                     "the job stays in its stored status"
                 )
                 return
-            case MissingJobRecord():
+            if state is None:
                 raise JobNotFoundError(f"no stored state for job {job_id}. Message will be retried")
-            case JobState() as state:
-                pass
-        if state.status not in self._owned:
-            LOGGER.info(f"status is already {state.status!r}. Skipping this delivery")
-            return
+            if state.status not in self._owned:
+                LOGGER.info(f"status is already {state.status!r}. Skipping this delivery")
+                return
         await self.ready()
         if not await self._mark_running(state):
             return
@@ -173,39 +176,41 @@ class StageJobHandler[T: JobMessage]:
 
     async def _mark_running(self, state: JobState) -> bool:
         claim = self._claim_status
-        if state.claims(claim) >= self._max_claims:
-            LOGGER.error(
-                f"{claim} was already claimed {state.claims(claim)} times. "
-                "Marking the job failed (internal_error)"
+        async with database.transaction() as connection:
+            outcome = await job_queries.claim(
+                connection,
+                state.job_id,
+                status=claim,
+                from_statuses=self._owned,
+                max_claims=self._max_claims,
             )
-            await self._mark_failed(state.job_id, "internal_error")
+        if outcome == "claimed":
+            return True
+        if outcome == "exhausted":
+            LOGGER.error(
+                f"{claim} was already claimed {self._max_claims} times. "
+                "Marked the job failed (internal_error)"
+            )
             return False
-        try:
-            await self._jobs.update(state.with_claim(claim))
-        except StaleJobStateWriteError:
-            LOGGER.info(f"job moved on before this delivery could start {claim}. Skipping")
+        if outcome == "missing":
+            LOGGER.info(f"no stored job state exists. Skipping this delivery before {claim}")
             return False
-        return True
+        LOGGER.info(f"job moved on before this delivery could start {claim}. Skipping")
+        return False
 
     async def _mark_failed(self, job_id: UUID, code: SafeErrorCode) -> bool:
         """Record `failed` when this stage still owns the job. True when the write lands."""
-        match await fetch_job(self._jobs, job_id):
-            case CorruptJobRecord():
-                LOGGER.error("stored job state is unreadable. Cannot mark it failed")
-                return False
-            case MissingJobRecord():
-                LOGGER.error("no stored job state exists. Cannot mark it failed")
-                return False
-            case JobState() as state:
-                pass
-        if state.status not in self._owned:
+        async with database.transaction() as connection:
+            outcome = await job_queries.mark_failed(
+                connection, job_id, code, from_statuses=self._owned
+            )
+        if outcome == "recorded":
+            return True
+        if outcome == "not_allowed":
+            LOGGER.error("job cannot be marked failed.")
             return False
-        if "failed" not in ALLOWED_TRANSITIONS[state.status]:
-            LOGGER.error(f"job is {state.status!r}, which cannot be marked failed.")
+        if outcome == "missing":
+            LOGGER.info(f"no stored job state exists. Not marking it failed ({code})")
             return False
-        try:
-            await self._jobs.update(state.with_changes(status="failed", error=SafeError(code=code)))
-        except StaleJobStateWriteError:
-            LOGGER.info(f"job already finished or moved on. Not marking it failed ({code})")
-            return False
-        return True
+        LOGGER.info(f"job already finished or moved on. Not marking it failed ({code})")
+        return False

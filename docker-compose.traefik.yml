@@ -1,10 +1,19 @@
 # HTTPS/TLS reverse proxy: Traefik routes encrypted traffic to the bioparser API.
 # Enabled by adding :docker-compose.traefik.yml to COMPOSE_FILE in .env.
 
+# The repository ships no Basic Auth users. You make the file; see docker/traefik/users.example.
+x-require-traefik-users: ${TRAEFIK_USERS_FILE:?set TRAEFIK_USERS_FILE in .env to a users file you made (see docker/traefik/users.example)}
+
+secrets:
+  traefik_users:
+    file: ${TRAEFIK_USERS_FILE}
+
 services:
   traefik:
     image: traefik:v3.7.16@sha256:6d3e069ee484ab1da5adfdda555a75eb9b1545ef09096a0cc7c3043101986a20
     user: "65534:65534"
+    # Mounted at /run/secrets/traefik_users. Traefik runs as 65534, so the file must be readable by it.
+    secrets: [traefik_users]
     command:
       # Entry point for HTTPS (443) only -- HTTP disabled to prevent plaintext credential exposure
       - --entrypoints.websecure.address=:443

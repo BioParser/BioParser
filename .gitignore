@@ -246,9 +246,14 @@ target/
 # Partial code execution
 tempCodeRunnerFile.py
 
+
 # =========================
 # Frontend
 # =========================
 
 node_modules/
 frontend/dist/
+
+# Traefik Basic Auth users hold password hashes. See docker/traefik/users.example.
+docker/traefik/users
+

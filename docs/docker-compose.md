@@ -1,11 +1,13 @@
 # Docker Compose
 
-Compose runs six services:
+Compose runs eight services:
 
 - `vllm` is a local OpenAI-compatible model server on host port `VLLM_PORT` (default 8000).  
 - `mineru` is the PDF parser service (MinerU 4 `mineru-api`: Basic tier on the CPU stack, Standard with its VLM on the GPU stack) on internal network port 8000. It is only on that internal network, so it is never published to the host; the host scripts use a separately run container (see [parser.md](parser.md)). The CPU stack builds `bioparser-mineru:cpu`, the GPU stack `bioparser-mineru:gpu`, from the same Dockerfile.  
-- `redis` is queue and job state storage on port 6379 (accessed inside the Docker network using `redis:6379`).  
-- `bioparser` is FastAPI on host port `BIOPARSER_PORT` (default 8080).  
+- `redis` is the job queue on port 6379 (accessed inside the Docker network using `redis:6379`).  
+- `postgres` is a Postgres 18 database on the internal network (`postgres:5432`), with its data on the `postgres-data` volume. It is not published to the host. Job records live here.  
+- `migrate` runs `bioparser-migrate` from the API image (`bioparser-api`), creates the `jobs` table, and exits. `docker compose up` runs it again on the next start; upgrading an already current database changes nothing.  
+- `bioparser` is FastAPI on host port `BIOPARSER_PORT` (default 8080). It starts after `migrate` has exited successfully. The API process does not migrate.  
 - `parser-worker` consumes the `parse` queue and sends `mineru` jobs to the `mineru` service. It is not published to the host, and the same image `bioparser-parser-worker` serves the CPU and GPU stacks.  
 - `extractor-worker` consumes the `extract` queue. It is not published to the host. Both stacks build `bioparser-extractor-worker` from `docker/extractor-worker.Dockerfile`. It calls the `vllm` service. The model is not in this image.  
 
@@ -18,7 +20,7 @@ Compose runs six services:
 
 `docker-compose.traefik.yml` adds an encrypted reverse proxy with HTTP Basic Authentication in front of the API:
 
-- `traefik` terminates TLS/HTTPS on host port `TRAEFIK_HTTPS_PORT` (default 443), enforces Basic Authentication (configured in `docker/traefik/users`), and routes internally to `http://bioparser:8080`. Plain HTTP is disabled so credentials never travel unencrypted. It runs as unprivileged user `65534:65534` (`nobody`), uses file-based configuration (`docker/traefik/bioparser.yml`), and requires no Docker socket access.
+- `traefik` terminates TLS/HTTPS on host port `TRAEFIK_HTTPS_PORT` (default 443), enforces Basic Authentication (users from the file in `TRAEFIK_USERS_FILE`, which you make; the repository ships none), and routes internally to `http://bioparser:8080`. Plain HTTP is disabled so credentials never travel unencrypted. It runs as unprivileged user `65534:65534` (`nobody`), uses file-based configuration (`docker/traefik/bioparser.yml`), and requires no Docker socket access.
 
 The README has the default install and start commands. This page covers env vars, networking, logs, HTTPS, and `test_prompt`.
 
@@ -35,7 +37,8 @@ Required:
 `COMPOSE_FILE`: Compose configuration preference, e.g. `docker-compose.yml:docker-compose.gpu.yml` (GPU) or `docker-compose.yml:docker-compose.cpu.yml` (CPU).  
 `VLLM_MODEL`: Hugging Face repo id, for example `Qwen/Qwen3-0.6B` (already set in `.env.example`).  
 `VLLM_PORT`: host port for vLLM (default `8000`).  
-`BIOPARSER_PORT`: host port for the API (default `8080`).
+`BIOPARSER_PORT`: host port for the API (default `8080`).  
+`BIOPARSER_API_KEY`: the key clients send in `X-API-Key` (at least 32 visible ASCII characters, see [docs/api.md](api.md#authentication)). The API does not start without it, unless `BIOPARSER_AUTH_DISABLED=true`.
 
 Optional:
 
@@ -44,6 +47,7 @@ Optional:
 `BIOPARSER_PARSE_TIME_LIMIT_SECONDS`: the worker's limit for one parse (default `1800`, at most `3600`).  
 `BIOPARSER_MINERU_TIMEOUT_SECONDS`: how long `POST /extract` waits for MinerU (default `600`, at most `3600`).  
 `MINERU_API_CONCURRENCY`: how many parse jobs the `mineru` service runs at once (default `1`); more wait in its queue. Each running job needs its own memory, so raise the `mineru` `mem_limit` in the overlay with it.  
+`POSTGRES_PASSWORD` (required): password of the `bioparser` database user. Compose puts it in `BIOPARSER_DATABASE_URL` for the API, both workers, and `migrate`. Keep it URL-safe (`@`, `:`, `/`, `#` and `%` break that URL).  
 
 With `docker-compose.logging.yml`:
 
@@ -56,6 +60,7 @@ With `docker-compose.traefik.yml`:
 `TRAEFIK_BIND_ADDRESS`: host interface to bind Traefik to (default `127.0.0.1` for loopback). Set to `0.0.0.0` to expose to the LAN.  
 `TRAEFIK_HTTPS_PORT`: host port for HTTPS (default `443`). Plain HTTP is disabled so credentials are never sent unencrypted.  
 `TRAEFIK_LOG_LEVEL`: log verbosity for Traefik (default `INFO`).  
+`TRAEFIK_USERS_FILE`: required. Path to the Basic Auth users file you made (see below). Compose refuses to start Traefik while it is empty.  
 
 Inside Compose, the API and the extractor worker use `BIOPARSER_VLLM_BASE_URL=http://vllm:8000/v1`, and the API and the parser worker use `BIOPARSER_MINERU_BASE_URL=http://mineru:8000`. On the host, `test_prompt` should use `http://localhost:8000/v1` (the default in `.env.example`).
 
@@ -63,7 +68,7 @@ Weights cache on the host at `~/.cache/huggingface`.
 
 ## Start
 
-All services are included in the Compose stack; the API container starts only after `vllm`, `mineru`, and `redis` health checks pass, and the parser worker after `mineru` and `redis`. The extractor worker starts after `vllm` and `redis` do. MinerU's check passes once its models are loaded. The first model download can take several minutes (vLLM's health-check `start_period` is 180s for GPU and 600s for CPU).
+All services are included in the Compose stack. `migrate` starts after `postgres` is healthy, upgrades the database, and exits. The API container starts only after that exit and after `vllm`, `mineru`, and `redis` health checks pass. The parser worker starts after `mineru`, `redis`, `postgres`, and `migrate`. The extractor worker starts after `vllm`, `redis`, `postgres`, and `migrate`. MinerU's check passes once its models are loaded. The first model download can take several minutes (vLLM's health-check `start_period` is 180s for GPU and 600s for CPU).
 
 ```sh
 docker compose up --build
@@ -94,7 +99,20 @@ The Docker socket gives full control of Docker, and so of the host. Only `docker
 
 `docker-compose.traefik.yml` runs Traefik as an encrypted reverse proxy with HTTP Basic Authentication in front of the API.
 
-To enable it, append `:docker-compose.traefik.yml` to `COMPOSE_FILE` in `.env`:
+The repository ships no users and no default password. Before you enable Traefik, make the users file (`docker/traefik/users`, which Git ignores) and point `TRAEFIK_USERS_FILE` at it:
+
+```sh
+htpasswd -nbB <name> '<password>' > docker/traefik/users
+# without htpasswd on the host:
+docker run --rm httpd:2.4-alpine htpasswd -nbB <name> '<password>' > docker/traefik/users
+chmod 644 docker/traefik/users   # Traefik runs as uid 65534 and must read it
+```
+
+```sh
+TRAEFIK_USERS_FILE=./docker/traefik/users
+```
+
+Then append `:docker-compose.traefik.yml` to `COMPOSE_FILE` in `.env`:
 
 ```sh
 COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml:docker-compose.logging.yml:docker-compose.traefik.yml
@@ -103,12 +121,13 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml:docker-compose.logging.ym
 When started:
 
 - Traefik binds to `TRAEFIK_BIND_ADDRESS` (default `127.0.0.1` for loopback security) on HTTPS port `TRAEFIK_HTTPS_PORT` (default 443). Plain HTTP is disabled so credentials are never transmitted unencrypted.
-- All requests require HTTP Basic Authentication defined in `docker/traefik/users` (format: `username:bcrypt_hash`). The default user is `bioparser` with password `bioparser`. Additional users can be added with `htpasswd -nbB <username> <password>`.
+- All requests require HTTP Basic Authentication. Traefik reads the users from the Compose secret `traefik_users` (`/run/secrets/traefik_users`), which comes from `TRAEFIK_USERS_FILE` (format: `name:bcrypt_hash`, one line per user). Add a user with `htpasswd -nbB <name> '<password>' >> docker/traefik/users`, then run `docker compose up -d --force-recreate traefik`.
 - HTTPS connections are encrypted with TLS and routed internally across the `edge` network to `http://bioparser:8080`.
 - Direct plain HTTP to the API remains accessible on loopback (`http://127.0.0.1:8080`).
+- Through Traefik, `/api/*` and `/extract` need both the Traefik user and the `X-API-Key` header. The default Traefik user is public, so the API key is the lock that matters on a LAN.
 - By default, Traefik generates an internal self-signed TLS certificate (`TRAEFIK DEFAULT CERT`) regenerated on restart, so encrypted connections work immediately without external domain setup. To use custom certificates, define a `tls.certificates` block in `docker/traefik/bioparser.yml` and mount your cert files.
 - Note: On rootless Docker hosts, binding privileged host ports below 1024 requires setting `TRAEFIK_HTTPS_PORT=8443` in `.env` (or configuring `net.ipv4.ip_unprivileged_port_start=0`).
-- On Docker Desktop for Windows, dynamic file watcher changes may require running `docker compose restart traefik` after modifying `docker/traefik/bioparser.yml` or `docker/traefik/users`.
+- On Docker Desktop for Windows, dynamic file watcher changes may require running `docker compose restart traefik` after modifying `docker/traefik/bioparser.yml`.
 
 Testing unauthenticated request (returns 401 Unauthorized):
 
@@ -119,11 +138,11 @@ curl -k https://localhost/health
 Testing with Basic Authentication:
 
 ```sh
-curl -k -u bioparser:bioparser https://localhost/health
-# Returns {"status":"healthy"}
+curl -k -u '<name>:<password>' https://localhost/health
+# Returns {"status":"ok"}
 ```
 
-(or `curl -k -u bioparser:bioparser https://localhost:8443/health` if `TRAEFIK_HTTPS_PORT=8443` is configured in `.env`).
+(or `curl -k -u '<name>:<password>' https://localhost:8443/health` if `TRAEFIK_HTTPS_PORT=8443` is configured in `.env`).
 
 Traefik uses file-based configuration (`docker/traefik/bioparser.yml`), runs as unprivileged user `65534:65534` (`nobody`), and does not mount the Docker socket, keeping the container isolated with dropped capabilities (`cap_drop: [ALL]`) and `read_only: true`.
 

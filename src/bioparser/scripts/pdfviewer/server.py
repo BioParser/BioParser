@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
@@ -18,6 +17,7 @@ from bioparser.parser import (
     ParserTimeoutError,
     UnsupportedDocumentError,
     get_parser,
+    parse_pdf_bytes,
 )
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -46,10 +46,7 @@ def _normalize_backend(name: str | None, fallback: str) -> str:
 
 
 def _parse_pdf_bytes(pdf_bytes: bytes, backend: str) -> ParserArtifact:
-    with NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
-        tmp.write(pdf_bytes)
-        tmp.flush()
-        return get_parser(backend).parse(Path(tmp.name))
+    return parse_pdf_bytes(get_parser(backend), pdf_bytes)
 
 
 async def _parse_or_http_error(pdf_bytes: bytes, backend: str) -> ParserArtifact:

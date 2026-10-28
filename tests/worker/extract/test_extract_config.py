@@ -15,6 +15,7 @@ def test_claim_cap_follows_the_retry_count(tmp_path: Path) -> None:
     settings = ExtractWorkerSettings(
         _env_file=None,  # type: ignore[call-arg]
         redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+        database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
         artifact_storage_path=tmp_path,
         extract_queue_name="extract",
         extract_max_retries=5,
@@ -31,6 +32,7 @@ def test_extract_queue_name_is_required(tmp_path: Path) -> None:
         ExtractWorkerSettings(
             _env_file=None,  # type: ignore[call-arg]
             redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+            database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
         )
 
@@ -41,6 +43,7 @@ def test_liveness_port_must_be_a_tcp_port(tmp_path: Path, port: int) -> None:
         ExtractWorkerSettings(
             _env_file=None,  # type: ignore[call-arg]
             redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
+            database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
             extract_queue_name="extract",
             liveness_port=port,

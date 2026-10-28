@@ -1,13 +1,23 @@
 import logging
+import re
 from functools import lru_cache
 
-from pydantic import AnyUrl, Field, ValidationError, field_validator
+from pydantic import (
+    AnyUrl,
+    Field,
+    PostgresDsn,
+    SecretStr,
+    ValidationError,
+    field_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from bioparser.logging_config import parse_level
 from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 
 DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MiB
+API_KEY_MIN_LENGTH = 32
+_API_KEY_PATTERN = re.compile(rf"[\x21-\x7e]{{{API_KEY_MIN_LENGTH},}}")
 
 
 class ApiSettings(BaseSettings):
@@ -24,12 +34,11 @@ class ApiSettings(BaseSettings):
     max_upload_bytes: int = Field(default=DEFAULT_MAX_UPLOAD_BYTES, ge=1)
     mineru_base_url: str = "http://mineru:8000"
     mineru_timeout_seconds: float = Field(default=600.0, gt=0)
-    mineru_connect_timeout_seconds: float = Field(default=5.0, gt=0)
     mineru_tier: MinerUTier = DEFAULT_TIER
     extract_concurrency: int = Field(default=2, ge=1)
     extract_queue_timeout_seconds: float = Field(default=5.0, gt=0)
     dependency_check_timeout_seconds: float = Field(default=1.0, gt=0)
-    artifact_storage_path: str | None = None
+    artifact_storage_path: str
     # The built UI (frontend/dist). None: the API serves no UI and /ui returns 404.
     ui_dist_path: str | None = None
     # NOTE: char budget not token budget
@@ -37,28 +46,66 @@ class ApiSettings(BaseSettings):
     extraction_char_budget: int = Field(default=8000, ge=50)
     extraction_max_tokens: int = Field(default=1024, ge=64)
 
-    # redis
-    # repr=False: the URL can hold the password; keep it out of repr(settings)
-    redis_url: AnyUrl | None = Field(default=None, repr=False)
+    # redis. repr=False: the URL can hold the password.
+    redis_url: AnyUrl = Field(repr=False)
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
     parse_queue_name: str = Field(default="parse", min_length=1)
+
+    # API key authentication
+    api_key: SecretStr | None = None
+    auth_disabled: bool = False
+
+    # Postgres holds job state. The URL can hold the password.
+    database_url: PostgresDsn = Field(repr=False)
 
     @field_validator("log_level", mode="before")
     @classmethod
     def parse_log_level(cls, value: object) -> int:
         return parse_level(value)
 
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def empty_api_key_becomes_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        if isinstance(value, SecretStr) and not value.get_secret_value().strip():
+            return None
+        return value
+
+    @field_validator("api_key")
+    @classmethod
+    def api_key_is_long_visible_ascii(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and not _API_KEY_PATTERN.fullmatch(value.get_secret_value()):
+            raise ValueError(
+                f"must be at least {API_KEY_MIN_LENGTH} visible ASCII characters, without spaces"
+            )
+        return value
+
     @field_validator("redis_url", mode="before")
     @classmethod
-    def empty_redis_url_becomes_none(cls, value: object) -> object:
+    def empty_redis_url_is_rejected(cls, value: object) -> object:
         if value == "":
-            return None
+            raise ValueError("BIOPARSER_REDIS_URL is set but empty")
+        return value
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def empty_database_url_is_rejected(cls, value: object) -> object:
+        if value == "":
+            raise ValueError("BIOPARSER_DATABASE_URL is set but empty")
+        return value
+
+    @field_validator("artifact_storage_path", mode="before")
+    @classmethod
+    def empty_artifact_storage_path_is_rejected(cls, value: object) -> object:
+        if value == "":
+            raise ValueError("BIOPARSER_ARTIFACT_STORAGE_PATH is set but empty")
         return value
 
 
 @lru_cache(maxsize=1)
 def get_api_settings() -> ApiSettings:
-    return ApiSettings()
+    return ApiSettings()  # type: ignore[call-arg]
 
 
 def invalid_settings(exc: ValidationError) -> list[dict[str, str]]:
