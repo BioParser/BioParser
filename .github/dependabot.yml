@@ -61,6 +61,11 @@ updates:
         update-types:
           - "version-update:semver-major"
           - "version-update:semver-minor"
+      # Node 24 LTS. A Dependabot bump of node here does not change frontend/.nvmrc or
+      # package.json "engines": bump them in the same PR.
+      - dependency-name: "node"
+        update-types:
+          - "version-update:semver-major"
     groups:
       base-images:
         patterns:
@@ -81,3 +86,19 @@ updates:
         patterns:
           - "vllm/vllm-openai"
           - "vllm/vllm-openai-cpu"
+
+  # frontend/package.json. Node itself is pinned in frontend/.nvmrc and docker/api.Dockerfile.
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    cooldown:
+      default-days: 7
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
