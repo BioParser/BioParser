@@ -59,6 +59,7 @@ Stop with `Ctrl+C` or `docker compose down`.
 | Service | Address on the host |
 |---|---|
 | API | `http://localhost:8080` (Swagger UI: `/docs`) |
+| Web UI | `http://localhost:8080/ui/` |
 | vLLM (OpenAI-compatible) | `http://localhost:8000/v1` |
 | Grafana (logs of all services) | `http://localhost:3000` (user `admin`) |
 | MinerU, Redis, Postgres, Loki, Alloy, docker-api | not published (internal network only) |
