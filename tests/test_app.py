@@ -722,3 +722,40 @@ def test_submit_returns_503_when_queue_unavailable(
         "queue.submit",
         "job_state.mark_failed",
     ]
+
+
+def test_submit_without_file_name(
+    client: TestClient,
+    stub_api_adapters: tuple[
+        StubArtifactStorage,
+        StubJobs,
+        StubParseQueue,
+        list[str],
+    ],
+) -> None:
+    _storage, jobs, _queue, _events = stub_api_adapters
+
+    boundary = "test-boundary"
+    body = (
+        (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="file"; filename=""\r\n'
+            "Content-Type: application/pdf\r\n"
+            "\r\n"
+        ).encode()
+        + MINIMAL_PDF
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
+
+    response = client.post(
+        "/api/extractions",
+        content=body,
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+    )
+
+    assert response.status_code == 202
+    record = response.json()
+    assert record["file_name"] is None
+    assert jobs.states[record["job_id"]].file_name is None
