@@ -2,14 +2,7 @@ import logging
 import re
 from functools import lru_cache
 
-from pydantic import (
-    AnyUrl,
-    Field,
-    PostgresDsn,
-    SecretStr,
-    ValidationError,
-    field_validator,
-)
+from pydantic import AnyUrl, Field, PostgresDsn, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from bioparser.logging_config import parse_level

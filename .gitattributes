@@ -1,2 +1,7 @@
 * text=auto eol=lf
 *.pdf binary
+
+# Generated: GitHub collapses these in pull request diffs.
+frontend/package-lock.json linguist-generated=true
+frontend/openapi.json linguist-generated=true
+frontend/src/api/schema.d.ts linguist-generated=true
