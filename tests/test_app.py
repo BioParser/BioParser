@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -36,6 +37,8 @@ MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
 JOB_STATUS_ADAPTER: TypeAdapter[JobStatusResponse] = TypeAdapter(JobStatusResponse)
 PARSE_REF = f"pdf/{'a' * 64}/parsed/default/1"
 EXTRACT_REF = f"{PARSE_REF}/extracted/default/1"
+CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
+FILE_NAME = "sample.pdf"
 # What each status needs on a stored job besides its id: refs and error
 _STATUS_FIELDS: dict[JobStatus, dict[str, Any]] = {
     "queued": {},
@@ -55,8 +58,26 @@ def _job(status: JobStatus, **fields: Any) -> JobState:
         extractor="default",
         status=status,
         pdf_ref=f"pdf/{'a' * 64}",
+        created_at=CREATED_AT,
+        file_name=FILE_NAME,
         **(_STATUS_FIELDS[status] | fields),
     )
+
+
+def _expected_job_response(state: JobState) -> dict[str, Any]:
+    response: dict[str, Any] = {
+        "job_id": str(state.job_id),
+        "status": state.status,
+        "created_at": state.created_at.isoformat().replace("+00:00", "Z"),
+        "file_name": state.file_name,
+        "parser": state.parser,
+        "extractor": state.extractor,
+        "document_checksum": state.pdf_ref.removeprefix("pdf/"),
+        "has_parse_result": state.parse_result_ref is not None,
+    }
+    if state.error_code is not None:
+        response["error"] = {"code": state.error_code}
+    return response
 
 
 def test_submit_and_retrieve_job(
@@ -356,6 +377,8 @@ def test_running_job_status(
         extractor="default",
         status="parsing",
         pdf_ref="art-pdf-test",
+        created_at=CREATED_AT,
+        file_name=FILE_NAME,
     )
     jobs.states[str(job_id)] = state
 
@@ -363,7 +386,7 @@ def test_running_job_status(
 
     assert response.status_code == 200
     JOB_STATUS_ADAPTER.validate_python(response.json())
-    assert response.json() == {"job_id": str(job_id), "status": "parsing"}
+    assert response.json() == _expected_job_response(state)
 
 
 def test_succeeded_job_status(
@@ -372,20 +395,23 @@ def test_succeeded_job_status(
 ) -> None:
     jobs = stub_api_adapters[1]
     job_id = uuid4()
-    jobs.states[str(job_id)] = JobState(
+    state = JobState(
         job_id=job_id,
         parser="default",
         extractor="default",
         status="parsed",
         pdf_ref="pdf/test",
         parse_result_ref="art-result-test",
+        created_at=CREATED_AT,
+        file_name=FILE_NAME,
     )
+    jobs.states[str(job_id)] = state
 
     response = client.get(f"/api/jobs/{job_id}")
 
     assert response.status_code == 200
     JOB_STATUS_ADAPTER.validate_python(response.json())
-    assert response.json() == {"job_id": str(job_id), "status": "parsed"}
+    assert response.json() == _expected_job_response(state)
 
 
 def test_job_status_does_not_read_the_artifact(
@@ -403,6 +429,8 @@ def test_job_status_does_not_read_the_artifact(
         status="parsed",
         pdf_ref="pdf/test",
         parse_result_ref="art-result-test",
+        created_at=CREATED_AT,
+        file_name=FILE_NAME,
     )
 
     response = client.get(f"/api/jobs/{job_id}")
@@ -423,7 +451,7 @@ def test_a_finished_stage_names_no_storage_path(
 
     response = client.get(f"/api/jobs/{state.job_id}")
 
-    assert response.json() == {"job_id": str(state.job_id), "status": status}
+    assert response.json() == _expected_job_response(state)
 
 
 # --- job artifacts for the UI -------------------------------------------------
@@ -582,6 +610,8 @@ def test_failed_job_status(
         status="failed",
         pdf_ref="art-pdf-test",
         error_code="parse_failed",
+        created_at=CREATED_AT,
+        file_name=FILE_NAME,
     )
 
     jobs.states[str(job_id)] = state
@@ -590,11 +620,7 @@ def test_failed_job_status(
 
     assert response.status_code == 200
     JOB_STATUS_ADAPTER.validate_python(response.json())
-    assert response.json() == {
-        "job_id": str(job_id),
-        "status": "failed",
-        "error": {"code": "parse_failed"},
-    }
+    assert response.json() == _expected_job_response(state)
 
 
 def test_job_status_returns_503_when_postgres_unavailable(

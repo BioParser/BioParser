@@ -16,7 +16,13 @@ from sqlalchemy.orm import InstrumentedAttribute, Mapped, mapped_column
 from bioparser.artifact_paths import ARTIFACT_PATH_MAX_LENGTH
 from bioparser.db.base import Base
 from bioparser.jobstate.errors import CorruptJobStateError
-from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobState, JobStatus, SafeErrorCode
+from bioparser.jobstate.models import (
+    ALLOWED_TRANSITIONS,
+    JOB_FILE_NAME_MAX_LENGTH,
+    JobState,
+    JobStatus,
+    SafeErrorCode,
+)
 
 # The same status list the column check uses. Schema version, parser names,
 # extractor names, and error codes stay unconstrained apart from null.
@@ -55,6 +61,7 @@ class Job(Base):
     parser: Mapped[str] = mapped_column(Text)
     extractor: Mapped[str] = mapped_column(Text)
     pdf_ref: Mapped[str] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
+    file_name: Mapped[str] = mapped_column(String(JOB_FILE_NAME_MAX_LENGTH))
     parse_result_ref: Mapped[str | None] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
     extract_result_ref: Mapped[str | None] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
     error_code: Mapped[str | None] = mapped_column(Text)

@@ -6,7 +6,7 @@ import os
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import get_args
 
 import pytest
@@ -20,6 +20,8 @@ from bioparser.db import jobs as job_queries
 from bioparser.db.engine import DatabaseError, async_database_url
 from bioparser.db.migrate import sync_database_url, upgrade
 from bioparser.jobstate import CorruptJobStateError, JobState, JobStatus
+
+CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def test_async_url_selects_asyncpg() -> None:
@@ -68,6 +70,8 @@ def _queued(job_id: uuid.UUID, **overrides: object) -> JobState:
         "parser": "default",
         "extractor": "default",
         "pdf_ref": str(uuid.uuid4()),
+        "created_at": CREATED_AT,
+        "file_name": "sample.pdf",
     }
     fields.update(overrides)
     return JobState.model_validate(fields)
@@ -350,8 +354,9 @@ async def test_a_write_does_not_require_a_valid_job_state(database: str) -> None
     with engine.begin() as connection:
         connection.execute(
             text(
-                "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
-                "VALUES (:job_id, 2, 'queued', 'default', 'default', :pdf_ref)"
+                "INSERT INTO jobs "
+                "(job_id, schema_version, status, parser, extractor, pdf_ref, file_name) "
+                "VALUES (:job_id, 2, 'queued', 'default', 'default', :pdf_ref, 'sample.pdf')"
             ),
             {"job_id": job_id, "pdf_ref": str(uuid.uuid4())},
         )
@@ -426,8 +431,9 @@ async def test_corrupt_stored_state_raises(database: str) -> None:
     with engine.begin() as connection:
         connection.execute(
             text(
-                "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
-                "VALUES (:job_id, 2, 'queued', 'default', 'default', :pdf_ref)"
+                "INSERT INTO jobs "
+                "(job_id, schema_version, status, parser, extractor, pdf_ref, file_name) "
+                "VALUES (:job_id, 2, 'queued', 'default', 'default', :pdf_ref, 'sample.pdf')"
             ),
             {"job_id": job_id, "pdf_ref": str(uuid.uuid4())},
         )
@@ -545,7 +551,7 @@ async def test_transaction_passes_through_an_unrelated_error(
 
 def test_job_columns_match_the_job_state_fields() -> None:
     columns = {column.name for column in job_queries.Job.__table__.columns}
-    assert columns - {"created_at", "updated_at"} == set(JobState.model_fields)
+    assert columns - {"updated_at"} == set(JobState.model_fields)
 
 
 @pytest.mark.integration
@@ -553,8 +559,9 @@ def test_job_columns_match_the_job_state_fields() -> None:
 async def test_migrated_status_check_accepts_exactly_the_job_statuses(database: str) -> None:
     """The migration lists the statuses by hand. This fails when the code adds one."""
     insert = text(
-        "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
-        "VALUES (:job_id, 1, :status, 'default', 'default', 'ref')"
+        "INSERT INTO jobs "
+        "(job_id, schema_version, status, parser, extractor, pdf_ref, file_name) "
+        "VALUES (:job_id, 1, :status, 'default', 'default', 'ref', 'sample.pdf')"
     )
     engine = create_engine(sync_database_url(database))
     try:

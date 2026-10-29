@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from datetime import datetime
 from types import MappingProxyType
 from typing import Literal, Self
 
@@ -37,6 +38,7 @@ SafeErrorCode = Literal[
 # changes in a way that is not backward compatible, so a stored record from
 # an older version is recognized as such rather than silently misread.
 JOB_STATE_SCHEMA_VERSION: Literal[1] = 1
+JOB_FILE_NAME_MAX_LENGTH = 255
 
 
 class SafeError(BaseModel):
@@ -62,6 +64,8 @@ class JobState(BaseModel):
     error_code: SafeErrorCode | None = None
     parsing_claims: int = Field(default=0, ge=0)
     extracting_claims: int = Field(default=0, ge=0)
+    created_at: datetime
+    file_name: str = Field(min_length=1, max_length=JOB_FILE_NAME_MAX_LENGTH)
 
     def claims(self, status: JobStatus) -> int:
         """How many times this stage has been claimed. Other statuses are not claims."""

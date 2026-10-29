@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Awaitable, Callable, Iterator
+from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
 
@@ -59,6 +60,7 @@ PARSE_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
 PDF_CHECKSUM = "a" * 64
 RESULT_PATH = extract_result_path(PARSE_REF, "default", "1")
 QUOTE = "Mus musculus adults averaged 12.5 kg in the sampled population."
+CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _stub() -> StubVLLMService:
@@ -146,6 +148,8 @@ def _parsed() -> JobState:
         extractor="default",
         pdf_ref="pdf/abc",
         parse_result_ref=PARSE_REF,
+        created_at=CREATED_AT,
+        file_name="sample.pdf",
     )
 
 
@@ -480,7 +484,13 @@ def test_an_invalid_parser_artifact_fails_without_calling_the_model() -> None:
 
 def test_a_job_still_parsing_is_left_alone() -> None:
     state = JobState(
-        job_id=JOB_ID, status="parsing", parser="default", extractor="default", pdf_ref="pdf/abc"
+        job_id=JOB_ID,
+        status="parsing",
+        parser="default",
+        extractor="default",
+        pdf_ref="pdf/abc",
+        created_at=CREATED_AT,
+        file_name="sample.pdf",
     )
     jobs = StubJobs(state)
     called = False

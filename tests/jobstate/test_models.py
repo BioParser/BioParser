@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import get_args
 
 import pytest
@@ -9,6 +10,7 @@ from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobStatus
 PDF_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
 RESULT_REF = "7c2e1d3b-8e55-4f2b-ad4c-3a9f6b1e7d22"
 EXTRACT_REF = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _queued(**overrides: object) -> JobState:
@@ -18,6 +20,8 @@ def _queued(**overrides: object) -> JobState:
         "parser": "default",
         "extractor": "default",
         "pdf_ref": PDF_REF,
+        "created_at": CREATED_AT,
+        "file_name": "sample.pdf",
     }
     fields.update(overrides)
     return JobState.model_validate(fields)
