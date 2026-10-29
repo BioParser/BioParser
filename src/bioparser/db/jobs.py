@@ -102,6 +102,50 @@ async def get(connection: AsyncConnection, job_id: UUID) -> JobState | None:
         raise CorruptJobStateError(str(job_id)) from exc
 
 
+async def list_jobs(
+    connection: AsyncConnection,
+    *,
+    status: JobStatus | None = None,
+    parser: str | None = None,
+) -> list[JobState]:
+    """List jobs, optionally filtered by status and parser, ordered newest first."""
+    stmt = select(Job.__table__)
+    if status is not None:
+        stmt = stmt.where(Job.status == status)
+    if parser is not None:
+        stmt = stmt.where(Job.parser == parser)
+    stmt = stmt.order_by(Job.created_at.desc())
+    rows = (await connection.execute(stmt)).mappings().all()
+    results: list[JobState] = []
+    for row in rows:
+        try:
+            results.append(_row_to_job_state(cast(Mapping[str, object], row)))
+        except ValidationError as exc:
+            raise CorruptJobStateError(str(row["job_id"])) from exc
+    return results
+
+
+async def list_jobs_for_document(
+    connection: AsyncConnection,
+    checksum: str,
+) -> list[JobState]:
+    """List all jobs associated with a document checksum, ordered newest first."""
+    target = f"pdf/{checksum}"
+    stmt = (
+        select(Job.__table__)
+        .where((Job.pdf_ref == target) | (Job.pdf_ref == f"{target}.pdf"))
+        .order_by(Job.created_at.desc())
+    )
+    rows = (await connection.execute(stmt)).mappings().all()
+    results: list[JobState] = []
+    for row in rows:
+        try:
+            results.append(_row_to_job_state(cast(Mapping[str, object], row)))
+        except ValidationError as exc:
+            raise CorruptJobStateError(str(row["job_id"])) from exc
+    return results
+
+
 ClaimOutcome = Literal["claimed", "exhausted", "skipped", "missing"]
 MarkOutcome = Literal["recorded", "not_allowed", "skipped", "missing"]
 

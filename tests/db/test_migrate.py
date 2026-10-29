@@ -36,6 +36,16 @@ _CHECKS = {
     "jobs_parsing_claims_check",
     "jobs_extracting_claims_check",
 }
+_DOCUMENTS_COLUMNS = {
+    "checksum": ("NO", "character varying", 64),
+    "display_name": ("YES", "text", None),
+    "size_bytes": ("NO", "bigint", None),
+    "created_at": ("NO", "timestamp with time zone", None),
+}
+_DOCUMENTS_CHECKS = {
+    "documents_checksum_length_check",
+    "documents_size_bytes_check",
+}
 
 
 def test_sync_url_selects_psycopg() -> None:
@@ -140,12 +150,16 @@ def _drop_database(admin_url: str, name: str) -> None:
 
 
 def _assert_jobs_table(admin_url: str, name: str) -> None:
-    assert _columns(admin_url, name) == _COLUMNS
-    assert _check_names(admin_url, name) == _CHECKS
+    assert _columns(admin_url, name, table_name="jobs") == _COLUMNS
+    assert _check_names(admin_url, name, table_name="jobs") == _CHECKS
     assert _trigger_names(admin_url, name) == {"jobs_set_updated_at"}
+    assert _columns(admin_url, name, table_name="documents") == _DOCUMENTS_COLUMNS
+    assert _check_names(admin_url, name, table_name="documents") == _DOCUMENTS_CHECKS
 
 
-def _columns(admin_url: str, name: str) -> dict[str, tuple[str, str, int | None]]:
+def _columns(
+    admin_url: str, name: str, table_name: str = "jobs"
+) -> dict[str, tuple[str, str, int | None]]:
     url = make_url(admin_url).set(database=name)
     engine = create_engine(url)
     with engine.connect() as connection:
@@ -153,7 +167,7 @@ def _columns(admin_url: str, name: str) -> dict[str, tuple[str, str, int | None]
             text(
                 "SELECT column_name, is_nullable, data_type, character_maximum_length "
                 "FROM information_schema.columns "
-                "WHERE table_schema = 'public' AND table_name = 'jobs'"
+                f"WHERE table_schema = 'public' AND table_name = '{table_name}'"
             )
         )
         found = {
@@ -164,14 +178,14 @@ def _columns(admin_url: str, name: str) -> dict[str, tuple[str, str, int | None]
     return found
 
 
-def _check_names(admin_url: str, name: str) -> set[str]:
+def _check_names(admin_url: str, name: str, table_name: str = "jobs") -> set[str]:
     url = make_url(admin_url).set(database=name)
     engine = create_engine(url)
     with engine.connect() as connection:
         rows = connection.execute(
             text(
                 "SELECT conname FROM pg_constraint "
-                "WHERE conrelid = 'public.jobs'::regclass AND contype = 'c'"
+                f"WHERE conrelid = 'public.{table_name}'::regclass AND contype = 'c'"
             )
         )
         found = {str(constraint) for (constraint,) in rows}

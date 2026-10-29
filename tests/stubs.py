@@ -7,14 +7,17 @@ import time
 from collections.abc import Callable, Collection, Iterator, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 import httpx2
 
+from bioparser.db import documents as document_queries
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
+from bioparser.db.documents import DocumentRecord
 from bioparser.jobqueue import JobQueueError, ParseJobMessage
 from bioparser.jobstate import ALLOWED_TRANSITIONS, JobState, JobStatus
 from bioparser.parser.models import (
@@ -26,7 +29,7 @@ from bioparser.parser.models import (
     ParserInfo,
     TextContent,
 )
-from bioparser.storage import ArtifactMetadata, ArtifactNotFoundError, StorageError
+from bioparser.storage import ArtifactMetadata, ArtifactNotFoundError, StorageError, StoredArtifact
 
 # What httpx2.MockTransport calls for every request a client sends
 type Handler = Callable[[httpx2.Request], httpx2.Response]
@@ -236,6 +239,12 @@ class StubArtifactStorage:
         self.events.append("artifact.store")
         if self.store_error is not None:
             raise self.store_error
+        if metadata.size_bytes is None:
+            metadata = metadata.model_copy(update={"size_bytes": len(content)})
+        if metadata.checksum is None:
+            from bioparser.hashing import sha256_bytes
+
+            metadata = metadata.model_copy(update={"checksum": sha256_bytes(content)})
         self.artifacts[metadata.artifact_path] = (content, metadata)
         return metadata.artifact_path
 
@@ -248,21 +257,47 @@ class StubArtifactStorage:
         except KeyError as exc:
             raise ArtifactNotFoundError(f"Artifact not found: {artifact_path}") from exc
 
+    def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
+        self.events.append("artifact.retrieve_metadata")
+        if self.retrieve_error is not None:
+            raise self.retrieve_error
+        try:
+            return self.artifacts[artifact_path][1]
+        except KeyError as exc:
+            raise ArtifactNotFoundError(f"Artifact not found: {artifact_path}") from exc
+
+    def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
+        self.events.append("artifact.retrieve_artifact")
+        if self.retrieve_error is not None:
+            raise self.retrieve_error
+        try:
+            content, meta = self.artifacts[artifact_path]
+            return StoredArtifact(content=content, metadata=meta)
+        except KeyError as exc:
+            raise ArtifactNotFoundError(f"Artifact not found: {artifact_path}") from exc
+
+    def exists(self, artifact_path: str) -> bool:
+        self.events.append("artifact.exists")
+        return artifact_path in self.artifacts
+
 
 _jobs: list["StubJobs"] = []
 
 
 class StubJobs:
-    """One in-memory jobs table for the API tests and both worker handler tests."""
+    """One in-memory jobs and documents table for the API tests and both worker handler tests."""
 
     def __init__(self, state: JobState | None = None, *, events: list[str] | None = None) -> None:
         _jobs.append(self)
         self.states: dict[str, JobState] = {}
         if state is not None:
             self.states[str(state.job_id)] = state
+        self.documents: dict[str, DocumentRecord] = {}
         self.events = events if events is not None else []
         self.create_error: Exception | None = None
         self.get_error: Exception | None = None
+        self.doc_create_error: Exception | None = None
+        self.doc_get_error: Exception | None = None
 
     @property
     def state(self) -> JobState | None:
@@ -349,6 +384,72 @@ class StubJobs:
         self.states[str(job_id)] = state.with_changes(status="failed", error_code=code)
         return "recorded"
 
+    async def list_jobs(
+        self,
+        connection: object,
+        *,
+        status: JobStatus | None = None,
+        parser: str | None = None,
+    ) -> list[JobState]:
+        self.events.append("job_state.list")
+        if self.get_error is not None:
+            raise self.get_error
+        jobs = list(self.states.values())
+        if status is not None:
+            jobs = [j for j in jobs if j.status == status]
+        if parser is not None:
+            jobs = [j for j in jobs if j.parser == parser]
+        return jobs
+
+    async def list_jobs_for_document(
+        self,
+        connection: object,
+        checksum: str,
+    ) -> list[JobState]:
+        self.events.append("job_state.list_for_document")
+        if self.get_error is not None:
+            raise self.get_error
+        target = f"pdf/{checksum}"
+        return [
+            j for j in self.states.values() if j.pdf_ref == target or j.pdf_ref == f"{target}.pdf"
+        ]
+
+    async def get_document(self, connection: object, checksum: str) -> DocumentRecord | None:
+        self.events.append("document.get")
+        if self.doc_get_error is not None:
+            raise self.doc_get_error
+        return self.documents.get(checksum)
+
+    async def create_document(
+        self,
+        connection: object,
+        *,
+        checksum: str,
+        display_name: str | None,
+        size_bytes: int,
+    ) -> tuple[DocumentRecord, bool]:
+        self.events.append("document.create")
+        if self.doc_create_error is not None:
+            raise self.doc_create_error
+        if checksum in self.documents:
+            return self.documents[checksum], False
+        record = DocumentRecord(
+            checksum=checksum,
+            display_name=display_name,
+            size_bytes=size_bytes,
+            created_at=datetime.now(UTC),
+        )
+        self.documents[checksum] = record
+        return record, True
+
+    async def list_documents(self, connection: object) -> list[DocumentRecord]:
+        self.events.append("document.list")
+        if self.doc_get_error is not None:
+            raise self.doc_get_error
+        docs = list(self.documents.values())
+        docs.sort(key=lambda d: d.created_at, reverse=True)
+        return docs
+
 
 def bind_jobs(monkeypatch: Any) -> None:
     """Point job queries and the pool at the jobs table most recently constructed."""
@@ -391,6 +492,37 @@ def bind_jobs(monkeypatch: Any) -> None:
     ) -> str:
         return await tables[-1].mark_failed(connection, job_id, code, from_statuses=from_statuses)
 
+    async def list_jobs(
+        connection: object,
+        *,
+        status: JobStatus | None = None,
+        parser: str | None = None,
+    ) -> list[JobState]:
+        return await tables[-1].list_jobs(connection, status=status, parser=parser)
+
+    async def list_jobs_for_document(
+        connection: object,
+        checksum: str,
+    ) -> list[JobState]:
+        return await tables[-1].list_jobs_for_document(connection, checksum)
+
+    async def get_document(connection: object, checksum: str) -> DocumentRecord | None:
+        return await tables[-1].get_document(connection, checksum)
+
+    async def create_document(
+        connection: object,
+        *,
+        checksum: str,
+        display_name: str | None,
+        size_bytes: int,
+    ) -> tuple[DocumentRecord, bool]:
+        return await tables[-1].create_document(
+            connection, checksum=checksum, display_name=display_name, size_bytes=size_bytes
+        )
+
+    async def list_documents(connection: object) -> list[DocumentRecord]:
+        return await tables[-1].list_documents(connection)
+
     async def open_pool(url: str) -> None:
         return None
 
@@ -407,6 +539,11 @@ def bind_jobs(monkeypatch: Any) -> None:
     monkeypatch.setattr(job_queries, "record_parsed", record_parsed)
     monkeypatch.setattr(job_queries, "record_done", record_done)
     monkeypatch.setattr(job_queries, "mark_failed", mark_failed)
+    monkeypatch.setattr(job_queries, "list_jobs", list_jobs)
+    monkeypatch.setattr(job_queries, "list_jobs_for_document", list_jobs_for_document)
+    monkeypatch.setattr(document_queries, "get", get_document)
+    monkeypatch.setattr(document_queries, "create", create_document)
+    monkeypatch.setattr(document_queries, "list_documents", list_documents)
     monkeypatch.setattr(database, "open", open_pool)
     monkeypatch.setattr(database, "aclose", close_pool)
     monkeypatch.setattr(database, "transaction", _transaction)
