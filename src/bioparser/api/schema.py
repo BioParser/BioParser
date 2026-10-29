@@ -10,6 +10,16 @@ from bioparser.jobs import SafeError
 from bioparser.parser_names import DEFAULT_PARSER_NAME, PARSER_BACKENDS
 
 
+class JobResponseBase(BaseModel):
+    job_id: UUID
+    created_at: datetime
+    file_name: str
+    parser: str
+    extractor: str
+    document_checksum: str
+    has_parse_result: bool
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok"]
 
@@ -44,23 +54,19 @@ class ReadinessUnavailableResponse(BaseModel):
     )
 
 
-class QueuedJobResponse(BaseModel):
-    job_id: UUID
+class QueuedJobResponse(JobResponseBase):
     status: Literal["queued"]
 
 
-class RunningJobResponse(BaseModel):
-    job_id: UUID
+class RunningJobResponse(JobResponseBase):
     status: Literal["parsing", "extracting"]
 
 
-class SucceededJobResponse(BaseModel):
-    job_id: UUID
+class SucceededJobResponse(JobResponseBase):
     status: Literal["parsed", "done"]
 
 
-class FailedJobResponse(BaseModel):
-    job_id: UUID
+class FailedJobResponse(JobResponseBase):
     status: Literal["failed"]
     error: SafeError
 
