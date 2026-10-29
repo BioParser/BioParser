@@ -10,7 +10,7 @@ depends_on = None
 def upgrade() -> None:
     op.add_column(
         "jobs",
-        sa.Column("file_name", sa.String(255), nullable=False),
+        sa.Column("file_name", sa.String(255), nullable=True),
     )
 
 

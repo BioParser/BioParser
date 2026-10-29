@@ -65,7 +65,7 @@ class JobState(BaseModel):
     parsing_claims: int = Field(default=0, ge=0)
     extracting_claims: int = Field(default=0, ge=0)
     created_at: datetime
-    file_name: str = Field(min_length=1, max_length=JOB_FILE_NAME_MAX_LENGTH)
+    file_name: str | None = Field(default=None, min_length=1, max_length=JOB_FILE_NAME_MAX_LENGTH)
 
     def claims(self, status: JobStatus) -> int:
         """How many times this stage has been claimed. Other statuses are not claims."""

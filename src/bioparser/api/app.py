@@ -29,7 +29,6 @@ from bioparser.jobqueue import (
 )
 from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobstate import (
-    JOB_FILE_NAME_MAX_LENGTH,
     CorruptJobStateError,
     JobState,
     SafeError,
@@ -86,6 +85,7 @@ from .schema import (
 from .uploads import (
     read_upload,
     require_file,
+    sanitize_file_name,
     validate_content_length,
     validate_content_type,
     validate_pdf_content,
@@ -209,9 +209,8 @@ app.add_middleware(
 app.add_middleware(ApiKeyMiddleware)
 
 
-async def _validated_upload(request: Request, file: UploadFile | None) -> bytes:
+async def _validated_upload(request: Request, file: UploadFile) -> bytes:
     validate_content_length(request.headers.get("content-length"))
-    file = require_file(file)
     validate_content_type(file)
     content = await read_upload(file)
     validate_pdf_content(content)
@@ -386,11 +385,11 @@ async def _stored_artifact(request: Request, job: JobState, ref: str | None, kin
     },
 )
 async def submit_job(request: Request, file: UploadFile | None = None) -> QueuedJobResponse:
+    file = require_file(file)
     pdf_bytes = await _validated_upload(request, file)
     # The same PDF always gets the same id. hashlib releases the GIL, so a thread keeps the
     # hashing of up to max_upload_bytes off the event loop.
-    assert file is not None
-    file_name = (file.filename or "document.pdf")[:JOB_FILE_NAME_MAX_LENGTH]
+    file_name = sanitize_file_name(file.filename)
     document_id = await asyncio.to_thread(sha256_bytes, pdf_bytes)
     job_id = uuid.uuid4()
     creation_info = CreationInfo(created_by="api-upload")
@@ -533,6 +532,7 @@ async def extract(request: Request, file: UploadFile | None = None) -> Extractio
     The same parser, extractor and settings as a job from `POST /api/extractions`. Nothing is
     stored. The response is the extraction artifact that the job stores.
     """
+    file = require_file(file)
     content = await _validated_upload(request, file)
     settings = config.get_api_settings()
     options = PipelineOptions(

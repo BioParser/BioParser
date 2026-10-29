@@ -10,7 +10,7 @@ from bioparser.jobstate import SafeError
 class JobResponseBase(BaseModel):
     job_id: UUID
     created_at: datetime
-    file_name: str
+    file_name: str | None
     parser: str
     extractor: str
     document_checksum: str

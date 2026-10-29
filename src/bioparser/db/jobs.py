@@ -61,7 +61,7 @@ class Job(Base):
     parser: Mapped[str] = mapped_column(Text)
     extractor: Mapped[str] = mapped_column(Text)
     pdf_ref: Mapped[str] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
-    file_name: Mapped[str] = mapped_column(String(JOB_FILE_NAME_MAX_LENGTH))
+    file_name: Mapped[str | None] = mapped_column(String(JOB_FILE_NAME_MAX_LENGTH), nullable=True)
     parse_result_ref: Mapped[str | None] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
     extract_result_ref: Mapped[str | None] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
     error_code: Mapped[str | None] = mapped_column(Text)
