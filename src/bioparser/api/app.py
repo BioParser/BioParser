@@ -103,9 +103,7 @@ async def _failure_logged_redacted(phase: str) -> AsyncIterator[None]:
         yield
     except Exception as exc:
         LOGGER.critical(
-            "lifespan failed",
-            exc_info=True,
-            extra={"phase": phase, **error_fields(exc)},
+            "lifespan failed", exc_info=True, extra={"phase": phase, **error_fields(exc)}
         )
         raise LifespanError(f"{phase} failed: {type(exc).__name__}") from None
 
@@ -196,8 +194,7 @@ try:
     setup_logging(config.get_api_settings().log_level)
 except ValidationError as exc:
     LOGGER.critical(
-        "invalid configuration",
-        extra={"invalid_settings": config.invalid_settings(exc)},
+        "invalid configuration", extra={"invalid_settings": config.invalid_settings(exc)}
     )
     raise
 
@@ -206,7 +203,6 @@ app.add_middleware(
     TypedRequestBodyLimitMiddleware,
     max_body_size=config.get_api_settings().max_upload_bytes,
 )
-
 # Added last, so it runs first: a request without the key gets 401 before the body
 # limit, the form parser or a route reads any of its body.
 app.add_middleware(ApiKeyMiddleware)
@@ -335,11 +331,7 @@ _IMMUTABLE = "private, max-age=31536000, immutable"
 
 def _artifact_responses(model: type[BaseModel], description: str) -> dict[int | str, Any]:
     return {
-        200: {
-            "model": model,
-            "description": description,
-            "content": {"application/json": {}},
-        },
+        200: {"model": model, "description": description, "content": {"application/json": {}}},
         401: error_response(UNAUTHORIZED),
         404: error_response(JOB_NOT_FOUND),
         409: error_response(ARTIFACT_NOT_AVAILABLE),
@@ -367,9 +359,7 @@ async def _stored_artifact(request: Request, job: JobState, ref: str | None, kin
         LOGGER.warning("job artifact read failed", extra=fields | error_fields(exc))
         raise http_error(503, STORAGE_UNAVAILABLE) from exc
     return Response(
-        content=payload,
-        media_type="application/json",
-        headers={"Cache-Control": _IMMUTABLE},
+        content=payload, media_type="application/json", headers={"Cache-Control": _IMMUTABLE}
     )
 
 
@@ -497,8 +487,7 @@ async def job_parser_artifact(request: Request, job_id: str) -> Response:
     description=_INTERNAL_NOTE,
     response_class=Response,
     responses=_artifact_responses(
-        ExtractionArtifact,
-        "The job's extraction artifact: observations and their evidence",
+        ExtractionArtifact, "The job's extraction artifact: observations and their evidence"
     ),
 )
 async def job_extraction_artifact(request: Request, job_id: str) -> Response:
