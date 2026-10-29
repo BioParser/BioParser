@@ -17,15 +17,7 @@ API_KEY_HEADER = "X-API-Key"
 # The probes (Docker's HEALTHCHECK sends no key), the pages Swagger UI loads before the
 # user can enter a key, and the web UI. Every other path needs the key.
 PUBLIC_PATHS = frozenset(
-    {
-        "/health",
-        "/ready",
-        "/docs",
-        "/docs/oauth2-redirect",
-        "/openapi.json",
-        "/redoc",
-        "/ui",
-    }
+    {"/health", "/ready", "/docs", "/docs/oauth2-redirect", "/openapi.json", "/redoc", "/ui"}
 )
 # The built web UI under /ui/: static files that hold no data. The browser loads them
 # without a key; the UI sends the key on its own API calls.

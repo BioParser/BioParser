@@ -23,7 +23,7 @@ ENV UV_CACHE_DIR=/root/.cache/uv \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_NO_DEV=1
-    
+
 WORKDIR /app
 
 # Locked dependencies first, then the project, so a code change reuses the dependency layer.
