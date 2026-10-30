@@ -41,7 +41,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 #-------------------------------------------
 
 # Builds the UI into static files. Node stays in this stage; the runtime image has none.
-# Same version as frontend/.nvmrc. Index digest so amd64 and arm64 both resolve.
+# Same version as .nvmrc. Index digest so amd64 and arm64 both resolve.
 # $BUILDPLATFORM: the output is the same on every platform, so it builds natively.
 FROM --platform=$BUILDPLATFORM node:26.13.0-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS ui
 

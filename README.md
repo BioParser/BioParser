@@ -87,7 +87,7 @@ Serves on `http://127.0.0.1:8080`. Job submission and polling work on their own;
 
 ### Run the UI
 
-Prerequisites: [Node.js](https://nodejs.org/), the version in `frontend/.nvmrc`. With [fnm](https://github.com/Schniz/fnm) or nvm, run `fnm use` (or `nvm use`) in `frontend/` to switch to it.
+Prerequisites: [Node.js](https://nodejs.org/), the version in `.nvmrc`. With [fnm](https://github.com/Schniz/fnm) or nvm, run `fnm use` (or `nvm use`) to switch to it.
 
 ```sh
 cd frontend
