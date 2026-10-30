@@ -92,9 +92,7 @@ class Watch:
             self.stuck.set()
         outcome = "failing the delivery and exiting" if self._count_attempt else "exiting"
         _report_stuck(self._bound_s, outcome=outcome)
-        if self._count_attempt and self._guard.recorded.wait(
-            timeout=min(self._bound_s, _ACK_WAIT_S)
-        ):
+        if self._count_attempt and self._guard.recorded.wait(timeout=_ACK_WAIT_S):
             return
         if self._count_attempt:
             _report_stuck(self._bound_s, outcome="the settlement was not stored, exiting")
