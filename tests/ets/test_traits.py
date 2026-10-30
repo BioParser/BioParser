@@ -56,6 +56,13 @@ def test_every_released_trait_still_means_the_same() -> None:
             # The id is not checked here. It may move to a public ontology term, and that
             # is a release that bumps the version.
             assert new.get("stored_unit") == old.get("stored_unit"), f"{code} changed unit"
+            # A definition may be reworded, which needs a new version. Its meaning may not move.
+            assert not (old["status"] == "deprecated" and new["status"] == "active"), (
+                f"{code} was deprecated and is active again"
+            )
+            assert set(old.get("approximate_units", ())) <= set(new.get("approximate_units", ())), (
+                f"{code} dropped an approximate unit"
+            )
             for unit, factor in old.get("printed_units", {}).items():
                 assert new["printed_units"].get(unit) == factor, f"{code} changed {unit}"
             assert set(old.get("levels", ())) <= set(new.get("levels", ())), f"{code} lost a level"
@@ -76,6 +83,14 @@ def test_known_vt_terms_are_used_and_every_prefix_is_declared() -> None:
     assert body_mass.trait_id == "VT:0001259"
     for trait in table.traits:
         assert trait.trait_id.split(":")[0] in table.id_prefixes
+
+
+def test_a_vt_id_is_only_on_a_code_that_names_the_same_measurement() -> None:
+    # VT body length is a specified measurement. An unspecified length is not that term.
+    body_length = mammal_traits().get("body_length")
+
+    assert body_length is not None
+    assert body_length.trait_id.startswith("BPT:")
 
 
 def test_head_body_and_total_length_are_separate_traits() -> None:

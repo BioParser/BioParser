@@ -79,7 +79,7 @@
     {
       "code": "body_length",
       "name": "Body length",
-      "trait_id": "VT:0001256",
+      "trait_id": "BPT:0000080",
       "definition": "Length of the body as printed, where the paper does not say whether the tail is included.",
       "domain": "morphology",
       "kind": "numeric",
@@ -94,7 +94,7 @@
       "code": "tail_length",
       "name": "Tail length",
       "trait_id": "VT:0002758",
-      "definition": "Length of the tail from its base to the tip, not including terminal hairs.",
+      "definition": "Distance along the longest axis of the tail, from its base to the tip.",
       "domain": "morphology",
       "kind": "numeric",
       "stored_unit": "mm",
@@ -1152,7 +1152,12 @@
       "trait_id": "BPT:0000072",
       "definition": "Mean number of animals in a group spread over a given area.",
       "domain": "life_habit",
-      "kind": "count"
+      "kind": "numeric",
+      "stored_unit": "animals",
+      "printed_units": {
+        "animals": "1",
+        "individuals": "1"
+      }
     }
   ]
 }

@@ -20,13 +20,19 @@ BASELINE = Path(__file__).with_name("released_traits.json")
 
 
 def snapshot(table: TraitTable) -> dict[str, dict[str, Any]]:
-    """What a stored result depends on, per code. Names, definitions and status are free."""
+    """What a stored result depends on, per code. Names are free. Any other edit needs a version."""
     entries: dict[str, dict[str, Any]] = {}
     for trait in table.traits:
-        entry: dict[str, Any] = {"kind": trait.kind, "trait_id": trait.trait_id}
+        entry: dict[str, Any] = {
+            "kind": trait.kind,
+            "trait_id": trait.trait_id,
+            "definition": trait.definition,
+            "status": trait.status,
+        }
         if trait.kind == "numeric":
             entry["stored_unit"] = trait.stored_unit
             entry["printed_units"] = dict(sorted(trait.printed_units.items()))
+            entry["approximate_units"] = sorted(trait.approximate_units)
         elif trait.kind == "count":
             entry["stored_unit"] = trait.stored_unit
         else:

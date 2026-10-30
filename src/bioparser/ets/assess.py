@@ -148,9 +148,10 @@ def assess(observation: Observation) -> Assessment:
     parsed = _parse_trait_value(
         observation, aggregate=_is_aggregate(observation, aggregate_measure)
     )
+    categorical = isinstance(parsed, ResolvedTraitValue) and parsed.kind == "categorical"
     if isinstance(parsed, ResolvedTraitValue):
         warnings.extend(parsed.warnings)
-        if parsed.kind == "categorical":
+        if categorical:
             warnings.extend(_numbers_that_do_not_apply(observation))
     statistics = read_statistics(
         observation,
@@ -185,6 +186,10 @@ def assess(observation: Observation) -> Assessment:
     elevation = _parse_decimal(observation.elevation, "elevation", warnings, signed=True)
     country_code = _parse_country_code(observation.countryCode, warnings)
 
+    # A level has no spread and no range. They were warned about above and are not published.
+    dispersion = 0.0 if categorical else statistics.dispersion
+    value_min = None if categorical else statistics.measurement_value_min
+    value_max = None if categorical else statistics.measurement_value_max
     shared = _Fields(
         warnings=tuple(warnings),
         scientific_name=scientific_name,
@@ -193,9 +198,9 @@ def assess(observation: Observation) -> Assessment:
         aggregate_measure=aggregate_measure,
         basis_of_record=basis_of_record,
         individual_count=individual_count,
-        dispersion=statistics.dispersion,
-        measurement_value_min=statistics.measurement_value_min,
-        measurement_value_max=statistics.measurement_value_max,
+        dispersion=dispersion,
+        measurement_value_min=value_min,
+        measurement_value_max=value_max,
         year=year,
         month=month,
         day=day,
@@ -209,7 +214,7 @@ def assess(observation: Observation) -> Assessment:
     )
     if not isinstance(parsed, ResolvedTraitValue):
         return Dropped(drop=parsed, **shared.model_dump())
-    if _bounds_reversed(statistics.measurement_value_min, statistics.measurement_value_max):
+    if _bounds_reversed(value_min, value_max):
         return Dropped(drop="bounds_reversed", **shared.model_dump())
     return Kept(
         trait_name=parsed.trait_name,
