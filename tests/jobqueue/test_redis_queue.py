@@ -917,6 +917,8 @@ def test_a_hook_that_never_returns_exits_the_process(
         release.set()
 
     monkeypatch.setattr("os._exit", fake_exit)
+    # This hook never settles, so the real 30 s wait would hold the test.
+    monkeypatch.setattr("bioparser.jobqueue.dramatiq.watchdog._ACK_WAIT_S", 0.2)
 
     class _StuckHook(JobHandler[ParseJobMessage]):
         async def handle(self, message: ParseJobMessage) -> None:
