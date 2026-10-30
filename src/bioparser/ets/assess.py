@@ -19,7 +19,7 @@ from bioparser.ets.notices import (
 )
 from bioparser.ets.numbers import parse_count, parse_decimal, parse_integer, parse_signed_decimal
 from bioparser.ets.statistics import read_statistics
-from bioparser.ets.units import CanonicalTraitValue, TargetUnit, convert_trait_value_to_canonical
+from bioparser.ets.trait_values import ResolvedTraitValue, resolve_trait_value
 from bioparser.ets.vocab import BasisOfRecord, Sex, match_aggregate, match_basis, match_sex
 from bioparser.extract.models import (
     CitationOrCorrection,
@@ -35,6 +35,7 @@ DropReason = Literal[
     "unit_not_for_trait",
     "unit_unknown",
     "value_not_numeric",
+    "level_unknown",
     "bounds_reversed",
 ]
 # Free-text columns. The value is the ETS name. taxonClass is written as class.
@@ -100,8 +101,10 @@ class _Fields(BaseModel):
 class Kept(_Fields):
     """The observation can become a row. The converted value is present."""
 
+    trait_name: str
+    trait_id: str
     trait_value: str
-    trait_unit: TargetUnit
+    trait_unit: str | None
 
 
 class Dropped(_Fields):
@@ -136,7 +139,7 @@ def assess(observation: Observation) -> Assessment:
     parsed = _parse_trait_value(observation)
     statistics = read_statistics(
         observation,
-        trait_factor=parsed.factor if isinstance(parsed, CanonicalTraitValue) else None,
+        trait_factor=parsed.factor if isinstance(parsed, ResolvedTraitValue) else None,
         stored_phrase=cited["statisticalMethod"],
         warnings=warnings,
     )
@@ -189,11 +192,13 @@ def assess(observation: Observation) -> Assessment:
         country_code=country_code,
         cited=cited,
     )
-    if not isinstance(parsed, CanonicalTraitValue):
+    if not isinstance(parsed, ResolvedTraitValue):
         return Dropped(drop=parsed, **shared.model_dump())
     if _bounds_reversed(statistics.measurement_value_min, statistics.measurement_value_max):
         return Dropped(drop="bounds_reversed", **shared.model_dump())
     return Kept(
+        trait_name=parsed.trait_name,
+        trait_id=parsed.trait_id,
         trait_value=parsed.value,
         trait_unit=parsed.unit,
         **shared.model_dump(),
@@ -204,7 +209,7 @@ def _bounds_reversed(lower: float | None, upper: float | None) -> bool:
     return lower is not None and upper is not None and lower > upper
 
 
-def _parse_trait_value(observation: Observation) -> CanonicalTraitValue | DropReason:
+def _parse_trait_value(observation: Observation) -> ResolvedTraitValue | DropReason:
     value = (
         observation.traitValue.value
         if observation.traitValue is not None
@@ -216,7 +221,7 @@ def _parse_trait_value(observation: Observation) -> CanonicalTraitValue | DropRe
         if observation.traitUnit is not None
         else observation.verbatimTraitUnit.text
     )
-    return convert_trait_value_to_canonical(observation.trait.value, value, unit)
+    return resolve_trait_value(observation.traitCode.value, value, unit)
 
 
 def _cited(value: CitationOrCorrection | None) -> str | None:

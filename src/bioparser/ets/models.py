@@ -30,10 +30,9 @@ class EtsRow(BaseModel):
         serialize_by_alias=True,
     )
 
-    # Optional thesaurus identifier.
-    traitID: str | None = None
-    # TODO: None allowed until a trait thesaurus exists. ETS requires a character value.
-    traitName: str | None = None
+    # Both come from the trait list (traits.py), so every row has them.
+    traitID: str = Field(min_length=1)
+    traitName: str = Field(min_length=1)
     verbatimTraitName: str | None = None
 
     # Accepted name. taxonID is the optional taxonomy identifier.
@@ -42,9 +41,10 @@ class EtsRow(BaseModel):
     taxonID: str | None = None
 
     # Standardized value beside the printed one.
-    traitValue: str
+    traitValue: str = Field(min_length=1)
     verbatimTraitValue: str = Field(min_length=1)
-    traitUnit: str = Field(min_length=1)
+    # None for a categorical trait, which has no unit. The printed unit stays in verbatimTraitUnit.
+    traitUnit: str | None = Field(default=None, min_length=1)
     verbatimTraitUnit: str = Field(min_length=1)
 
     # Classification.
@@ -107,12 +107,13 @@ class EtsRow(BaseModel):
     countryCode: str | None = None
     occurrenceRemarks: str | None = None
 
-    @field_validator("traitValue")
-    @classmethod
-    def _trait_value_is_a_positive_decimal(cls, value: str) -> str:
-        if canonical_decimal(value) != value:
+    @model_validator(mode="after")
+    def _trait_value_matches_its_kind(self) -> Self:
+        # A trait with a unit is a number. A trait without one is a categorical level, and
+        # assess has already matched it to the trait's levels.
+        if self.traitUnit is not None and canonical_decimal(self.traitValue) != self.traitValue:
             raise ValueError("traitValue is not a positive decimal in canonical form")
-        return value
+        return self
 
     @field_validator("measurementID")
     @classmethod

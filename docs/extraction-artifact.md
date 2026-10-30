@@ -21,7 +21,7 @@ One observation is one measurement, which becomes one ETS row. The artifact reco
   "extractor_version": "1",
   "observations": [
     {
-      "trait": {
+      "traitCode": {
         "kind": "interpretation",
         "value": "body_mass",
         "passage": {
@@ -146,7 +146,7 @@ In the table below, the ETS term is the column the adapter fills from the field.
 
 | Field | Shape | Required | ETS term | Notes |
 |---|---|---|---|---|
-| `trait` | interpreted | yes | - | A free string such as `body_mass`. The adapter looks it up in the trait thesaurus. |
+| `traitCode` | interpreted | yes | - | The internal trait code, a free string such as `body_mass`. The adapter looks it up in the trait thesaurus. |
 | `verbatimTraitName` | printed + correction | | `verbatimTraitName` | |
 | `verbatimScientificName` | printed | yes | `verbatimScientificName` | The printed name, such as `M. musculus`. |
 | `scientificName` | interpreted | | `scientificName` | Paired with `verbatimScientificName`. A name read from the printed citation, such as `Mus musculus`. |
@@ -206,7 +206,7 @@ Not in the artifact, because the adapter derives or assigns them: `taxonID`, `tr
 
 Field names are the artifact's own, in camelCase, and follow the ETS terms where there is one. `taxonClass` and `measurementValueMin` differ from the ETS spellings `class` and `measurementValue_min`. A new ETS version changes the adapter's mapping and not the stored artifact.
 
-The artifact does not enforce a set of allowed values. An interpretation `value` is a non-empty string. That includes `trait`, `sex`, `basisOfRecord`, `aggregateMeasure`, `centralKind`, `dispersionKind`, and `traitUnit`. An extractor may constrain its model to a set, or check afterwards. The adapter decides what a value means and warns on one it does not know.
+The artifact does not enforce a set of allowed values. An interpretation `value` is a non-empty string. That includes `traitCode`, `sex`, `basisOfRecord`, `aggregateMeasure`, `centralKind`, `dispersionKind`, and `traitUnit`. An extractor may constrain its model to a set, or check afterwards. The adapter decides what a value means and warns on one it does not know.
 
 ## What the worker checks
 

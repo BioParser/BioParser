@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from bioparser.ets.assess import Dropped, DropReason, Kept, assess
 from bioparser.ets.models import EtsRow
 from bioparser.ets.notices import format_warning
+from bioparser.ets.traits import mammal_traits
 from bioparser.extract.models import ExtractionArtifact
 
 
@@ -33,6 +34,8 @@ class EtsResult(BaseModel):
 
     rows: list[MappedRow]
     drops: list[Drop]
+    # The version of the trait list that named these rows.
+    trait_list_version: str
 
 
 def to_ets(artifact: ExtractionArtifact, *, references: str) -> EtsResult:
@@ -56,7 +59,7 @@ def to_ets(artifact: ExtractionArtifact, *, references: str) -> EtsResult:
                 row=_row(verdict, references=references, measurement_id=str(len(rows) + 1)),
             )
         )
-    return EtsResult(rows=rows, drops=drops)
+    return EtsResult(rows=rows, drops=drops, trait_list_version=mammal_traits().version)
 
 
 def _row(
@@ -67,6 +70,8 @@ def _row(
 ) -> EtsRow:
     return EtsRow.model_validate(
         {
+            "traitID": verdict.trait_id,
+            "traitName": verdict.trait_name,
             "verbatimTraitName": verdict.cited["verbatimTraitName"],
             "scientificName": verdict.scientific_name,
             "verbatimScientificName": verdict.cited["verbatimScientificName"],

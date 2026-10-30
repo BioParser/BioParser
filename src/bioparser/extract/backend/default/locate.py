@@ -16,7 +16,7 @@ def cited_observations(
     sentence from it. The sentence is a locator and is not stored. A field gets
     a range when the sentence occurs once in the block and the field string
     occurs once inside the sentence, and ``text`` is exactly that slice. The
-    trait is an interpretation whose passage is the sentence. Another extractor
+    trait code is an interpretation whose passage is the sentence. Another extractor
     may find ranges another way. The artifact does not record how.
 
     A measurement whose fields cannot all be located is dropped. The artifact
@@ -39,7 +39,7 @@ def _observation(
     if passage is None or name is None or value is None or unit is None:
         return None
     return Observation(
-        trait=Interpretation(value=observation.trait, passage=passage),
+        traitCode=Interpretation(value=observation.trait_code, passage=passage),
         verbatimScientificName=name,
         verbatimTraitValue=value,
         verbatimTraitUnit=unit,
