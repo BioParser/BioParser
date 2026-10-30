@@ -1,10 +1,10 @@
 """Fake network hops"""
 
+import asyncio
 import json
 import re
 import threading
-import time
-from collections.abc import Callable, Collection, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,7 +15,7 @@ import httpx2
 
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
-from bioparser.jobqueue import JobQueueError, ParseJobMessage
+from bioparser.jobqueue import JobQueueError, JobSubmitter, ParseJobMessage
 from bioparser.jobstate import ALLOWED_TRANSITIONS, JobState, JobStatus
 from bioparser.parser.models import (
     BlockKind,
@@ -26,7 +26,13 @@ from bioparser.parser.models import (
     ParserInfo,
     TextContent,
 )
-from bioparser.storage import ArtifactMetadata, ArtifactNotFoundError, StorageError
+from bioparser.storage import (
+    ArtifactAlreadyExistsError,
+    ArtifactMetadata,
+    ArtifactNotFoundError,
+    StorageError,
+    StoredArtifact,
+)
 
 # What httpx2.MockTransport calls for every request a client sends
 type Handler = Callable[[httpx2.Request], httpx2.Response]
@@ -163,9 +169,9 @@ class StubParser:
         self.delay_s = delay_s
         self.pdfs: list[bytes] = []
 
-    def parse(self, path: Path) -> ParserArtifact:
+    async def parse(self, path: Path) -> ParserArtifact:
         self.pdfs.append(path.read_bytes())
-        time.sleep(self.delay_s)  # stands in for minutes of real parsing
+        await asyncio.sleep(self.delay_s)  # stands in for minutes of real parsing
         if self.error is not None:
             raise self.error
         return self.artifact
@@ -219,6 +225,42 @@ class StubVLLMService:
         return None
 
 
+class MemoryStorage:
+    """In-memory artifacts for the parse and extract handler tests.
+
+    `payloads` can already hold files the handler reads. A later `store` of the
+    same path raises, the same way the filesystem store does.
+    """
+
+    def __init__(self, payloads: Mapping[str, bytes] | None = None) -> None:
+        self.payloads: dict[str, bytes] = dict(payloads or {})
+        self.metadata: dict[str, ArtifactMetadata] = {}
+        self.stores = 0
+
+    async def store(self, content: bytes, metadata: ArtifactMetadata) -> str:
+        if metadata.artifact_path in self.payloads:
+            raise ArtifactAlreadyExistsError(metadata.artifact_path)
+        self.payloads[metadata.artifact_path] = content
+        self.metadata[metadata.artifact_path] = metadata
+        self.stores += 1
+        return metadata.artifact_path
+
+    async def retrieve(self, artifact_path: str) -> bytes:
+        try:
+            return self.payloads[artifact_path]
+        except KeyError as exc:
+            raise ArtifactNotFoundError(artifact_path) from exc
+
+    async def exists(self, artifact_path: str) -> bool:
+        return artifact_path in self.payloads
+
+    async def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
+        return self.metadata[artifact_path]
+
+    async def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
+        raise NotImplementedError
+
+
 class StubArtifactStorage:
     def __init__(self, events: list[str]) -> None:
         self.artifacts: dict[str, tuple[bytes, ArtifactMetadata]] = {}
@@ -226,7 +268,7 @@ class StubArtifactStorage:
         self.store_error: StorageError | None = None
         self.retrieve_error: StorageError | None = None
 
-    def store(
+    async def store(
         self,
         content: bytes,
         metadata: ArtifactMetadata,
@@ -239,7 +281,7 @@ class StubArtifactStorage:
         self.artifacts[metadata.artifact_path] = (content, metadata)
         return metadata.artifact_path
 
-    def retrieve(self, artifact_path: str) -> bytes:
+    async def retrieve(self, artifact_path: str) -> bytes:
         self.events.append("artifact.retrieve")
         if self.retrieve_error is not None:
             raise self.retrieve_error
@@ -416,13 +458,13 @@ def clear_jobs() -> None:
     _jobs.clear()
 
 
-class StubParseQueue:
+class StubParseQueue(JobSubmitter[ParseJobMessage]):
     def __init__(self, events: list[str]) -> None:
         self.messages: list[ParseJobMessage] = []
         self.events = events
         self.submit_error: JobQueueError | None = None
 
-    def submit(self, message: ParseJobMessage) -> None:
+    async def submit(self, message: ParseJobMessage) -> None:
         self.events.append("queue.submit")
         if self.submit_error is not None:
             raise self.submit_error

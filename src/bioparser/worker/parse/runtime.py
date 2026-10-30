@@ -1,8 +1,8 @@
 from threading import Event
 from uuid import UUID
 
-from bioparser.jobqueue import ExtractJobMessage, JobQueue, ParseJobMessage
-from bioparser.jobqueue.dramatiq import DramatiqJobQueue, DramatiqJobSubmitter
+from bioparser.jobqueue import ExtractJobMessage, JobConsumer, JobSubmitter, ParseJobMessage
+from bioparser.jobqueue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
 from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
 from bioparser.parser.protocol import PdfParser
@@ -16,20 +16,18 @@ from .handler import ParseJobHandler
 
 def build_worker(
     settings: WorkerSettings,
-) -> tuple[JobQueue[ParseJobMessage], ParseJobHandler]:
+) -> tuple[JobConsumer[ParseJobMessage], ParseJobHandler]:
     storage = FileSystemArtifactStorage(settings.artifact_storage_path)
-    queue: JobQueue[ParseJobMessage] = DramatiqJobQueue.from_redis(
+    queue: JobConsumer[ParseJobMessage] = DramatiqJobConsumer.from_redis(
         str(settings.redis_url),
         name=settings.parse_queue_name,
         model=ParseJobMessage,
         timeout_s=settings.redis_timeout_seconds,
         time_limit_ms=round(settings.parse_time_limit_seconds * 1000),
         max_retries=settings.parse_max_retries,
-        # One thread is supported today. The handler serializes any extra threads.
-        worker_threads=1,
     )
     # The extractor process owns retries and the time limit.
-    extract_queue = DramatiqJobSubmitter.from_redis(
+    extract_queue: JobSubmitter[ExtractJobMessage] = DramatiqJobSubmitter.from_redis(
         str(settings.redis_url),
         name=settings.extract_queue_name,
         timeout_s=settings.redis_timeout_seconds,
@@ -44,8 +42,8 @@ def build_worker(
             mineru_tier=settings.mineru_tier,
         )
 
-    def enqueue_extraction(job_id: UUID) -> None:
-        extract_queue.submit(ExtractJobMessage(job_id=job_id))
+    async def enqueue_extraction(job_id: UUID) -> None:
+        await extract_queue.submit(ExtractJobMessage(job_id=job_id))
 
     handler = ParseJobHandler(
         database_url=str(settings.database_url),
@@ -68,9 +66,6 @@ def main() -> None:
         queue, handler = build_worker(settings)
         stop = Event()
         install_shutdown(stop)
-        try:
-            queue.consume(handler, stop=stop)
-        finally:
-            handler.close()
+        queue.consume(handler, stop=stop)
     finally:
         liveness.close()

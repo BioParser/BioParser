@@ -22,15 +22,15 @@ from .stage import PermanentJobFailure
 LOGGER = logging.getLogger(__name__)
 
 
-def _retrieve_or_none(storage: ArtifactStorage, artifact_path: str) -> bytes | None:
+async def _retrieve_or_none(storage: ArtifactStorage, artifact_path: str) -> bytes | None:
     """Return stored bytes, or none when the artifact is missing."""
     try:
-        return storage.retrieve(artifact_path)
+        return await storage.retrieve(artifact_path)
     except ArtifactNotFoundError:
         return None
 
 
-def store_json_artifact(
+async def store_json_artifact(
     storage: ArtifactStorage,
     *,
     schema_version: str,
@@ -48,9 +48,9 @@ def store_json_artifact(
         creation_info=CreationInfo(created_by=created_by),
     )
     try:
-        storage.store(payload, metadata)
+        await storage.store(payload, metadata)
     except ArtifactAlreadyExistsError as exc:
-        existing = _retrieve_or_none(storage, artifact_path)
+        existing = await _retrieve_or_none(storage, artifact_path)
         if existing is None or not is_valid(existing):
             LOGGER.error(f"stored {kind} from another delivery is missing or invalid")
             raise PermanentJobFailure("internal_error") from exc

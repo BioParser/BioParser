@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from importlib.metadata import version
 from pathlib import Path
 
@@ -82,7 +83,11 @@ def _words_from_page(page: PdfPlumberPage) -> list[WordBox]:
 class DefaultParser:
     """Default digital-born PDF backend. Text currently uses pdfplumber."""
 
-    def parse(self, path: Path) -> ParserArtifact:
+    async def parse(self, path: Path) -> ParserArtifact:
+        # pdfplumber has no async form, so the parse runs on a thread.
+        return await asyncio.to_thread(self._parse, path)
+
+    def _parse(self, path: Path) -> ParserArtifact:
         pdf_path = path.expanduser().resolve()
         if not pdf_path.is_file():
             raise FileNotFoundError("PDF not found")

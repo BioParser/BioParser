@@ -1,5 +1,5 @@
-"""Dramatiq on Redis: the one `JobQueue` backend. Everything that imports dramatiq lives here."""
+"""Dramatiq on Redis: the consumer and the submitter. Everything that imports dramatiq lives here."""
 
-from .redis_queue import DramatiqJobQueue, DramatiqJobSubmitter
+from .redis_queue import DramatiqJobConsumer, DramatiqJobSubmitter
 
-__all__ = ["DramatiqJobQueue", "DramatiqJobSubmitter"]
+__all__ = ["DramatiqJobConsumer", "DramatiqJobSubmitter"]

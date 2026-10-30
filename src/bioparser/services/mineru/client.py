@@ -1,12 +1,11 @@
 """Clients for mineru-api's ``POST /v1/file_parse``: one PDF in, its middle.json out.
 
-``MinerUClient`` is async, for the API. ``SyncMinerUClient`` is for the parser worker, whose
-job handler and parsers are synchronous. Both share the request, the response size cap, the
-request log record, and how a reply is judged.
+``MinerUClient`` is async. It is the one client for the parser and the API.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -15,8 +14,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
-from types import TracebackType
-from typing import Any, Literal, Self, get_args
+from typing import Any, Literal, get_args
 from urllib.parse import quote
 
 import httpx2
@@ -263,82 +261,20 @@ class MinerUClient:
             LOGGER.warning("mineru-api task cancel failed", extra={"error": type(exc).__name__})
 
 
-class SyncMinerUClient:
-    """Blocking twin of MinerUClient. Use it as a context manager so its connections close."""
-
-    def __init__(
-        self,
-        base_url: str,
-        *,
-        wait_s: float,
-        tier: MinerUTier = DEFAULT_TIER,
-        connect_timeout: float = 5.0,
-    ) -> None:
-        self._wait_s = wait_s
-        self._tier: MinerUTier = tier
-        self._http = httpx2.Client(
-            base_url=base_url, timeout=_timeout(wait_s, connect_timeout), trust_env=False
-        )
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
-        self._http.close()
-
-    def parse(self, *, filename: str, content: bytes) -> dict[str, Any]:
-        """POST /v1/file_parse and return the parsed middle.json object."""
-        try:
-            status_code, body = self._post(filename, content)
-            payload = _decode_json_object(body)
-            if status_code == 202:
-                self._cancel(payload)
-        except httpx2.HTTPError as exc:
-            raise _transport_error(exc) from exc
-        return _middle_json(status_code, payload)
-
-    def _post(self, filename: str, content: bytes) -> tuple[int, bytes]:
-        with (
-            _logged() as reply,
-            self._http.stream(
-                "POST",
-                _FILE_PARSE,
-                params=_params(self._wait_s, self._tier),
-                files=_files(filename, content),
-            ) as response,
-        ):
-            reply.status_code = response.status_code
-            for chunk in response.iter_bytes():
-                reply.add(chunk)
-            reply.raise_unless_parse_status()
-        return response.status_code, b"".join(reply.chunks)
-
-    def _cancel(self, payload: dict[str, Any]) -> None:
-        if (path := _task_path(payload)) is None:
-            return
-        try:
-            self._http.delete(path, timeout=_CANCEL_TIMEOUT_S)
-        except httpx2.HTTPError as exc:
-            LOGGER.warning("mineru-api task cancel failed", extra={"error": type(exc).__name__})
-
-
-def wait_until_ready(base_url: str, timeout_s: float) -> None:
+async def wait_until_ready(base_url: str, timeout_s: float) -> None:
     """Return once ``GET /v1/health`` answers 200; raise MinerUError after about timeout_s.
 
     mineru-api answers 503 until its models are loaded, minutes on GPU. Waiting here holds the
     job instead of spending its retries on a service that is restarting.
     """
     deadline = time.monotonic() + timeout_s
-    with httpx2.Client(base_url=base_url, timeout=_CANCEL_TIMEOUT_S, trust_env=False) as http:
+    async with httpx2.AsyncClient(
+        base_url=base_url, timeout=_CANCEL_TIMEOUT_S, trust_env=False
+    ) as http:
         while True:
             with suppress(httpx2.HTTPError):
-                if http.get(_HEALTH).status_code == 200:
+                if (await http.get(_HEALTH)).status_code == 200:
                     return
             if time.monotonic() + _READY_POLL_S > deadline:
                 raise MinerUError("mineru-api is not ready")
-            time.sleep(_READY_POLL_S)
+            await asyncio.sleep(_READY_POLL_S)
