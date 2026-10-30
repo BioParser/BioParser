@@ -773,7 +773,7 @@ def test_a_stuck_last_attempt_is_reported_before_the_process_exits(
             await asyncio.to_thread(release.wait)
 
         async def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.05)
             reported.append(exc)
 
     queue = _queue(stub_broker, time_limit_ms=200, max_retries=0)
