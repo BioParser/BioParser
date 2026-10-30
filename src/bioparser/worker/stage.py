@@ -14,14 +14,14 @@ from uuid import UUID
 
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
-from bioparser.jobqueue import JobTimeLimitExceeded
-from bioparser.jobstate import (
+from bioparser.jobs import (
     CorruptJobStateError,
     JobNotFoundError,
     JobState,
     JobStatus,
     SafeErrorCode,
 )
+from bioparser.jobs.queue import JobTimeLimitExceeded
 from bioparser.logging_config import log_context
 
 LOGGER = logging.getLogger(__name__)

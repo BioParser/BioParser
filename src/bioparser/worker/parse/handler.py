@@ -9,12 +9,11 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-from bioparser.artifact_paths import parse_result_path
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
 from bioparser.hashing import sha256_bytes
-from bioparser.jobqueue import ParseJobMessage
-from bioparser.jobstate import CorruptJobStateError, JobState, JobStatus
+from bioparser.jobs import CorruptJobStateError, JobState, JobStatus
+from bioparser.jobs.queue import ParseJobMessage
 from bioparser.parser import (
     ParserArtifact,
     ParserBackendUnavailableError,
@@ -26,6 +25,7 @@ from bioparser.parser.pdf_bytes import parse_pdf_bytes
 from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
+from bioparser.storage.artifact_paths import parse_result_path
 
 from ..json_artifact import _retrieve_or_none, store_json_artifact
 from ..stage import PermanentJobFailure, StageJobHandler

@@ -3,8 +3,8 @@ from typing import get_args
 import pytest
 from pydantic import ValidationError
 
-from bioparser.jobstate import JOB_STATE_SCHEMA_VERSION, JobState, SafeError
-from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobStatus
+from bioparser.jobs import JOB_STATE_SCHEMA_VERSION, JobState, SafeError
+from bioparser.jobs.state import ALLOWED_TRANSITIONS, JobStatus
 
 PDF_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
 RESULT_REF = "7c2e1d3b-8e55-4f2b-ad4c-3a9f6b1e7d22"

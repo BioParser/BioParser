@@ -13,10 +13,15 @@ from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.orm import InstrumentedAttribute, Mapped, mapped_column
 
-from bioparser.artifact_paths import ARTIFACT_PATH_MAX_LENGTH
 from bioparser.db.base import Base
-from bioparser.jobstate.errors import CorruptJobStateError
-from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobState, JobStatus, SafeErrorCode
+from bioparser.jobs.state import (
+    ALLOWED_TRANSITIONS,
+    CorruptJobStateError,
+    JobState,
+    JobStatus,
+    SafeErrorCode,
+)
+from bioparser.storage.artifact_paths import ARTIFACT_PATH_MAX_LENGTH
 
 # The same status list the column check uses. Schema version, parser names,
 # extractor names, and error codes stay unconstrained apart from null.

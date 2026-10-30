@@ -18,10 +18,10 @@ from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
 from bioparser.db.migrate import sync_database_url, upgrade
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
-from bioparser.jobqueue import ParseJobMessage
-from bioparser.jobqueue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
-from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
-from bioparser.jobstate import JobState
+from bioparser.jobs import JobState
+from bioparser.jobs.queue import ParseJobMessage
+from bioparser.jobs.queue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
+from bioparser.jobs.queue.dramatiq.redis_queue import _create_redis_broker
 from bioparser.parser import ParserArtifact
 from bioparser.parser.models import ParserInfo
 from bioparser.parser_names import DEFAULT_PARSER_NAME
