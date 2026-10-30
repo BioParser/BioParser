@@ -2349,7 +2349,7 @@
       },
       "Observation": {
         "properties": {
-          "trait": {
+          "traitCode": {
             "$ref": "#/components/schemas/Interpretation"
           },
           "verbatimTraitName": {
@@ -3485,13 +3485,13 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "trait",
+          "traitCode",
           "verbatimScientificName",
           "verbatimTraitValue",
           "verbatimTraitUnit"
         ],
         "title": "Observation",
-        "description": "One measurement.\n\nA citation-only field is printed text. A citation or correction is that citation, or a\ncorrection that keeps the narrow citation beside an interpretation. A citation\nor interpretation has no verbatim sibling. Its check can reject the printed\ntext, so it is a citation or an interpretation of one passage. The passage\nfails that check, so it is not a usable column value. ``basisOfRecord``,\n``aggregateMeasure``, ``centralKind``, and ``dispersionKind``\nare interpretations only. A paper does not print those tokens. The adapter\nuses ``centralKind`` and ``dispersionKind`` to write ``statisticalMethod``\nwhen no phrase was stored, and ``dispersionKind`` to convert the dispersion.\nThe minimum and the maximum use the same factor as the trait value. One\nunit covers the measurement.\n\n``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations\nbeside a required verbatim citation. The interpretation is omitted when the\nprinted token is already the value. ``traitValue`` and ``traitUnit`` are\nthat printed number and unit, cleaned up, not a converted pair.\n``scientificName`` is another name a later taxonomy lookup can try.\n\nThe artifact does not enforce a closed set of values. An interpretation's\n``value`` is any non-empty string, including ``trait``. An extractor may\nconstrain it, and the adapter decides what a value means.\n\nEvery other column a paper can state is optional. An extractor leaves it null."
+        "description": "One measurement.\n\nA citation-only field is printed text. A citation or correction is that citation, or a\ncorrection that keeps the narrow citation beside an interpretation. A citation\nor interpretation has no verbatim sibling. Its check can reject the printed\ntext, so it is a citation or an interpretation of one passage. The passage\nfails that check, so it is not a usable column value. ``basisOfRecord``,\n``aggregateMeasure``, ``centralKind``, and ``dispersionKind``\nare interpretations only. A paper does not print those tokens. The adapter\nuses ``centralKind`` and ``dispersionKind`` to write ``statisticalMethod``\nwhen no phrase was stored, and ``dispersionKind`` to convert the dispersion.\nThe minimum and the maximum use the same factor as the trait value. One\nunit covers the measurement.\n\n``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations\nbeside a required verbatim citation. The interpretation is omitted when the\nprinted token is already the value. ``traitValue`` and ``traitUnit`` are\nthat printed number and unit, cleaned up, not a converted pair.\n``scientificName`` is another name a later taxonomy lookup can try.\n\nThe artifact does not enforce a closed set of values. An interpretation's\n``value`` is any non-empty string, including ``traitCode``. An extractor may\nconstrain it, and the adapter decides what a value means.\n\nEvery other column a paper can state is optional. An extractor leaves it null."
       },
       "Page": {
         "properties": {

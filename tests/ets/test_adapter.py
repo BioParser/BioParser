@@ -6,6 +6,7 @@ from bioparser.ets.assess import Dropped, assess
 from bioparser.ets.dates import parse_date
 from bioparser.ets.models import EtsRow
 from bioparser.ets.notices import NotNumeric
+from bioparser.ets.traits import mammal_traits
 from bioparser.extract.models import (
     Citation,
     Correction,
@@ -30,7 +31,7 @@ def _read(value: str, passage: str, *, start: int) -> Interpretation:
 
 def _observation(**changes: object) -> Observation:
     observation = Observation(
-        trait=_read("body_mass", "body mass", start=10),
+        traitCode=_read("body_mass", "body mass", start=10),
         verbatimScientificName=_cited("M. musculus", start=0),
         verbatimTraitValue=_cited("12.5", start=20),
         verbatimTraitUnit=_cited("kg", start=25),
@@ -51,6 +52,8 @@ def _artifact(*observations: Observation) -> ExtractionArtifact:
 
 def _row(**changes: object) -> EtsRow:
     values: dict[str, object] = {
+        "traitID": "VT:0001259",
+        "traitName": "Body mass",
         "scientificName": "Mus musculus",
         "verbatimScientificName": "Mus musculus",
         "verbatimTraitValue": "12.5",
@@ -84,8 +87,8 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     assert dumped["scientificName"] == "M. musculus"
     assert dumped["verbatimScientificName"] == "M. musculus"
     assert dumped["taxonID"] is None
-    assert dumped["traitName"] is None
-    assert dumped["traitID"] is None
+    assert dumped["traitName"] == "Body mass"
+    assert dumped["traitID"] == "VT:0001259"
     assert dumped["basisOfRecord"] == "literatureData"
     assert dumped["references"] == _DOCUMENT_ID
     assert dumped["measurementID"] == "1"
@@ -95,7 +98,7 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     assert dumped["dispersion"] == 0
     assert dumped["warnings"] == ""
     assert "evidence" not in dumped
-    assert "trait" not in dumped
+    assert "traitCode" not in dumped
     aliases = {field.alias or name for name, field in EtsRow.model_fields.items()}
     assert set(dumped) == aliases
 
@@ -153,7 +156,7 @@ def test_a_correction_supplies_the_column_and_the_citation_stays_stored() -> Non
 
 def test_length_converts_to_millimetres() -> None:
     observation = _observation(
-        trait=_read("tail_length", "tail", start=10),
+        traitCode=_read("tail_length", "tail", start=10),
         verbatimTraitValue=_cited("2", start=20),
         verbatimTraitUnit=_cited("cm", start=25),
     )
@@ -162,7 +165,8 @@ def test_length_converts_to_millimetres() -> None:
 
     assert row.traitValue == "20"
     assert row.traitUnit == "mm"
-    assert row.traitName is None
+    assert row.traitName == "Tail length"
+    assert row.traitID == "VT:0002758"
 
 
 def test_basis_and_aggregate_are_read_from_a_passage() -> None:
@@ -288,6 +292,7 @@ def test_an_empty_observation_list_returns_no_rows() -> None:
 
     assert result.rows == []
     assert result.drops == []
+    assert result.trait_list_version == mammal_traits().version
 
 
 def test_a_unit_that_does_not_belong_to_the_trait_drops_that_row() -> None:
@@ -311,7 +316,7 @@ def test_a_unit_that_does_not_belong_to_the_trait_drops_that_row() -> None:
 
 
 def test_an_unknown_trait_drops_the_row() -> None:
-    observation = _observation(trait=_read("wing_length", "wing", start=10))
+    observation = _observation(traitCode=_read("wing_length", "wing", start=10))
 
     verdict = assess(observation)
 
@@ -328,7 +333,7 @@ def test_a_citation_without_a_range_is_rejected() -> None:
                 "extractor_version": "1",
                 "observations": [
                     {
-                        "trait": {
+                        "traitCode": {
                             "kind": "interpretation",
                             "value": "body_mass",
                             "passage": {"kind": "citation", "text": "body mass"},
@@ -453,7 +458,7 @@ def test_a_variance_converts_with_the_square_of_the_factor() -> None:
 
 def test_a_median_a_standard_error_and_an_interval_convert_length() -> None:
     observation = _observation(
-        trait=_read("tail_length", "tail", start=10),
+        traitCode=_read("tail_length", "tail", start=10),
         verbatimTraitValue=_cited("2", start=20),
         verbatimTraitUnit=_cited("cm", start=25),
         centralKind=_read("median", "median", start=60),
@@ -587,3 +592,75 @@ def test_an_unknown_central_kind_warns_when_a_dispersion_phrase_is_written() -> 
 def test_an_empty_document_id_is_rejected() -> None:
     with pytest.raises(ValueError, match="references is empty"):
         to_ets(_artifact(_observation()), references="")
+
+
+def _trait_observation(code: str, value: str, unit: str) -> Observation:
+    return _observation(
+        traitCode=_read(code, "trait", start=10),
+        verbatimTraitValue=_cited(value, start=20),
+        verbatimTraitUnit=_cited(unit, start=25),
+    )
+
+
+def _only_row(observation: Observation) -> EtsRow:
+    return to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+
+def test_a_count_trait_is_kept_without_conversion() -> None:
+    row = _only_row(_trait_observation("litter_size", "4", "unitless"))
+
+    assert (row.traitValue, row.traitUnit) == ("4", "individuals")
+    assert (row.traitName, row.traitID) == ("Litter size", row.traitID)
+    assert row.verbatimTraitUnit == "unitless"
+
+
+def test_a_count_must_be_a_positive_whole_number() -> None:
+    verdict = assess(_trait_observation("litter_size", "3.5", "-"))
+
+    assert isinstance(verdict, Dropped)
+    assert verdict.drop == "value_not_numeric"
+
+
+def test_a_categorical_level_is_kept_with_no_unit() -> None:
+    row = _only_row(_trait_observation("activity_cycle", "Nocturnal", "NA"))
+
+    assert row.traitValue == "nocturnal"
+    assert row.traitUnit is None
+    assert row.verbatimTraitUnit == "NA"
+    assert row.traitName == "Activity cycle"
+
+
+def test_a_level_off_the_list_drops_the_row() -> None:
+    verdict = assess(_trait_observation("activity_cycle", "sometimes", "NA"))
+
+    assert isinstance(verdict, Dropped)
+    assert verdict.drop == "level_unknown"
+
+
+def test_two_length_traits_that_share_a_unit_keep_their_own_identifiers() -> None:
+    head_body = _only_row(_trait_observation("head_body_length", "10", "cm"))
+    total = _only_row(_trait_observation("total_length", "10", "cm"))
+
+    assert head_body.traitValue == total.traitValue == "100"
+    assert head_body.traitUnit == total.traitUnit == "mm"
+    assert head_body.traitID != total.traitID
+
+
+def test_time_density_and_energy_units_convert_to_the_stored_unit() -> None:
+    assert _only_row(_trait_observation("gestation_length", "2", "years")).traitValue == "730.5"
+    assert _only_row(_trait_observation("home_range_size", "50", "ha")).traitValue == "0.5"
+    assert (
+        _only_row(_trait_observation("population_density", "3", "individuals/ha")).traitValue
+        == "300"
+    )
+    assert _only_row(_trait_observation("basal_metabolic_rate", "2", "W")).traitValue == "7.2"
+
+
+def test_a_unit_known_elsewhere_but_not_for_this_trait_is_not_for_the_trait() -> None:
+    verdict = assess(_trait_observation("gestation_length", "2", "kHz"))
+
+    assert isinstance(verdict, Dropped)
+    assert verdict.drop == "unit_not_for_trait"
+    unknown = assess(_trait_observation("gestation_length", "2", "furlongs"))
+    assert isinstance(unknown, Dropped)
+    assert unknown.drop == "unit_unknown"

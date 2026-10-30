@@ -41,7 +41,7 @@ class ModelObservation(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     taxon: str = Field(min_length=1, max_length=120)
-    trait: Trait
+    trait_code: Trait
     # allow_inf_nan: json.loads accepts Infinity and NaN, and neither is a mass.
     value: float = Field(gt=0, allow_inf_nan=False)
     unit: Unit

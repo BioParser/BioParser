@@ -53,7 +53,7 @@ def _locate(
     observation = ModelObservation.model_validate(
         {
             "taxon": taxon,
-            "trait": "body_mass",
+            "trait_code": "body_mass",
             "value": value,
             "unit": unit,
             "evidence_block_id": block_id,
@@ -95,7 +95,7 @@ def _locate_all(paper: ParserArtifact, **changes: object) -> list[Observation]:
     observation = ModelObservation.model_validate(
         {
             "taxon": "Mus musculus",
-            "trait": "body_mass",
+            "trait_code": "body_mass",
             "value": 12.5,
             "unit": "kg",
             "evidence_block_id": "b0",
