@@ -702,6 +702,15 @@ def test_a_blocking_call_that_never_returns_exits_the_process(
     assert list(stub_broker.dead_letters) == []
 
 
+def test_the_backstop_adds_at_most_60_seconds(stub_broker: StubBroker) -> None:
+    """A long limit does not get a second full limit. A short one still doubles."""
+    long = _queue(stub_broker, name="long", time_limit_ms=1_800_000)
+    short = _queue(stub_broker, name="short", time_limit_ms=1_000)
+
+    assert long._delivery_bound_s() == 1_860
+    assert short._delivery_bound_s() == 2
+
+
 def test_a_blocking_call_that_never_returns_is_not_retried(
     stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
