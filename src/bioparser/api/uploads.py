@@ -1,5 +1,9 @@
 from fastapi import UploadFile
 
+from bioparser.jobstate import (
+    JOB_FILE_NAME_MAX_LENGTH,
+)
+
 from . import config
 from .errors import (
     CONTENT_TOO_LARGE,
@@ -56,3 +60,12 @@ def validate_pdf_content(content: bytes) -> None:
         raise http_error(400, EMPTY_FILE)
     if not content.startswith(_PDF_MAGIC):
         raise http_error(400, INVALID_PDF)
+
+
+def sanitize_file_name(file_name: str | None) -> str | None:
+    if not file_name:
+        return None
+    name = "".join(char for char in file_name if char.isprintable())
+    name = name[:JOB_FILE_NAME_MAX_LENGTH]
+
+    return name or None

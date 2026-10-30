@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from concurrent.futures import Executor, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -84,6 +85,7 @@ from .schema import (
 from .uploads import (
     read_upload,
     require_file,
+    sanitize_file_name,
     validate_content_length,
     validate_content_type,
     validate_pdf_content,
@@ -207,9 +209,8 @@ app.add_middleware(
 app.add_middleware(ApiKeyMiddleware)
 
 
-async def _validated_upload(request: Request, file: UploadFile | None) -> bytes:
+async def _validated_upload(request: Request, file: UploadFile) -> bytes:
     validate_content_length(request.headers.get("content-length"))
-    file = require_file(file)
     validate_content_type(file)
     content = await read_upload(file)
     validate_pdf_content(content)
@@ -273,20 +274,29 @@ def _replace_pipeline_pool(app: FastAPI, broken: Executor) -> Executor:
 
 def _job_state_response(state: JobState) -> JobStatusResponse:
     """The public status. No storage paths: they are internal, and no route takes one."""
+    response_fields: dict[str, Any] = {
+        "job_id": state.job_id,
+        "created_at": state.created_at,
+        "file_name": state.file_name,
+        "parser": state.parser,
+        "extractor": state.extractor,
+        "document_checksum": state.pdf_ref.removeprefix("pdf/"),
+        "has_parse_result": state.parse_result_ref is not None,
+    }
     match state.status:
         case "queued":
-            return QueuedJobResponse(job_id=state.job_id, status="queued")
+            return QueuedJobResponse(status="queued", **response_fields)
         case "parsing" | "extracting":
-            return RunningJobResponse(job_id=state.job_id, status=state.status)
+            return RunningJobResponse(status=state.status, **response_fields)
         case "parsed" | "done":
-            return SucceededJobResponse(job_id=state.job_id, status=state.status)
+            return SucceededJobResponse(status=state.status, **response_fields)
         case "failed":
             if state.error_code is None:
                 raise ValueError("Failed job is missing error_code")
             return FailedJobResponse(
-                job_id=state.job_id,
                 status="failed",
                 error=SafeError(code=state.error_code),
+                **response_fields,
             )
 
 
@@ -375,9 +385,11 @@ async def _stored_artifact(request: Request, job: JobState, ref: str | None, kin
     },
 )
 async def submit_job(request: Request, file: UploadFile | None = None) -> QueuedJobResponse:
+    file = require_file(file)
     pdf_bytes = await _validated_upload(request, file)
     # The same PDF always gets the same id. hashlib releases the GIL, so a thread keeps the
     # hashing of up to max_upload_bytes off the event loop.
+    file_name = sanitize_file_name(file.filename)
     document_id = await asyncio.to_thread(sha256_bytes, pdf_bytes)
     job_id = uuid.uuid4()
     creation_info = CreationInfo(created_by="api-upload")
@@ -408,6 +420,8 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         parser=DEFAULT_PARSER_NAME,
         extractor=DEFAULT_EXTRACTOR_NAME,
         pdf_ref=pdf_ref,
+        file_name=file_name,
+        created_at=datetime.now(UTC),
     )
     parse_job_message = ParseJobMessage(
         job_id=job_id,
@@ -442,7 +456,16 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
                 LOGGER.error("queued job remains after the enqueue failed", extra=fields)
         raise http_error(503, QUEUE_UNAVAILABLE) from exc
 
-    return QueuedJobResponse(job_id=job_id, status="queued")
+    return QueuedJobResponse(
+        job_id=job_state.job_id,
+        status="queued",
+        created_at=job_state.created_at,
+        file_name=job_state.file_name,
+        parser=job_state.parser,
+        extractor=job_state.extractor,
+        document_checksum=document_id,
+        has_parse_result=False,
+    )
 
 
 @app.get(
@@ -509,6 +532,7 @@ async def extract(request: Request, file: UploadFile | None = None) -> Extractio
     The same parser, extractor and settings as a job from `POST /api/extractions`. Nothing is
     stored. The response is the extraction artifact that the job stores.
     """
+    file = require_file(file)
     content = await _validated_upload(request, file)
     settings = config.get_api_settings()
     options = PipelineOptions(

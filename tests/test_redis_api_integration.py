@@ -3,6 +3,7 @@ import hashlib
 import os
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -154,9 +155,19 @@ async def test_redis_backed_submission_and_polling(
         assert response.status_code == 202
         submission = response.json()
         job_id = submission["job_id"]
-        assert submission == {"job_id": job_id, "status": "queued"}
+        document_checksum = hashlib.sha256(MINIMAL_PDF).hexdigest()
+        created_at = datetime.fromisoformat(submission["created_at"])
+        response_fields = {
+            "job_id": job_id,
+            "created_at": submission["created_at"],
+            "file_name": "sample.pdf",
+            "parser": DEFAULT_PARSER_NAME,
+            "extractor": DEFAULT_EXTRACTOR_NAME,
+            "document_checksum": document_checksum,
+        }
+        assert submission == response_fields | {"status": "queued", "has_parse_result": False}
 
-        expected_pdf_ref = f"pdf/{hashlib.sha256(MINIMAL_PDF).hexdigest()}"
+        expected_pdf_ref = f"pdf/{document_checksum}"
         parsed_job_id = UUID(job_id)
         async with database.transaction() as connection:
             queued = await job_queries.get(connection, parsed_job_id)
@@ -167,6 +178,8 @@ async def test_redis_backed_submission_and_polling(
             parser=DEFAULT_PARSER_NAME,
             extractor=DEFAULT_EXTRACTOR_NAME,
             pdf_ref=expected_pdf_ref,
+            created_at=created_at,
+            file_name="sample.pdf",
         )
         assert artifact_storage.retrieve(queued.pdf_ref) == MINIMAL_PDF
 
@@ -199,7 +212,10 @@ async def test_redis_backed_submission_and_polling(
             )
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
-        assert poll.json() == {"job_id": job_id, "status": "parsing"}
+        assert poll.json() == response_fields | {
+            "status": "parsing",
+            "has_parse_result": False,
+        }
 
         output_artifact_ref = f"art-result-{job_id}"
 
@@ -222,7 +238,10 @@ async def test_redis_backed_submission_and_polling(
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
         # The status names no storage path
-        assert poll.json() == {"job_id": job_id, "status": "parsed"}
+        assert poll.json() == response_fields | {
+            "status": "parsed",
+            "has_parse_result": True,
+        }
 
         artifact = await client.get(f"/api/jobs/{job_id}/artifacts/parser")
         assert artifact.status_code == 200

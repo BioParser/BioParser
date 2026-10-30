@@ -20,6 +20,7 @@ _COLUMNS = {
     "parser": ("NO", "text", None),
     "extractor": ("NO", "text", None),
     "pdf_ref": ("NO", "character varying", 512),
+    "file_name": ("YES", "character varying", 255),
     "parse_result_ref": ("YES", "character varying", 512),
     "extract_result_ref": ("YES", "character varying", 512),
     "error_code": ("YES", "text", None),
