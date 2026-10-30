@@ -59,6 +59,7 @@ Stop with `Ctrl+C` or `docker compose down`.
 | Service | Address on the host |
 |---|---|
 | API | `http://localhost:8080` (Swagger UI: `/docs`) |
+| Web UI | `http://localhost:8080/ui/` |
 | vLLM (OpenAI-compatible) | `http://localhost:8000/v1` |
 | Grafana (logs of all services) | `http://localhost:3000` (user `admin`) |
 | MinerU, Redis, Postgres, Loki, Alloy, docker-api | not published (internal network only) |
@@ -83,6 +84,34 @@ Serves on `http://127.0.0.1:8080`. Job submission and polling work on their own;
 
 > The host API reads `.env` if it exists. `.env.example` sets `BIOPARSER_REDIS_URL=redis://redis:6379/0`, which only resolves inside Compose, so `/ready` returns `503`. Empty that line for host-only runs. Postgres is checked only when `BIOPARSER_DATABASE_URL` is set. Compose sets that URL on the API container.
 > The API does not start without `BIOPARSER_API_KEY`. For local development only, set `BIOPARSER_AUTH_DISABLED=true` instead.
+
+### Run the UI
+
+Prerequisites: [Node.js](https://nodejs.org/), the version in `frontend/.nvmrc`. With [fnm](https://github.com/Schniz/fnm) or nvm, run `fnm use` (or `nvm use`) in `frontend/` to switch to it.
+
+```sh
+cd frontend
+npm ci
+npm run dev
+```
+
+Open `http://localhost:5173/ui/`. The page reloads when you save a file. The dev server forwards `/api` and `/ready` to the API on `127.0.0.1:8080`, so run `uv run bioparser` in a second terminal.
+
+> The UI does not send the API key yet (#253), so its API calls get `401`. For local development only, set `BIOPARSER_AUTH_DISABLED=true` in `.env`.
+
+After a change to the API, regenerate the UI's API types and commit both files. CI fails while they are out of date.
+
+```sh
+cd frontend
+npm run gen:api
+```
+
+The API image builds the UI, and the API serves it at `/ui`. To serve a local build without Compose:
+
+```sh
+(cd frontend && npm run build)
+BIOPARSER_UI_DIST_PATH=frontend/dist uv run bioparser
+```
 
 ### Parse a PDF
 
@@ -114,6 +143,17 @@ uv run pytest -m "not integration"
 ```
 
 Auto-fix: `uv run ruff check --fix` and `uv run ruff format`.
+
+For the UI, in `frontend/` (the same checks as CI's Frontend job):
+
+```sh
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+```
+
+Auto-fix lint and formatting: `npx biome check --write .`
 
 Integration tests need Redis at `BIOPARSER_TEST_REDIS_URL` (default `redis://localhost:6379/15`); without it they are skipped:
 

@@ -11,7 +11,7 @@ from starlette.types import Message, Scope
 from stubs import StubArtifactStorage, StubJobs, StubParseQueue
 
 from bioparser.api.app import app
-from bioparser.api.auth import PUBLIC_PATHS
+from bioparser.api.auth import PUBLIC_PATHS, is_public_path
 from bioparser.api.config import ApiSettings
 from bioparser.api.errors import ErrorResponse
 
@@ -291,7 +291,7 @@ def test_every_route_needs_the_key_unless_it_is_public(auth_enabled: None, route
         if method in ("HEAD", "OPTIONS"):
             continue
         status = client.request(method, _example_path(route)).status_code
-        assert (status == 401) == (route.path not in PUBLIC_PATHS), (method, route.path, status)
+        assert (status == 401) == (not is_public_path(route.path)), (method, route.path, status)
 
 
 def test_every_public_path_is_a_route() -> None:

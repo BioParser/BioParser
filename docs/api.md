@@ -264,6 +264,20 @@ dependencies are touched.
 }
 ```
 
+### `GET /ui`
+
+The web UI, built from `frontend/` (see the README). Set `BIOPARSER_UI_DIST_PATH` to the
+built files (`frontend/dist`); the API image sets it. Without it, every `/ui` path is `404`.
+
+- `/ui` redirects to `/ui/`.
+- A path under `/ui/` that names a built file returns that file. Files under `assets/` are
+  cached for a year (`immutable`): their names hold a content hash.
+- Any other path returns `index.html` (`Cache-Control: no-cache`), so a deep link such as
+  `/ui/jobs/{job_id}` loads the app. A missing file under `assets/` is `404`.
+- Not in the OpenAPI schema.
+- No API key: the UI is static files with no data, and a browser cannot send `X-API-Key` when it opens a page. The UI sends the key on its own API calls (#253). `ApiKeyMiddleware` lets `/ui` and every path under `/ui/` through.
+
+
 ### `GET /ready`
 
 Readiness. Checks Redis, Postgres, and the artifact directory, each with a bounded
