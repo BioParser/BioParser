@@ -61,7 +61,7 @@ updates:
         update-types:
           - "version-update:semver-major"
           - "version-update:semver-minor"
-      # Node 26 LTS. A Dependabot bump of node here does not change .nvmrc or
+      # A Dependabot bump of node here does not change .nvmrc or
       # package.json "engines": bump them in the same PR.
       - dependency-name: "node"
         update-types:
