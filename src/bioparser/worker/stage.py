@@ -1,17 +1,14 @@
 """Shared claim and failure handling for one queue stage.
 
-The queue handler is synchronous. Job state is async, so each handler keeps one
-event loop and runs each state call to completion on it. What the stage does
+The queue runs every handler call on one event loop, so the stage awaits its
+database calls directly. What the stage does
 after it has claimed the job, and where it records the outcome, is the
 subclass's `run`.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import threading
-from collections.abc import Awaitable
 from typing import Protocol
 from uuid import UUID
 
@@ -64,51 +61,22 @@ class StageJobHandler[T: JobMessage]:
         claim_status: JobStatus,
         max_claims: int,
     ) -> None:
+        self._database_url = database_url
         self._owned = owned
         self._claim_status = claim_status
         self._max_claims = max_claims
-        self._loop = asyncio.new_event_loop()
-        # One thread per worker process is the supported setup (`worker_threads=1` in each
-        # runtime). The loop and the process-wide pool in `bioparser.db.engine` belong to
-        # that one thread. This lock keeps extra threads correct, not fast: they would
-        # queue behind a running stage, including its blocking parse or extract work.
-        # Scale with more worker replicas, not threads.
-        self._loop_lock = threading.Lock()
-        # Build the pool before the first delivery. open does not connect, and a later
-        # call with this URL returns immediately, so a failure hook can write without
-        # an earlier delivery having reached the database.
-        self.run_async(database.open(database_url))
 
-    def close(self) -> None:
-        if self._loop.is_closed():
-            return
-        try:
-            self.run_async(database.aclose())
-        finally:
-            self._loop.close()
+    async def aopen(self) -> None:
+        await database.open(self._database_url)
 
-    def run_async[R](self, awaitable: Awaitable[R]) -> R:
-        """Run one awaitable to completion on the shared loop.
+    async def aclose(self) -> None:
+        await database.aclose()
 
-        The queue can raise JobTimeLimitExceeded in this thread at any point,
-        including while the loop is running. The interrupted task would stay
-        on the loop and resume during the next call, so it is cancelled and
-        drained before the exception leaves.
-        """
-        with self._loop_lock:
-            task = asyncio.ensure_future(awaitable, loop=self._loop)
-            try:
-                return self._loop.run_until_complete(task)
-            except BaseException:
-                task.cancel()
-                self._loop.run_until_complete(asyncio.gather(task, return_exceptions=True))
-                raise
-
-    def handle(self, message: T) -> None:
+    async def handle(self, message: T) -> None:
         with log_context(job_id=str(message.job_id)):
-            self.run_async(self._handle(message.job_id))
+            await self._handle(message.job_id)
 
-    def on_malformed(self, payload: object) -> None:
+    async def on_malformed(self, payload: object) -> None:
         if not isinstance(payload, dict):
             return
         try:
@@ -121,14 +89,14 @@ class StageJobHandler[T: JobMessage]:
                 "queue message is malformed and can never be processed. "
                 "Marking the job failed (internal_error)"
             )
-            self.run_async(self._mark_failed(job_id, "internal_error"))
+            await self._mark_failed(job_id, "internal_error")
 
-    def on_failed(self, message: T, exc: BaseException) -> None:
+    async def on_failed(self, message: T, exc: BaseException) -> None:
         code: SafeErrorCode = (
             "timeout" if isinstance(exc, JobTimeLimitExceeded) else "internal_error"
         )
         with log_context(job_id=str(message.job_id)):
-            recorded = self.run_async(self._mark_failed(message.job_id, code))
+            recorded = await self._mark_failed(message.job_id, code)
             if recorded:
                 LOGGER.error(
                     f"giving up after {type(exc).__name__}. Marked the job failed ({code})"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import NoReturn
@@ -23,6 +24,8 @@ from bioparser.storage import (
 )
 from bioparser.storage.filesystem import FileBlobMetadata
 
+pytestmark = pytest.mark.anyio
+
 
 @pytest.fixture
 def storage(tmp_path: Path) -> FileSystemArtifactStorage:
@@ -31,12 +34,12 @@ def storage(tmp_path: Path) -> FileSystemArtifactStorage:
 
 
 class TestProtocolConformance:
-    def test_implements_protocol(self, storage: FileSystemArtifactStorage) -> None:
+    async def test_implements_protocol(self, storage: FileSystemArtifactStorage) -> None:
         assert isinstance(storage, ArtifactStorage)
 
 
 class TestBasicStorageOperations:
-    def test_store_and_retrieve_pdf(self, storage: FileSystemArtifactStorage) -> None:
+    async def test_store_and_retrieve_pdf(self, storage: FileSystemArtifactStorage) -> None:
         pdf_bytes = b"%PDF-1.4\n%some test pdf content\n%%EOF"
 
         artifact_path = "pdf/dummy_hash/1"
@@ -45,9 +48,9 @@ class TestBasicStorageOperations:
             media_type="application/pdf",
         )
 
-        assert not storage.exists(artifact_path)
+        assert not await storage.exists(artifact_path)
 
-        returned_id = storage.store(pdf_bytes, metadata)
+        returned_id = await storage.store(pdf_bytes, metadata)
         assert returned_id == artifact_path
 
         # Verify blob-pointer flat layout on disk
@@ -57,23 +60,23 @@ class TestBasicStorageOperations:
         assert (storage.root_path / f"{artifact_path}.{blob_record.blob_id}.data").is_file()
         assert (storage.root_path / f"{artifact_path}.meta.json").is_file()
 
-        assert storage.exists(artifact_path)
+        assert await storage.exists(artifact_path)
 
-        retrieved_bytes = storage.retrieve(artifact_path)
+        retrieved_bytes = await storage.retrieve(artifact_path)
         assert retrieved_bytes == pdf_bytes
 
-        retrieved_meta = storage.retrieve_metadata(artifact_path)
+        retrieved_meta = await storage.retrieve_metadata(artifact_path)
         assert retrieved_meta.artifact_path == artifact_path
         assert retrieved_meta.media_type == "application/pdf"
 
         assert retrieved_meta.size_bytes == len(pdf_bytes)
         assert retrieved_meta.checksum == sha256_bytes(pdf_bytes)
 
-        stored_artifact = storage.retrieve_artifact(artifact_path)
+        stored_artifact = await storage.retrieve_artifact(artifact_path)
         assert stored_artifact.content == pdf_bytes
         assert stored_artifact.metadata == retrieved_meta
 
-    def test_store_and_retrieve_json_parser_output(
+    async def test_store_and_retrieve_json_parser_output(
         self, storage: FileSystemArtifactStorage
     ) -> None:
         json_bytes = b'{"schema_version": "1", "pages": []}'
@@ -85,18 +88,20 @@ class TestBasicStorageOperations:
             content_schema_version="1",
         )
 
-        returned_id = storage.store(json_bytes, metadata)
+        returned_id = await storage.store(json_bytes, metadata)
         assert returned_id == artifact_path
-        assert storage.exists(artifact_path)
+        assert await storage.exists(artifact_path)
 
-        retrieved = storage.retrieve(artifact_path)
+        retrieved = await storage.retrieve(artifact_path)
         assert retrieved == json_bytes
 
-        retrieved_meta = storage.retrieve_metadata(artifact_path)
+        retrieved_meta = await storage.retrieve_metadata(artifact_path)
         assert retrieved_meta.content_schema_version == "1"
         assert retrieved_meta.media_type == "application/json"
 
-    def test_store_keeps_a_matching_checksum(self, storage: FileSystemArtifactStorage) -> None:
+    async def test_store_keeps_a_matching_checksum(
+        self, storage: FileSystemArtifactStorage
+    ) -> None:
         content = b"%PDF-1.4\n%%EOF"
         checksum = sha256_bytes(content)
         metadata = ArtifactMetadata(
@@ -105,33 +110,35 @@ class TestBasicStorageOperations:
             checksum=checksum,
         )
 
-        storage.store(content, metadata)
+        await storage.store(content, metadata)
 
-        assert storage.retrieve_metadata(f"pdf/{checksum}").checksum == checksum
+        assert (await storage.retrieve_metadata(f"pdf/{checksum}")).checksum == checksum
 
 
 class TestDuplicateUploadBehavior:
-    def test_store_duplicate_raises(self, storage: FileSystemArtifactStorage) -> None:
+    async def test_store_duplicate_raises(self, storage: FileSystemArtifactStorage) -> None:
 
         artifact_path = "pdf/dummy_hash/1"
         metadata = ArtifactMetadata(
             artifact_path=artifact_path,
             media_type="application/pdf",
         )
-        storage.store(b"content", metadata)
+        await storage.store(b"content", metadata)
 
         metadata2 = ArtifactMetadata(
             artifact_path=artifact_path,
             media_type="application/pdf",
         )
         with pytest.raises(ArtifactAlreadyExistsError) as exc_info:
-            storage.store(b"content", metadata2)
+            await storage.store(b"content", metadata2)
         assert artifact_path in str(exc_info.value)
 
         # Content should remain unchanged
-        assert storage.retrieve(artifact_path) == b"content"
+        assert await storage.retrieve(artifact_path) == b"content"
 
-    def test_concurrent_exclusive_stores_race(self, storage: FileSystemArtifactStorage) -> None:
+    async def test_concurrent_exclusive_stores_race(
+        self, storage: FileSystemArtifactStorage
+    ) -> None:
         import concurrent.futures
 
         content = b"race-content"
@@ -146,7 +153,7 @@ class TestDuplicateUploadBehavior:
         errors = []
 
         def _worker(worker_id: int) -> None:
-            storage.store(content, metadata)
+            asyncio.run(storage.store(content, metadata))
             results.append(worker_id)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
@@ -159,34 +166,34 @@ class TestDuplicateUploadBehavior:
 
         assert len(results) == 1
         assert len(errors) == 3
-        stored = storage.retrieve_artifact(artifact_path)
+        stored = await storage.retrieve_artifact(artifact_path)
         assert stored.content == content
         assert stored.metadata.size_bytes == len(stored.content)
 
 
 class TestErrorHandling:
-    def test_retrieve_non_existent_raises(self, storage: FileSystemArtifactStorage) -> None:
+    async def test_retrieve_non_existent_raises(self, storage: FileSystemArtifactStorage) -> None:
         with pytest.raises(ArtifactNotFoundError):
-            storage.retrieve("missing-id")
-
-        with pytest.raises(ArtifactNotFoundError):
-            storage.retrieve_metadata("missing-id")
+            await storage.retrieve("missing-id")
 
         with pytest.raises(ArtifactNotFoundError):
-            storage.retrieve_artifact("missing-id")
+            await storage.retrieve_metadata("missing-id")
 
-        assert not storage.exists("missing-id")
+        with pytest.raises(ArtifactNotFoundError):
+            await storage.retrieve_artifact("missing-id")
 
-    def test_retrieve_requires_metadata_and_content_agreement(
+        assert not await storage.exists("missing-id")
+
+    async def test_retrieve_requires_metadata_and_content_agreement(
         self, storage: FileSystemArtifactStorage
     ) -> None:
         # Orphan content file without metadata
         (storage.root_path / "orphan.data").write_bytes(b"content only")
-        assert not storage.exists("orphan")
+        assert not await storage.exists("orphan")
         with pytest.raises(ArtifactNotFoundError):
-            storage.retrieve("orphan")
+            await storage.retrieve("orphan")
         with pytest.raises(ArtifactNotFoundError):
-            storage.retrieve_metadata("orphan")
+            await storage.retrieve_metadata("orphan")
 
         # Metadata file exists without content
         meta = FileBlobMetadata(
@@ -197,13 +204,13 @@ class TestErrorHandling:
         (storage.root_path / "metaonly.meta.json").write_text(
             meta.model_dump_json(), encoding="utf-8"
         )
-        assert storage.exists("metaonly")
+        assert await storage.exists("metaonly")
         with pytest.raises(ArtifactNotFoundError, match="content not found"):
-            storage.retrieve("metaonly")
+            await storage.retrieve("metaonly")
         with pytest.raises(ArtifactNotFoundError, match="content not found"):
-            storage.retrieve_metadata("metaonly")
+            await storage.retrieve_metadata("metaonly")
 
-    def test_corrupted_metadata_json_raises_storage_payload_error(
+    async def test_corrupted_metadata_json_raises_storage_payload_error(
         self, storage: FileSystemArtifactStorage
     ) -> None:
         artifact_path = "corrupted_metadata_test"
@@ -211,18 +218,18 @@ class TestErrorHandling:
             "invalid json content", encoding="utf-8"
         )
         # Metadata file exists, so artifact slot is occupied
-        assert storage.exists(artifact_path)
+        assert await storage.exists(artifact_path)
         with pytest.raises(StoragePayloadError, match="Corrupted metadata"):
-            storage.retrieve_metadata(artifact_path)
+            await storage.retrieve_metadata(artifact_path)
 
         meta = ArtifactMetadata(
             artifact_path=artifact_path,
             media_type="application/pdf",
         )
         with pytest.raises(ArtifactAlreadyExistsError):
-            storage.store(b"content", meta)
+            await storage.store(b"content", meta)
 
-    def test_retrieved_content_size_mismatch_raises_storage_payload_error(
+    async def test_retrieved_content_size_mismatch_raises_storage_payload_error(
         self, storage: FileSystemArtifactStorage
     ) -> None:
 
@@ -231,16 +238,16 @@ class TestErrorHandling:
             artifact_path=artifact_path,
             media_type="application/pdf",
         )
-        storage.store(b"expected-length-content", meta)
+        await storage.store(b"expected-length-content", meta)
         blob_path = next(storage.root_path.glob(f"{artifact_path}.*.data"))
 
         # Truncate content file on disk
         blob_path.write_bytes(b"short")
 
         with pytest.raises(StoragePayloadError, match="content size .* does not match metadata"):
-            storage.retrieve(artifact_path)
+            await storage.retrieve(artifact_path)
 
-    def test_size_bytes_mismatch_raises_storage_payload_error(
+    async def test_size_bytes_mismatch_raises_storage_payload_error(
         self, storage: FileSystemArtifactStorage
     ) -> None:
 
@@ -251,9 +258,9 @@ class TestErrorHandling:
             size_bytes=999,
         )
         with pytest.raises(StoragePayloadError, match="Metadata size_bytes"):
-            storage.store(b"short", metadata)
+            await storage.store(b"short", metadata)
 
-    def test_checksum_mismatch_raises_storage_payload_error(
+    async def test_checksum_mismatch_raises_storage_payload_error(
         self, storage: FileSystemArtifactStorage
     ) -> None:
 
@@ -264,10 +271,10 @@ class TestErrorHandling:
             checksum=sha256_bytes(b"other content"),
         )
         with pytest.raises(StoragePayloadError, match="Metadata checksum"):
-            storage.store(b"content", metadata)
-        assert not storage.exists(artifact_path)
+            await storage.store(b"content", metadata)
+        assert not await storage.exists(artifact_path)
 
-    def test_uninitialized_root_without_create_root_raises(self, tmp_path: Path) -> None:
+    async def test_uninitialized_root_without_create_root_raises(self, tmp_path: Path) -> None:
         non_existent = tmp_path / "does_not_exist"
         with pytest.raises(StorageConfigurationError) as exc_info:
             FileSystemArtifactStorage(non_existent, create_root=False)
@@ -298,48 +305,48 @@ class TestErrorMessagesHideCauseText:
 
     artifact_path = "pdf/dummy_hash/1"
 
-    def _store(self, storage: FileSystemArtifactStorage) -> None:
-        storage.store(
+    async def _store(self, storage: FileSystemArtifactStorage) -> None:
+        await storage.store(
             b"content",
             ArtifactMetadata(artifact_path=self.artifact_path, media_type="application/pdf"),
         )
 
-    def test_metadata_read_error(
+    async def test_metadata_read_error(
         self, storage: FileSystemArtifactStorage, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        self._store(storage)
+        await self._store(storage)
         monkeypatch.setattr(Path, "read_text", _raise_os_error_with_planted_path)
 
         with pytest.raises(StorageError) as exc_info:
-            storage.retrieve_metadata(self.artifact_path)
+            await storage.retrieve_metadata(self.artifact_path)
 
         assert type(exc_info.value) is StorageError
         _assert_names_cause_type_only(exc_info.value, self.artifact_path, PermissionError)
 
-    def test_content_read_error(
+    async def test_content_read_error(
         self, storage: FileSystemArtifactStorage, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        self._store(storage)
+        await self._store(storage)
         monkeypatch.setattr(Path, "read_bytes", _raise_os_error_with_planted_path)
 
         with pytest.raises(StorageError) as exc_info:
-            storage.retrieve(self.artifact_path)
+            await storage.retrieve(self.artifact_path)
 
         assert type(exc_info.value) is StorageError
         _assert_names_cause_type_only(exc_info.value, self.artifact_path, PermissionError)
 
-    def test_write_error(
+    async def test_write_error(
         self, storage: FileSystemArtifactStorage, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(Path, "write_bytes", _raise_os_error_with_planted_path)
 
         with pytest.raises(StorageError) as exc_info:
-            self._store(storage)
+            await self._store(storage)
 
         assert type(exc_info.value) is StorageError
         _assert_names_cause_type_only(exc_info.value, self.artifact_path, PermissionError)
 
-    def test_corrupted_metadata_error_and_log_line(
+    async def test_corrupted_metadata_error_and_log_line(
         self, storage: FileSystemArtifactStorage, caplog: pytest.LogCaptureFixture
     ) -> None:
         # pydantic quotes the bad value, so the planted path is in its text.
@@ -355,7 +362,7 @@ class TestErrorMessagesHideCauseText:
             caplog.at_level(logging.ERROR, logger="bioparser.storage.filesystem"),
             pytest.raises(StoragePayloadError) as exc_info,
         ):
-            storage.retrieve_metadata(self.artifact_path)
+            await storage.retrieve_metadata(self.artifact_path)
 
         _assert_names_cause_type_only(exc_info.value, self.artifact_path, ValidationError)
         assert "Corrupted metadata" in caplog.text
@@ -370,11 +377,11 @@ class TestPathTraversalDefense:
             "..",
         ],
     )
-    def test_path_traversal_tokens_raise(
+    async def test_path_traversal_tokens_raise(
         self, storage: FileSystemArtifactStorage, malicious_id: str
     ) -> None:
         with pytest.raises(StoragePathTraversalError):
-            storage.retrieve(malicious_id)
+            await storage.retrieve(malicious_id)
 
     @pytest.mark.parametrize(
         "invalid_id",
@@ -397,11 +404,11 @@ class TestPathTraversalDefense:
             "a" * 201,  # exceeds max segment length (200)
         ],
     )
-    def test_invalid_artifact_paths_rejected_by_allowlist(
+    async def test_invalid_artifact_paths_rejected_by_allowlist(
         self, storage: FileSystemArtifactStorage, invalid_id: str
     ) -> None:
         with pytest.raises(InvalidArtifactPathError):
-            storage.retrieve(invalid_id)
+            await storage.retrieve(invalid_id)
 
     @pytest.mark.parametrize(
         "invalid_id",
@@ -413,13 +420,13 @@ class TestPathTraversalDefense:
             "./x",
         ],
     )
-    def test_path_traversal_paths_rejected(
+    async def test_path_traversal_paths_rejected(
         self, storage: FileSystemArtifactStorage, invalid_id: str
     ) -> None:
         with pytest.raises(StoragePathTraversalError):
-            storage.retrieve(invalid_id)
+            await storage.retrieve(invalid_id)
 
-    def test_valid_ids_allowed(self, storage: FileSystemArtifactStorage) -> None:
+    async def test_valid_ids_allowed(self, storage: FileSystemArtifactStorage) -> None:
         valid_ids = [
             "3fa85f64-5717-4562-b3fc-2c963f66afa6",
             "doc_123.v1-final",
@@ -431,41 +438,43 @@ class TestPathTraversalDefense:
         for aid in valid_ids:
             storage._validate_artifact_path(aid)
 
-    def test_store_and_retrieve_with_nested_path(self, storage: FileSystemArtifactStorage) -> None:
+    async def test_store_and_retrieve_with_nested_path(
+        self, storage: FileSystemArtifactStorage
+    ) -> None:
         artifact_path = "pdf/checksum123/parsed/backend_v1"
         meta = ArtifactMetadata(
             artifact_path=artifact_path,
             media_type="application/json",
         )
-        storage.store(b"nested", meta)
+        await storage.store(b"nested", meta)
 
-        assert storage.exists(artifact_path)
-        assert storage.retrieve(artifact_path) == b"nested"
+        assert await storage.exists(artifact_path)
+        assert await storage.retrieve(artifact_path) == b"nested"
 
-    def test_store_and_retrieve_with_max_length_last_segment(
+    async def test_store_and_retrieve_with_max_length_last_segment(
         self, storage: FileSystemArtifactStorage
     ) -> None:
         artifact_path = "pdf/" + "a" * ARTIFACT_PATH_MAX_SEGMENT_LENGTH
         meta = ArtifactMetadata(artifact_path=artifact_path, media_type="application/pdf")
-        storage.store(b"%PDF-1.4", meta)
+        await storage.store(b"%PDF-1.4", meta)
 
-        assert storage.retrieve(artifact_path) == b"%PDF-1.4"
+        assert await storage.retrieve(artifact_path) == b"%PDF-1.4"
 
-    def test_non_string_path_rejected(self, storage: FileSystemArtifactStorage) -> None:
+    async def test_non_string_path_rejected(self, storage: FileSystemArtifactStorage) -> None:
         with pytest.raises(InvalidArtifactPathError):
-            storage.retrieve(123)  # type: ignore[arg-type]
+            await storage.retrieve(123)  # type: ignore[arg-type]
 
-    def test_path_traversal_attempt_is_logged(
+    async def test_path_traversal_attempt_is_logged(
         self, storage: FileSystemArtifactStorage, caplog: pytest.LogCaptureFixture
     ) -> None:
         with (
             caplog.at_level(logging.WARNING, logger="bioparser.storage.filesystem"),
             pytest.raises(StoragePathTraversalError),
         ):
-            storage.retrieve("a/../b")
+            await storage.retrieve("a/../b")
         assert "Path traversal attempt blocked" in caplog.text
 
-    def test_path_traversal_log_and_error_leave_the_path_out(
+    async def test_path_traversal_log_and_error_leave_the_path_out(
         self, storage: FileSystemArtifactStorage, caplog: pytest.LogCaptureFixture
     ) -> None:
         planted = "planted/../\x1b[2J/home/user/.ssh\nfake log line"
@@ -473,20 +482,20 @@ class TestPathTraversalDefense:
             caplog.at_level(logging.WARNING, logger="bioparser.storage.filesystem"),
             pytest.raises(StoragePathTraversalError) as exc_info,
         ):
-            storage.retrieve(planted)
+            await storage.retrieve(planted)
 
         assert "planted" not in caplog.text
         assert "planted" not in str(exc_info.value)
 
-    def test_invalid_path_error_leaves_the_path_out(
+    async def test_invalid_path_error_leaves_the_path_out(
         self, storage: FileSystemArtifactStorage
     ) -> None:
         with pytest.raises(InvalidArtifactPathError) as exc_info:
-            storage.retrieve("planted/has space\n\x1b[2J")
+            await storage.retrieve("planted/has space\n\x1b[2J")
 
         assert "planted" not in str(exc_info.value)
 
-    def test_invalid_blob_id_in_metadata_is_left_out_of_the_error(
+    async def test_invalid_blob_id_in_metadata_is_left_out_of_the_error(
         self, storage: FileSystemArtifactStorage
     ) -> None:
         artifact_path = "pdf/dummy_hash/1"
@@ -502,7 +511,7 @@ class TestPathTraversalDefense:
         )
 
         with pytest.raises(StoragePathTraversalError) as exc_info:
-            storage.retrieve(artifact_path)
+            await storage.retrieve(artifact_path)
 
         message = str(exc_info.value)
         assert artifact_path in message

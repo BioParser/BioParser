@@ -104,10 +104,10 @@ jobs:
             -e POSTGRES_DB=bioparser \
             postgres:18.6@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6
           for i in $(seq 1 30); do
-            docker exec postgres pg_isready -U bioparser -d bioparser && break
+            docker exec postgres pg_isready -h 127.0.0.1 -U bioparser -d bioparser && break
             sleep 1
           done
-          docker exec postgres pg_isready -U bioparser -d bioparser
+          docker exec postgres pg_isready -h 127.0.0.1 -U bioparser -d bioparser
 
       - name: Run integration tests
         env:

@@ -145,20 +145,20 @@ async def claim(
 
 
 async def record_parsed(connection: AsyncConnection, job_id: UUID, artifact_path: str) -> bool:
-    """Set `parsed` and the parser artifact while the job is still `queued` or `parsing`."""
+    """Set `parsed` and the parser artifact while the job is still `parsing`."""
     result = await connection.execute(
         sql_update(Job)
-        .where(Job.job_id == job_id, Job.status.in_(("queued", "parsing")))
+        .where(Job.job_id == job_id, Job.status == "parsing")
         .values(status="parsed", parse_result_ref=artifact_path)
     )
     return result.rowcount == 1
 
 
 async def record_done(connection: AsyncConnection, job_id: UUID, artifact_path: str) -> bool:
-    """Set `done` and the extraction artifact while the job is still `parsed` or `extracting`."""
+    """Set `done` and the extraction artifact while the job is still `extracting`."""
     result = await connection.execute(
         sql_update(Job)
-        .where(Job.job_id == job_id, Job.status.in_(("parsed", "extracting")))
+        .where(Job.job_id == job_id, Job.status == "extracting")
         .values(status="done", extract_result_ref=artifact_path)
     )
     return result.rowcount == 1

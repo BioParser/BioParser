@@ -1,3 +1,5 @@
+import asyncio
+
 """A delivery that loses the store must reuse the winner, or fail if it cannot."""
 
 import pytest
@@ -19,22 +21,22 @@ class _LostStore:
         self.existing = existing
         self.stores = 0
 
-    def store(self, content: bytes, metadata: ArtifactMetadata) -> str:
+    async def store(self, content: bytes, metadata: ArtifactMetadata) -> str:
         self.stores += 1
         raise ArtifactAlreadyExistsError(metadata.artifact_path)
 
-    def retrieve(self, artifact_path: str) -> bytes:
+    async def retrieve(self, artifact_path: str) -> bytes:
         if self.existing is None:
             raise ArtifactNotFoundError(artifact_path)
         return self.existing
 
-    def exists(self, artifact_path: str) -> bool:
+    async def exists(self, artifact_path: str) -> bool:
         return self.existing is not None
 
-    def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
+    async def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
         raise NotImplementedError
 
-    def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
+    async def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
         raise NotImplementedError
 
 
@@ -45,14 +47,16 @@ def _is_winner(payload: bytes) -> bool:
 def test_a_lost_store_reuses_a_valid_artifact() -> None:
     storage = _LostStore(WINNER)
 
-    path = store_json_artifact(
-        storage,
-        schema_version="1",
-        payload=OURS,
-        artifact_path=PATH,
-        created_by="extractor-worker",
-        is_valid=_is_winner,
-        kind="extraction artifact",
+    path = asyncio.run(
+        store_json_artifact(
+            storage,
+            schema_version="1",
+            payload=OURS,
+            artifact_path=PATH,
+            created_by="extractor-worker",
+            is_valid=_is_winner,
+            kind="extraction artifact",
+        )
     )
 
     assert path == PATH
@@ -67,14 +71,16 @@ def test_a_lost_store_fails_when_the_existing_artifact_is_unusable(
     storage = _LostStore(existing)
 
     with pytest.raises(PermanentJobFailure) as exc_info:
-        store_json_artifact(
-            storage,
-            schema_version="1",
-            payload=OURS,
-            artifact_path=PATH,
-            created_by="extractor-worker",
-            is_valid=_is_winner,
-            kind="extraction artifact",
+        asyncio.run(
+            store_json_artifact(
+                storage,
+                schema_version="1",
+                payload=OURS,
+                artifact_path=PATH,
+                created_by="extractor-worker",
+                is_valid=_is_winner,
+                kind="extraction artifact",
+            )
         )
 
     assert exc_info.value.code == "internal_error"

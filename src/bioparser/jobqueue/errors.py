@@ -38,11 +38,10 @@ class JobDeferred(Exception):
     """
 
 
-class JobTimeLimitExceeded(BaseException):
-    """Raised by the queue in a handler's thread when its time limit passes.
+class JobTimeLimitExceeded(Exception):
+    """The job ran past the queue's time limit.
 
-    It is injected into the running thread, so it can surface at any statement. Like
-    `KeyboardInterrupt` it is not an `Exception`: a plain `except Exception` does not
-    swallow it. A handler may catch it to decide what a timeout means, for example whether
-    to retry, and otherwise lets it pass.
+    The handler is cancelled. See `JobHandler.handle`. `on_failed` receives this
+    when the backstop gives up on a call that is still running, and on the last
+    retry of an attempt that already raised it.
     """

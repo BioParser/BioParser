@@ -78,6 +78,8 @@ services:
     mem_limit: 4g
     memswap_limit: 4g
     networks: [backend, edge]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
 
   parser-worker:
     build:
@@ -138,6 +140,8 @@ services:
     memswap_limit: 4g
     restart: unless-stopped
     networks: [backend]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
 
   redis:
     # Also pinned in .github/workflows/ci.yml. Dependabot updates only this line.

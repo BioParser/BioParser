@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -25,7 +26,7 @@ trailer<< /Root 1 0 R >>
 
 
 def test_fixture_pdf_to_artifact() -> None:
-    artifact = DefaultParser().parse(FIXTURE)
+    artifact = asyncio.run(DefaultParser().parse(FIXTURE))
     restored = ParserArtifact.model_validate_json(artifact.model_dump_json())
     assert restored == artifact
     assert artifact.parser.name == DEFAULT_PARSER_NAME
@@ -36,22 +37,56 @@ def test_fixture_pdf_to_artifact() -> None:
     )
     assert "Broadening the scope of PLOS Biology" in page_one_text
     assert "PLOS Biology is committed" in page_one_text
-    again = DefaultParser().parse(FIXTURE)
+    again = asyncio.run(DefaultParser().parse(FIXTURE))
     assert again.model_dump(mode="json") == artifact.model_dump(mode="json")
+
+
+def test_cancel_kills_the_parser_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    killed: list[object] = []
+
+    class _Proc:
+        def __init__(self) -> None:
+            self.returncode: int | None = None
+
+        def kill(self) -> None:
+            killed.append(self)
+            self.returncode = -9
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            await asyncio.sleep(30)
+            return b"", b""
+
+        async def wait(self) -> int:
+            return -9
+
+    async def _spawn(*_args: object, **_kwargs: object) -> _Proc:
+        return _Proc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _spawn)
+
+    async def _run() -> None:
+        task = asyncio.create_task(DefaultParser().parse(FIXTURE))
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(_run())
+    assert killed
 
 
 def test_parse_rejects_pdf_without_digital_text(tmp_path: Path) -> None:
     empty = tmp_path / "empty.pdf"
     empty.write_bytes(EMPTY_PAGE_PDF)
     with pytest.raises(UnsupportedDocumentError, match="Failed to parse"):
-        DefaultParser().parse(empty)
+        asyncio.run(DefaultParser().parse(empty))
 
 
 def test_parse_rejects_malformed_pdf(tmp_path: Path) -> None:
     broken = tmp_path / "broken.pdf"
     broken.write_bytes(b"this is not a pdf")
     with pytest.raises(UnsupportedDocumentError, match="malformed"):
-        DefaultParser().parse(broken)
+        asyncio.run(DefaultParser().parse(broken))
 
 
 def test_groups_lines_and_paragraphs() -> None:

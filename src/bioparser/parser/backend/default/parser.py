@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import asyncio
+import os
+import sys
 from importlib.metadata import version
 from pathlib import Path
 
 import pdfplumber
 from pdfplumber.page import Page as PdfPlumberPage
+from pydantic import ValidationError
 
+from bioparser.parser.backend.default.child import EXIT_NOT_FOUND, EXIT_UNSUPPORTED
 from bioparser.parser.backend.default.grouping import (
     SPAN_WIDTH_FACTOR,
     WordBox,
     group_words_into_text_blocks,
 )
 from bioparser.parser.checksum import block_id, sha256_file
-from bioparser.parser.errors import UnsupportedDocumentError
+from bioparser.parser.errors import ParserProcessError, UnsupportedDocumentError
 from bioparser.parser.models import (
     PARSER_ARTIFACT_SCHEMA_VERSION,
     BlockKind,
@@ -79,10 +84,39 @@ def _words_from_page(page: PdfPlumberPage) -> list[WordBox]:
     return words
 
 
+# Names a child needs to start. The parent holds database and Redis passwords,
+# and the process that reads the PDF must not inherit them.
+_CHILD_ENV = ("PATH", "LANG", "LC_ALL", "SYSTEMROOT", "PATHEXT", "TEMP", "TMP", "TMPDIR")
+
+
+def _child_environment() -> dict[str, str]:
+    return {name: os.environ[name] for name in _CHILD_ENV if name in os.environ}
+
+
 class DefaultParser:
     """Default digital-born PDF backend. Text currently uses pdfplumber."""
 
-    def parse(self, path: Path) -> ParserArtifact:
+    async def parse(self, path: Path) -> ParserArtifact:
+        """Parse the PDF in a child process."""
+        child = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "bioparser.parser.backend.default.child",
+            str(path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            env=_child_environment(),
+        )
+        try:
+            out, _ = await child.communicate()
+        except asyncio.CancelledError:
+            if child.returncode is None:
+                child.kill()
+            await child.wait()
+            raise
+        return _artifact_from_child(child.returncode, out)
+
+    def parse_in_this_process(self, path: Path) -> ParserArtifact:
         pdf_path = path.expanduser().resolve()
         if not pdf_path.is_file():
             raise FileNotFoundError("PDF not found")
@@ -184,3 +218,17 @@ class DefaultParser:
             ),
             pages=pages,
         )
+
+
+def _artifact_from_child(returncode: int | None, out: bytes) -> ParserArtifact:
+    text = out.decode(errors="replace")
+    if returncode == 0:
+        try:
+            return ParserArtifact.model_validate_json(out)
+        except ValidationError as exc:
+            raise ParserProcessError("pdfplumber process returned an invalid artifact") from exc
+    if returncode == EXIT_UNSUPPORTED:
+        raise UnsupportedDocumentError(text)
+    if returncode == EXIT_NOT_FOUND:
+        raise FileNotFoundError(text)
+    raise ParserProcessError(f"pdfplumber process exited with {returncode}")

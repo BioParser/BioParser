@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 
@@ -39,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        artifact = get_parser(args.backend).parse(args.input)
+        artifact = asyncio.run(get_parser(args.backend).parse(args.input))
     except FileNotFoundError:
         print(f"PDF not found: {args.input.expanduser().resolve()}", file=sys.stderr)
         return 1

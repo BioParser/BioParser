@@ -7,16 +7,17 @@ from .errors import (
     MalformedJob,
 )
 from .messages import ExtractJobMessage, ParseJobMessage
-from .protocol import JobHandler, JobQueue
+from .protocol import JobConsumer, JobHandler, JobSubmitter
 
 __all__ = [
     "ExtractJobMessage",
+    "JobConsumer",
     "JobDeferralExpired",
     "JobDeferred",
     "JobHandler",
-    "JobQueue",
     "JobQueueConfigError",
     "JobQueueError",
+    "JobSubmitter",
     "JobTimeLimitExceeded",
     "MalformedJob",
     "ParseJobMessage",
