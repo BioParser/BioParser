@@ -126,6 +126,7 @@ Rules that keep stored results valid:
 - A retired code is marked `deprecated`, with an optional `replaced_by`. It still converts. Only a code that is absent from the list is `trait_unknown`.
 - A name or an identifier may change. An artifact stores only the code, so the next run uses the new value.
 - The list has a `version` in the form `YYYY.MM.REVISION`: the year and month of the release, then a revision that starts at 0 and counts further releases in that month. Every change to the file, including a new trait or a deprecation, bumps it. The adapter result reports it.
+- Tests enforce this. `tests/ets/released_traits.json` holds every released version. After an edit, bump `version` and run `uv run python tests/ets/freeze_traits.py`. The tests then fail if a code is removed, changes kind, stored unit or a printed unit factor, or loses a level.
 
 The model is not asked to emit a `traitID`. The extractor keeps its closed set of trait codes.
 
