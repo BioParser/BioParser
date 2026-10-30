@@ -356,7 +356,7 @@ class StubJobs:
 
     async def record_parsed(self, connection: object, job_id: object, artifact_path: str) -> bool:
         state = self.states.get(str(job_id))
-        if state is None or state.status not in ("queued", "parsing"):
+        if state is None or state.status != "parsing":
             return False
         self.states[str(job_id)] = state.with_changes(
             status="parsed", parse_result_ref=artifact_path
@@ -365,7 +365,7 @@ class StubJobs:
 
     async def record_done(self, connection: object, job_id: object, artifact_path: str) -> bool:
         state = self.states.get(str(job_id))
-        if state is None or state.status not in ("parsed", "extracting"):
+        if state is None or state.status != "extracting":
             return False
         self.states[str(job_id)] = state.with_changes(
             status="done", extract_result_ref=artifact_path
