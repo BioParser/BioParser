@@ -3,6 +3,7 @@ from importlib import resources
 from typing import Any, get_args
 
 import pytest
+from freeze_traits import load_baseline, snapshot
 from pydantic import ValidationError
 
 from bioparser.ets.traits import (
@@ -14,14 +15,6 @@ from bioparser.ets.traits import (
     load_table,
     mammal_traits,
 )
-
-# The first release. A later release may add traits and may deprecate one. It may not remove a
-# code or change what a code means. Update this snapshot in the same change as such an edit.
-_FIRST_RELEASE_NUMERIC_UNITS = {
-    "body_mass": ("g", {"g", "kg"}),
-    "body_length": ("mm", {"mm", "cm", "m"}),
-    "tail_length": ("mm", {"mm", "cm", "m"}),
-}
 
 
 def _table() -> dict[str, Any]:
@@ -42,14 +35,30 @@ def test_the_shipped_list_loads_and_has_every_value_kind() -> None:
     assert len(table.traits) >= 60
 
 
-def test_the_extractor_codes_are_on_the_list_with_the_same_units() -> None:
+def test_the_current_version_is_frozen_and_unchanged() -> None:
+    # Any edit to what a stored result depends on needs a new version. Bump `version`, then
+    # run `uv run python tests/ets/freeze_traits.py` in the same change.
     table = mammal_traits()
+    baseline = load_baseline()
 
-    for code, (stored, printed) in _FIRST_RELEASE_NUMERIC_UNITS.items():
-        trait = table.get(code)
-        assert isinstance(trait, NumericTrait)
-        assert trait.stored_unit == stored
-        assert printed <= set(trait.printed_units)
+    assert table.version in baseline, "freeze this version with tests/ets/freeze_traits.py"
+    assert snapshot(table) == baseline[table.version], "bump the version and freeze it again"
+
+
+def test_every_released_trait_still_means_the_same() -> None:
+    current = snapshot(mammal_traits())
+
+    for version, released in load_baseline().items():
+        for code, old in released.items():
+            new = current.get(code)
+            assert new is not None, f"{code} from {version} was removed, deprecate it instead"
+            assert new["kind"] == old["kind"], f"{code} changed kind"
+            # The id is not checked here. It may move to a public ontology term, and that
+            # is a release that bumps the version.
+            assert new.get("stored_unit") == old.get("stored_unit"), f"{code} changed unit"
+            for unit, factor in old.get("printed_units", {}).items():
+                assert new["printed_units"].get(unit) == factor, f"{code} changed {unit}"
+            assert set(old.get("levels", ())) <= set(new.get("levels", ())), f"{code} lost a level"
 
 
 def test_the_extractor_closed_set_is_covered() -> None:
