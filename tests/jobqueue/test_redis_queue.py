@@ -698,25 +698,25 @@ def test_a_blocking_call_that_never_returns_exits_the_process(
     queue.consume(_Stuck(), until_empty=True)
 
     assert exits == [1]
-    # No retries left, so Dramatiq rejects the delivery instead of sending it again.
-    assert [message.options.get("retries") for message in stub_broker.dead_letters] == [1]
+    # The delivery is settled, so it is not retried and not dead-lettered.
+    assert list(stub_broker.dead_letters) == []
 
 
-def test_a_blocking_call_that_never_returns_is_sent_again_before_exit(
+def test_a_blocking_call_that_never_returns_is_not_retried(
     stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The retry is stored before the process exits, so a restart does not start from zero."""
+    """A stuck call is a final failure even when retries remain."""
     (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
     time_limit.manager.interval = 0.05  # type: ignore[union-attr]
     release = Event()
     exits: list[int] = []
     calls = 0
     calls_at_exit: list[int] = []
-    retries_at_exit: list[object] = []
+    waiting_at_exit: list[int] = []
+    reported: list[BaseException] = []
 
     def fake_exit(code: int) -> None:
-        waiting = list(stub_broker.queues[dq_name("parse")].queue)
-        retries_at_exit.extend(Message.decode(item).options.get("retries") for item in waiting)
+        waiting_at_exit.append(stub_broker.queues[dq_name("parse")].qsize())
         calls_at_exit.append(calls)
         exits.append(code)
         release.set()
@@ -729,6 +729,9 @@ def test_a_blocking_call_that_never_returns_is_sent_again_before_exit(
             calls += 1
             await asyncio.to_thread(release.wait)
 
+        async def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
+            reported.append(exc)
+
     queue = _queue(stub_broker, time_limit_ms=200, max_retries=1, min_backoff_ms=1)
     _submit(queue, _message())
 
@@ -736,7 +739,8 @@ def test_a_blocking_call_that_never_returns_is_sent_again_before_exit(
 
     assert calls_at_exit == [1]
     assert exits == [1]
-    assert retries_at_exit == [1]
+    assert waiting_at_exit == [0]
+    assert [type(exc) for exc in reported] == [JobTimeLimitExceeded]
 
 
 def test_a_stuck_last_attempt_is_reported_before_the_process_exits(

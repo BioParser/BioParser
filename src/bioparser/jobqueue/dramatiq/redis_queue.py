@@ -9,7 +9,9 @@ Defaults:
 
 One thread consumes the queue. ``asyncio.to_thread`` uses one more thread, so a
 handler's blocking calls run in the order they were started. After a time limit
-the queue waits for that thread before the next message.
+the handler may stop and record the outcome. A call still running at the
+backstop is a final failure: ``on_failed`` runs, the message is not sent again,
+and the process exits.
 
 Messages that leave the queue without a successful handler run are poisoned.
 """
@@ -48,24 +50,34 @@ LOGGER = logging.getLogger(__name__)
 
 _R = TypeVar("_R")
 
+# Defaults for one delivery. The grace is how long a handler may keep running
+# after its time limit.
 _DEFAULT_TIME_LIMIT_MS = 600_000
+_BACKSTOP_GRACE_S = 60.0
 _DEFAULT_MAX_RETRIES = 3
 _DEFAULT_MIN_BACKOFF_MS = 15_000
+
+# Redis key prefix, empty-queue poll, and socket timeout.
 _DEFAULT_BROKER_NAMESPACE = "bioparser"
-# How long an empty-queue poll blocks before the consumer checks for shutdown.
-# Dramatiq's name. The handler's limit is `_DEFAULT_TIME_LIMIT_MS`.
 _DEFAULT_WORKER_TIMEOUT_MS = 1000
 _DEFAULT_REDIS_TIMEOUT_S = 5.0
-# A dependency outage sends a new message instead of using a retry, so a restart
-# longer than the retry budget can still finish. The delay doubles from the
-# minimum up to the cap. Past the deadline the queue stops sending.
+
+# Delay while a dependency is down. It doubles from the minimum up to the cap,
+# and sending stops at the deadline.
 _DEFER_MIN_DELAY_MS = 30_000
 _DEFER_MAX_DELAY_MS = 300_000
 _DEFER_DEADLINE_MS = 3_600_000
+
+# Options stored on a deferred message.
 _OPTION_DEFERRED_SINCE = "deferred_since"
 _OPTION_DEFERRALS = "deferrals"
-# The same pattern Dramatiq checks when the actor is declared.
+
+# Queue names Dramatiq accepts.
 _QUEUE_NAME_RE = re.compile(r"[a-zA-Z_][a-zA-Z0-9._-]*")
+
+
+class _DeliveryStuck(Exception):
+    """The handler was still running when the backstop passed."""
 
 
 class DramatiqJobConsumer[T: BaseModel](JobConsumer[T]):
@@ -280,7 +292,7 @@ class DramatiqJobConsumer[T: BaseModel](JobConsumer[T]):
                         self._replace_blocking_executor()
                         if failed:
                             raise failed[0] from None
-                        raise
+                        raise _DeliveryStuck() from None
                 if completed:
                     # The handler took the cancellation and returned, for example after
                     # recording a permanent failure. The delivery is handled: no retry.
@@ -398,9 +410,20 @@ class DramatiqJobConsumer[T: BaseModel](JobConsumer[T]):
         if handler is None:
             LOGGER.error("no handler set on queue %s; message will be retried", self._name)
             raise JobQueueError(f"no handler set on queue {self._name}")
-        self._on_loop(
-            handler.handle(message), bound_s=2 * self._time_limit_ms / 1000, count_attempt=True
-        )
+        try:
+            self._on_loop(
+                handler.handle(message),
+                bound_s=self._delivery_bound_s(),
+                count_attempt=True,
+            )
+        except _DeliveryStuck:
+            LOGGER.error("handler on queue %s was still running at the backstop", self._name)
+            self._notify_failed(payload, JobTimeLimitExceeded())
+
+    def _delivery_bound_s(self) -> float:
+        """The time limit, plus a grace no longer than the limit and no longer than 60 s."""
+        limit_s = self._time_limit_ms / 1000
+        return limit_s + min(_BACKSTOP_GRACE_S, limit_s)
 
     def _is_last_retry(self) -> bool:
         current = CurrentMessage.get_current_message()

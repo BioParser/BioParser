@@ -1,9 +1,10 @@
 """Bounds on a queue's calls into its consumer loop.
 
 A thread that will not return cannot be interrupted, and a live worker would keep
-reporting healthy. Each call into the loop is watched. When its bound passes, the
-call that was stuck is counted as a failed attempt and the process exits. All state
-belongs to one `DeliveryGuard`, so queues in one process do not affect each other.
+reporting healthy. Each call into the loop is watched. When a delivery's bound
+passes, that delivery is settled without a retry and the process exits once the
+settlement is stored. All state belongs to one `DeliveryGuard`, so queues in one
+process do not affect each other.
 """
 
 import asyncio
@@ -29,6 +30,9 @@ LOGGER = logging.getLogger(__name__)
 # has to return on a short interval.
 _WAIT_POLL_S = 0.1
 
+# How long to wait, after the bound, for Dramatiq to store the settlement.
+_ACK_WAIT_S = 30.0
+
 
 class DeliveryGuard:
     """One queue's watchdog state."""
@@ -46,9 +50,9 @@ class DeliveryGuard:
     def watch(self, bound_s: float, *, count_attempt: bool) -> Iterator["Watch"]:
         """Watch one call into the loop.
 
-        Past `bound_s` a delivery (`count_attempt`) is failed so Dramatiq records the
-        retry, and the process then exits. Shutdown has no delivery to record, so it
-        exits immediately.
+        Past `bound_s` a delivery (`count_attempt`) is settled without a retry, and
+        the process exits once that settlement is stored, waiting up to `_ACK_WAIT_S`.
+        Shutdown has no delivery to record, so it exits immediately.
         """
         watch = Watch(self, bound_s, count_attempt)
         timer = Timer(bound_s, watch.expire)
@@ -87,7 +91,9 @@ class Watch:
                 self._guard.exit_after_ack.set()
             self.stuck.set()
         _report_stuck(self._bound_s, counted=self._count_attempt)
-        if self._count_attempt and self._guard.recorded.wait(timeout=self._bound_s):
+        if self._count_attempt and self._guard.recorded.wait(
+            timeout=min(self._bound_s, _ACK_WAIT_S)
+        ):
             return
         if self._count_attempt:
             _report_stuck(self._bound_s, counted=False)
