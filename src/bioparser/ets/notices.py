@@ -95,6 +95,42 @@ class Unspecified(BaseModel):
     field: Literal["dispersion"] = "dispersion"
 
 
+class NotApplicable(BaseModel):
+    """A stored number does not apply to this kind of trait, such as a dispersion of a level."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["not_applicable"] = "not_applicable"
+    field: Literal["dispersion", "measurementValue_min", "measurementValue_max"]
+
+
+class UnitNotExpected(BaseModel):
+    """A count or a categorical trait was printed with a real unit, so the trait may be wrong."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["unit_not_expected"] = "unit_not_expected"
+    field: Literal["traitUnit"] = "traitUnit"
+
+
+class DeprecatedTrait(BaseModel):
+    """The trait code is deprecated. It still converts."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["deprecated_trait"] = "deprecated_trait"
+    field: Literal["traitName"] = "traitName"
+
+
+class Approximate(BaseModel):
+    """The value was converted with a conventional factor, such as 365.25 days per year."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["approximate"] = "approximate"
+    field: Literal["traitValue"] = "traitValue"
+
+
 class NotADate(BaseModel):
     """A printed date that is not a calendar day."""
 
@@ -113,7 +149,18 @@ class NotACalendarDay(BaseModel):
     field: Literal["year,month,day"] = "year,month,day"
 
 
-Notice = NotNumeric | NotInVocabulary | NotADate | NotACalendarDay | NotConverted | Unspecified
+Notice = (
+    NotNumeric
+    | NotInVocabulary
+    | NotADate
+    | NotACalendarDay
+    | NotConverted
+    | Unspecified
+    | NotApplicable
+    | UnitNotExpected
+    | DeprecatedTrait
+    | Approximate
+)
 
 
 def format_warning(notice: Notice) -> str:
