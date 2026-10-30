@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from bioparser.ets import trait_values
 from bioparser.ets.adapter import to_ets
-from bioparser.ets.assess import Dropped, assess
+from bioparser.ets.assess import Dropped, Kept, assess
 from bioparser.ets.dates import parse_date
 from bioparser.ets.models import EtsRow
 from bioparser.ets.notices import NotNumeric
@@ -719,6 +719,35 @@ def test_a_level_with_a_dispersion_or_a_range_is_a_warning_for_each() -> None:
     row = _only_row(observation)
 
     assert row.warnings == ("not_applicable:dispersion | not_applicable:measurementValue_min")
+
+
+def test_a_level_does_not_publish_a_dispersion_or_a_range() -> None:
+    observation = _observation(
+        traitCode=_read("activity_cycle", "activity", start=10),
+        verbatimTraitValue=_cited("nocturnal", start=20),
+        verbatimTraitUnit=_cited("NA", start=25),
+        dispersion=_read("0.4", "0.4", start=70),
+        measurementValueMin=_read("2", "2", start=80),
+        measurementValueMax=_read("1", "1", start=90),
+    )
+
+    verdict = assess(observation)
+
+    assert isinstance(verdict, Kept)
+    assert (verdict.dispersion, verdict.measurement_value_min, verdict.measurement_value_max) == (
+        0,
+        None,
+        None,
+    )
+    row = _only_row(observation)
+    assert row.dispersion == 0
+    assert row.measurementValue_min is None and row.measurementValue_max is None
+
+
+def test_a_mean_group_size_may_be_a_decimal() -> None:
+    row = _only_row(_trait_observation("population_group_size", "4.2", "individuals"))
+
+    assert (row.traitValue, row.traitUnit) == ("4.2", "animals")
 
 
 def test_a_deprecated_trait_still_converts_with_a_warning(monkeypatch: pytest.MonkeyPatch) -> None:

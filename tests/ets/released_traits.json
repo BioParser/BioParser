@@ -1,6 +1,7 @@
 {
   "2026.10.0": {
     "activity_cycle": {
+      "definition": "Time of day when the animal is mainly active.",
       "kind": "categorical",
       "levels": [
         "nocturnal",
@@ -8,9 +9,17 @@
         "diurnal",
         "cathemeral"
       ],
+      "status": "active",
       "trait_id": "BPT:0000046"
     },
     "age_at_eye_opening": {
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ],
+      "definition": "Age at which a young animal first opens its eyes.",
       "kind": "numeric",
       "printed_units": {
         "day": "1",
@@ -20,10 +29,18 @@
         "year": "365.25",
         "years": "365.25"
       },
+      "status": "active",
       "stored_unit": "day",
       "trait_id": "BPT:0000061"
     },
     "age_at_first_reproduction": {
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ],
+      "definition": "Age at which an animal first produces young.",
       "kind": "numeric",
       "printed_units": {
         "day": "1",
@@ -33,10 +50,18 @@
         "year": "365.25",
         "years": "365.25"
       },
+      "status": "active",
       "stored_unit": "day",
       "trait_id": "BPT:0000042"
     },
     "age_at_sexual_maturity": {
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ],
+      "definition": "Age at which an animal first becomes able to reproduce, when the paper does not give it by sex.",
       "kind": "numeric",
       "printed_units": {
         "day": "1",
@@ -46,10 +71,18 @@
         "year": "365.25",
         "years": "365.25"
       },
+      "status": "active",
       "stored_unit": "day",
       "trait_id": "BPT:0000059"
     },
     "age_at_sexual_maturity_female": {
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ],
+      "definition": "Age at which a female first becomes able to reproduce.",
       "kind": "numeric",
       "printed_units": {
         "day": "1",
@@ -59,10 +92,18 @@
         "year": "365.25",
         "years": "365.25"
       },
+      "status": "active",
       "stored_unit": "day",
       "trait_id": "BPT:0000043"
     },
     "age_at_sexual_maturity_male": {
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ],
+      "definition": "Age at which a male first becomes able to reproduce.",
       "kind": "numeric",
       "printed_units": {
         "day": "1",
@@ -72,184 +113,249 @@
         "year": "365.25",
         "years": "365.25"
       },
+      "status": "active",
       "stored_unit": "day",
       "trait_id": "BPT:0000044"
     },
     "auditory_bulla_length": {
+      "approximate_units": [],
+      "definition": "Greatest length of the auditory bulla.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000037"
     },
     "basal_length": {
+      "approximate_units": [],
+      "definition": "Length of the skull along the base from the front of the premaxillae to the front of the foramen magnum.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000015"
     },
     "basal_metabolic_rate": {
+      "approximate_units": [],
+      "definition": "Energy used per hour by a resting animal at rest, reported as energy.",
       "kind": "numeric",
       "printed_units": {
         "J/h": "0.001",
         "W": "3.6",
         "kJ/h": "1"
       },
+      "status": "active",
       "stored_unit": "kJ/h",
       "trait_id": "BPT:0000053"
     },
     "basal_oxygen_consumption": {
+      "approximate_units": [],
+      "definition": "Volume of oxygen used per hour by a resting animal.",
       "kind": "numeric",
       "printed_units": {
         "mL O2/h": "1",
         "ml O2/h": "1",
         "mlO2/h": "1"
       },
+      "status": "active",
       "stored_unit": "mlO2/h",
       "trait_id": "BPT:0000054"
     },
     "body_length": {
+      "approximate_units": [],
+      "definition": "Length of the body as printed, where the paper does not say whether the tail is included.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "m": "1000",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
-      "trait_id": "VT:0001256"
+      "trait_id": "BPT:0000080"
     },
     "body_mass": {
+      "approximate_units": [],
+      "definition": "Mass of the whole body of an animal.",
       "kind": "numeric",
       "printed_units": {
         "g": "1",
         "kg": "1000"
       },
+      "status": "active",
       "stored_unit": "g",
       "trait_id": "VT:0001259"
     },
     "brain_mass": {
+      "approximate_units": [],
+      "definition": "Mass of the brain.",
       "kind": "numeric",
       "printed_units": {
         "g": "1",
         "kg": "1000"
       },
+      "status": "active",
       "stored_unit": "g",
       "trait_id": "VT:0002176"
     },
     "braincase_breadth": {
+      "approximate_units": [],
+      "definition": "Greatest width of the braincase, not including the mastoid or zygomatic structures.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000017"
     },
     "braincase_height": {
+      "approximate_units": [],
+      "definition": "Height of the braincase from the base of the skull to its highest point.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000018"
     },
     "call_duration": {
+      "approximate_units": [],
+      "definition": "Time from the start to the end of a call.",
       "kind": "numeric",
       "printed_units": {
         "ms": "1",
         "s": "1000"
       },
+      "status": "active",
       "stored_unit": "ms",
       "trait_id": "BPT:0000058"
     },
     "call_end_frequency": {
+      "approximate_units": [],
+      "definition": "Frequency at the end of a call.",
       "kind": "numeric",
       "printed_units": {
         "Hz": "0.001",
         "kHz": "1"
       },
+      "status": "active",
       "stored_unit": "kHz",
       "trait_id": "BPT:0000057"
     },
     "call_peak_frequency": {
+      "approximate_units": [],
+      "definition": "Frequency with the most energy in a call.",
       "kind": "numeric",
       "printed_units": {
         "Hz": "0.001",
         "kHz": "1"
       },
+      "status": "active",
       "stored_unit": "kHz",
       "trait_id": "BPT:0000055"
     },
     "call_start_frequency": {
+      "approximate_units": [],
+      "definition": "Frequency at the start of a call.",
       "kind": "numeric",
       "printed_units": {
         "Hz": "0.001",
         "kHz": "1"
       },
+      "status": "active",
       "stored_unit": "kHz",
       "trait_id": "BPT:0000056"
     },
     "canine_breadth": {
+      "approximate_units": [],
+      "definition": "Greatest width across the outer edges of the upper canines.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000035"
     },
     "condylobasal_length": {
+      "approximate_units": [],
+      "definition": "Length of the skull from the front of the premaxillae to the back of the occipital condyles.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000011"
     },
     "condylocanine_length": {
+      "approximate_units": [],
+      "definition": "Length of the skull from the front of the upper canines to the back of the occipital condyles.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000013"
     },
     "condyloincisive_length": {
+      "approximate_units": [],
+      "definition": "Length of the skull from the front of the upper incisors to the back of the occipital condyles.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000012"
     },
     "coronoid_process_height": {
+      "approximate_units": [],
+      "definition": "Height of the coronoid process of the mandible from its base to its tip.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000030"
     },
     "diastema_length": {
+      "approximate_units": [],
+      "definition": "Length of the gap between the incisors and the cheek teeth.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000031"
     },
     "dispersal_age": {
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ],
+      "definition": "Age at which a young animal leaves its birth area.",
       "kind": "numeric",
       "printed_units": {
         "day": "1",
@@ -259,36 +365,46 @@
         "year": "365.25",
         "years": "365.25"
       },
+      "status": "active",
       "stored_unit": "day",
       "trait_id": "BPT:0000062"
     },
     "dispersal_distance": {
+      "approximate_units": [],
+      "definition": "Distance an animal moves from its birth site to the site where it first breeds.",
       "kind": "numeric",
       "printed_units": {
         "km": "1",
         "m": "0.001"
       },
+      "status": "active",
       "stored_unit": "km",
       "trait_id": "BPT:0000066"
     },
     "domestication_status": {
+      "definition": "Whether the animal is domestic or wild.",
       "kind": "categorical",
       "levels": [
         "domestic",
         "wild"
       ],
+      "status": "active",
       "trait_id": "BPT:0000049"
     },
     "ear_length": {
+      "approximate_units": [],
+      "definition": "Length of the external ear from the notch at its base to the tip, not including hairs.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000004"
     },
     "foraging_stratum": {
+      "definition": "Vertical level where the animal mainly forages.",
       "kind": "categorical",
       "levels": [
         "ground",
@@ -297,26 +413,39 @@
         "aerial",
         "marine"
       ],
+      "status": "active",
       "trait_id": "BPT:0000068"
     },
     "forearm_length": {
+      "approximate_units": [],
+      "definition": "Length of the forearm from the elbow to the wrist, measured along the folded wing in bats.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000005"
     },
     "fossoriality": {
+      "definition": "Whether the animal lives mainly underground.",
       "kind": "categorical",
       "levels": [
         "yes",
         "no"
       ],
+      "status": "active",
       "trait_id": "BPT:0000067"
     },
     "generation_length": {
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ],
+      "definition": "Average age of the parents of the current cohort of the species.",
       "kind": "numeric",
       "printed_units": {
         "day": "1",
@@ -326,10 +455,18 @@
         "year": "365.25",
         "years": "365.25"
       },
+      "status": "active",
       "stored_unit": "day",
       "trait_id": "BPT:0000060"
     },
     "gestation_length": {
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ],
+      "definition": "Time from implantation of the fertilized egg to birth.",
       "kind": "numeric",
       "printed_units": {
         "day": "1",
@@ -339,70 +476,97 @@
         "year": "365.25",
         "years": "365.25"
       },
+      "status": "active",
       "stored_unit": "day",
       "trait_id": "VT:0002292"
     },
     "greatest_skull_length": {
+      "approximate_units": [],
+      "definition": "Greatest length of the skull from the front of the rostrum to the back of the skull.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000010"
     },
     "habitat_breadth": {
+      "definition": "Number of habitat types the species uses.",
       "kind": "count",
+      "status": "active",
       "stored_unit": "habitats",
       "trait_id": "BPT:0000071"
     },
     "head_body_length": {
+      "approximate_units": [],
+      "definition": "Length from the tip of the nose to the base of the tail, not including the tail.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "m": "1000",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000001"
     },
     "head_length": {
+      "approximate_units": [],
+      "definition": "Distance along the longest axis of the head, from the tip of the snout to the back of the head.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "VT:0000038"
     },
     "hibernation_torpor": {
+      "definition": "Whether the animal uses hibernation or torpor.",
       "kind": "categorical",
       "levels": [
         "yes",
         "no"
       ],
+      "status": "active",
       "trait_id": "BPT:0000047"
     },
     "hind_foot_length": {
+      "approximate_units": [],
+      "definition": "Length of the hind foot from the heel to the tip of the longest toe, not including the claw.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000003"
     },
     "home_range_size": {
+      "approximate_units": [],
+      "definition": "Area an individual or group uses during normal activity.",
       "kind": "numeric",
       "printed_units": {
         "ha": "0.01",
         "km2": "1",
         "m2": "0.000001"
       },
+      "status": "active",
       "stored_unit": "km2",
       "trait_id": "BPT:0000051"
     },
     "interbirth_interval": {
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ],
+      "definition": "Time between two successive births of the same female.",
       "kind": "numeric",
       "printed_units": {
         "day": "1",
@@ -412,85 +576,118 @@
         "year": "365.25",
         "years": "365.25"
       },
+      "status": "active",
       "stored_unit": "day",
       "trait_id": "BPT:0000041"
     },
     "interorbital_breadth": {
+      "approximate_units": [],
+      "definition": "Least width of the skull between the orbits.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000020"
     },
     "island_endemicity": {
+      "definition": "Whether the species is found only on islands.",
       "kind": "categorical",
       "levels": [
         "yes",
         "no"
       ],
+      "status": "active",
       "trait_id": "BPT:0000070"
     },
     "litter_size": {
+      "definition": "Number of young born in one litter.",
       "kind": "count",
+      "status": "active",
       "stored_unit": "individuals",
       "trait_id": "BPT:0000038"
     },
     "litters_per_year": {
+      "approximate_units": [],
+      "definition": "Number of litters one female produces in a year.",
       "kind": "numeric",
       "printed_units": {
         "litters/year": "1"
       },
+      "status": "active",
       "stored_unit": "litters/year",
       "trait_id": "BPT:0000039"
     },
     "mandible_length": {
+      "approximate_units": [],
+      "definition": "Length of the lower jaw from the front of the incisors to the back of the condyle.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000029"
     },
     "mandibular_toothrow_length": {
+      "approximate_units": [],
+      "definition": "Length of the lower tooth row from the front of the canine to the back of the last molar.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000028"
     },
     "mastoid_breadth": {
+      "approximate_units": [],
+      "definition": "Greatest width of the skull across the mastoid processes.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000019"
     },
     "maxillary_breadth": {
+      "approximate_units": [],
+      "definition": "Width of the skull across the maxillae at the cheek teeth.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000032"
     },
     "maxillary_toothrow_length": {
+      "approximate_units": [],
+      "definition": "Length of the upper tooth row from the front of the canine to the back of the last molar.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000027"
     },
     "maximum_longevity": {
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ],
+      "definition": "Greatest recorded age of an individual of the species.",
       "kind": "numeric",
       "printed_units": {
         "day": "1",
@@ -500,72 +697,95 @@
         "year": "365.25",
         "years": "365.25"
       },
+      "status": "active",
       "stored_unit": "day",
       "trait_id": "BPT:0000045"
     },
     "migratory_status": {
+      "definition": "Whether the animal migrates seasonally.",
       "kind": "categorical",
       "levels": [
         "migratory",
         "non-migratory"
       ],
+      "status": "active",
       "trait_id": "BPT:0000048"
     },
     "nasal_length": {
+      "approximate_units": [],
+      "definition": "Greatest length of the nasal bones.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000024"
     },
     "neck_circumference": {
+      "approximate_units": [],
+      "definition": "Distance around the neck at its narrowest point.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000007"
     },
     "neonate_body_mass": {
+      "approximate_units": [],
+      "definition": "Body mass of a newborn animal at or shortly after birth.",
       "kind": "numeric",
       "printed_units": {
         "g": "1",
         "kg": "1000"
       },
+      "status": "active",
       "stored_unit": "g",
       "trait_id": "BPT:0000008"
     },
     "neonate_head_body_length": {
+      "approximate_units": [],
+      "definition": "Head-body length of a newborn animal at or shortly after birth.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000063"
     },
     "occipitonasal_length": {
+      "approximate_units": [],
+      "definition": "Length of the skull from the front of the nasals to the back of the occiput.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000014"
     },
     "palatal_length": {
+      "approximate_units": [],
+      "definition": "Length of the palate from the front of the premaxillae to the back of the hard palate.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000022"
     },
     "population_density": {
+      "approximate_units": [],
+      "definition": "Number of individuals per unit area.",
       "kind": "numeric",
       "printed_units": {
         "individuals ha-1": "100",
@@ -573,125 +793,176 @@
         "individuals/ha": "100",
         "individuals/km2": "1"
       },
+      "status": "active",
       "stored_unit": "individuals/km2",
       "trait_id": "BPT:0000052"
     },
     "population_group_size": {
-      "kind": "count",
-      "stored_unit": "individuals",
+      "approximate_units": [],
+      "definition": "Mean number of animals in a group spread over a given area.",
+      "kind": "numeric",
+      "printed_units": {
+        "animals": "1",
+        "individuals": "1"
+      },
+      "status": "active",
+      "stored_unit": "animals",
       "trait_id": "BPT:0000072"
     },
     "postorbital_constriction": {
+      "approximate_units": [],
+      "definition": "Least width of the skull behind the orbits.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000021"
     },
     "postpalatal_depth": {
+      "approximate_units": [],
+      "definition": "Depth of the skull behind the hard palate.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000036"
     },
     "postpalatal_length": {
+      "approximate_units": [],
+      "definition": "Length from the back of the hard palate to the front of the foramen magnum.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000023"
     },
     "rostral_breadth": {
+      "approximate_units": [],
+      "definition": "Width of the rostrum measured across the maxillae at a stated landmark.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000026"
     },
     "rostral_length": {
+      "approximate_units": [],
+      "definition": "Length of the rostrum from the front of the nasals to the front of the orbits.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000025"
     },
     "social_group_size": {
+      "definition": "Number of individuals living together in one group.",
       "kind": "count",
+      "status": "active",
       "stored_unit": "individuals",
       "trait_id": "BPT:0000050"
     },
     "tail_length": {
+      "approximate_units": [],
+      "definition": "Distance along the longest axis of the tail, from its base to the tip.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "m": "1000",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "VT:0002758"
     },
     "teat_number": {
+      "definition": "Number of teats of an adult female.",
       "kind": "count",
+      "status": "active",
       "stored_unit": "teats",
       "trait_id": "BPT:0000065"
     },
     "terrestriality": {
+      "definition": "Whether the animal lives on the ground or above it.",
       "kind": "categorical",
       "levels": [
         "ground-dwelling",
         "above-ground"
       ],
+      "status": "active",
       "trait_id": "BPT:0000069"
     },
     "tibia_length": {
+      "approximate_units": [],
+      "definition": "Length of the tibia along its longest axis.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "VT:0004357"
     },
     "total_length": {
+      "approximate_units": [],
+      "definition": "Length from the tip of the nose to the tip of the tail, including the tail.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "m": "1000",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000002"
     },
     "tragus_length": {
+      "approximate_units": [],
+      "definition": "Length of the tragus from its base to its tip.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000006"
     },
     "upper_molar_breadth_m2_m2": {
+      "approximate_units": [],
+      "definition": "Greatest width across the outer edges of the upper second molars.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000033"
     },
     "weaning_age": {
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ],
+      "definition": "Age at which a young animal stops nursing.",
       "kind": "numeric",
       "printed_units": {
         "day": "1",
@@ -701,42 +972,55 @@
         "year": "365.25",
         "years": "365.25"
       },
+      "status": "active",
       "stored_unit": "day",
       "trait_id": "BPT:0000040"
     },
     "weaning_body_mass": {
+      "approximate_units": [],
+      "definition": "Body mass of a young animal at weaning.",
       "kind": "numeric",
       "printed_units": {
         "g": "1",
         "kg": "1000"
       },
+      "status": "active",
       "stored_unit": "g",
       "trait_id": "BPT:0000009"
     },
     "weaning_head_body_length": {
+      "approximate_units": [],
+      "definition": "Head-body length of a young animal at weaning.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000064"
     },
     "zygomatic_breadth": {
+      "approximate_units": [],
+      "definition": "Greatest width of the skull across the zygomatic arches.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000016"
     },
     "zygomatic_plate_breadth": {
+      "approximate_units": [],
+      "definition": "Width of the zygomatic plate at its narrowest point.",
       "kind": "numeric",
       "printed_units": {
         "cm": "10",
         "mm": "1"
       },
+      "status": "active",
       "stored_unit": "mm",
       "trait_id": "BPT:0000034"
     }
