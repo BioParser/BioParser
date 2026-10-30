@@ -90,13 +90,14 @@ class Watch:
                 self._guard.recorded.clear()
                 self._guard.exit_after_ack.set()
             self.stuck.set()
-        _report_stuck(self._bound_s, counted=self._count_attempt)
+        outcome = "failing the delivery and exiting" if self._count_attempt else "exiting"
+        _report_stuck(self._bound_s, outcome=outcome)
         if self._count_attempt and self._guard.recorded.wait(
             timeout=min(self._bound_s, _ACK_WAIT_S)
         ):
             return
         if self._count_attempt:
-            _report_stuck(self._bound_s, counted=False)
+            _report_stuck(self._bound_s, outcome="the settlement was not stored, exiting")
         os._exit(1)
 
     def wait[R](
@@ -130,13 +131,13 @@ class Watch:
 
 
 class _ExitAfterRecordedAttempt(Middleware):
-    """Exit once Dramatiq has stored the retry for a call that would not return."""
+    """Exit once Dramatiq has stored the settlement for a call that would not return."""
 
     def __init__(self, guard: DeliveryGuard) -> None:
         self._guard = guard
 
     def after_ack(self, broker: Broker, message: MessageProxy) -> None:
-        """The retry is stored and the message is settled. Leave before the next one starts."""
+        """The delivery is settled. Leave before the next one starts."""
         guard = self._guard
         if message.actor_name != guard.name or not guard.exit_after_ack.is_set():
             return
@@ -187,9 +188,8 @@ def _idle() -> None:
     return None
 
 
-def _report_stuck(bound_s: float, *, counted: bool) -> None:
-    action = "recording the attempt and exiting" if counted else "exiting"
-    message = f"a queue call was still running {bound_s:.0f} seconds after it started; {action}"
+def _report_stuck(bound_s: float, *, outcome: str) -> None:
+    message = f"a queue call was still running {bound_s:.0f} seconds after it started; {outcome}"
     LOGGER.critical(message)
     sys.stderr.write(message + "\n")
     sys.stderr.flush()
