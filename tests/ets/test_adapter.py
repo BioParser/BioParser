@@ -1,12 +1,15 @@
+import json
+
 import pytest
 from pydantic import ValidationError
 
+from bioparser.ets import trait_values
 from bioparser.ets.adapter import to_ets
 from bioparser.ets.assess import Dropped, assess
 from bioparser.ets.dates import parse_date
 from bioparser.ets.models import EtsRow
 from bioparser.ets.notices import NotNumeric
-from bioparser.ets.traits import mammal_traits
+from bioparser.ets.traits import load_table, mammal_traits
 from bioparser.extract.models import (
     Citation,
     Correction,
@@ -664,3 +667,67 @@ def test_a_unit_known_elsewhere_but_not_for_this_trait_is_not_for_the_trait() ->
     unknown = assess(_trait_observation("gestation_length", "2", "furlongs"))
     assert isinstance(unknown, Dropped)
     assert unknown.drop == "unit_unknown"
+
+
+def test_a_count_with_its_own_unit_keeps_that_unit() -> None:
+    row = _only_row(_trait_observation("teat_number", "8", "NA"))
+
+    assert (row.traitValue, row.traitUnit) == ("8", "teats")
+    assert row.warnings == ""
+
+
+def test_a_count_printed_as_a_mean_may_be_a_decimal_but_a_bare_count_may_not() -> None:
+    mean = _observation(
+        traitCode=_read("litter_size", "litter", start=10),
+        verbatimTraitValue=_cited("3.5", start=20),
+        verbatimTraitUnit=_cited("unitless", start=25),
+        centralKind=_read("mean", "mean", start=60),
+    )
+    bare = _trait_observation("litter_size", "3.5", "unitless")
+
+    assert _only_row(mean).traitValue == "3.5"
+    verdict = assess(bare)
+    assert isinstance(verdict, Dropped)
+    assert verdict.drop == "value_not_numeric"
+
+
+def test_a_conventional_conversion_is_a_warning() -> None:
+    row = _only_row(_trait_observation("gestation_length", "2", "years"))
+    exact = _only_row(_trait_observation("gestation_length", "60", "days"))
+
+    assert row.warnings == "approximate:traitValue"
+    assert exact.warnings == ""
+
+
+def test_a_real_unit_next_to_a_count_or_a_level_is_a_warning() -> None:
+    count = _only_row(_trait_observation("litter_size", "4", "g"))
+    level = _only_row(_trait_observation("activity_cycle", "nocturnal", "mm"))
+
+    assert count.warnings == "unit_not_expected:traitUnit"
+    assert level.warnings == "unit_not_expected:traitUnit"
+
+
+def test_a_level_with_a_dispersion_or_a_range_is_a_warning_for_each() -> None:
+    observation = _observation(
+        traitCode=_read("activity_cycle", "activity", start=10),
+        verbatimTraitValue=_cited("nocturnal", start=20),
+        verbatimTraitUnit=_cited("NA", start=25),
+        dispersion=_read("0.4", "0.4", start=70),
+        measurementValueMin=_read("1", "1", start=80),
+    )
+
+    row = _only_row(observation)
+
+    assert row.warnings == ("not_applicable:dispersion | not_applicable:measurementValue_min")
+
+
+def test_a_deprecated_trait_still_converts_with_a_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    base = json.loads(mammal_traits().model_dump_json())
+    next(trait for trait in base["traits"] if trait["code"] == "body_mass")["status"] = "deprecated"
+    table = load_table(json.dumps(base))
+    monkeypatch.setattr(trait_values, "mammal_traits", lambda: table)
+
+    row = _only_row(_observation())
+
+    assert row.traitValue == "12500"
+    assert row.warnings == "deprecated_trait:traitName"

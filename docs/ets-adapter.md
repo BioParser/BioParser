@@ -52,7 +52,7 @@ The adapter resolves the value and the unit each on its own, then converts once.
 
 The adapter is what converts. An extractor does not store a converted pair, such as `12500` and `g` for a printed `12.5 kg`.
 
-A trait that is not on the list drops the row with `trait_unknown`. For a numeric trait, an unknown unit drops the row with `unit_unknown`, and a unit that is not valid for that trait drops it with `unit_not_for_trait`. A value that is not a positive decimal drops the row with `value_not_numeric`. A count is a positive whole number and is not converted. A categorical trait must match one of its levels, ignoring case, or the row drops with `level_unknown`. The printed unit of a count or a categorical trait is not checked, because papers print `unitless`, `-`, or `NA` there. It stays in `verbatimTraitUnit`, and `traitUnit` is `individuals` for a count and empty for a categorical trait. A categorical row still gets the ETS defaults of `1` for `individualCount` and `0` for `dispersion`. For a categorical trait the `0` carries no meaning, because there is no mean to disperse.
+A trait that is not on the list drops the row with `trait_unknown`. For a numeric trait, an unknown unit drops the row with `unit_unknown`, and a unit that is not valid for that trait drops it with `unit_not_for_trait`. A value that is not a positive decimal drops the row with `value_not_numeric`. A count is a positive whole number and is not converted. A count the paper prints as a mean or a median, such as a litter size of 3.5, may be a decimal. The observation says so with `centralKind` or `aggregateMeasure`. A categorical trait must match one of its levels, ignoring case, or the row drops with `level_unknown`. The printed unit of a count or a categorical trait is not checked, because papers print `unitless`, `-`, or `NA` there. It stays in `verbatimTraitUnit`, and `traitUnit` is the count's own unit, `individuals` for most counts, and empty for a categorical trait. A categorical row still gets the ETS defaults of `1` for `individualCount` and `0` for `dispersion`. For a categorical trait the `0` carries no meaning, because there is no mean to disperse.
 
 ### Range and dispersion
 
@@ -95,6 +95,13 @@ The minimum, the maximum, and the dispersion share the trait's unit. ETS gives t
 
 A warning means the row was built with something missing or doubtful. A drop means no row was built.
 
+Trait warnings:
+
+- `not_applicable:dispersion`, `not_applicable:measurementValue_min`, and `not_applicable:measurementValue_max`: a categorical observation stores a spread or a range. A level has neither, so the trait may be wrong.
+- `unit_not_expected:traitUnit`: a count or a categorical trait was printed with a real unit such as `g` or `mm`. The trait may be wrong.
+- `deprecated_trait:traitName`: the code is deprecated. It still converts.
+- `approximate:traitValue`: the value used a conventional factor, a month or a year.
+
 A dropped observation must not disappear silently. The adapter returns, with the rows, a list of drops. Each has the source index of the observation in the artifact and a reason: `trait_unknown`, `unit_unknown`, `unit_not_for_trait`, `value_not_numeric`, `level_unknown`, or `bounds_reversed`. The result also names the `trait_list_version` that was used. It also keeps each row's source index, so a row can be traced back to its observation. The index is not derived from `measurementID`, which counts only kept rows.
 
 ## Trait thesaurus
@@ -105,12 +112,12 @@ Each entry has:
 
 - a `code`, the internal key the model emits and an artifact stores. It is not an ETS column.
 - a preferred `name`, which is `traitName`.
-- a `trait_id`, which is `traitID`. It is a Vertebrate Trait Ontology term when one matches the definition, such as `VT:0001259` for body mass. Otherwise it is an opaque `BPT:` identifier published with this list. The prefix-to-IRI mapping is in the file.
+- a `trait_id`, which is `traitID`. It is a Vertebrate Trait Ontology term when one matches the definition, such as `VT:0001259` for body mass. Otherwise it is an opaque `BPT:` identifier published with this list. The prefix-to-IRI mapping is in the file. A `BPT:` identifier has no IRI yet, so it does not resolve to a web page.
 - a one-sentence `definition` that says which measurement the code means. Head-body length and total length are separate codes, even though both are stored in millimetres.
 - a `domain`: morphology, reproduction, life_habit, home_range, density, physiology, or acoustics. A domain is a label for selecting a subset. The adapter ignores it.
 - a value `kind`:
   - **numeric**: the printed units it accepts, each with its factor into the stored unit. Mass is stored in grams, length in millimetres, and age in days. A month is 30.4375 days and a year is 365.25 days, so those conversions are approximate.
-  - **count**: a whole number with a unit of individuals. It is not converted.
+  - **count**: a number of things, with a unit of individuals unless the entry names its own, such as teats. It is not converted.
   - **categorical**: a closed set of levels and no unit.
 
 Rules that keep stored results valid:

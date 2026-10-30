@@ -66,6 +66,8 @@ class NumericTrait(_Entry):
     kind: Literal["numeric"] = "numeric"
     stored_unit: str = Field(min_length=1)
     printed_units: dict[str, str]
+    # Printed units whose factor is a convention, such as a year of 365.25 days.
+    approximate_units: tuple[str, ...] = ()
 
     @field_validator("printed_units")
     @classmethod
@@ -85,6 +87,8 @@ class NumericTrait(_Entry):
     def _stored_unit_is_accepted_as_is(self) -> Self:
         if Decimal(self.printed_units.get(self.stored_unit, "0")) != 1:
             raise ValueError("stored_unit must be a printed unit with factor 1")
+        if not set(self.approximate_units) <= set(self.printed_units):
+            raise ValueError("approximate_units must be printed units")
         return self
 
     def factor_for(self, unit: str) -> Decimal | None:
@@ -94,10 +98,14 @@ class NumericTrait(_Entry):
 
 
 class CountTrait(_Entry):
-    """A whole number of things. It is never converted, so the printed unit is not checked."""
+    """A number of things, such as individuals or teats.
+
+    It is never converted, so the printed unit is not checked. It is a whole number, unless
+    the paper prints a mean or a median of counts.
+    """
 
     kind: Literal["count"] = "count"
-    stored_unit: Literal["individuals"] = "individuals"
+    stored_unit: str = Field(default="individuals", min_length=1)
 
 
 class CategoricalTrait(_Entry):
@@ -142,7 +150,8 @@ class TraitTable(BaseModel):
             "that starts at 0 and counts further releases in that month."
         ),
     )
-    id_prefixes: dict[str, str]
+    # Prefix to IRI. None means the identifiers with that prefix do not resolve yet.
+    id_prefixes: dict[str, str | None]
     domains: tuple[Domain, ...]
     traits: tuple[Trait, ...]
 

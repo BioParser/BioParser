@@ -128,6 +128,28 @@ def test_a_bad_entry_is_rejected(edit: Any, message: str) -> None:
         _load(data)
 
 
+def test_an_id_prefix_may_have_no_iri_yet() -> None:
+    table = mammal_traits()
+
+    assert table.id_prefixes["BPT"] is None
+    assert table.id_prefixes["VT"] is not None
+
+
+def test_a_count_can_name_its_own_unit() -> None:
+    teats = mammal_traits().get("teat_number")
+
+    assert isinstance(teats, CountTrait)
+    assert teats.stored_unit == "teats"
+
+
+def test_approximate_units_must_be_printed_units() -> None:
+    data = _table()
+    data["traits"][0]["approximate_units"] = ["fortnight"]
+
+    with pytest.raises(ValidationError, match="approximate_units"):
+        _load(data)
+
+
 def test_a_categorical_trait_needs_distinct_levels() -> None:
     data = _table()
     categorical = next(trait for trait in data["traits"] if trait["kind"] == "categorical")

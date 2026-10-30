@@ -2,7 +2,7 @@
   "version": "2026.10.0",
   "id_prefixes": {
     "VT": "http://purl.obolibrary.org/obo/VT_",
-    "BPT": "https://bioparser.github.io/BioParser/traits/BPT_"
+    "BPT": null
   },
   "domains": [
     {
@@ -633,7 +633,13 @@
         "months": "30.4375",
         "year": "365.25",
         "years": "365.25"
-      }
+      },
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ]
     },
     {
       "code": "weaning_age",
@@ -650,7 +656,13 @@
         "months": "30.4375",
         "year": "365.25",
         "years": "365.25"
-      }
+      },
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ]
     },
     {
       "code": "interbirth_interval",
@@ -667,7 +679,13 @@
         "months": "30.4375",
         "year": "365.25",
         "years": "365.25"
-      }
+      },
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ]
     },
     {
       "code": "age_at_first_reproduction",
@@ -684,7 +702,13 @@
         "months": "30.4375",
         "year": "365.25",
         "years": "365.25"
-      }
+      },
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ]
     },
     {
       "code": "age_at_sexual_maturity_female",
@@ -701,7 +725,13 @@
         "months": "30.4375",
         "year": "365.25",
         "years": "365.25"
-      }
+      },
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ]
     },
     {
       "code": "age_at_sexual_maturity_male",
@@ -718,7 +748,13 @@
         "months": "30.4375",
         "year": "365.25",
         "years": "365.25"
-      }
+      },
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ]
     },
     {
       "code": "maximum_longevity",
@@ -735,7 +771,13 @@
         "months": "30.4375",
         "year": "365.25",
         "years": "365.25"
-      }
+      },
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ]
     },
     {
       "code": "activity_cycle",
@@ -903,6 +945,214 @@
         "ms": "1",
         "s": "1000"
       }
+    },
+    {
+      "code": "age_at_sexual_maturity",
+      "name": "Age at sexual maturity",
+      "trait_id": "BPT:0000059",
+      "definition": "Age at which an animal first becomes able to reproduce, when the paper does not give it by sex.",
+      "domain": "reproduction",
+      "kind": "numeric",
+      "stored_unit": "day",
+      "printed_units": {
+        "day": "1",
+        "days": "1",
+        "month": "30.4375",
+        "months": "30.4375",
+        "year": "365.25",
+        "years": "365.25"
+      },
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ]
+    },
+    {
+      "code": "generation_length",
+      "name": "Generation length",
+      "trait_id": "BPT:0000060",
+      "definition": "Average age of the parents of the current cohort of the species.",
+      "domain": "reproduction",
+      "kind": "numeric",
+      "stored_unit": "day",
+      "printed_units": {
+        "day": "1",
+        "days": "1",
+        "month": "30.4375",
+        "months": "30.4375",
+        "year": "365.25",
+        "years": "365.25"
+      },
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ]
+    },
+    {
+      "code": "age_at_eye_opening",
+      "name": "Age at eye opening",
+      "trait_id": "BPT:0000061",
+      "definition": "Age at which a young animal first opens its eyes.",
+      "domain": "reproduction",
+      "kind": "numeric",
+      "stored_unit": "day",
+      "printed_units": {
+        "day": "1",
+        "days": "1",
+        "month": "30.4375",
+        "months": "30.4375",
+        "year": "365.25",
+        "years": "365.25"
+      },
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ]
+    },
+    {
+      "code": "dispersal_age",
+      "name": "Dispersal age",
+      "trait_id": "BPT:0000062",
+      "definition": "Age at which a young animal leaves its birth area.",
+      "domain": "reproduction",
+      "kind": "numeric",
+      "stored_unit": "day",
+      "printed_units": {
+        "day": "1",
+        "days": "1",
+        "month": "30.4375",
+        "months": "30.4375",
+        "year": "365.25",
+        "years": "365.25"
+      },
+      "approximate_units": [
+        "month",
+        "months",
+        "year",
+        "years"
+      ]
+    },
+    {
+      "code": "neonate_head_body_length",
+      "name": "Neonate head-body length",
+      "trait_id": "BPT:0000063",
+      "definition": "Head-body length of a newborn animal at or shortly after birth.",
+      "domain": "reproduction",
+      "kind": "numeric",
+      "stored_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10"
+      }
+    },
+    {
+      "code": "weaning_head_body_length",
+      "name": "Weaning head-body length",
+      "trait_id": "BPT:0000064",
+      "definition": "Head-body length of a young animal at weaning.",
+      "domain": "reproduction",
+      "kind": "numeric",
+      "stored_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10"
+      }
+    },
+    {
+      "code": "teat_number",
+      "name": "Teat number",
+      "trait_id": "BPT:0000065",
+      "definition": "Number of teats of an adult female.",
+      "domain": "reproduction",
+      "kind": "count",
+      "stored_unit": "teats"
+    },
+    {
+      "code": "dispersal_distance",
+      "name": "Dispersal distance",
+      "trait_id": "BPT:0000066",
+      "definition": "Distance an animal moves from its birth site to the site where it first breeds.",
+      "domain": "life_habit",
+      "kind": "numeric",
+      "stored_unit": "km",
+      "printed_units": {
+        "km": "1",
+        "m": "0.001"
+      }
+    },
+    {
+      "code": "fossoriality",
+      "name": "Fossoriality",
+      "trait_id": "BPT:0000067",
+      "definition": "Whether the animal lives mainly underground.",
+      "domain": "life_habit",
+      "kind": "categorical",
+      "levels": [
+        "yes",
+        "no"
+      ]
+    },
+    {
+      "code": "foraging_stratum",
+      "name": "Foraging stratum",
+      "trait_id": "BPT:0000068",
+      "definition": "Vertical level where the animal mainly forages.",
+      "domain": "life_habit",
+      "kind": "categorical",
+      "levels": [
+        "ground",
+        "scansorial",
+        "arboreal",
+        "aerial",
+        "marine"
+      ]
+    },
+    {
+      "code": "terrestriality",
+      "name": "Terrestriality",
+      "trait_id": "BPT:0000069",
+      "definition": "Whether the animal lives on the ground or above it.",
+      "domain": "life_habit",
+      "kind": "categorical",
+      "levels": [
+        "ground-dwelling",
+        "above-ground"
+      ]
+    },
+    {
+      "code": "island_endemicity",
+      "name": "Island endemicity",
+      "trait_id": "BPT:0000070",
+      "definition": "Whether the species is found only on islands.",
+      "domain": "life_habit",
+      "kind": "categorical",
+      "levels": [
+        "yes",
+        "no"
+      ]
+    },
+    {
+      "code": "habitat_breadth",
+      "name": "Habitat breadth",
+      "trait_id": "BPT:0000071",
+      "definition": "Number of habitat types the species uses.",
+      "domain": "life_habit",
+      "kind": "count",
+      "stored_unit": "habitats"
+    },
+    {
+      "code": "population_group_size",
+      "name": "Population group size",
+      "trait_id": "BPT:0000072",
+      "definition": "Mean number of animals in a group spread over a given area.",
+      "domain": "life_habit",
+      "kind": "count"
     }
   ]
 }
