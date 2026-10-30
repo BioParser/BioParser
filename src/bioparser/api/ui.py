@@ -43,13 +43,14 @@ def ui(path: str) -> FileResponse:
     if not index.is_file():
         raise HTTPException(status_code=404)
 
+    if "\0" in path:
+        # %00: no file can have that name. Checked here because resolve() raises
+        # ValueError for it on Linux but not on Windows.
+        raise HTTPException(status_code=404)
+
     # resolve() removes ".." and follows symlinks, so the check below keeps every
     # request inside dist.
-    try:
-        candidate = (dist / path).resolve()
-    except ValueError:
-        # A NUL byte (%00) in the path. No file can have that name.
-        raise HTTPException(status_code=404) from None
+    candidate = (dist / path).resolve()
     if candidate.is_relative_to(dist) and candidate.is_file():
         cache = _ASSET_CACHE if path.startswith("assets/") else _INDEX_CACHE
         return FileResponse(candidate, headers={**_SECURITY_HEADERS, "Cache-Control": cache})
