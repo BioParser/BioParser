@@ -42,5 +42,6 @@ class JobTimeLimitExceeded(Exception):
     """The job ran past the queue's time limit.
 
     The handler is cancelled. See `JobHandler.handle`. `on_failed` receives this
-    on the last attempt.
+    when the backstop gives up on a call that is still running, and on the last
+    retry of an attempt that already raised it.
     """
