@@ -10,7 +10,7 @@
         "cathemeral"
       ],
       "status": "active",
-      "trait_id": "BPT:0000046"
+      "trait_id": "BPT:0000047"
     },
     "age_at_eye_opening": {
       "approximate_units": [
@@ -31,7 +31,7 @@
       },
       "status": "active",
       "stored_unit": "day",
-      "trait_id": "BPT:0000061"
+      "trait_id": "BPT:0000062"
     },
     "age_at_first_reproduction": {
       "approximate_units": [
@@ -52,7 +52,7 @@
       },
       "status": "active",
       "stored_unit": "day",
-      "trait_id": "BPT:0000042"
+      "trait_id": "BPT:0000043"
     },
     "age_at_sexual_maturity": {
       "approximate_units": [
@@ -73,7 +73,7 @@
       },
       "status": "active",
       "stored_unit": "day",
-      "trait_id": "BPT:0000059"
+      "trait_id": "BPT:0000060"
     },
     "age_at_sexual_maturity_female": {
       "approximate_units": [
@@ -94,7 +94,7 @@
       },
       "status": "active",
       "stored_unit": "day",
-      "trait_id": "BPT:0000043"
+      "trait_id": "BPT:0000044"
     },
     "age_at_sexual_maturity_male": {
       "approximate_units": [
@@ -115,7 +115,7 @@
       },
       "status": "active",
       "stored_unit": "day",
-      "trait_id": "BPT:0000044"
+      "trait_id": "BPT:0000045"
     },
     "auditory_bulla_length": {
       "approximate_units": [],
@@ -127,7 +127,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000037"
+      "trait_id": "BPT:0000038"
     },
     "basal_length": {
       "approximate_units": [],
@@ -139,7 +139,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000015"
+      "trait_id": "BPT:0000016"
     },
     "basal_metabolic_rate": {
       "approximate_units": [],
@@ -152,7 +152,7 @@
       },
       "status": "active",
       "stored_unit": "kJ/h",
-      "trait_id": "BPT:0000053"
+      "trait_id": "BPT:0000054"
     },
     "basal_oxygen_consumption": {
       "approximate_units": [],
@@ -165,7 +165,7 @@
       },
       "status": "active",
       "stored_unit": "mlO2/h",
-      "trait_id": "BPT:0000054"
+      "trait_id": "BPT:0000055"
     },
     "body_length": {
       "approximate_units": [],
@@ -178,7 +178,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000080"
+      "trait_id": "BPT:0000003"
     },
     "body_mass": {
       "approximate_units": [],
@@ -214,7 +214,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000017"
+      "trait_id": "BPT:0000018"
     },
     "braincase_height": {
       "approximate_units": [],
@@ -226,7 +226,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000018"
+      "trait_id": "BPT:0000019"
     },
     "call_duration": {
       "approximate_units": [],
@@ -238,7 +238,7 @@
       },
       "status": "active",
       "stored_unit": "ms",
-      "trait_id": "BPT:0000058"
+      "trait_id": "BPT:0000059"
     },
     "call_end_frequency": {
       "approximate_units": [],
@@ -250,7 +250,7 @@
       },
       "status": "active",
       "stored_unit": "kHz",
-      "trait_id": "BPT:0000057"
+      "trait_id": "BPT:0000058"
     },
     "call_peak_frequency": {
       "approximate_units": [],
@@ -262,7 +262,7 @@
       },
       "status": "active",
       "stored_unit": "kHz",
-      "trait_id": "BPT:0000055"
+      "trait_id": "BPT:0000056"
     },
     "call_start_frequency": {
       "approximate_units": [],
@@ -274,7 +274,7 @@
       },
       "status": "active",
       "stored_unit": "kHz",
-      "trait_id": "BPT:0000056"
+      "trait_id": "BPT:0000057"
     },
     "canine_breadth": {
       "approximate_units": [],
@@ -286,7 +286,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000035"
+      "trait_id": "BPT:0000036"
     },
     "condylobasal_length": {
       "approximate_units": [],
@@ -298,7 +298,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000011"
+      "trait_id": "BPT:0000012"
     },
     "condylocanine_length": {
       "approximate_units": [],
@@ -310,7 +310,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000013"
+      "trait_id": "BPT:0000014"
     },
     "condyloincisive_length": {
       "approximate_units": [],
@@ -322,7 +322,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000012"
+      "trait_id": "BPT:0000013"
     },
     "coronoid_process_height": {
       "approximate_units": [],
@@ -334,7 +334,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000030"
+      "trait_id": "BPT:0000031"
     },
     "diastema_length": {
       "approximate_units": [],
@@ -346,7 +346,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000031"
+      "trait_id": "BPT:0000032"
     },
     "dispersal_age": {
       "approximate_units": [
@@ -367,7 +367,7 @@
       },
       "status": "active",
       "stored_unit": "day",
-      "trait_id": "BPT:0000062"
+      "trait_id": "BPT:0000063"
     },
     "dispersal_distance": {
       "approximate_units": [],
@@ -379,7 +379,7 @@
       },
       "status": "active",
       "stored_unit": "km",
-      "trait_id": "BPT:0000066"
+      "trait_id": "BPT:0000067"
     },
     "domestication_status": {
       "definition": "Whether the animal is domestic or wild.",
@@ -389,7 +389,7 @@
         "wild"
       ],
       "status": "active",
-      "trait_id": "BPT:0000049"
+      "trait_id": "BPT:0000050"
     },
     "ear_length": {
       "approximate_units": [],
@@ -401,7 +401,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000004"
+      "trait_id": "BPT:0000005"
     },
     "foraging_stratum": {
       "definition": "Vertical level where the animal mainly forages.",
@@ -414,7 +414,7 @@
         "marine"
       ],
       "status": "active",
-      "trait_id": "BPT:0000068"
+      "trait_id": "BPT:0000069"
     },
     "forearm_length": {
       "approximate_units": [],
@@ -426,7 +426,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000005"
+      "trait_id": "BPT:0000006"
     },
     "fossoriality": {
       "definition": "Whether the animal lives mainly underground.",
@@ -436,7 +436,7 @@
         "no"
       ],
       "status": "active",
-      "trait_id": "BPT:0000067"
+      "trait_id": "BPT:0000068"
     },
     "generation_length": {
       "approximate_units": [
@@ -457,7 +457,7 @@
       },
       "status": "active",
       "stored_unit": "day",
-      "trait_id": "BPT:0000060"
+      "trait_id": "BPT:0000061"
     },
     "gestation_length": {
       "approximate_units": [
@@ -490,14 +490,14 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000010"
+      "trait_id": "BPT:0000011"
     },
     "habitat_breadth": {
       "definition": "Number of habitat types the species uses.",
       "kind": "count",
       "status": "active",
       "stored_unit": "habitats",
-      "trait_id": "BPT:0000071"
+      "trait_id": "BPT:0000072"
     },
     "head_body_length": {
       "approximate_units": [],
@@ -532,7 +532,7 @@
         "no"
       ],
       "status": "active",
-      "trait_id": "BPT:0000047"
+      "trait_id": "BPT:0000048"
     },
     "hind_foot_length": {
       "approximate_units": [],
@@ -544,7 +544,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000003"
+      "trait_id": "BPT:0000004"
     },
     "home_range_size": {
       "approximate_units": [],
@@ -557,7 +557,7 @@
       },
       "status": "active",
       "stored_unit": "km2",
-      "trait_id": "BPT:0000051"
+      "trait_id": "BPT:0000052"
     },
     "interbirth_interval": {
       "approximate_units": [
@@ -578,7 +578,7 @@
       },
       "status": "active",
       "stored_unit": "day",
-      "trait_id": "BPT:0000041"
+      "trait_id": "BPT:0000042"
     },
     "interorbital_breadth": {
       "approximate_units": [],
@@ -590,7 +590,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000020"
+      "trait_id": "BPT:0000021"
     },
     "island_endemicity": {
       "definition": "Whether the species is found only on islands.",
@@ -600,14 +600,14 @@
         "no"
       ],
       "status": "active",
-      "trait_id": "BPT:0000070"
+      "trait_id": "BPT:0000071"
     },
     "litter_size": {
       "definition": "Number of young born in one litter.",
       "kind": "count",
       "status": "active",
       "stored_unit": "individuals",
-      "trait_id": "BPT:0000038"
+      "trait_id": "BPT:0000039"
     },
     "litters_per_year": {
       "approximate_units": [],
@@ -618,7 +618,7 @@
       },
       "status": "active",
       "stored_unit": "litters/year",
-      "trait_id": "BPT:0000039"
+      "trait_id": "BPT:0000040"
     },
     "mandible_length": {
       "approximate_units": [],
@@ -630,7 +630,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000029"
+      "trait_id": "BPT:0000030"
     },
     "mandibular_toothrow_length": {
       "approximate_units": [],
@@ -642,7 +642,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000028"
+      "trait_id": "BPT:0000029"
     },
     "mastoid_breadth": {
       "approximate_units": [],
@@ -654,7 +654,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000019"
+      "trait_id": "BPT:0000020"
     },
     "maxillary_breadth": {
       "approximate_units": [],
@@ -666,7 +666,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000032"
+      "trait_id": "BPT:0000033"
     },
     "maxillary_toothrow_length": {
       "approximate_units": [],
@@ -678,7 +678,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000027"
+      "trait_id": "BPT:0000028"
     },
     "maximum_longevity": {
       "approximate_units": [
@@ -699,7 +699,7 @@
       },
       "status": "active",
       "stored_unit": "day",
-      "trait_id": "BPT:0000045"
+      "trait_id": "BPT:0000046"
     },
     "migratory_status": {
       "definition": "Whether the animal migrates seasonally.",
@@ -709,7 +709,7 @@
         "non-migratory"
       ],
       "status": "active",
-      "trait_id": "BPT:0000048"
+      "trait_id": "BPT:0000049"
     },
     "nasal_length": {
       "approximate_units": [],
@@ -721,7 +721,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000024"
+      "trait_id": "BPT:0000025"
     },
     "neck_circumference": {
       "approximate_units": [],
@@ -733,7 +733,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000007"
+      "trait_id": "BPT:0000008"
     },
     "neonate_body_mass": {
       "approximate_units": [],
@@ -745,7 +745,7 @@
       },
       "status": "active",
       "stored_unit": "g",
-      "trait_id": "BPT:0000008"
+      "trait_id": "BPT:0000009"
     },
     "neonate_head_body_length": {
       "approximate_units": [],
@@ -757,7 +757,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000063"
+      "trait_id": "BPT:0000064"
     },
     "occipitonasal_length": {
       "approximate_units": [],
@@ -769,7 +769,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000014"
+      "trait_id": "BPT:0000015"
     },
     "palatal_length": {
       "approximate_units": [],
@@ -781,7 +781,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000022"
+      "trait_id": "BPT:0000023"
     },
     "population_density": {
       "approximate_units": [],
@@ -795,7 +795,7 @@
       },
       "status": "active",
       "stored_unit": "individuals/km2",
-      "trait_id": "BPT:0000052"
+      "trait_id": "BPT:0000053"
     },
     "population_group_size": {
       "approximate_units": [],
@@ -807,7 +807,7 @@
       },
       "status": "active",
       "stored_unit": "animals",
-      "trait_id": "BPT:0000072"
+      "trait_id": "BPT:0000073"
     },
     "postorbital_constriction": {
       "approximate_units": [],
@@ -819,7 +819,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000021"
+      "trait_id": "BPT:0000022"
     },
     "postpalatal_depth": {
       "approximate_units": [],
@@ -831,7 +831,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000036"
+      "trait_id": "BPT:0000037"
     },
     "postpalatal_length": {
       "approximate_units": [],
@@ -843,7 +843,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000023"
+      "trait_id": "BPT:0000024"
     },
     "rostral_breadth": {
       "approximate_units": [],
@@ -855,7 +855,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000026"
+      "trait_id": "BPT:0000027"
     },
     "rostral_length": {
       "approximate_units": [],
@@ -867,14 +867,14 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000025"
+      "trait_id": "BPT:0000026"
     },
     "social_group_size": {
       "definition": "Number of individuals living together in one group.",
       "kind": "count",
       "status": "active",
       "stored_unit": "individuals",
-      "trait_id": "BPT:0000050"
+      "trait_id": "BPT:0000051"
     },
     "tail_length": {
       "approximate_units": [],
@@ -894,7 +894,7 @@
       "kind": "count",
       "status": "active",
       "stored_unit": "teats",
-      "trait_id": "BPT:0000065"
+      "trait_id": "BPT:0000066"
     },
     "terrestriality": {
       "definition": "Whether the animal lives on the ground or above it.",
@@ -904,7 +904,7 @@
         "above-ground"
       ],
       "status": "active",
-      "trait_id": "BPT:0000069"
+      "trait_id": "BPT:0000070"
     },
     "tibia_length": {
       "approximate_units": [],
@@ -941,7 +941,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000006"
+      "trait_id": "BPT:0000007"
     },
     "upper_molar_breadth_m2_m2": {
       "approximate_units": [],
@@ -953,7 +953,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000033"
+      "trait_id": "BPT:0000034"
     },
     "weaning_age": {
       "approximate_units": [
@@ -974,7 +974,7 @@
       },
       "status": "active",
       "stored_unit": "day",
-      "trait_id": "BPT:0000040"
+      "trait_id": "BPT:0000041"
     },
     "weaning_body_mass": {
       "approximate_units": [],
@@ -986,7 +986,7 @@
       },
       "status": "active",
       "stored_unit": "g",
-      "trait_id": "BPT:0000009"
+      "trait_id": "BPT:0000010"
     },
     "weaning_head_body_length": {
       "approximate_units": [],
@@ -998,7 +998,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000064"
+      "trait_id": "BPT:0000065"
     },
     "zygomatic_breadth": {
       "approximate_units": [],
@@ -1010,7 +1010,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000016"
+      "trait_id": "BPT:0000017"
     },
     "zygomatic_plate_breadth": {
       "approximate_units": [],
@@ -1022,7 +1022,7 @@
       },
       "status": "active",
       "stored_unit": "mm",
-      "trait_id": "BPT:0000034"
+      "trait_id": "BPT:0000035"
     }
   }
 }
