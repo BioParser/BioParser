@@ -57,6 +57,15 @@ def test_ui_serves_asset(ui_dist: Path, client: TestClient) -> None:
     assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
+@pytest.mark.parametrize("path", ["/ui/", "/ui/jobs/abc", "/ui/assets/index-abc123.js"])
+def test_ui_security_headers(ui_dist: Path, client: TestClient, path: str) -> None:
+    headers = client.get(path).headers
+    assert "default-src 'self'" in headers["content-security-policy"]
+    assert "frame-ancestors 'none'" in headers["content-security-policy"]
+    assert headers["x-content-type-options"] == "nosniff"
+    assert headers["referrer-policy"] == "no-referrer"
+
+
 def test_ui_missing_asset_is_404(ui_dist: Path, client: TestClient) -> None:
     assert client.get("/ui/assets/missing.js").status_code == 404
 
@@ -68,6 +77,11 @@ def test_ui_missing_asset_is_404(ui_dist: Path, client: TestClient) -> None:
 def test_ui_never_serves_files_outside_dist(ui_dist: Path, client: TestClient, path: str) -> None:
     response = client.get(path)
     assert "top secret" not in response.text
+
+
+@pytest.mark.parametrize("path", ["/ui/a%00b", "/ui/assets/a%00.js"])
+def test_ui_nul_byte_is_404(ui_dist: Path, client: TestClient, path: str) -> None:
+    assert client.get(path).status_code == 404
 
 
 @pytest.fixture

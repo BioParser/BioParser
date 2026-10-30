@@ -9,6 +9,16 @@ from . import config
 _INDEX_CACHE = "no-cache"
 # Vite puts a content hash in every file name under assets/, so a name never gets new content.
 _ASSET_CACHE = "public, max-age=31536000, immutable"
+# Sent with every UI file. The build has no inline scripts or styles and loads nothing
+# from other origins, so the policy allows only files and API calls from this server.
+_SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; object-src 'none'; base-uri 'none'; "
+        "form-action 'self'; frame-ancestors 'none'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
 
 
 def add_ui_routes(app: FastAPI) -> None:
@@ -35,11 +45,15 @@ def ui(path: str) -> FileResponse:
 
     # resolve() removes ".." and follows symlinks, so the check below keeps every
     # request inside dist.
-    candidate = (dist / path).resolve()
+    try:
+        candidate = (dist / path).resolve()
+    except ValueError:
+        # A NUL byte (%00) in the path. No file can have that name.
+        raise HTTPException(status_code=404) from None
     if candidate.is_relative_to(dist) and candidate.is_file():
         cache = _ASSET_CACHE if path.startswith("assets/") else _INDEX_CACHE
-        return FileResponse(candidate, headers={"Cache-Control": cache})
+        return FileResponse(candidate, headers={**_SECURITY_HEADERS, "Cache-Control": cache})
     if path.startswith("assets/"):
         # A missing script or stylesheet must fail, not come back as HTML.
         raise HTTPException(status_code=404)
-    return FileResponse(index, headers={"Cache-Control": _INDEX_CACHE})
+    return FileResponse(index, headers={**_SECURITY_HEADERS, "Cache-Control": _INDEX_CACHE})
