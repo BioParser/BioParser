@@ -1,12 +1,51 @@
 {% extends "base.html" %}
-{% set title = "Trait list " ~ table.version %}
+{% set title = "Mammal trait list " ~ table.version %}
 {% block body %}
-{% for section in sections %}
-<h2>{{ section.domain.name }}</h2>
-<ul>
-{% for item in section.traits %}
-<li><a href="{{ item.href }}?version={{ table.version }}">{{ item.trait.name }} <code>{{ item.trait.code }}</code></a></li>
-{% endfor %}
-</ul>
-{% endfor %}
+<section class="hero">
+  <div class="hero-bg mm" aria-hidden="true"></div>
+  <div class="wrap hero-inner compact">
+    <p class="eyebrow">Version {{ table.version }}{{ " · latest" if table.version == latest else "" }}</p>
+    <h1>Mammal trait list</h1>
+    <p class="lede">Definitions, identifiers and stored units for the mammal traits in BioParser. A released version never changes, and a trait page shows each version that contains the trait.</p>
+    <p class="meta">{{ count }} traits in {{ sections | length }} domains · <a href="{{ here }}traitlist.json">traitlist.json</a> (ETS Traitlist table) · <a href="{{ here }}full.json">full.json</a> (units, levels, and replacements)</p>
+    <ul class="versions" aria-label="Versions">
+    {% for version in versions %}
+      <li><a class="chip{{ ' on' if version == table.version else '' }}" href="{{ root_path }}{{ version }}/">{{ version }}{{ ' · latest' if version == latest else '' }}</a></li>
+    {% endfor %}
+    </ul>
+  </div>
+</section>
+<section class="sec">
+  <div class="wrap">
+    {% if table.version != latest %}
+    <p class="banner notice">A newer version exists. <a href="{{ root_path }}{{ latest }}/">{{ latest }}</a></p>
+    {% endif %}
+    <div class="tools">
+      <input class="search" id="filter" type="search" placeholder="Filter by name, code or unit" aria-label="Filter traits" autocomplete="off">
+      <nav class="jump" aria-label="Domains">
+      {% for section in sections %}
+        <a class="chip" href="#{{ section.domain.name }}">{{ section.domain.name }}</a>
+      {% endfor %}
+      </nav>
+    </div>
+    {% for section in sections %}
+    <section class="domain" id="{{ section.domain.name }}">
+      <h2>{{ section.domain.name | replace("_", " ") | capitalize }}</h2>
+      <p>{{ section.domain.definition }}</p>
+      <ul class="rows">
+      {% for item in section.traits %}
+        {% set trait = item.trait %}
+        <li data-search="{{ (trait.name ~ ' ' ~ trait.code ~ ' ' ~ item.unit) | lower }}"><a class="row" href="{{ item.href }}?version={{ table.version }}">
+          <span class="name">{{ trait.name }}{% if trait.status == "deprecated" %} <span class="chip" data-value="deprecated">deprecated</span>{% endif %}</span>
+          <span class="code"><code>{{ trait.code }}</code></span>
+          <span class="unit">{{ item.unit }}</span>
+        </a></li>
+      {% endfor %}
+      </ul>
+    </section>
+    {% endfor %}
+    <p class="empty" id="none" hidden>No trait matches.</p>
+  </div>
+</section>
 {% endblock %}
+{% block scripts %}<script src="{{ root_path }}static/list.js"></script>{% endblock %}
