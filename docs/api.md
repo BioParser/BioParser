@@ -4,10 +4,12 @@ This document defines the public HTTP contract of the API container and the inte
 module layout that implements it. The system context for these endpoints is in
 [architecture.md](architecture.md).
 
-Status: **draft** — all seven routes (`POST /api/extractions`, `GET /api/jobs/{job_id}`,
-`GET /api/jobs/{job_id}/artifacts/parser`, `GET /api/jobs/{job_id}/artifacts/extraction`,
-`POST /extract`, `GET /health`, `GET /ready`) are implemented, along with upload validation and a
-configurable size limit. `POST /extract` is a dev route: it runs a queued job's pipeline
+Status: **draft** — document and job management routes (`POST /api/documents`,
+`GET /api/documents`, `GET /api/documents/{checksum}`, `GET /api/documents/{checksum}/file`,
+`POST /api/documents/{checksum}/jobs`, `GET /api/documents/{checksum}/jobs`, `GET /api/jobs`,
+`POST /api/extractions`, `GET /api/jobs/{job_id}`, `GET /api/jobs/{job_id}/artifacts/parser`,
+`GET /api/jobs/{job_id}/artifacts/extraction`, `POST /extract`, `GET /health`, `GET /ready`)
+are implemented, along with upload validation and a configurable size limit. `POST /extract` is a dev route: it runs a queued job's pipeline
 (the same parser and extractor) in one request, without the queue and the workers.
 
 **Current API scope:**
@@ -131,6 +133,167 @@ The checks run in a fixed order: `Content-Length` header format and size →
 | `invalid_pdf` | 400 | the body does not start with the `%PDF-` magic bytes |
 | `invalid_content_length`| 400 | Content-Length header is not a valid non-negative integer |
 | `unsupported_content_type` | 415 | content type is not `application/pdf` |
+
+
+### `POST /api/documents`
+
+Upload and store a PDF document without queueing a job.
+
+- **Request:** `multipart/form-data` with a single `file` part.
+- **Accepted content type:** `application/pdf` only.
+- **Body checks:** Same validation pipeline as `POST /api/extractions` (Content-Length, present part, media type, size limit, non-empty, `%PDF-` magic).
+- Content-addressed by SHA-256. If the document already exists, the existing metadata is returned with `200 OK`. If newly stored, returns `201 Created`.
+
+**Success — `201 Created` (new) or `200 OK` (already stored):**
+
+```json
+{
+  "checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
+  "display_name": "paper.pdf",
+  "upload_time": "2026-10-26T12:00:00Z",
+  "size_bytes": 1048576
+}
+```
+
+**Failure:** Same 400, 413, 415, and 503 statuses and errors as `POST /api/extractions`.
+
+
+### `GET /api/documents`
+
+List all stored documents with metadata, ordered by `upload_time` descending.
+
+**Success — `200 OK`:**
+
+```json
+[
+  {
+    "checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
+    "display_name": "paper.pdf",
+    "upload_time": "2026-10-26T12:00:00Z",
+    "size_bytes": 1048576
+  }
+]
+```
+
+**Failure:** `401 Unauthorized`, `503 Database Unavailable` (`database_unavailable`).
+
+
+### `GET /api/documents/{checksum}`
+
+Retrieve metadata for a specific stored document.
+
+**Success — `200 OK`:**
+
+```json
+{
+  "checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
+  "display_name": "paper.pdf",
+  "upload_time": "2026-10-26T12:00:00Z",
+  "size_bytes": 1048576
+}
+```
+
+**Failure:**
+
+| Status | When |
+|--------|------|
+| 401 | Missing or invalid API key (`unauthorized`) |
+| 404 | No document with that checksum (`document_not_found`) |
+| 422 | `checksum` is not a 64-character lowercase SHA-256 hex digest (`invalid_checksum`) |
+| 503 | Database is unavailable (`database_unavailable`) |
+
+
+### `GET /api/documents/{checksum}/file`
+
+Serve raw bytes of a stored PDF document.
+
+**Success — `200 OK`:**
+- Content type: `application/pdf`
+- Headers:
+  - `Content-Disposition: inline; filename="<ascii_fallback>"; filename*=UTF-8''<encoded_name>`
+  - `Cache-Control: private, max-age=31536000, immutable`
+
+**Failure:** Same 401, 404, 422, and 503 statuses as `GET /api/documents/{checksum}`. `500` if the stored payload is corrupted.
+
+
+### `POST /api/documents/{checksum}/jobs`
+
+Dispatch a parsing and extraction job for an already-stored document with configurable backend parameters.
+
+- **Request Body (JSON, optional):**
+```json
+{
+  "parser": "default",
+  "extractor": "default"
+}
+```
+If omitted or `{}` is sent, parameters default to `parser: "default"` and `extractor: "default"`.
+
+**Success — `202 Accepted`:**
+
+```json
+{
+  "job_id": "b3f1c2a4-...",
+  "status": "queued"
+}
+```
+
+**Failure:**
+
+| Status | When |
+|--------|------|
+| 401 | Missing or invalid API key (`unauthorized`) |
+| 404 | Document does not exist (`document_not_found`) |
+| 422 | `checksum` invalid, or unknown `parser`/`extractor` |
+| 500 | Stored job state is unreadable (`job_state_unreadable`) |
+| 503 | Storage, Redis, or queue is unavailable |
+
+
+### `GET /api/documents/{checksum}/jobs`
+
+List all jobs associated with a specific document.
+
+**Success — `200 OK`:**
+
+```json
+[
+  {
+    "job_id": "b3f1c2a4-...",
+    "status": "queued"
+  }
+]
+```
+
+**Failure:** Same 401, 404, 422, 500, and 503 statuses as `POST /api/documents/{checksum}/jobs`.
+
+
+### `GET /api/jobs`
+
+List jobs across all documents, with optional query filters.
+
+- **Query parameters:**
+  - `status` (optional): Filter by job status (`queued`, `parsing`, `parsed`, `extracting`, `done`, `failed`).
+  - `parser` (optional): Filter by parser backend (e.g. `default`, `mineru`).
+
+**Success — `200 OK`:**
+
+```json
+[
+  {
+    "job_id": "b3f1c2a4-...",
+    "status": "queued"
+  }
+]
+```
+
+**Failure:**
+
+| Status | When |
+|--------|------|
+| 401 | Missing or invalid API key (`unauthorized`) |
+| 422 | Invalid `status` query value |
+| 500 | Stored job state is unreadable (`job_state_unreadable`) |
+| 503 | Database is unavailable (`database_unavailable`) |
 
 
 ### `GET /api/jobs/{job_id}`

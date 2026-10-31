@@ -25,6 +25,8 @@ def _example_path(route: Route) -> str:
     path = route.path
     if "{job_id}" in path:
         path = path.replace("{job_id}", str(uuid4()))
+    if "{checksum}" in path:
+        path = path.replace("{checksum}", "a" * 64)
     return path
 
 

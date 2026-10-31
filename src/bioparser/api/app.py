@@ -16,12 +16,15 @@ from uuid import UUID
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ValidationError
 
+from bioparser.artifact_paths import pdf_path
+from bioparser.db import documents as document_queries
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
+from bioparser.db.documents import DocumentRecord
 from bioparser.db.engine import DatabaseError
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
-from bioparser.hashing import sha256_bytes
+from bioparser.hashing import Sha256Hex, is_sha256_hex, sha256_bytes
 from bioparser.jobqueue import (
     JobQueueError,
     ParseJobMessage,
@@ -30,6 +33,7 @@ from bioparser.jobqueue.dramatiq import DramatiqJobQueue
 from bioparser.jobstate import (
     CorruptJobStateError,
     JobState,
+    JobStatus,
     SafeError,
 )
 from bioparser.logging_config import error_fields, redact_url, setup_logging
@@ -56,7 +60,9 @@ from .errors import (
     ARTIFACT_NOT_AVAILABLE,
     CONTENT_TOO_LARGE,
     DATABASE_UNAVAILABLE,
+    DOCUMENT_NOT_FOUND,
     EMPTY_FILE,
+    INVALID_CHECKSUM,
     INVALID_CONTENT_LENGTH,
     INVALID_JOB_ID,
     INVALID_PDF,
@@ -72,6 +78,8 @@ from .errors import (
 )
 from .middleware import TypedRequestBodyLimitMiddleware
 from .schema import (
+    CreateJobRequest,
+    DocumentMetadataResponse,
     FailedJobResponse,
     HealthResponse,
     JobStatusResponse,
@@ -83,8 +91,10 @@ from .schema import (
 )
 from .ui import add_ui_routes
 from .uploads import (
+    inline_content_disposition,
     read_upload,
     require_file,
+    sanitize_display_name,
     validate_content_length,
     validate_content_type,
     validate_pdf_content,
@@ -302,6 +312,22 @@ def _parse_job_id(job_id: str) -> UUID:
     return parsed_job_id
 
 
+def _validate_checksum(checksum: str) -> Sha256Hex:
+    cleaned = checksum.strip().lower()
+    if not is_sha256_hex(cleaned):
+        raise http_error(422, INVALID_CHECKSUM)
+    return cleaned
+
+
+def _document_response(doc: DocumentRecord) -> DocumentMetadataResponse:
+    return DocumentMetadataResponse(
+        checksum=doc.checksum,
+        display_name=doc.display_name,
+        upload_time=doc.created_at,
+        size_bytes=doc.size_bytes,
+    )
+
+
 async def _read_job(request: Request, job_id: UUID) -> JobState:
     """The stored job, or the route's 404, 500 or 503."""
     try:
@@ -445,6 +471,335 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         raise http_error(503, QUEUE_UNAVAILABLE) from exc
 
     return QueuedJobResponse(job_id=job_id, status="queued")
+
+
+@app.post(
+    "/api/documents",
+    status_code=201,
+    dependencies=[Depends(require_api_key)],
+    response_model=DocumentMetadataResponse,
+    responses={
+        200: {
+            "model": DocumentMetadataResponse,
+            "description": "Document was already stored",
+        },
+        201: {
+            "model": DocumentMetadataResponse,
+            "description": "Document stored successfully",
+        },
+        400: error_response(MISSING_FILE, EMPTY_FILE, INVALID_PDF, INVALID_CONTENT_LENGTH),
+        401: error_response(UNAUTHORIZED),
+        413: error_response(CONTENT_TOO_LARGE),
+        415: error_response(UNSUPPORTED_CONTENT_TYPE),
+        503: error_response(STORAGE_UNAVAILABLE, DATABASE_UNAVAILABLE),
+    },
+)
+async def upload_document(
+    request: Request,
+    response: Response,
+    file: UploadFile | None = None,
+) -> DocumentMetadataResponse:
+    pdf_bytes = await _validated_upload(request, file)
+    checksum = await asyncio.to_thread(sha256_bytes, pdf_bytes)
+    doc_path = pdf_path(checksum)
+
+    display_name = sanitize_display_name(file.filename) if file else None
+    creation_info = CreationInfo(created_by="api-upload")
+    artifact_metadata = ArtifactMetadata(
+        artifact_path=doc_path,
+        media_type="application/pdf",
+        creation_info=creation_info,
+        size_bytes=len(pdf_bytes),
+        checksum=checksum,
+    )
+
+    try:
+        await asyncio.to_thread(
+            request.app.state.artifact_storage.store, pdf_bytes, artifact_metadata
+        )
+    except ArtifactAlreadyExistsError:
+        pass
+    except StorageError as exc:
+        LOGGER.error(
+            "artifact store failed",
+            extra={"document_id": checksum, **error_fields(exc)},
+        )
+        raise http_error(503, STORAGE_UNAVAILABLE) from exc
+
+    try:
+        async with database.transaction() as connection:
+            doc, is_new = await document_queries.create(
+                connection,
+                checksum=checksum,
+                display_name=display_name,
+                size_bytes=len(pdf_bytes),
+            )
+    except DatabaseError as exc:
+        LOGGER.error(
+            "document insert failed",
+            extra={"document_id": checksum, **error_fields(exc)},
+        )
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
+
+    response.status_code = 201 if is_new else 200
+    return _document_response(doc)
+
+
+@app.get(
+    "/api/documents",
+    dependencies=[Depends(require_api_key)],
+    response_model=list[DocumentMetadataResponse],
+    responses={
+        401: error_response(UNAUTHORIZED),
+        503: error_response(DATABASE_UNAVAILABLE),
+    },
+)
+async def list_documents(request: Request) -> list[DocumentMetadataResponse]:
+    try:
+        async with database.transaction() as connection:
+            docs = await document_queries.list_documents(connection)
+    except DatabaseError as exc:
+        LOGGER.error("list documents failed", extra=error_fields(exc))
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
+    return [_document_response(doc) for doc in docs]
+
+
+@app.get(
+    "/api/documents/{checksum}",
+    dependencies=[Depends(require_api_key)],
+    response_model=DocumentMetadataResponse,
+    responses={
+        401: error_response(UNAUTHORIZED),
+        404: error_response(DOCUMENT_NOT_FOUND),
+        422: error_response(INVALID_CHECKSUM),
+        503: error_response(DATABASE_UNAVAILABLE),
+    },
+)
+async def get_document(request: Request, checksum: str) -> DocumentMetadataResponse:
+    valid_checksum = _validate_checksum(checksum)
+    try:
+        async with database.transaction() as connection:
+            doc = await document_queries.get(connection, valid_checksum)
+    except DatabaseError as exc:
+        LOGGER.error(
+            "document query failed",
+            extra={"document_id": valid_checksum, **error_fields(exc)},
+        )
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
+    if doc is None:
+        raise http_error(404, DOCUMENT_NOT_FOUND)
+    return _document_response(doc)
+
+
+@app.get(
+    "/api/documents/{checksum}/file",
+    dependencies=[Depends(require_api_key)],
+    response_class=Response,
+    responses={
+        200: {
+            "description": "The stored PDF file",
+            "content": {"application/pdf": {}},
+        },
+        401: error_response(UNAUTHORIZED),
+        404: error_response(DOCUMENT_NOT_FOUND),
+        422: error_response(INVALID_CHECKSUM),
+        500: error_response(ARTIFACT_INVALID),
+        503: error_response(DATABASE_UNAVAILABLE, STORAGE_UNAVAILABLE),
+    },
+)
+async def get_document_file(request: Request, checksum: str) -> Response:
+    valid_checksum = _validate_checksum(checksum)
+    try:
+        async with database.transaction() as connection:
+            doc = await document_queries.get(connection, valid_checksum)
+    except DatabaseError as exc:
+        LOGGER.error(
+            "document query failed",
+            extra={"document_id": valid_checksum, **error_fields(exc)},
+        )
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
+    if doc is None:
+        raise http_error(404, DOCUMENT_NOT_FOUND)
+
+    doc_path = pdf_path(valid_checksum)
+    try:
+        content: bytes = await asyncio.to_thread(
+            request.app.state.artifact_storage.retrieve, doc_path
+        )
+    except ArtifactNotFoundError as exc:
+        raise http_error(404, DOCUMENT_NOT_FOUND) from exc
+    except StoragePayloadError as exc:
+        LOGGER.error(
+            "document payload corrupt",
+            extra={"document_id": valid_checksum, **error_fields(exc)},
+        )
+        raise http_error(500, ARTIFACT_INVALID) from exc
+    except StorageError as exc:
+        LOGGER.error(
+            "document retrieve failed",
+            extra={"document_id": valid_checksum, **error_fields(exc)},
+        )
+        raise http_error(503, STORAGE_UNAVAILABLE) from exc
+
+    filename = sanitize_display_name(doc.display_name) or f"{valid_checksum}.pdf"
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": inline_content_disposition(filename),
+            "Cache-Control": _IMMUTABLE,
+        },
+    )
+
+
+@app.post(
+    "/api/documents/{checksum}/jobs",
+    status_code=202,
+    dependencies=[Depends(require_api_key)],
+    response_model=QueuedJobResponse,
+    responses={
+        401: error_response(UNAUTHORIZED),
+        404: error_response(DOCUMENT_NOT_FOUND),
+        422: error_response(INVALID_CHECKSUM),
+        500: error_response(JOB_STATE_UNREADABLE),
+        503: error_response(DATABASE_UNAVAILABLE, QUEUE_UNAVAILABLE),
+    },
+)
+async def submit_document_job(
+    request: Request,
+    checksum: str,
+    payload: CreateJobRequest | None = None,
+) -> QueuedJobResponse:
+    if payload is None:
+        payload = CreateJobRequest()
+    valid_checksum = _validate_checksum(checksum)
+
+    try:
+        async with database.transaction() as connection:
+            doc = await document_queries.get(connection, valid_checksum)
+    except DatabaseError as exc:
+        LOGGER.error(
+            "document query failed",
+            extra={"document_id": valid_checksum, **error_fields(exc)},
+        )
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
+    if doc is None:
+        raise http_error(404, DOCUMENT_NOT_FOUND)
+
+    job_id = uuid.uuid4()
+    job_state = JobState(
+        job_id=job_id,
+        status="queued",
+        parser=payload.parser,
+        extractor=payload.extractor,
+        pdf_ref=pdf_path(valid_checksum),
+    )
+    fields = {"job_id": str(job_id), "document_id": valid_checksum}
+
+    try:
+        async with database.transaction() as connection:
+            await job_queries.create(connection, job_state)
+    except DatabaseError as exc:
+        LOGGER.error("job state create failed", extra=fields | error_fields(exc))
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
+
+    parse_job_message = ParseJobMessage(job_id=job_id)
+    try:
+        await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
+    except JobQueueError as exc:
+        LOGGER.error("parse job enqueue failed", extra=fields | error_fields(exc))
+        try:
+            async with database.transaction() as connection:
+                outcome = await job_queries.mark_failed(
+                    connection,
+                    job_id,
+                    "internal_error",
+                    from_statuses=("queued",),
+                )
+        except DatabaseError as mark_error:
+            LOGGER.error(
+                "queued job remains after the enqueue failed",
+                extra=fields | error_fields(mark_error),
+            )
+        else:
+            if outcome != "recorded":
+                LOGGER.error("queued job remains after the enqueue failed", extra=fields)
+        raise http_error(503, QUEUE_UNAVAILABLE) from exc
+
+    return QueuedJobResponse(job_id=job_id, status="queued")
+
+
+@app.get(
+    "/api/documents/{checksum}/jobs",
+    dependencies=[Depends(require_api_key)],
+    response_model=list[JobStatusResponse],
+    responses={
+        401: error_response(UNAUTHORIZED),
+        404: error_response(DOCUMENT_NOT_FOUND),
+        422: error_response(INVALID_CHECKSUM),
+        500: error_response(JOB_STATE_UNREADABLE),
+        503: error_response(DATABASE_UNAVAILABLE),
+    },
+)
+async def list_document_jobs(
+    request: Request,
+    checksum: str,
+) -> list[JobStatusResponse]:
+    valid_checksum = _validate_checksum(checksum)
+    try:
+        async with database.transaction() as connection:
+            doc = await document_queries.get(connection, valid_checksum)
+            if doc is None:
+                raise http_error(404, DOCUMENT_NOT_FOUND)
+            jobs = await job_queries.list_jobs_for_document(connection, valid_checksum)
+    except HTTPException:
+        raise
+    except CorruptJobStateError as exc:
+        LOGGER.error(
+            "corrupt job state in document jobs",
+            extra={"document_id": valid_checksum, **error_fields(exc)},
+        )
+        raise http_error(500, JOB_STATE_UNREADABLE) from exc
+    except DatabaseError as exc:
+        LOGGER.warning(
+            "job store read failed",
+            extra={"document_id": valid_checksum, **error_fields(exc)},
+        )
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
+
+    return [_job_state_response(j) for j in jobs]
+
+
+@app.get(
+    "/api/jobs",
+    dependencies=[Depends(require_api_key)],
+    response_model=list[JobStatusResponse],
+    responses={
+        401: error_response(UNAUTHORIZED),
+        500: error_response(JOB_STATE_UNREADABLE),
+        503: error_response(DATABASE_UNAVAILABLE),
+    },
+)
+async def list_jobs(
+    request: Request,
+    status: JobStatus | None = None,
+    parser: str | None = None,
+) -> list[JobStatusResponse]:
+    try:
+        async with database.transaction() as connection:
+            jobs: list[JobState] = await job_queries.list_jobs(
+                connection,
+                status=status,
+                parser=parser,
+            )
+    except CorruptJobStateError as exc:
+        LOGGER.error("corrupt job state in list jobs", extra=error_fields(exc))
+        raise http_error(500, JOB_STATE_UNREADABLE) from exc
+    except DatabaseError as exc:
+        LOGGER.warning("job store list failed", extra=error_fields(exc))
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
+
+    return [_job_state_response(j) for j in jobs]
 
 
 @app.get(

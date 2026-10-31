@@ -19,6 +19,8 @@ ErrorCode = Literal[
     "queue_unavailable",
     "artifact_not_available",
     "unauthorized",
+    "document_not_found",
+    "invalid_checksum",
 ]
 
 
@@ -51,6 +53,14 @@ CONTENT_TOO_LARGE = ErrorDetail(
 UNAUTHORIZED = ErrorDetail(
     code="unauthorized",
     message="Invalid or missing API key",
+)
+DOCUMENT_NOT_FOUND = ErrorDetail(
+    code="document_not_found",
+    message="Document not found",
+)
+INVALID_CHECKSUM = ErrorDetail(
+    code="invalid_checksum",
+    message="checksum must be a 64-character lowercase SHA-256 hex digest",
 )
 
 STORAGE_UNAVAILABLE = ErrorDetail(

@@ -5,6 +5,7 @@ from __future__ import annotations
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from bioparser.db.documents import Document  # noqa: F401
 from bioparser.db.jobs import Job
 
 # Import every table class. Importing it registers the table, and the classes share this metadata.
