@@ -38,7 +38,13 @@ from bioparser.extract.models import (
     stored_text,
 )
 
-NotApplicableField = Literal["dispersion", "measurementValue_min", "measurementValue_max"]
+NotApplicableField = Literal[
+    "dispersion",
+    "measurementValue_min",
+    "measurementValue_max",
+    "centralKind",
+    "dispersionKind",
+]
 DropReason = Literal[
     "trait_unknown",
     "unit_not_for_trait",
@@ -159,7 +165,8 @@ def assess(observation: Observation) -> Assessment:
         stored_phrase=cited["statisticalMethod"],
         warnings=warnings,
     )
-    cited["statisticalMethod"] = statistics.phrase
+    # A level has no mean and no spread, so a phrase built from those choices is not published.
+    cited["statisticalMethod"] = None if categorical else statistics.phrase
 
     # A calendar day is written as YYYY-MM-DD. Year, month, and day stay separate.
     year = _parse_integer(observation.year, "year", warnings, low=1000, high=9999)
@@ -243,6 +250,8 @@ def _numbers_that_do_not_apply(observation: Observation) -> list[Notice]:
         (observation.dispersion, "dispersion"),
         (observation.measurementValueMin, "measurementValue_min"),
         (observation.measurementValueMax, "measurementValue_max"),
+        (observation.centralKind, "centralKind"),
+        (observation.dispersionKind, "dispersionKind"),
     ]
     return [NotApplicable(field=field) for value, field in stored if value is not None]
 

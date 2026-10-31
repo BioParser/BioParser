@@ -98,14 +98,14 @@ class NumericTrait(_Entry):
 
 
 class CountTrait(_Entry):
-    """A number of things, such as individuals or teats.
+    """A number of things, such as young or teats.
 
     It is never converted, so the printed unit is not checked. It is a whole number, unless
-    the paper prints a mean or a median of counts.
+    the paper prints a mean or a median of counts. ``stored_unit`` names what is counted.
     """
 
     kind: Literal["count"] = "count"
-    stored_unit: str = Field(default="individuals", min_length=1)
+    stored_unit: str = Field(min_length=1)
 
 
 class CategoricalTrait(_Entry):

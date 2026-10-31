@@ -612,7 +612,7 @@ def _only_row(observation: Observation) -> EtsRow:
 def test_a_count_trait_is_kept_without_conversion() -> None:
     row = _only_row(_trait_observation("litter_size", "4", "unitless"))
 
-    assert (row.traitValue, row.traitUnit) == ("4", "individuals")
+    assert (row.traitValue, row.traitUnit) == ("4", "young")
     assert (row.traitName, row.traitID) == ("Litter size", row.traitID)
     assert row.verbatimTraitUnit == "unitless"
 
@@ -651,7 +651,10 @@ def test_two_length_traits_that_share_a_unit_keep_their_own_identifiers() -> Non
 
 def test_time_density_and_energy_units_convert_to_the_stored_unit() -> None:
     assert _only_row(_trait_observation("gestation_length", "2", "years")).traitValue == "730.5"
-    assert _only_row(_trait_observation("home_range_size", "50", "ha")).traitValue == "0.5"
+    assert (
+        _only_row(_trait_observation("individual_home_range_size", "50", "ha")).traitValue == "0.5"
+    )
+    assert _only_row(_trait_observation("group_home_range_size", "50", "ha")).traitValue == "0.5"
     assert (
         _only_row(_trait_observation("population_density", "3", "individuals/ha")).traitValue
         == "300"
@@ -702,9 +705,13 @@ def test_a_conventional_conversion_is_a_warning() -> None:
 def test_a_real_unit_next_to_a_count_or_a_level_is_a_warning() -> None:
     count = _only_row(_trait_observation("litter_size", "4", "g"))
     level = _only_row(_trait_observation("activity_cycle", "nocturnal", "mm"))
+    own_unit = _only_row(_trait_observation("litter_size", "4", "young"))
+    other_count_unit = _only_row(_trait_observation("litter_size", "4", "individuals"))
 
     assert count.warnings == "unit_not_expected:traitUnit"
     assert level.warnings == "unit_not_expected:traitUnit"
+    assert own_unit.warnings == ""
+    assert other_count_unit.warnings == "unit_not_expected:traitUnit"
 
 
 def test_a_level_with_a_dispersion_or_a_range_is_a_warning_for_each() -> None:
@@ -719,6 +726,26 @@ def test_a_level_with_a_dispersion_or_a_range_is_a_warning_for_each() -> None:
     row = _only_row(observation)
 
     assert row.warnings == ("not_applicable:dispersion | not_applicable:measurementValue_min")
+    assert row.statisticalMethod is None
+
+
+def test_a_level_does_not_publish_a_mean_or_a_dispersion_phrase() -> None:
+    observation = _observation(
+        traitCode=_read("activity_cycle", "activity", start=10),
+        verbatimTraitValue=_cited("nocturnal", start=20),
+        verbatimTraitUnit=_cited("NA", start=25),
+        centralKind=_read("mean", "mean", start=60),
+        dispersionKind=_read("standardDeviation", "SD", start=65),
+        dispersion=_read("0.4", "0.4", start=70),
+    )
+
+    row = _only_row(observation)
+
+    assert row.statisticalMethod is None
+    assert row.dispersion == 0
+    assert row.warnings == (
+        "not_applicable:dispersion | not_applicable:centralKind | not_applicable:dispersionKind"
+    )
 
 
 def test_a_level_does_not_publish_a_dispersion_or_a_range() -> None:
@@ -746,8 +773,10 @@ def test_a_level_does_not_publish_a_dispersion_or_a_range() -> None:
 
 def test_a_mean_group_size_may_be_a_decimal() -> None:
     row = _only_row(_trait_observation("population_group_size", "4.2", "individuals"))
+    social = _only_row(_trait_observation("social_group_size", "4.5", "individuals"))
 
     assert (row.traitValue, row.traitUnit) == ("4.2", "animals")
+    assert (social.traitValue, social.traitUnit) == ("4.5", "animals")
 
 
 def test_a_deprecated_trait_still_converts_with_a_warning(monkeypatch: pytest.MonkeyPatch) -> None:

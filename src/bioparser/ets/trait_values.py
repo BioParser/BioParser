@@ -7,7 +7,7 @@ from typing import Literal
 
 from bioparser.ets.notices import Approximate, DeprecatedTrait, Notice, UnitNotExpected
 from bioparser.ets.numbers import canonical_decimal, parse_count
-from bioparser.traits.table import CategoricalTrait, NumericTrait, mammal_traits
+from bioparser.traits.table import CategoricalTrait, CountTrait, NumericTrait, mammal_traits
 
 TraitProblem = Literal[
     "trait_unknown",
@@ -52,9 +52,10 @@ def resolve_trait_value(
         warnings.append(DeprecatedTrait())
     if isinstance(entry, NumericTrait):
         return _convert_numeric(entry, value, unit, warnings)
-    # A count and a level are not converted, so a printed unit is not checked. A real unit
-    # next to one suggests the observation names the wrong trait.
-    if unit in _known_units():
+    # A count and a level are not converted. A measurement unit that is not this entry's own
+    # unit suggests the observation names the wrong trait. The entry's own unit does not.
+    own_unit = entry.stored_unit if isinstance(entry, CountTrait) else None
+    if unit in _known_units() and unit != own_unit:
         warnings.append(UnitNotExpected())
     if isinstance(entry, CategoricalTrait):
         level = entry.level_for(value)
