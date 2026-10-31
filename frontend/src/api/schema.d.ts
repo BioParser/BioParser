@@ -188,6 +188,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/traits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Trait List
+         * @description The mammal trait list. ETS Traitlist rows by default, or the full entries.
+         */
+        get: operations["trait_list_api_traits_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -266,6 +286,37 @@ export interface components {
             y1: number;
         };
         /**
+         * CategoricalTrait
+         * @description One of a closed set of levels. It has no unit.
+         */
+        CategoricalTrait: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Trait Id */
+            trait_id: string;
+            /** Definition */
+            definition: string;
+            /** Domain */
+            domain: string;
+            /**
+             * Status
+             * @default active
+             * @enum {string}
+             */
+            status: "active" | "deprecated";
+            /** Replaced By */
+            replaced_by?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "categorical";
+            /** Levels */
+            levels: string[];
+        };
+        /**
          * Citation
          * @description Printed text. On a citation-only column, this text is the ETS value.
          *
@@ -314,6 +365,40 @@ export interface components {
             interpretation: components["schemas"]["Interpretation"];
         };
         /**
+         * CountTrait
+         * @description A number of things, such as young or teats.
+         *
+         *     It is never converted, so the printed unit is not checked. It is a whole number, unless
+         *     the paper prints a mean or a median of counts. ``stored_unit`` names what is counted.
+         */
+        CountTrait: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Trait Id */
+            trait_id: string;
+            /** Definition */
+            definition: string;
+            /** Domain */
+            domain: string;
+            /**
+             * Status
+             * @default active
+             * @enum {string}
+             */
+            status: "active" | "deprecated";
+            /** Replaced By */
+            replaced_by?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "count";
+            /** Stored Unit */
+            stored_unit: string;
+        };
+        /**
          * CreateJobRequest
          * @example {
          *       "extractor": "default",
@@ -356,13 +441,20 @@ export interface components {
             /** Size Bytes */
             size_bytes: number;
         };
+        /** Domain */
+        Domain: {
+            /** Name */
+            name: string;
+            /** Definition */
+            definition: string;
+        };
         /** ErrorDetail */
         ErrorDetail: {
             /**
              * Code
              * @enum {string}
              */
-            code: "missing_file" | "empty_file" | "invalid_pdf" | "unsupported_content_type" | "invalid_content_length" | "job_not_found" | "invalid_job_id" | "content_too_large" | "storage_unavailable" | "artifact_invalid" | "job_state_unreadable" | "database_unavailable" | "queue_unavailable" | "artifact_not_available" | "unauthorized" | "document_not_found" | "invalid_checksum";
+            code: "missing_file" | "empty_file" | "invalid_pdf" | "unsupported_content_type" | "invalid_content_length" | "job_not_found" | "invalid_job_id" | "content_too_large" | "storage_unavailable" | "artifact_invalid" | "job_state_unreadable" | "database_unavailable" | "queue_unavailable" | "artifact_not_available" | "unauthorized" | "document_not_found" | "invalid_checksum" | "unknown_trait_query";
             /** Message */
             message: string;
         };
@@ -433,6 +525,46 @@ export interface components {
             /** Value */
             value: string;
             passage: components["schemas"]["Citation"];
+        };
+        /**
+         * NumericTrait
+         * @description A measured quantity. Each printed unit maps to the factor into ``stored_unit``.
+         */
+        NumericTrait: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Trait Id */
+            trait_id: string;
+            /** Definition */
+            definition: string;
+            /** Domain */
+            domain: string;
+            /**
+             * Status
+             * @default active
+             * @enum {string}
+             */
+            status: "active" | "deprecated";
+            /** Replaced By */
+            replaced_by?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "numeric";
+            /** Stored Unit */
+            stored_unit: string;
+            /** Printed Units */
+            printed_units: {
+                [key: string]: string;
+            };
+            /**
+             * Approximate Units
+             * @default []
+             */
+            approximate_units: string[];
         };
         /**
          * Observation
@@ -750,6 +882,73 @@ export interface components {
             /** Line */
             line: number;
             bbox: components["schemas"]["BoundingBox"];
+        };
+        /**
+         * TraitListEts
+         * @description The trait list as ETS Traitlist rows, plus the list version.
+         */
+        TraitListEts: {
+            /** Version */
+            version: string;
+            /** Traits */
+            traits: components["schemas"]["TraitlistRow"][];
+        };
+        /**
+         * TraitListFull
+         * @description Full entries for one query.
+         *
+         *     This is not a closed list. A deprecated trait's replacement may sit outside
+         *     the selection, so it is not required to be one of these traits.
+         */
+        TraitListFull: {
+            /**
+             * Version
+             * @description YYYY.MM.REVISION. The year and month the release was made, then a revision that starts at 0 and counts further releases in that month.
+             */
+            version: string;
+            /** Id Prefixes */
+            id_prefixes: {
+                [key: string]: string | null;
+            };
+            /** Domains */
+            domains: components["schemas"]["Domain"][];
+            /** Traits */
+            traits: (components["schemas"]["NumericTrait"] | components["schemas"]["CountTrait"] | components["schemas"]["CategoricalTrait"])[];
+        };
+        /**
+         * TraitlistRow
+         * @description One ETS v0.10 Traitlist row. Empty columns are null.
+         */
+        TraitlistRow: {
+            /** Identifier */
+            identifier: string;
+            /** Trait */
+            trait: string;
+            /** Broaderterm */
+            broaderTerm?: string | null;
+            /** Narrowerterm */
+            narrowerTerm?: string | null;
+            /** Relatedterm */
+            relatedTerm?: string | null;
+            /**
+             * Valuetype
+             * @enum {string}
+             */
+            valueType: "numeric" | "integer" | "categorical";
+            /** Expectedunit */
+            expectedUnit?: string | null;
+            /** Factorlevels */
+            factorLevels?: string | null;
+            /** Maxallowedvalue */
+            maxAllowedValue?: string | null;
+            /** Minallowedvalue */
+            minAllowedValue?: string | null;
+            /** Traitdescription */
+            traitDescription: string;
+            /** Comments */
+            comments?: string | null;
+            /** Source */
+            source?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1579,6 +1778,58 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    trait_list_api_traits_get: {
+        parameters: {
+            query?: {
+                detail?: "ets" | "full";
+                domain?: string[] | null;
+                code?: string[] | null;
+                include_deprecated?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TraitListEts"] | components["schemas"]["TraitListFull"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };

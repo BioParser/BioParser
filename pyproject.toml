@@ -42,6 +42,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+  "jinja2>=3.1.6",
   "mypy>=2.3.1",
   "pre-commit>=4.6.2",
   "pytest>=9.1.1",
@@ -68,9 +69,11 @@ ignore = [
 [tool.mypy]
 python_version = "3.13"
 strict = true
-files = ["src", "tests"]
+files = ["src", "tests", "pages"]
+mypy_path = "pages"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["pages"]
 addopts = "-ra"
 markers = ["integration: requires a real Redis or Postgres instance (see BIOPARSER_TEST_REDIS_URL and BIOPARSER_TEST_DATABASE_URL)"]

@@ -10,10 +10,10 @@ from collections.abc import AsyncIterator
 from concurrent.futures import Executor, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, ValidationError
 
 from bioparser.artifact_paths import pdf_path
@@ -52,6 +52,8 @@ from bioparser.storage import (
     StorageError,
     StoragePayloadError,
 )
+from bioparser.traits.table import mammal_traits
+from bioparser.traits.traitlist import selected_traits, traitlist_rows
 
 from . import config
 from .auth import ApiKeyMiddleware, require_api_key
@@ -72,6 +74,7 @@ from .errors import (
     QUEUE_UNAVAILABLE,
     STORAGE_UNAVAILABLE,
     UNAUTHORIZED,
+    UNKNOWN_TRAIT_QUERY,
     UNSUPPORTED_CONTENT_TYPE,
     error_response,
     http_error,
@@ -88,6 +91,8 @@ from .schema import (
     ReadinessUnavailableResponse,
     RunningJobResponse,
     SucceededJobResponse,
+    TraitListEts,
+    TraitListFull,
 )
 from .ui import add_ui_routes
 from .uploads import (
@@ -887,6 +892,45 @@ async def extract(request: Request, file: UploadFile | None = None) -> Extractio
         LOGGER.error("pipeline process died", extra=error_fields(exc))
         _replace_pipeline_pool(request.app, pool)
         raise HTTPException(status_code=502, detail="Pipeline process died") from exc
+
+
+@app.get(
+    "/api/traits",
+    dependencies=[Depends(require_api_key)],
+    responses={
+        400: error_response(UNKNOWN_TRAIT_QUERY),
+        401: error_response(UNAUTHORIZED),
+    },
+)
+def trait_list(
+    detail: Literal["ets", "full"] = "ets",
+    domain: Annotated[list[str] | None, Query()] = None,
+    code: Annotated[list[str] | None, Query()] = None,
+    include_deprecated: bool = False,
+) -> TraitListEts | TraitListFull:
+    """The mammal trait list. ETS Traitlist rows by default, or the full entries."""
+    table = mammal_traits()
+    domains = tuple(domain or ())
+    codes = tuple(code or ())
+    try:
+        traits = selected_traits(
+            table, domains=domains, codes=codes, include_deprecated=include_deprecated
+        )
+    except ValueError as exc:
+        raise http_error(400, UNKNOWN_TRAIT_QUERY) from exc
+    if detail == "full":
+        return TraitListFull(
+            version=table.version,
+            id_prefixes=table.id_prefixes,
+            domains=table.domains,
+            traits=traits,
+        )
+    return TraitListEts(
+        version=table.version,
+        traits=traitlist_rows(
+            table, domains=domains, codes=codes, include_deprecated=include_deprecated
+        ),
+    )
 
 
 @app.get("/health")

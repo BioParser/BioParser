@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}{{ title }}{% endblock %} · BioParser traits</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ root_path }}static/site.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-inner">
+    <div class="brand">
+      <a href="{{ root_path }}../">
+        <svg class="mark" viewBox="0 0 28 28" aria-hidden="true"><rect class="mark-bg" width="28" height="28" rx="8"/><path class="mark-fg" d="M8.5 9v10M19.5 9v10M8.5 14h11"/></svg>
+        <span>BioParser</span>
+      </a>
+      <span class="section">Traits</span>
+    </div>
+    <nav class="nav" aria-label="Site">
+      <a href="{{ root_path }}../">Home</a>
+      <a href="{{ root_path or './' }}">Traits</a>
+      <a href="https://github.com/BioParser/BioParser">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </div>
+</header>
+<main>
+{% block body %}{% endblock %}
+</main>
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <span>BioParser mammal trait list</span>
+    <span>A released version never changes. Changes are published as a new version.</span>
+  </div>
+</footer>
+{% block scripts %}{% endblock %}
+</body>
+</html>
