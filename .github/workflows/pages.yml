@@ -4,13 +4,19 @@ on:
   push:
     branches: [main]
     paths:
-      - docs/index.html
+      - pages/**
       - src/bioparser/traits/**
+      - pyproject.toml
+      - uv.lock
+      - .github/actions/setup/**
       - .github/workflows/pages.yml
   pull_request:
     paths:
-      - docs/index.html
+      - pages/**
       - src/bioparser/traits/**
+      - pyproject.toml
+      - uv.lock
+      - .github/actions/setup/**
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -33,10 +39,7 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Assemble the site
-        run: |
-          mkdir -p _site
-          cp docs/index.html _site/index.html
-          uv run python -m bioparser.traits.site --out _site
+        run: uv run python pages/build_traits.py --out _site
 
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
