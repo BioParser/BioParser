@@ -20,11 +20,13 @@ BASELINE = Path(__file__).with_name("released_traits.json")
 
 
 def snapshot(table: TraitTable) -> dict[str, dict[str, Any]]:
-    """What a stored result depends on, per code. Names are free. Any other edit needs a version."""
+    """What a stored result depends on, per code. A name or a definition may be reworded across
+    versions, but never within one."""
     entries: dict[str, dict[str, Any]] = {}
     for trait in table.traits:
         entry: dict[str, Any] = {
             "kind": trait.kind,
+            "name": trait.name,
             "trait_id": trait.trait_id,
             "definition": trait.definition,
             "status": trait.status,
