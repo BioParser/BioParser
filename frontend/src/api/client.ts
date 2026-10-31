@@ -1,7 +1,10 @@
+import { clearApiKey, getApiKey } from "./apiKey";
 import type { components, paths } from "./schema";
 
 type Schemas = components["schemas"];
 
+// The header the API reads the key from (API_KEY_HEADER in src/bioparser/api/auth.py).
+const API_KEY_HEADER = "X-API-Key";
 export type ErrorCode = Schemas["ErrorDetail"]["code"];
 export type QueuedJobResponse = Schemas["QueuedJobResponse"];
 // JobStatusResponse is a union in Python, not a model, so it has no entry in the schemas.
@@ -50,7 +53,18 @@ async function toApiError(response: Response): Promise<ApiError> {
 
 // The one place the UI calls the API. A network failure rejects with fetch's own TypeError.
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init);
+  // Read the key on every call, so a key entered or forgotten since the last call is used.
+  const headers = new Headers(init?.headers);
+  const apiKey = getApiKey();
+  if (apiKey !== null) {
+    headers.set(API_KEY_HEADER, apiKey);
+  }
+  const response = await fetch(path, { ...init, headers });
+  // A 401 means the key we sent is wrong. If the key changed while the request was on its way,
+  // the 401 is about the old key, so the new one stays.
+  if (response.status === 401 && apiKey !== null && getApiKey() === apiKey) {
+    clearApiKey("rejected");
+  }
   if (!response.ok) {
     throw await toApiError(response);
   }
