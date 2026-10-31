@@ -15,6 +15,7 @@ from bioparser.traits.table import (
     load_table,
     mammal_traits,
     released_tables,
+    version_sort_key,
 )
 
 
@@ -44,6 +45,17 @@ def test_the_current_version_is_released_and_unchanged() -> None:
 
     assert table.version in released, "release this version with bioparser.traits.release"
     assert released[table.version] == table, "bump the version and release it again"
+
+
+def test_a_later_revision_in_the_same_month_sorts_after_an_earlier_one() -> None:
+    versions = ["2026.10.10", "2026.11.0", "2026.10.2", "2026.10.9"]
+
+    assert sorted(versions, key=version_sort_key) == [
+        "2026.10.2",
+        "2026.10.9",
+        "2026.10.10",
+        "2026.11.0",
+    ]
 
 
 def test_every_released_version_is_still_compatible() -> None:
