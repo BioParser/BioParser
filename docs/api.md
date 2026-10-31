@@ -210,7 +210,7 @@ Serve raw bytes of a stored PDF document.
 **Success — `200 OK`:**
 - Content type: `application/pdf`
 - Headers:
-  - `Content-Disposition: inline; filename="<display_name or checksum.pdf>"`
+  - `Content-Disposition: inline; filename="<ascii_fallback>"; filename*=UTF-8''<encoded_name>`
   - `Cache-Control: private, max-age=31536000, immutable`
 
 **Failure:** Same 401, 404, 422, and 503 statuses as `GET /api/documents/{checksum}`. `500` if the stored payload is corrupted.

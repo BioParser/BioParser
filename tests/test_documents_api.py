@@ -238,9 +238,25 @@ def test_get_document_file_sanitizes_filename(
     res = client.get(f"/api/documents/{MINIMAL_PDF_HASH}/file")
     assert res.status_code == 200
     disposition = res.headers.get("content-disposition", "")
-    assert disposition == 'inline; filename="maliciousheaderinjectiontest.pdf"'
+    assert 'filename="maliciousheaderinjectiontest.pdf"' in disposition
+    assert "filename*=UTF-8''maliciousheaderinjectiontest.pdf" in disposition
     assert "\r" not in disposition
     assert "\n" not in disposition
+
+
+def test_get_document_file_unicode_filename(
+    client: TestClient,
+) -> None:
+    client.post(
+        "/api/documents",
+        files={"file": ("käsikirja.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+
+    res = client.get(f"/api/documents/{MINIMAL_PDF_HASH}/file")
+    assert res.status_code == 200
+    disposition = res.headers.get("content-disposition", "")
+    assert 'filename="kasikirja.pdf"' in disposition
+    assert "filename*=UTF-8''k%C3%A4sikirja.pdf" in disposition
 
 
 def test_get_document_file_not_found_and_invalid_checksum(client: TestClient) -> None:
@@ -475,7 +491,11 @@ def test_openapi_schema_includes_new_endpoints() -> None:
 
 
 def test_sanitize_display_name_behavior() -> None:
-    from bioparser.api.uploads import sanitize_display_name
+    from bioparser.api.uploads import (
+        ascii_filename,
+        inline_content_disposition,
+        sanitize_display_name,
+    )
 
     assert sanitize_display_name(None) is None
     assert sanitize_display_name("") is None
@@ -486,3 +506,10 @@ def test_sanitize_display_name_behavior() -> None:
     assert sanitize_display_name("   simple.pdf   ") == "simple.pdf"
     long_name = "a" * 300 + ".pdf"
     assert len(sanitize_display_name(long_name) or "") == 255
+
+    assert ascii_filename("käsikirja.pdf") == "kasikirja.pdf"
+    assert ascii_filename("report.pdf") == "report.pdf"
+    assert (
+        inline_content_disposition("käsikirja.pdf")
+        == "inline; filename=\"kasikirja.pdf\"; filename*=UTF-8''k%C3%A4sikirja.pdf"
+    )

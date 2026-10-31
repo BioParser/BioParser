@@ -91,6 +91,7 @@ from .schema import (
 )
 from .ui import add_ui_routes
 from .uploads import (
+    inline_content_disposition,
     read_upload,
     require_file,
     sanitize_display_name,
@@ -645,7 +646,7 @@ async def get_document_file(request: Request, checksum: str) -> Response:
         content=content,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'inline; filename="{filename}"',
+            "Content-Disposition": inline_content_disposition(filename),
             "Cache-Control": _IMMUTABLE,
         },
     )
