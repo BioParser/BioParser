@@ -1834,6 +1834,135 @@
         ]
       }
     },
+    "/api/traits": {
+      "get": {
+        "summary": "Trait List",
+        "description": "The mammal trait list. ETS Traitlist rows by default, or the full entries.",
+        "operationId": "trait_list_api_traits_get",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "detail",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "ets",
+                "full"
+              ],
+              "type": "string",
+              "default": "ets",
+              "title": "Detail"
+            }
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "include_deprecated",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Deprecated"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/EtsTraitlist"
+                    },
+                    {
+                      "$ref": "#/components/schemas/TraitTable"
+                    }
+                  ],
+                  "title": "Response Trait List Api Traits Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "unknown_trait_query": {
+                    "summary": "Unknown domain or trait code",
+                    "value": {
+                      "detail": {
+                        "code": "unknown_trait_query",
+                        "message": "Unknown domain or trait code"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "unauthorized": {
+                    "summary": "Invalid or missing API key",
+                    "value": {
+                      "detail": {
+                        "code": "unauthorized",
+                        "message": "Invalid or missing API key"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health",
@@ -1990,6 +2119,77 @@
         "title": "BoundingBox",
         "description": "Axis-aligned box in page space, top-left origin, normalized to [0, 1]."
       },
+      "CategoricalTrait": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Name"
+          },
+          "trait_id": {
+            "type": "string",
+            "title": "Trait Id"
+          },
+          "definition": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Definition"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "deprecated"
+            ],
+            "title": "Status",
+            "default": "active"
+          },
+          "replaced_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replaced By"
+          },
+          "kind": {
+            "type": "string",
+            "const": "categorical",
+            "title": "Kind",
+            "default": "categorical"
+          },
+          "levels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Levels"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "trait_id",
+          "definition",
+          "domain",
+          "levels"
+        ],
+        "title": "CategoricalTrait",
+        "description": "One of a closed set of levels. It has no unit."
+      },
       "Citation": {
         "properties": {
           "kind": {
@@ -2112,6 +2312,75 @@
         "title": "Correction",
         "description": "A narrow citation kept beside an interpretation.\n\n``citation`` is the narrow printed token. The interpretation's passage is\nthe wider text its value was read from. The adapter uses the\ninterpretation value. The citation stays for tracing and highlighting."
       },
+      "CountTrait": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Name"
+          },
+          "trait_id": {
+            "type": "string",
+            "title": "Trait Id"
+          },
+          "definition": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Definition"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "deprecated"
+            ],
+            "title": "Status",
+            "default": "active"
+          },
+          "replaced_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replaced By"
+          },
+          "kind": {
+            "type": "string",
+            "const": "count",
+            "title": "Kind",
+            "default": "count"
+          },
+          "stored_unit": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Stored Unit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "trait_id",
+          "definition",
+          "domain",
+          "stored_unit"
+        ],
+        "title": "CountTrait",
+        "description": "A number of things, such as young or teats.\n\nIt is never converted, so the printed unit is not checked. It is a whole number, unless\nthe paper prints a mean or a median of counts. ``stored_unit`` names what is counted."
+      },
       "CreateJobRequest": {
         "properties": {
           "parser": {
@@ -2181,6 +2450,27 @@
           }
         ]
       },
+      "Domain": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Name"
+          },
+          "definition": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Definition"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "definition"
+        ],
+        "title": "Domain"
+      },
       "ErrorDetail": {
         "properties": {
           "code": {
@@ -2202,7 +2492,8 @@
               "artifact_not_available",
               "unauthorized",
               "document_not_found",
-              "invalid_checksum"
+              "invalid_checksum",
+              "unknown_trait_query"
             ],
             "title": "Code"
           },
@@ -2229,6 +2520,28 @@
           "detail"
         ],
         "title": "ErrorResponse"
+      },
+      "EtsTraitlist": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "traits": {
+            "items": {
+              "$ref": "#/components/schemas/TraitlistRow"
+            },
+            "type": "array",
+            "title": "Traits"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "traits"
+        ],
+        "title": "EtsTraitlist",
+        "description": "The trait list as ETS Traitlist rows, plus the list version."
       },
       "ExtractionArtifact": {
         "properties": {
@@ -2346,6 +2659,91 @@
         ],
         "title": "Interpretation",
         "description": "A value read from one citation. ``passage`` is that citation."
+      },
+      "NumericTrait": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Name"
+          },
+          "trait_id": {
+            "type": "string",
+            "title": "Trait Id"
+          },
+          "definition": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Definition"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "deprecated"
+            ],
+            "title": "Status",
+            "default": "active"
+          },
+          "replaced_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replaced By"
+          },
+          "kind": {
+            "type": "string",
+            "const": "numeric",
+            "title": "Kind",
+            "default": "numeric"
+          },
+          "stored_unit": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Stored Unit"
+          },
+          "printed_units": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Printed Units"
+          },
+          "approximate_units": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Approximate Units",
+            "default": []
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "trait_id",
+          "definition",
+          "domain",
+          "stored_unit",
+          "printed_units"
+        ],
+        "title": "NumericTrait",
+        "description": "A measured quantity. Each printed unit maps to the factor into ``stored_unit``."
       },
       "Observation": {
         "properties": {
@@ -3908,6 +4306,206 @@
         ],
         "title": "TextSpan",
         "description": "Word box mapped onto `TextContent.text` as a half-open character range."
+      },
+      "TraitTable": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^\\d{4}\\.\\d{2}\\.\\d+$",
+            "title": "Version",
+            "description": "YYYY.MM.REVISION. The year and month the release was made, then a revision that starts at 0 and counts further releases in that month."
+          },
+          "id_prefixes": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Id Prefixes"
+          },
+          "domains": {
+            "items": {
+              "$ref": "#/components/schemas/Domain"
+            },
+            "type": "array",
+            "title": "Domains"
+          },
+          "traits": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/NumericTrait"
+                },
+                {
+                  "$ref": "#/components/schemas/CountTrait"
+                },
+                {
+                  "$ref": "#/components/schemas/CategoricalTrait"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "categorical": "#/components/schemas/CategoricalTrait",
+                  "count": "#/components/schemas/CountTrait",
+                  "numeric": "#/components/schemas/NumericTrait"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Traits"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version",
+          "id_prefixes",
+          "domains",
+          "traits"
+        ],
+        "title": "TraitTable",
+        "description": "The whole list: a version, the identifier prefixes, the domains, and the traits."
+      },
+      "TraitlistRow": {
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "title": "Identifier"
+          },
+          "trait": {
+            "type": "string",
+            "title": "Trait"
+          },
+          "broaderTerm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broaderterm"
+          },
+          "narrowerTerm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Narrowerterm"
+          },
+          "relatedTerm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relatedterm"
+          },
+          "valueType": {
+            "type": "string",
+            "enum": [
+              "numeric",
+              "integer",
+              "categorical"
+            ],
+            "title": "Valuetype"
+          },
+          "expectedUnit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expectedunit"
+          },
+          "factorLevels": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Factorlevels"
+          },
+          "maxAllowedValue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maxallowedvalue"
+          },
+          "minAllowedValue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minallowedvalue"
+          },
+          "traitDescription": {
+            "type": "string",
+            "title": "Traitdescription"
+          },
+          "comments": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comments"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "identifier",
+          "trait",
+          "valueType",
+          "traitDescription"
+        ],
+        "title": "TraitlistRow",
+        "description": "One ETS v0.10 Traitlist row. Empty columns are null."
       },
       "ValidationError": {
         "properties": {

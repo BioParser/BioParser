@@ -8,6 +8,8 @@ from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTORS
 from bioparser.hashing import Sha256Hex
 from bioparser.jobstate import SafeError
 from bioparser.parser_names import DEFAULT_PARSER_NAME, PARSER_BACKENDS
+from bioparser.traits.table import TraitTable
+from bioparser.traits.traitlist import TraitlistRow
 
 
 class HealthResponse(BaseModel):
@@ -42,6 +44,16 @@ class ReadinessUnavailableResponse(BaseModel):
             ]
         }
     )
+
+
+class EtsTraitlist(BaseModel):
+    """The trait list as ETS Traitlist rows, plus the list version."""
+
+    version: str
+    traits: tuple[TraitlistRow, ...]
+
+
+TraitListResponse = EtsTraitlist | TraitTable
 
 
 class QueuedJobResponse(BaseModel):

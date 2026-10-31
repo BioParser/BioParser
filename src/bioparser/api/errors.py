@@ -21,6 +21,7 @@ ErrorCode = Literal[
     "unauthorized",
     "document_not_found",
     "invalid_checksum",
+    "unknown_trait_query",
 ]
 
 
@@ -82,6 +83,11 @@ DATABASE_UNAVAILABLE = ErrorDetail(
 )
 
 QUEUE_UNAVAILABLE = ErrorDetail(code="queue_unavailable", message="Parse queue is unavailable")
+
+UNKNOWN_TRAIT_QUERY = ErrorDetail(
+    code="unknown_trait_query",
+    message="Unknown domain or trait code",
+)
 
 ARTIFACT_NOT_AVAILABLE = ErrorDetail(
     code="artifact_not_available",

@@ -414,6 +414,14 @@ parser artifact; an observation whose quotation the paper does not contain is dr
 `502` and `503` bodies use FastAPI's default `{"detail": "<message>"}` shape (a
 plain string), not `POST /api/extractions`'s `{"code", "message"}` object.
 
+### `GET /api/traits`
+
+The mammal trait list. Requires the API key.
+
+`detail` defaults to `ets`, which returns ETS v0.10 Traitlist rows and the list `version`. A measurement is `valueType` `numeric`, a count is `integer`, and a level is `categorical`. `factorLevels` is the comma-separated levels. `detail=full` returns the list entries, the domains, the identifier prefixes, and the version.
+
+`domain` may be repeated. Deprecated traits are omitted unless `include_deprecated=true`. A deprecated code is still returned when it is named. An unknown domain or code is `400` with `unknown_trait_query`.
+
 ### `GET /health`
 
 Liveness. Returns `200 {"status": "ok"}` whenever the process is running. No
