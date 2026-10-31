@@ -43,7 +43,7 @@ _DOCUMENTS_COLUMNS = {
     "created_at": ("NO", "timestamp with time zone", None),
 }
 _DOCUMENTS_CHECKS = {
-    "documents_checksum_length_check",
+    "documents_checksum_hex_check",
     "documents_size_bytes_check",
 }
 

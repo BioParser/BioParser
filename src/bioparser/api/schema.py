@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTORS
+from bioparser.hashing import Sha256Hex
 from bioparser.jobstate import SafeError
 from bioparser.parser_names import DEFAULT_PARSER_NAME, PARSER_BACKENDS
 
@@ -71,10 +72,10 @@ JobStatusResponse = Annotated[
 
 
 class DocumentMetadataResponse(BaseModel):
-    checksum: str
+    checksum: Sha256Hex
     display_name: str | None = None
     upload_time: datetime
-    size_bytes: int | None = None
+    size_bytes: int
 
     model_config = ConfigDict(
         json_schema_extra={

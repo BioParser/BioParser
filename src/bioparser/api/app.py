@@ -3,7 +3,6 @@ import contextlib
 import logging
 import multiprocessing
 import os
-import re
 import socket
 import tempfile
 import uuid
@@ -25,7 +24,7 @@ from bioparser.db.documents import DocumentRecord
 from bioparser.db.engine import DatabaseError
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
-from bioparser.hashing import sha256_bytes
+from bioparser.hashing import Sha256Hex, is_sha256_hex, sha256_bytes
 from bioparser.jobqueue import (
     JobQueueError,
     ParseJobMessage,
@@ -94,6 +93,7 @@ from .ui import add_ui_routes
 from .uploads import (
     read_upload,
     require_file,
+    sanitize_display_name,
     validate_content_length,
     validate_content_type,
     validate_pdf_content,
@@ -311,12 +311,9 @@ def _parse_job_id(job_id: str) -> UUID:
     return parsed_job_id
 
 
-_SHA256_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-
-
-def _validate_checksum(checksum: str) -> str:
+def _validate_checksum(checksum: str) -> Sha256Hex:
     cleaned = checksum.strip().lower()
-    if not _SHA256_HEX_PATTERN.fullmatch(cleaned):
+    if not is_sha256_hex(cleaned):
         raise http_error(422, INVALID_CHECKSUM)
     return cleaned
 
@@ -505,7 +502,7 @@ async def upload_document(
     checksum = await asyncio.to_thread(sha256_bytes, pdf_bytes)
     doc_path = pdf_path(checksum)
 
-    display_name = file.filename if file and file.filename else None
+    display_name = sanitize_display_name(file.filename) if file else None
     creation_info = CreationInfo(created_by="api-upload")
     artifact_metadata = ArtifactMetadata(
         artifact_path=doc_path,
@@ -643,7 +640,7 @@ async def get_document_file(request: Request, checksum: str) -> Response:
         )
         raise http_error(503, STORAGE_UNAVAILABLE) from exc
 
-    filename = doc.display_name or f"{valid_checksum}.pdf"
+    filename = sanitize_display_name(doc.display_name) or f"{valid_checksum}.pdf"
     return Response(
         content=content,
         media_type="application/pdf",

@@ -7,13 +7,21 @@ parser backends.
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 from typing import Annotated
 
 from pydantic import StringConstraints
 
+_SHA256_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
 Sha256Hex = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 """A lowercase hex sha256 digest, as returned by `sha256_bytes` and `sha256_file`."""
+
+
+def is_sha256_hex(value: str) -> bool:
+    """True when value is a 64-character lowercase hex sha256 digest."""
+    return bool(_SHA256_HEX_PATTERN.fullmatch(value))
 
 
 def sha256_bytes(data: bytes) -> Sha256Hex:

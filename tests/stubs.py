@@ -410,9 +410,7 @@ class StubJobs:
         if self.get_error is not None:
             raise self.get_error
         target = f"pdf/{checksum}"
-        return [
-            j for j in self.states.values() if j.pdf_ref == target or j.pdf_ref == f"{target}.pdf"
-        ]
+        return [j for j in self.states.values() if j.pdf_ref == target]
 
     async def get_document(self, connection: object, checksum: str) -> DocumentRecord | None:
         self.events.append("document.get")

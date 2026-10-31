@@ -13,8 +13,9 @@ from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.orm import InstrumentedAttribute, Mapped, mapped_column
 
-from bioparser.artifact_paths import ARTIFACT_PATH_MAX_LENGTH
+from bioparser.artifact_paths import ARTIFACT_PATH_MAX_LENGTH, pdf_path
 from bioparser.db.base import Base
+from bioparser.hashing import Sha256Hex
 from bioparser.jobstate.errors import CorruptJobStateError
 from bioparser.jobstate.models import ALLOWED_TRANSITIONS, JobState, JobStatus, SafeErrorCode
 
@@ -127,15 +128,11 @@ async def list_jobs(
 
 async def list_jobs_for_document(
     connection: AsyncConnection,
-    checksum: str,
+    checksum: Sha256Hex,
 ) -> list[JobState]:
     """List all jobs associated with a document checksum, ordered newest first."""
-    target = f"pdf/{checksum}"
-    stmt = (
-        select(Job.__table__)
-        .where((Job.pdf_ref == target) | (Job.pdf_ref == f"{target}.pdf"))
-        .order_by(Job.created_at.desc())
-    )
+    target = pdf_path(checksum)
+    stmt = select(Job.__table__).where(Job.pdf_ref == target).order_by(Job.created_at.desc())
     rows = (await connection.execute(stmt)).mappings().all()
     results: list[JobState] = []
     for row in rows:

@@ -7,11 +7,13 @@ from datetime import datetime
 from typing import cast
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, String, Text, insert, select, text
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, String, Text, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.orm import Mapped, mapped_column
 
 from bioparser.db.base import Base
+from bioparser.hashing import Sha256Hex
 
 
 class Document(Base):
@@ -19,7 +21,7 @@ class Document(Base):
 
     __tablename__ = "documents"
     __table_args__ = (
-        CheckConstraint("length(checksum) = 64", name="documents_checksum_length_check"),
+        CheckConstraint("checksum ~ '^[0-9a-f]{64}$'", name="documents_checksum_hex_check"),
         CheckConstraint("size_bytes >= 0", name="documents_size_bytes_check"),
     )
 
@@ -36,7 +38,7 @@ class DocumentRecord(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    checksum: str
+    checksum: Sha256Hex
     display_name: str | None
     size_bytes: int
     created_at: datetime
@@ -51,7 +53,7 @@ def _row_to_document_record(row: Mapping[str, object]) -> DocumentRecord:
     )
 
 
-async def get(connection: AsyncConnection, checksum: str) -> DocumentRecord | None:
+async def get(connection: AsyncConnection, checksum: Sha256Hex) -> DocumentRecord | None:
     """Load one document by checksum, or None when missing."""
     row = (
         (await connection.execute(select(Document.__table__).where(Document.checksum == checksum)))
@@ -66,7 +68,7 @@ async def get(connection: AsyncConnection, checksum: str) -> DocumentRecord | No
 async def create(
     connection: AsyncConnection,
     *,
-    checksum: str,
+    checksum: Sha256Hex,
     display_name: str | None,
     size_bytes: int,
 ) -> tuple[DocumentRecord, bool]:
@@ -75,21 +77,21 @@ async def create(
     Returns:
         (record, created): created is True if a new row was inserted, False if it already existed.
     """
-    existing = await get(connection, checksum)
-    if existing is not None:
-        return existing, False
-
-    await connection.execute(
-        insert(Document).values(
+    stmt = (
+        pg_insert(Document)
+        .values(
             checksum=checksum,
             display_name=display_name,
             size_bytes=size_bytes,
         )
+        .on_conflict_do_nothing(index_elements=["checksum"])
     )
-    inserted = await get(connection, checksum)
-    if inserted is None:
+    result = await connection.execute(stmt)
+    created = result.rowcount == 1
+    doc = await get(connection, checksum)
+    if doc is None:
         raise RuntimeError(f"Document {checksum} could not be retrieved after insert")
-    return inserted, True
+    return doc, created
 
 
 async def list_documents(connection: AsyncConnection) -> list[DocumentRecord]:

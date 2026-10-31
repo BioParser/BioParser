@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+import unicodedata
+import urllib.parse
+
 from fastapi import UploadFile
 
 from . import config
@@ -13,6 +18,26 @@ from .errors import (
 
 _CHUNK_SIZE = 1024 * 1024  # 1 MiB
 _PDF_MAGIC = b"%PDF-"
+_MAX_DISPLAY_NAME_LENGTH = 255
+
+
+def sanitize_display_name(
+    filename: str | None, max_length: int = _MAX_DISPLAY_NAME_LENGTH
+) -> str | None:
+    """Sanitize an uploaded filename for safe storage as display_name and HTTP header usage.
+
+    Drops control characters (newlines, tabs, etc.), strips quotes ('"', "'"),
+    trims whitespace, and caps length. Returns None if the resulting string is empty.
+    """
+    if not filename:
+        return None
+    unquoted = urllib.parse.unquote(filename)
+    cleaned = "".join(
+        c for c in unquoted if c not in ('"', "'") and not unicodedata.category(c).startswith("C")
+    ).strip()
+    if not cleaned:
+        return None
+    return cleaned[:max_length]
 
 
 def require_file(file: UploadFile | None) -> UploadFile:

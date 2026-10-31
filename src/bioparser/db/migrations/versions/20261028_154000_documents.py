@@ -29,7 +29,7 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.text("now()"),
         ),
-        sa.CheckConstraint("length(checksum) = 64", name="documents_checksum_length_check"),
+        sa.CheckConstraint("checksum ~ '^[0-9a-f]{64}$'", name="documents_checksum_hex_check"),
         sa.CheckConstraint("size_bytes >= 0", name="documents_size_bytes_check"),
     )
 

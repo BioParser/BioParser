@@ -222,6 +222,27 @@ def test_get_document_file_fallback_filename(
     assert f'filename="{MINIMAL_PDF_HASH}.pdf"' in res.headers.get("content-disposition", "")
 
 
+def test_get_document_file_sanitizes_filename(
+    client: TestClient,
+) -> None:
+    bad_name = "malicious\"header\r\ninjection'test.pdf"
+    client.post(
+        "/api/documents",
+        files={"file": (bad_name, MINIMAL_PDF, "application/pdf")},
+    )
+
+    meta_res = client.get(f"/api/documents/{MINIMAL_PDF_HASH}")
+    assert meta_res.status_code == 200
+    assert meta_res.json()["display_name"] == "maliciousheaderinjectiontest.pdf"
+
+    res = client.get(f"/api/documents/{MINIMAL_PDF_HASH}/file")
+    assert res.status_code == 200
+    disposition = res.headers.get("content-disposition", "")
+    assert disposition == 'inline; filename="maliciousheaderinjectiontest.pdf"'
+    assert "\r" not in disposition
+    assert "\n" not in disposition
+
+
 def test_get_document_file_not_found_and_invalid_checksum(client: TestClient) -> None:
     res = client.get(f"/api/documents/{'0' * 64}/file")
     assert res.status_code == 404
@@ -451,3 +472,17 @@ def test_openapi_schema_includes_new_endpoints() -> None:
 
     assert "/api/jobs" in paths
     assert "get" in paths["/api/jobs"]
+
+
+def test_sanitize_display_name_behavior() -> None:
+    from bioparser.api.uploads import sanitize_display_name
+
+    assert sanitize_display_name(None) is None
+    assert sanitize_display_name("") is None
+    assert sanitize_display_name("   ") is None
+    assert sanitize_display_name('""\r\n\t') is None
+    assert sanitize_display_name('paper"with"quotes.pdf') == "paperwithquotes.pdf"
+    assert sanitize_display_name("line\nbreak.pdf") == "linebreak.pdf"
+    assert sanitize_display_name("   simple.pdf   ") == "simple.pdf"
+    long_name = "a" * 300 + ".pdf"
+    assert len(sanitize_display_name(long_name) or "") == 255
