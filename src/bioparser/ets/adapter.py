@@ -5,8 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from bioparser.ets.assess import Dropped, DropReason, Kept, assess
 from bioparser.ets.models import EtsRow
 from bioparser.ets.notices import format_warning
-from bioparser.ets.traits import mammal_traits
 from bioparser.extract.models import ExtractionArtifact
+from bioparser.traits.table import mammal_traits
 
 
 class MappedRow(BaseModel):

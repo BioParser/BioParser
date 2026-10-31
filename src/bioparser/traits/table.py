@@ -213,8 +213,15 @@ def load_table(text: str) -> TraitTable:
 @cache
 def mammal_traits() -> TraitTable:
     """The shipped mammal trait list."""
-    text = resources.files("bioparser.ets").joinpath("mammal_traits.json").read_text("utf-8")
+    text = resources.files("bioparser.traits").joinpath("mammal_traits.json").read_text("utf-8")
     return load_table(text)
+
+
+def released_tables() -> dict[str, TraitTable]:
+    """Every frozen release by version, oldest first. A released version never changes."""
+    files = resources.files("bioparser.traits").joinpath("releases").iterdir()
+    tables = [load_table(file.read_text("utf-8")) for file in files if file.name.endswith(".json")]
+    return {table.version: table for table in sorted(tables, key=lambda table: table.version)}
 
 
 def json_schema() -> dict[str, object]:

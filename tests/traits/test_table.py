@@ -3,10 +3,10 @@ from importlib import resources
 from typing import Any, get_args
 
 import pytest
-from freeze_traits import load_baseline, snapshot
 from pydantic import ValidationError
 
-from bioparser.ets.traits import (
+from bioparser.traits.release import compatibility_problems
+from bioparser.traits.table import (
     CategoricalTrait,
     CountTrait,
     NumericTrait,
@@ -14,11 +14,12 @@ from bioparser.ets.traits import (
     json_schema,
     load_table,
     mammal_traits,
+    released_tables,
 )
 
 
 def _table() -> dict[str, Any]:
-    text = resources.files("bioparser.ets").joinpath("mammal_traits.json").read_text("utf-8")
+    text = resources.files("bioparser.traits").joinpath("mammal_traits.json").read_text("utf-8")
     loaded: dict[str, Any] = json.loads(text)
     return loaded
 
@@ -35,37 +36,39 @@ def test_the_shipped_list_loads_and_has_every_value_kind() -> None:
     assert len(table.traits) >= 60
 
 
-def test_the_current_version_is_frozen_and_unchanged() -> None:
-    # Any edit to what a stored result depends on needs a new version. Bump `version`, then
-    # run `uv run python tests/ets/freeze_traits.py` in the same change.
+def test_the_current_version_is_released_and_unchanged() -> None:
+    # Any edit to the list needs a new version. Bump `version`, then run
+    # `uv run python -m bioparser.traits.release` in the same change.
     table = mammal_traits()
-    baseline = load_baseline()
+    released = released_tables()
 
-    assert table.version in baseline, "freeze this version with tests/ets/freeze_traits.py"
-    assert snapshot(table) == baseline[table.version], "bump the version and freeze it again"
+    assert table.version in released, "release this version with bioparser.traits.release"
+    assert released[table.version] == table, "bump the version and release it again"
 
 
-def test_every_released_trait_still_means_the_same() -> None:
-    current = snapshot(mammal_traits())
+def test_every_released_version_is_still_compatible() -> None:
+    current = mammal_traits()
 
-    for version, released in load_baseline().items():
-        for code, old in released.items():
-            new = current.get(code)
-            assert new is not None, f"{code} from {version} was removed, deprecate it instead"
-            assert new["kind"] == old["kind"], f"{code} changed kind"
-            # The id is not checked here. It may move to a public ontology term, and that
-            # is a release that bumps the version.
-            assert new.get("stored_unit") == old.get("stored_unit"), f"{code} changed unit"
-            # A definition may be reworded, which needs a new version. Its meaning may not move.
-            assert not (old["status"] == "deprecated" and new["status"] == "active"), (
-                f"{code} was deprecated and is active again"
-            )
-            assert set(old.get("approximate_units", ())) <= set(new.get("approximate_units", ())), (
-                f"{code} dropped an approximate unit"
-            )
-            for unit, factor in old.get("printed_units", {}).items():
-                assert new["printed_units"].get(unit) == factor, f"{code} changed {unit}"
-            assert set(old.get("levels", ())) <= set(new.get("levels", ())), f"{code} lost a level"
+    for version, table in released_tables().items():
+        assert compatibility_problems(table, current) == [], version
+
+
+def test_a_removed_or_changed_code_is_a_compatibility_problem() -> None:
+    data = _table()
+    data["traits"] = data["traits"][1:]
+    removed = _load(data)
+    data = _table()
+    data["traits"][0]["stored_unit"] = "kg"
+    data["traits"][0]["printed_units"] = {"kg": "1"}
+    changed = _load(data)
+    first = data["traits"][0]["code"]
+
+    assert compatibility_problems(mammal_traits(), removed) == [
+        f"{first} was removed, deprecate it instead"
+    ]
+    assert any(
+        "stored unit" in problem for problem in compatibility_problems(mammal_traits(), changed)
+    )
 
 
 def test_the_extractor_closed_set_is_covered() -> None:
