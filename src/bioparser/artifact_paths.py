@@ -109,6 +109,14 @@ def pdf_path(checksum: str) -> str:
     return validate_artifact_path(f"pdf/{validate_path_segment(checksum)}")
 
 
+def pdf_checksum(path: str) -> str:
+    """Return the checksum from an uploaded PDF artifact path."""
+    checksum = path.removeprefix("pdf/")
+    if pdf_path(checksum) != path:
+        raise ArtifactPathError(f"Not an uploaded PDF artifact path: {path!r}")
+    return checksum
+
+
 def parse_result_path(
     checksum: str, backend: str, version: str, configuration: str | None = None
 ) -> str:

@@ -21,7 +21,6 @@ def _queued(**overrides: object) -> JobState:
         "extractor": "default",
         "pdf_ref": PDF_REF,
         "created_at": CREATED_AT,
-        "file_name": "sample.pdf",
     }
     fields.update(overrides)
     return JobState.model_validate(fields)

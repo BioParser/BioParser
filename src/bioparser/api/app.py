@@ -17,7 +17,7 @@ from uuid import UUID
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ValidationError
 
-from bioparser.artifact_paths import pdf_path
+from bioparser.artifact_paths import pdf_checksum, pdf_path
 from bioparser.db import documents as document_queries
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
@@ -102,7 +102,6 @@ from .uploads import (
     read_upload,
     require_file,
     sanitize_display_name,
-    sanitize_file_name,
     validate_content_length,
     validate_content_type,
     validate_pdf_content,
@@ -227,8 +226,9 @@ app.add_middleware(ApiKeyMiddleware)
 add_ui_routes(app)
 
 
-async def _validated_upload(request: Request, file: UploadFile) -> bytes:
+async def _validated_upload(request: Request, file: UploadFile | None) -> bytes:
     validate_content_length(request.headers.get("content-length"))
+    file = require_file(file)
     validate_content_type(file)
     content = await read_upload(file)
     validate_pdf_content(content)
@@ -295,10 +295,9 @@ def _job_state_response(state: JobState) -> JobStatusResponse:
     response_fields: dict[str, Any] = {
         "job_id": state.job_id,
         "created_at": state.created_at,
-        "file_name": state.file_name,
         "parser": state.parser,
         "extractor": state.extractor,
-        "document_checksum": state.pdf_ref.removeprefix("pdf/"),
+        "document_checksum": pdf_checksum(state.pdf_ref),
         "has_parse_result": state.parse_result_ref is not None,
     }
     match state.status:
@@ -419,11 +418,9 @@ async def _stored_artifact(request: Request, job: JobState, ref: str | None, kin
     },
 )
 async def submit_job(request: Request, file: UploadFile | None = None) -> QueuedJobResponse:
-    file = require_file(file)
     pdf_bytes = await _validated_upload(request, file)
     # The same PDF always gets the same id. hashlib releases the GIL, so a thread keeps the
     # hashing of up to max_upload_bytes off the event loop.
-    file_name = sanitize_file_name(file.filename)
     document_id = await asyncio.to_thread(sha256_bytes, pdf_bytes)
     job_id = uuid.uuid4()
     creation_info = CreationInfo(created_by="api-upload")
@@ -452,7 +449,6 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         parser=DEFAULT_PARSER_NAME,
         extractor=DEFAULT_EXTRACTOR_NAME,
         pdf_ref=pdf_ref,
-        file_name=file_name,
         created_at=datetime.now(UTC),
     )
     parse_job_message = ParseJobMessage(
@@ -462,7 +458,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     # pooled connection. A failed enqueue marks that row failed afterwards.
     try:
         async with database.transaction() as connection:
-            await job_queries.create(connection, job_state)
+            job_state = await job_queries.create(connection, job_state)
     except DatabaseError as exc:
         LOGGER.error("job state create failed", extra=fields | error_fields(exc))
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
@@ -492,7 +488,6 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         job_id=job_state.job_id,
         status="queued",
         created_at=job_state.created_at,
-        file_name=job_state.file_name,
         parser=job_state.parser,
         extractor=job_state.extractor,
         document_checksum=document_id,
@@ -716,12 +711,13 @@ async def submit_document_job(
         parser=payload.parser,
         extractor=payload.extractor,
         pdf_ref=pdf_path(valid_checksum),
+        created_at=datetime.now(UTC),
     )
     fields = {"job_id": str(job_id), "document_id": valid_checksum}
 
     try:
         async with database.transaction() as connection:
-            await job_queries.create(connection, job_state)
+            job_state = await job_queries.create(connection, job_state)
     except DatabaseError as exc:
         LOGGER.error("job state create failed", extra=fields | error_fields(exc))
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
@@ -749,7 +745,15 @@ async def submit_document_job(
                 LOGGER.error("queued job remains after the enqueue failed", extra=fields)
         raise http_error(503, QUEUE_UNAVAILABLE) from exc
 
-    return QueuedJobResponse(job_id=job_id, status="queued")
+    return QueuedJobResponse(
+        job_id=job_state.job_id,
+        status="queued",
+        created_at=job_state.created_at,
+        parser=job_state.parser,
+        extractor=job_state.extractor,
+        document_checksum=valid_checksum,
+        has_parse_result=False,
+    )
 
 
 @app.get(
@@ -889,7 +893,6 @@ async def extract(request: Request, file: UploadFile | None = None) -> Extractio
     The same parser, extractor and settings as a job from `POST /api/extractions`. Nothing is
     stored. The response is the extraction artifact that the job stores.
     """
-    file = require_file(file)
     content = await _validated_upload(request, file)
     settings = config.get_api_settings()
     options = PipelineOptions(

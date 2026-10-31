@@ -347,11 +347,12 @@ class StubJobs:
             return None
         return next(iter(self.states.values()))
 
-    async def create(self, connection: object, state: JobState) -> None:
+    async def create(self, connection: object, state: JobState) -> JobState:
         self.events.append("job_state.create")
         if self.create_error is not None:
             raise self.create_error
         self.states[str(state.job_id)] = state
+        return state
 
     async def get(self, connection: object, job_id: object) -> JobState | None:
         if self.get_error is not None:
@@ -498,8 +499,8 @@ def bind_jobs(monkeypatch: Any) -> None:
     async def get(connection: object, job_id: object) -> JobState | None:
         return await tables[-1].get(connection, job_id)
 
-    async def create(connection: object, state: JobState) -> None:
-        await tables[-1].create(connection, state)
+    async def create(connection: object, state: JobState) -> JobState:
+        return await tables[-1].create(connection, state)
 
     async def claim(
         connection: object,

@@ -83,9 +83,6 @@ Submit a PDF.
   `config.MAX_UPLOAD_BYTES` (20 MiB by default — see [`config.py`](#configpy)).
 - Submitting the same file twice creates two separate jobs. The PDF artifact is
   content-addressed by SHA-256 and reused by both jobs.
-- The uploaded filename is stored only as display metadata and is never used to
-  construct a path. Non-printable characters are removed and the value is limited
-  to 255 characters. If the upload has no filename, `file_name` is `null`.
 
 The checks run in a fixed order: `Content-Length` header format and size →
 `file` part present → content type → body size while streaming → non-empty body →
@@ -98,7 +95,6 @@ The checks run in a fixed order: `Content-Length` header format and size →
   "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
   "status": "queued",
   "created_at": "2026-10-30T10:15:30Z",
-  "file_name": "sample.pdf",
   "parser": "default",
   "extractor": "default",
   "document_checksum": "18c1d82f9a9c9be88b6ee58f7486e5672f73a4e885f163001c2a66a0f983bc1a",
@@ -320,7 +316,6 @@ Poll a job.
   "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
   "status": "queued",
   "created_at": "2026-10-30T10:15:30Z",
-  "file_name": "sample.pdf",
   "parser": "default",
   "extractor": "default",
   "document_checksum": "18c1d82f9a9c9be88b6ee58f7486e5672f73a4e885f163001c2a66a0f983bc1a",
@@ -330,8 +325,8 @@ Poll a job.
 
 - `status` is one of `"queued"`, `"parsing"`, `"parsed"`, `"extracting"`,
   `"done"`, or `"failed"`. Failed responses include a safe error code.
-- `created_at`, `file_name`, `parser`, `extractor`, and `document_checksum` are
-  returned for every status. `file_name` is `null` when the upload had no filename.
+- `created_at`, `parser`, `extractor`, and `document_checksum` are returned for
+  every status.
 - `has_parse_result` is `true` once the parser artifact has been recorded. It may
   remain `true` when extraction later fails.
 - The response holds no storage paths. When a job is `done`, #179 adds its ETS response

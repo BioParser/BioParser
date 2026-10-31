@@ -61,7 +61,6 @@ class Job(Base):
     parser: Mapped[str] = mapped_column(Text)
     extractor: Mapped[str] = mapped_column(Text)
     pdf_ref: Mapped[str] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
-    file_name: Mapped[str | None] = mapped_column(String(JOB_FILE_NAME_MAX_LENGTH), nullable=True)
     parse_result_ref: Mapped[str | None] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
     extract_result_ref: Mapped[str | None] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
     error_code: Mapped[str | None] = mapped_column(Text)
@@ -81,17 +80,22 @@ _COLUMNS = tuple(JobState.model_fields)
 
 
 def _job_state_to_columns(state: JobState) -> dict[str, object]:
-    """Column values for one job. The database sets created_at and updated_at."""
-    return {name: getattr(state, name) for name in _COLUMNS}
+    """Column values for one new job. The database sets created_at and updated_at."""
+    return {name: getattr(state, name) for name in _COLUMNS if name != "created_at"}
 
 
 def _row_to_job_state(row: Mapping[str, object]) -> JobState:
     return JobState.model_validate({name: row[name] for name in _COLUMNS})
 
 
-async def create(connection: AsyncConnection, state: JobState) -> None:
-    """Insert one job."""
-    await connection.execute(insert(Job).values(**_job_state_to_columns(state)))
+async def create(connection: AsyncConnection, state: JobState) -> JobState:
+    """Insert one job and return it with the database creation time."""
+    created_at = (
+        await connection.execute(
+            insert(Job).values(**_job_state_to_columns(state)).returning(Job.created_at)
+        )
+    ).scalar_one()
+    return state.with_changes(created_at=created_at)
 
 
 async def get(connection: AsyncConnection, job_id: UUID) -> JobState | None:

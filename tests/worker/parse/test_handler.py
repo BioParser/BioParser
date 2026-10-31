@@ -113,7 +113,6 @@ def _queued() -> JobState:
         extractor="default",
         pdf_ref=PDF_REF,
         created_at=CREATED_AT,
-        file_name="sample.pdf",
     )
 
 

@@ -1,6 +1,5 @@
 from .state import (
     ALLOWED_TRANSITIONS,
-    JOB_FILE_NAME_MAX_LENGTH,
     JOB_STATE_SCHEMA_VERSION,
     CorruptJobStateError,
     JobNotFoundError,
@@ -13,7 +12,6 @@ from .state import (
 
 __all__ = [
     "ALLOWED_TRANSITIONS",
-    "JOB_FILE_NAME_MAX_LENGTH",
     "JOB_STATE_SCHEMA_VERSION",
     "CorruptJobStateError",
     "JobNotFoundError",

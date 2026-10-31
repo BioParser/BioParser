@@ -127,7 +127,6 @@ def _parsed() -> JobState:
         pdf_ref="pdf/abc",
         parse_result_ref=PARSE_REF,
         created_at=CREATED_AT,
-        file_name="sample.pdf",
     )
 
 
@@ -468,7 +467,6 @@ def test_a_job_still_parsing_is_left_alone() -> None:
         extractor="default",
         pdf_ref="pdf/abc",
         created_at=CREATED_AT,
-        file_name="sample.pdf",
     )
     jobs = StubJobs(state)
     called = False

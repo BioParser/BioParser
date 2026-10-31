@@ -288,6 +288,11 @@ def test_submit_document_job_success(
     assert res.status_code == 202
     data = res.json()
     assert data["status"] == "queued"
+    assert datetime.fromisoformat(data["created_at"]).tzinfo is not None
+    assert data["parser"] == "mineru"
+    assert data["extractor"] == "default"
+    assert data["document_checksum"] == MINIMAL_PDF_HASH
+    assert data["has_parse_result"] is False
     job_id = UUID(data["job_id"])
 
     # Job record created in store
@@ -390,8 +395,12 @@ def test_list_document_jobs(
 
     res1 = client.get(f"/api/documents/{MINIMAL_PDF_HASH}/jobs")
     assert res1.status_code == 200
-    job_ids_1 = {j["job_id"] for j in res1.json()}
+    document_jobs = res1.json()
+    job_ids_1 = {j["job_id"] for j in document_jobs}
     assert job_ids_1 == {j1["job_id"], j2["job_id"]}
+    assert all(j["document_checksum"] == MINIMAL_PDF_HASH for j in document_jobs)
+    assert all(j["has_parse_result"] is False for j in document_jobs)
+    assert all(datetime.fromisoformat(j["created_at"]).tzinfo is not None for j in document_jobs)
 
     res2 = client.get(f"/api/documents/{SECOND_PDF_HASH}/jobs")
     assert res2.status_code == 200
@@ -441,6 +450,12 @@ def test_list_jobs_and_filtering(
     assert all_res.status_code == 200
     all_jobs = all_res.json()
     assert len(all_jobs) == 3
+    jobs_by_id = {job["job_id"]: job for job in all_jobs}
+    assert jobs_by_id[j1_id]["has_parse_result"] is False
+    assert jobs_by_id[j2_id]["has_parse_result"] is True
+    assert jobs_by_id[j3_id]["has_parse_result"] is False
+    assert all(job["document_checksum"] == MINIMAL_PDF_HASH for job in all_jobs)
+    assert all(datetime.fromisoformat(job["created_at"]).tzinfo is not None for job in all_jobs)
 
     # 2. Filter by status=queued
     queued_res = client.get("/api/jobs?status=queued")

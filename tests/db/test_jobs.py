@@ -71,15 +71,14 @@ def _queued(job_id: uuid.UUID, **overrides: object) -> JobState:
         "extractor": "default",
         "pdf_ref": str(uuid.uuid4()),
         "created_at": CREATED_AT,
-        "file_name": "sample.pdf",
     }
     fields.update(overrides)
     return JobState.model_validate(fields)
 
 
-async def _create(state: JobState) -> None:
+async def _create(state: JobState) -> JobState:
     async with db_engine.transaction() as connection:
-        await job_queries.create(connection, state)
+        return await job_queries.create(connection, state)
 
 
 async def _get(job_id: uuid.UUID) -> JobState | None:
@@ -136,9 +135,10 @@ async def database() -> AsyncIterator[str]:
 @pytest.mark.anyio
 async def test_create_then_get_round_trips(database: str) -> None:
     state = _queued(uuid.uuid4())
-    await _create(state)
+    created = await _create(state)
 
-    assert await _get(state.job_id) == state
+    assert created.created_at != state.created_at
+    assert await _get(state.job_id) == created
 
 
 @pytest.mark.integration
@@ -356,9 +356,8 @@ async def test_a_write_does_not_require_a_valid_job_state(database: str) -> None
     with engine.begin() as connection:
         connection.execute(
             text(
-                "INSERT INTO jobs "
-                "(job_id, schema_version, status, parser, extractor, pdf_ref, file_name) "
-                "VALUES (:job_id, 2, 'queued', 'default', 'default', :pdf_ref, 'sample.pdf')"
+                "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
+                "VALUES (:job_id, 2, 'queued', 'default', 'default', :pdf_ref)"
             ),
             {"job_id": job_id, "pdf_ref": str(uuid.uuid4())},
         )
@@ -433,9 +432,8 @@ async def test_corrupt_stored_state_raises(database: str) -> None:
     with engine.begin() as connection:
         connection.execute(
             text(
-                "INSERT INTO jobs "
-                "(job_id, schema_version, status, parser, extractor, pdf_ref, file_name) "
-                "VALUES (:job_id, 2, 'queued', 'default', 'default', :pdf_ref, 'sample.pdf')"
+                "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
+                "VALUES (:job_id, 2, 'queued', 'default', 'default', :pdf_ref)"
             ),
             {"job_id": job_id, "pdf_ref": str(uuid.uuid4())},
         )
@@ -561,9 +559,8 @@ def test_job_columns_match_the_job_state_fields() -> None:
 async def test_migrated_status_check_accepts_exactly_the_job_statuses(database: str) -> None:
     """The migration lists the statuses by hand. This fails when the code adds one."""
     insert = text(
-        "INSERT INTO jobs "
-        "(job_id, schema_version, status, parser, extractor, pdf_ref, file_name) "
-        "VALUES (:job_id, 1, :status, 'default', 'default', 'ref', 'sample.pdf')"
+        "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
+        "VALUES (:job_id, 1, :status, 'default', 'default', 'ref')"
     )
     engine = create_engine(sync_database_url(database))
     try:

@@ -168,7 +168,6 @@ async def test_redis_backed_submission_and_polling(
         response_fields = {
             "job_id": job_id,
             "created_at": submission["created_at"],
-            "file_name": "sample.pdf",
             "parser": DEFAULT_PARSER_NAME,
             "extractor": DEFAULT_EXTRACTOR_NAME,
             "document_checksum": document_checksum,
@@ -187,7 +186,6 @@ async def test_redis_backed_submission_and_polling(
             extractor=DEFAULT_EXTRACTOR_NAME,
             pdf_ref=expected_pdf_ref,
             created_at=created_at,
-            file_name="sample.pdf",
         )
         assert await artifact_storage.retrieve(queued.pdf_ref) == MINIMAL_PDF
 
