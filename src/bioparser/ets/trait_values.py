@@ -7,7 +7,7 @@ from typing import Literal
 
 from bioparser.ets.notices import Approximate, DeprecatedTrait, Notice, UnitNotExpected
 from bioparser.ets.numbers import canonical_decimal, parse_count
-from bioparser.ets.traits import CategoricalTrait, NumericTrait, mammal_traits
+from bioparser.traits.table import CategoricalTrait, NumericTrait, mammal_traits
 
 TraitProblem = Literal[
     "trait_unknown",

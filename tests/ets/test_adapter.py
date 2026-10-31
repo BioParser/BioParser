@@ -9,7 +9,6 @@ from bioparser.ets.assess import Dropped, Kept, assess
 from bioparser.ets.dates import parse_date
 from bioparser.ets.models import EtsRow
 from bioparser.ets.notices import NotNumeric
-from bioparser.ets.traits import load_table, mammal_traits
 from bioparser.extract.models import (
     Citation,
     Correction,
@@ -18,6 +17,7 @@ from bioparser.extract.models import (
     Observation,
     TextRange,
 )
+from bioparser.traits.table import load_table, mammal_traits
 
 _DOCUMENT_ID = "abc123"
 
