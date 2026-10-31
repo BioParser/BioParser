@@ -1846,6 +1846,7 @@ export interface operations {
             query?: {
                 detail?: "ets" | "full";
                 domain?: string[] | null;
+                code?: string[] | null;
                 include_deprecated?: boolean;
             };
             header?: never;

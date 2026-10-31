@@ -29,3 +29,26 @@ def test_an_unknown_domain_is_rejected(client: TestClient) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "unknown_trait_query"
+
+
+def test_a_named_code_is_returned_and_an_unknown_code_is_rejected(client: TestClient) -> None:
+    response = client.get("/api/traits", params={"code": "body_mass"})
+
+    assert response.status_code == 200
+    assert [row["trait"] for row in response.json()["traits"]] == ["Body mass"]
+
+    missing = client.get("/api/traits", params={"code": "wing_length"})
+
+    assert missing.status_code == 400
+    assert missing.json()["detail"]["code"] == "unknown_trait_query"
+
+
+def test_a_code_adds_to_a_domain_filter(client: TestClient) -> None:
+    response = client.get(
+        "/api/traits", params={"domain": "acoustics", "code": ["body_mass", "tail_length"]}
+    )
+
+    assert response.status_code == 200
+    names = {row["trait"] for row in response.json()["traits"]}
+    assert {"Body mass", "Tail length", "Call peak frequency"} <= names
+    assert "Litter size" not in names
