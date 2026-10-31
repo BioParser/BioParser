@@ -21,15 +21,14 @@ The artifact uses its own camelCase names. The adapter maps them to ETS column n
 | `measurementValueMin` | `measurementValue_min` |
 | `measurementValueMax` | `measurementValue_max` |
 
-`trait` is not an ETS column. The adapter uses it to look up `traitName`, `traitID`, and the standard unit.
+`traitCode` is not an ETS column. The adapter uses it to look up `traitName`, `traitID`, and the standard unit.
 
 ## Sources
 
-The adapter needs three sources. Two are not chosen yet.
+The adapter needs two sources. One is not chosen yet.
 
 - **Taxonomy backbone** for `scientificName` and `taxonID`. The source is chosen later.
-- **Trait thesaurus** for `traitName`, `traitID`, and the standard unit. ETS does not define the trait list, so the thesaurus is chosen later. The artifact does not check `trait` against a list. The adapter checks it against the thesaurus.
-- **Unit table**, owned by the adapter. It checks that the printed unit belongs to the trait. It converts mass to grams and length to millimetres.
+- **Trait thesaurus** for `traitName`, `traitID`, the stored unit, and the allowed levels. ETS does not define the trait list, so the mammal trait list is the thesaurus. See [Trait thesaurus](#trait-thesaurus).
 
 An extractor may store `traitValue` and `traitUnit` when the printed token is not itself the value, such as `kg` for a printed `kilograms`. Both are what the paper printed. The adapter converts that pair. The unit check is not written into the artifact.
 
@@ -49,11 +48,11 @@ The adapter resolves the value and the unit each on its own, then converts once.
 
 1. The value is `traitValue` when stored, otherwise the parsed `verbatimTraitValue`. A stored value is a cleaned reading of the printed number, in the printed unit.
 2. The unit is `traitUnit` when stored, otherwise the printed `verbatimTraitUnit`. A stored unit is a cleaned reading of the printed unit, such as `kg` for `kilograms`.
-3. The pair is converted with the unit table to grams for mass or millimetres for length. This changes nothing when the unit is already `g` or `mm`.
+3. The pair is converted with the trait's entry in the thesaurus to the trait's stored unit. This changes nothing when the printed unit is already the stored unit.
 
 The adapter is what converts. An extractor does not store a converted pair, such as `12500` and `g` for a printed `12.5 kg`.
 
-A trait outside the unit table drops the row with `trait_unknown`. Until a thesaurus exists, that table is `body_mass`, `body_length`, and `tail_length`. An unknown unit drops the row with `unit_unknown`, and a unit that is not valid for the trait drops it with `unit_not_for_trait`. A value that is not a positive decimal drops the row with `value_not_numeric`.
+A trait that is not on the list drops the row with `trait_unknown`. For a numeric trait, an unknown unit drops the row with `unit_unknown`, and a unit that is not valid for that trait drops it with `unit_not_for_trait`. A value that is not a positive decimal drops the row with `value_not_numeric`. A count is a positive whole number and is not converted. A count the paper prints as a mean or a median, such as a litter size of 3.5, may be a decimal. The observation says so with `centralKind` or `aggregateMeasure`. A categorical trait must match one of its levels, ignoring case, or the row drops with `level_unknown`. The printed unit of a count or a categorical trait is not checked, because papers print `unitless`, `-`, or `NA` there. It stays in `verbatimTraitUnit`, and `traitUnit` is the count's own unit, such as `young` or `teats`, and empty for a categorical trait. A measurement unit that is not that unit warns `unit_not_expected`. The count's own unit does not. A categorical row still gets the ETS defaults of `1` for `individualCount` and `0` for `dispersion`. For a categorical trait the `0` carries no meaning, because there is no mean to disperse. A stored dispersion, minimum, maximum, central choice, or dispersion choice on a categorical observation is warned about and not published, so `dispersion` is `0`, the minimum and the maximum are empty, and `statisticalMethod` is empty.
 
 ### Range and dispersion
 
@@ -90,16 +89,48 @@ The minimum, the maximum, and the dispersion share the trait's unit. ETS gives t
 - `references` comes from the job's document.
 - `warnings` collects what the adapter found while building the row.
 - `occurrenceID` is copied when the observation stored one.
-- `traitName` and `traitID` stay empty until the thesaurus exists.
+- `traitName` and `traitID` come from the thesaurus entry for the artifact's `traitCode`.
 
 ## Warnings and drops
 
 A warning means the row was built with something missing or doubtful. A drop means no row was built.
 
-A dropped observation must not disappear silently. The adapter returns, with the rows, a list of drops. Each has the source index of the observation in the artifact and a reason: `trait_unknown`, `unit_unknown`, `unit_not_for_trait`, `value_not_numeric`, or `bounds_reversed`. It also keeps each row's source index, so a row can be traced back to its observation. The index is not derived from `measurementID`, which counts only kept rows.
+Trait warnings:
+
+- `not_applicable:dispersion`, `not_applicable:measurementValue_min`, `not_applicable:measurementValue_max`, `not_applicable:centralKind`, and `not_applicable:dispersionKind`: a categorical observation stores a spread, a range, or a mean. A level has none of these, so the trait may be wrong.
+- `unit_not_expected:traitUnit`: a count or a categorical trait was printed with a real unit such as `g` or `mm`. The trait may be wrong.
+- `deprecated_trait:traitName`: the code is deprecated. It still converts.
+- `approximate:traitValue`: the value used a conventional factor, a month or a year.
+
+A dropped observation must not disappear silently. The adapter returns, with the rows, a list of drops. Each has the source index of the observation in the artifact and a reason: `trait_unknown`, `unit_unknown`, `unit_not_for_trait`, `value_not_numeric`, `level_unknown`, or `bounds_reversed`. The result also names the `trait_list_version` that was used. It also keeps each row's source index, so a row can be traced back to its observation. The index is not derived from `measurementID`, which counts only kept rows.
+
+## Trait thesaurus
+
+The thesaurus is [`mammal_traits.json`](../src/bioparser/traits/mammal_traits.json). The models that validate it are in [`table.py`](../src/bioparser/traits/table.py), in the `bioparser.traits` package so the extractor and the API can read it without importing the adapter. `json_schema()` exports its JSON Schema. The list is a starting point for the mammal extractor. It is derived from PanTHERIA, COMBINE, and the traits most often reported in client papers.
+
+Each entry has:
+
+- a `code`, the internal key the model emits and an artifact stores. It is not an ETS column.
+- a preferred `name`, which is `traitName`.
+- a `trait_id`, which is `traitID`. It is a Vertebrate Trait Ontology term when one matches the definition, such as `VT:0001259` for body mass. Otherwise it is an opaque `BPT:` identifier published with this list. The prefix-to-IRI mapping is in the file. A `BPT:` identifier has no IRI yet, so it does not resolve to a web page.
+- a one-sentence `definition` that says which measurement the code means. Head-body length and total length are separate codes, even though both are stored in millimetres.
+- a `domain`: morphology, reproduction, life_history, life_habit, population, physiology, or acoustics. A domain is a label for selecting a subset. The adapter ignores it.
+- a value `kind`:
+  - **numeric**: the printed units it accepts, each with its factor into the stored unit. Mass is stored in grams, length in millimetres, and age in days. A month is 30.4375 days and a year is 365.25 days, so those conversions are approximate.
+  - **count**: a number of things. The entry names what is counted, such as young or teats. It is not converted.
+  - **categorical**: a closed set of levels and no unit.
+
+Rules that keep stored results valid:
+
+- A code keeps its meaning. A change to the measurement or the stored unit is a new code with a new identifier.
+- A retired code is marked `deprecated`, with an optional `replaced_by`. It still converts. Only a code that is absent from the list is `trait_unknown`.
+- A name or an identifier may change. An artifact stores only the code, so the next run uses the new value.
+- The list has a `version` in the form `YYYY.MM.REVISION`: the year and month of the release, then a revision that starts at 0 and counts further releases in that month. Every change to the file, including a new trait or a deprecation, bumps it. The adapter result reports it.
+- Tests enforce this. `src/bioparser/traits/releases/` holds a frozen copy of every released version. After an edit, bump `version` and run `uv run python -m bioparser.traits.release`. The tests fail if the list changes without a new release. They also fail if a code is removed or changes kind, stored unit or a printed unit factor, loses a level or an approximate unit, or becomes active again after a deprecation.
+
+The model is not asked to emit a `traitID`. The extractor keeps its closed set of trait codes.
 
 ## Open decisions
 
 - Which of `verbatimScientificName` and `scientificName` the taxonomy lookup tries first.
 - The taxonomy source.
-- The trait thesaurus.

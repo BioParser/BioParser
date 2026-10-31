@@ -24,7 +24,7 @@ def _cite(text: str, start: int | None = None, end: int | None = None) -> Citati
 
 def _observation(**changes: object) -> Observation:
     observation = Observation(
-        trait=_trait(),
+        traitCode=_trait(),
         verbatimScientificName=_cite("Mus musculus"),
         verbatimTraitValue=_cite("12.5", 0, 4),
         verbatimTraitUnit=_cite("g", 5, 6),
@@ -49,7 +49,7 @@ def test_empty_text_is_rejected() -> None:
 
 def test_a_mismatched_unit_is_stored_as_printed() -> None:
     observation = Observation(
-        trait=_trait("body_length"),
+        traitCode=_trait("body_length"),
         verbatimScientificName=_cite("Mus musculus"),
         verbatimTraitValue=_cite("12.5"),
         verbatimTraitUnit=_cite("g"),
@@ -61,9 +61,9 @@ def test_a_mismatched_unit_is_stored_as_printed() -> None:
 
 
 def test_the_trait_is_any_non_empty_string() -> None:
-    observation = _observation(trait=_trait("wing_length"))
+    observation = _observation(traitCode=_trait("wing_length"))
 
-    assert observation.trait.value == "wing_length"
+    assert observation.traitCode.value == "wing_length"
 
 
 def test_a_citation_without_a_range_is_rejected() -> None:
@@ -76,7 +76,7 @@ def test_a_citation_without_a_range_is_rejected() -> None:
 
 def test_the_stored_artifact_has_no_observation_cap() -> None:
     observation = Observation(
-        trait=_trait(),
+        traitCode=_trait(),
         verbatimScientificName=_cite("Mus musculus"),
         verbatimTraitValue=_cite("12.5"),
         verbatimTraitUnit=_cite("g"),
@@ -93,7 +93,7 @@ def test_the_stored_artifact_has_no_observation_cap() -> None:
 def test_the_model_payload_keeps_its_observation_cap() -> None:
     observation = ModelObservation(
         taxon="Mus musculus",
-        trait="body_mass",
+        trait_code="body_mass",
         value=12.5,
         unit="g",
         evidence_block_id="b0",
@@ -143,7 +143,7 @@ def test_basis_and_aggregate_are_interpretations_only() -> None:
     with pytest.raises(ValidationError):
         Observation.model_validate(
             {
-                "trait": {
+                "traitCode": {
                     "kind": "interpretation",
                     "value": "body_mass",
                     "passage": {"text": "weighed"},
@@ -157,7 +157,7 @@ def test_basis_and_aggregate_are_interpretations_only() -> None:
     with pytest.raises(ValidationError):
         Observation.model_validate(
             {
-                "trait": {
+                "traitCode": {
                     "kind": "interpretation",
                     "value": "body_mass",
                     "passage": {"text": "weighed"},
@@ -184,7 +184,7 @@ def test_a_statistic_kind_is_an_interpretation() -> None:
     with pytest.raises(ValidationError):
         Observation.model_validate(
             {
-                "trait": {
+                "traitCode": {
                     "kind": "interpretation",
                     "value": "body_mass",
                     "passage": {"text": "weighed"},
@@ -201,7 +201,7 @@ def test_a_verbatim_field_rejects_a_choice() -> None:
     with pytest.raises(ValidationError):
         Observation.model_validate(
             {
-                "trait": {
+                "traitCode": {
                     "kind": "interpretation",
                     "value": "body_mass",
                     "passage": {"text": "weighed"},
@@ -251,7 +251,7 @@ def test_a_paired_value_requires_its_verbatim_citation() -> None:
     with pytest.raises(ValidationError):
         Observation.model_validate(
             {
-                "trait": {
+                "traitCode": {
                     "kind": "interpretation",
                     "value": "body_mass",
                     "passage": {"text": "weighed"},
@@ -271,7 +271,7 @@ def test_a_paired_field_rejects_a_second_citation() -> None:
     with pytest.raises(ValidationError):
         Observation.model_validate(
             {
-                "trait": {
+                "traitCode": {
                     "kind": "interpretation",
                     "value": "body_mass",
                     "passage": {"text": "weighed"},
@@ -288,7 +288,7 @@ def test_a_paired_field_rejects_a_correction() -> None:
     with pytest.raises(ValidationError):
         Observation.model_validate(
             {
-                "trait": {
+                "traitCode": {
                     "kind": "interpretation",
                     "value": "body_mass",
                     "passage": {"text": "weighed"},
@@ -329,7 +329,7 @@ def test_a_paper_can_state_where_and_when_the_organism_was_recorded() -> None:
     with pytest.raises(ValidationError):
         Observation.model_validate(
             {
-                "trait": {
+                "traitCode": {
                     "kind": "interpretation",
                     "value": "body_mass",
                     "passage": {"text": "weighed"},
@@ -346,7 +346,7 @@ def test_a_trait_unit_must_be_an_interpretation() -> None:
     with pytest.raises(ValidationError):
         Observation.model_validate(
             {
-                "trait": {
+                "traitCode": {
                     "kind": "interpretation",
                     "value": "body_mass",
                     "passage": {"text": "weighed"},

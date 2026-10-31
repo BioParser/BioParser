@@ -67,7 +67,7 @@ def _stub() -> StubVLLMService:
         observations=[
             {
                 "taxon": "Mus musculus",
-                "trait": "body_mass",
+                "trait_code": "body_mass",
                 "value": 12.5,
                 "unit": "kg",
                 "evidence_block_id": "b0",
@@ -290,7 +290,7 @@ def test_an_unlocated_observation_is_not_stored() -> None:
         observations=[
             {
                 "taxon": "Mus musculus",
-                "trait": "body_mass",
+                "trait_code": "body_mass",
                 "value": 12.5,
                 "unit": "kg",
                 "evidence_block_id": "b0",
@@ -600,7 +600,7 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
         seen.append(content.text)
         observation = ModelObservation(
             taxon="Mus musculus",
-            trait="body_mass",
+            trait_code="body_mass",
             value=12.5,
             unit="kg",
             evidence_block_id="b0",
@@ -674,7 +674,7 @@ def _range(start: int, end: int, text: str) -> Citation:
 
 def _observation_with_range(start: int, end: int, text: str) -> Observation:
     return Observation(
-        trait=Interpretation(value="body_mass", passage=_range(0, len(QUOTE), QUOTE)),
+        traitCode=Interpretation(value="body_mass", passage=_range(0, len(QUOTE), QUOTE)),
         verbatimScientificName=_range(0, 12, "Mus musculus"),
         verbatimTraitValue=_range(start, end, text),
         verbatimTraitUnit=_range(QUOTE.index("kg"), QUOTE.index("kg") + 2, "kg"),

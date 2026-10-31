@@ -126,7 +126,7 @@ STUB_TEXT = "Adult body mass averaged 12.5 g in the sampled population."
 LOCATABLE_TEXT = "Mus musculus: adult body mass 12.5 g."
 LOCATABLE_OBSERVATION: dict[str, Any] = {
     "taxon": "Mus musculus",
-    "trait": "body_mass",
+    "trait_code": "body_mass",
     "value": 12.5,
     "unit": "g",
     "evidence_block_id": "stub-p1-b0000",
@@ -208,7 +208,7 @@ class StubVLLMService:
                 "observations": [
                     {
                         "taxon": "Mus musculus",  # kotihiiri
-                        "trait": "body_mass",
+                        "trait_code": "body_mass",
                         "value": 12.5,
                         "unit": "g",
                         "evidence_block_id": ident,

@@ -11,6 +11,7 @@ from bioparser.ets.notices import (
     DateField,
     NotACalendarDay,
     NotADate,
+    NotApplicable,
     Notice,
     NotInVocabulary,
     NotNumeric,
@@ -19,8 +20,15 @@ from bioparser.ets.notices import (
 )
 from bioparser.ets.numbers import parse_count, parse_decimal, parse_integer, parse_signed_decimal
 from bioparser.ets.statistics import read_statistics
-from bioparser.ets.units import CanonicalTraitValue, TargetUnit, convert_trait_value_to_canonical
-from bioparser.ets.vocab import BasisOfRecord, Sex, match_aggregate, match_basis, match_sex
+from bioparser.ets.trait_values import ResolvedTraitValue, resolve_trait_value
+from bioparser.ets.vocab import (
+    BasisOfRecord,
+    Sex,
+    match_aggregate,
+    match_basis,
+    match_central,
+    match_sex,
+)
 from bioparser.extract.models import (
     CitationOrCorrection,
     CitationOrInterpretation,
@@ -30,11 +38,19 @@ from bioparser.extract.models import (
     stored_text,
 )
 
+NotApplicableField = Literal[
+    "dispersion",
+    "measurementValue_min",
+    "measurementValue_max",
+    "centralKind",
+    "dispersionKind",
+]
 DropReason = Literal[
     "trait_unknown",
     "unit_not_for_trait",
     "unit_unknown",
     "value_not_numeric",
+    "level_unknown",
     "bounds_reversed",
 ]
 # Free-text columns. The value is the ETS name. taxonClass is written as class.
@@ -100,8 +116,10 @@ class _Fields(BaseModel):
 class Kept(_Fields):
     """The observation can become a row. The converted value is present."""
 
+    trait_name: str
+    trait_id: str
     trait_value: str
-    trait_unit: TargetUnit
+    trait_unit: str | None
 
 
 class Dropped(_Fields):
@@ -133,14 +151,22 @@ def assess(observation: Observation) -> Assessment:
     # Numbers. ETS defaults a missing count to 1 and a missing dispersion to 0.
     age = _parse_decimal(observation.age, "age", warnings, signed=True)
     individual_count = _parse_individual_count(observation.individualCount, warnings)
-    parsed = _parse_trait_value(observation)
+    parsed = _parse_trait_value(
+        observation, aggregate=_is_aggregate(observation, aggregate_measure)
+    )
+    categorical = isinstance(parsed, ResolvedTraitValue) and parsed.kind == "categorical"
+    if isinstance(parsed, ResolvedTraitValue):
+        warnings.extend(parsed.warnings)
+        if categorical:
+            warnings.extend(_numbers_that_do_not_apply(observation))
     statistics = read_statistics(
         observation,
-        trait_factor=parsed.factor if isinstance(parsed, CanonicalTraitValue) else None,
+        trait_factor=parsed.factor if isinstance(parsed, ResolvedTraitValue) else None,
         stored_phrase=cited["statisticalMethod"],
         warnings=warnings,
     )
-    cited["statisticalMethod"] = statistics.phrase
+    # A level has no mean and no spread, so a phrase built from those choices is not published.
+    cited["statisticalMethod"] = None if categorical else statistics.phrase
 
     # A calendar day is written as YYYY-MM-DD. Year, month, and day stay separate.
     year = _parse_integer(observation.year, "year", warnings, low=1000, high=9999)
@@ -167,6 +193,10 @@ def assess(observation: Observation) -> Assessment:
     elevation = _parse_decimal(observation.elevation, "elevation", warnings, signed=True)
     country_code = _parse_country_code(observation.countryCode, warnings)
 
+    # A level has no spread and no range. They were warned about above and are not published.
+    dispersion = 0.0 if categorical else statistics.dispersion
+    value_min = None if categorical else statistics.measurement_value_min
+    value_max = None if categorical else statistics.measurement_value_max
     shared = _Fields(
         warnings=tuple(warnings),
         scientific_name=scientific_name,
@@ -175,9 +205,9 @@ def assess(observation: Observation) -> Assessment:
         aggregate_measure=aggregate_measure,
         basis_of_record=basis_of_record,
         individual_count=individual_count,
-        dispersion=statistics.dispersion,
-        measurement_value_min=statistics.measurement_value_min,
-        measurement_value_max=statistics.measurement_value_max,
+        dispersion=dispersion,
+        measurement_value_min=value_min,
+        measurement_value_max=value_max,
         year=year,
         month=month,
         day=day,
@@ -189,11 +219,13 @@ def assess(observation: Observation) -> Assessment:
         country_code=country_code,
         cited=cited,
     )
-    if not isinstance(parsed, CanonicalTraitValue):
+    if not isinstance(parsed, ResolvedTraitValue):
         return Dropped(drop=parsed, **shared.model_dump())
-    if _bounds_reversed(statistics.measurement_value_min, statistics.measurement_value_max):
+    if _bounds_reversed(value_min, value_max):
         return Dropped(drop="bounds_reversed", **shared.model_dump())
     return Kept(
+        trait_name=parsed.trait_name,
+        trait_id=parsed.trait_id,
         trait_value=parsed.value,
         trait_unit=parsed.unit,
         **shared.model_dump(),
@@ -204,19 +236,40 @@ def _bounds_reversed(lower: float | None, upper: float | None) -> bool:
     return lower is not None and upper is not None and lower > upper
 
 
-def _parse_trait_value(observation: Observation) -> CanonicalTraitValue | DropReason:
+def _is_aggregate(observation: Observation, aggregate_measure: bool | None) -> bool:
+    """True when the paper prints a mean or a median, so a count may be a decimal."""
+    central = observation.centralKind
+    return aggregate_measure is True or (
+        central is not None and match_central(central.value) is not None
+    )
+
+
+def _numbers_that_do_not_apply(observation: Observation) -> list[Notice]:
+    """A level has no spread and no range, so a stored dispersion or bound means a wrong trait."""
+    stored: list[tuple[CitationOrInterpretation | None, NotApplicableField]] = [
+        (observation.dispersion, "dispersion"),
+        (observation.measurementValueMin, "measurementValue_min"),
+        (observation.measurementValueMax, "measurementValue_max"),
+        (observation.centralKind, "centralKind"),
+        (observation.dispersionKind, "dispersionKind"),
+    ]
+    return [NotApplicable(field=field) for value, field in stored if value is not None]
+
+
+def _parse_trait_value(
+    observation: Observation, *, aggregate: bool
+) -> ResolvedTraitValue | DropReason:
     value = (
         observation.traitValue.value
         if observation.traitValue is not None
         else observation.verbatimTraitValue.text
     )
-    # A stored unit is the printed unit, cleaned up. It is not a unit the value was converted into.
     unit = (
         observation.traitUnit.value
         if observation.traitUnit is not None
         else observation.verbatimTraitUnit.text
     )
-    return convert_trait_value_to_canonical(observation.trait.value, value, unit)
+    return resolve_trait_value(observation.traitCode.value, value, unit, aggregate=aggregate)
 
 
 def _cited(value: CitationOrCorrection | None) -> str | None:

@@ -18,7 +18,7 @@ from bioparser.ets.notices import (
     Unspecified,
 )
 from bioparser.ets.numbers import parse_decimal, parse_signed_decimal
-from bioparser.ets.units import scale_measure
+from bioparser.ets.trait_values import scale_measure
 from bioparser.ets.vocab import CentralKind, DispersionKind, match_central, match_dispersion_kind
 from bioparser.extract.models import (
     CitationOrInterpretation,

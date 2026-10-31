@@ -61,7 +61,7 @@ def _range(text: str, block_id: str, start: int) -> Citation:
 
 def _observation(**changes: object) -> Observation:
     observation = Observation(
-        trait=Interpretation(value="body_mass", passage=_range(BASE, "b0", 0)),
+        traitCode=Interpretation(value="body_mass", passage=_range(BASE, "b0", 0)),
         verbatimScientificName=_range("Mus musculus", "b0", 0),
         verbatimTraitValue=_range("12.5", "b0", 13),
         verbatimTraitUnit=_range("g", "b0", 18),
