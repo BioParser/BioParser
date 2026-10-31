@@ -1916,10 +1916,10 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/EtsTraitlist"
+                      "$ref": "#/components/schemas/TraitListEts"
                     },
                     {
-                      "$ref": "#/components/schemas/TraitTable"
+                      "$ref": "#/components/schemas/TraitListFull"
                     }
                   ],
                   "title": "Response Trait List Api Traits Get"
@@ -2539,28 +2539,6 @@
           "detail"
         ],
         "title": "ErrorResponse"
-      },
-      "EtsTraitlist": {
-        "properties": {
-          "version": {
-            "type": "string",
-            "title": "Version"
-          },
-          "traits": {
-            "items": {
-              "$ref": "#/components/schemas/TraitlistRow"
-            },
-            "type": "array",
-            "title": "Traits"
-          }
-        },
-        "type": "object",
-        "required": [
-          "version",
-          "traits"
-        ],
-        "title": "EtsTraitlist",
-        "description": "The trait list as ETS Traitlist rows, plus the list version."
       },
       "ExtractionArtifact": {
         "properties": {
@@ -4326,7 +4304,29 @@
         "title": "TextSpan",
         "description": "Word box mapped onto `TextContent.text` as a half-open character range."
       },
-      "TraitTable": {
+      "TraitListEts": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "traits": {
+            "items": {
+              "$ref": "#/components/schemas/TraitlistRow"
+            },
+            "type": "array",
+            "title": "Traits"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "traits"
+        ],
+        "title": "TraitListEts",
+        "description": "The trait list as ETS Traitlist rows, plus the list version."
+      },
+      "TraitListFull": {
         "properties": {
           "version": {
             "type": "string",
@@ -4389,8 +4389,8 @@
           "domains",
           "traits"
         ],
-        "title": "TraitTable",
-        "description": "The whole list: a version, the identifier prefixes, the domains, and the traits."
+        "title": "TraitListFull",
+        "description": "Full entries for one query.\n\nThis is not a closed list. A deprecated trait's replacement may sit outside\nthe selection, so it is not required to be one of these traits."
       },
       "TraitlistRow": {
         "properties": {

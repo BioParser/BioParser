@@ -1,4 +1,10 @@
+import json
+
+import pytest
 from fastapi.testclient import TestClient
+
+from bioparser.api.app import trait_list
+from bioparser.traits.table import load_table, mammal_traits
 
 
 def test_the_default_response_is_an_ets_traitlist(client: TestClient) -> None:
@@ -22,6 +28,34 @@ def test_full_detail_includes_the_domains(client: TestClient) -> None:
     }
     assert body["traits"]
     assert all(trait["domain"] == "acoustics" for trait in body["traits"])
+
+
+def test_full_detail_keeps_a_replacement_outside_the_selection(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw = json.loads(mammal_traits().model_dump_json())
+    retired = raw["traits"][0]
+    replacement = next(trait for trait in raw["traits"] if trait["domain"] != retired["domain"])
+    retired["status"] = "deprecated"
+    retired["replaced_by"] = replacement["code"]
+    patched = load_table(json.dumps(raw))
+    # The package binds `app` over the module, so patch the route's globals.
+    monkeypatch.setitem(trait_list.__globals__, "mammal_traits", lambda: patched)
+
+    response = client.get(
+        "/api/traits",
+        params={
+            "detail": "full",
+            "domain": retired["domain"],
+            "include_deprecated": "true",
+        },
+    )
+
+    assert response.status_code == 200
+    codes = {trait["code"] for trait in response.json()["traits"]}
+    kept = next(trait for trait in response.json()["traits"] if trait["code"] == retired["code"])
+    assert kept["replaced_by"] == replacement["code"]
+    assert replacement["code"] not in codes
 
 
 def test_an_unknown_domain_is_rejected(client: TestClient) -> None:

@@ -463,16 +463,6 @@ export interface components {
             detail: components["schemas"]["ErrorDetail"];
         };
         /**
-         * EtsTraitlist
-         * @description The trait list as ETS Traitlist rows, plus the list version.
-         */
-        EtsTraitlist: {
-            /** Version */
-            version: string;
-            /** Traits */
-            traits: components["schemas"]["TraitlistRow"][];
-        };
-        /**
          * ExtractionArtifact
          * @description Versioned extraction result stored for a job.
          */
@@ -894,10 +884,23 @@ export interface components {
             bbox: components["schemas"]["BoundingBox"];
         };
         /**
-         * TraitTable
-         * @description The whole list: a version, the identifier prefixes, the domains, and the traits.
+         * TraitListEts
+         * @description The trait list as ETS Traitlist rows, plus the list version.
          */
-        TraitTable: {
+        TraitListEts: {
+            /** Version */
+            version: string;
+            /** Traits */
+            traits: components["schemas"]["TraitlistRow"][];
+        };
+        /**
+         * TraitListFull
+         * @description Full entries for one query.
+         *
+         *     This is not a closed list. A deprecated trait's replacement may sit outside
+         *     the selection, so it is not required to be one of these traits.
+         */
+        TraitListFull: {
             /**
              * Version
              * @description YYYY.MM.REVISION. The year and month the release was made, then a revision that starts at 0 and counts further releases in that month.
@@ -1798,7 +1801,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EtsTraitlist"] | components["schemas"]["TraitTable"];
+                    "application/json": components["schemas"]["TraitListEts"] | components["schemas"]["TraitListFull"];
                 };
             };
             /** @description Bad Request */

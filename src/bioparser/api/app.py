@@ -52,7 +52,7 @@ from bioparser.storage import (
     StorageError,
     StoragePayloadError,
 )
-from bioparser.traits.table import TraitTable, mammal_traits
+from bioparser.traits.table import mammal_traits
 from bioparser.traits.traitlist import selected_traits, traitlist_rows
 
 from . import config
@@ -83,7 +83,6 @@ from .middleware import TypedRequestBodyLimitMiddleware
 from .schema import (
     CreateJobRequest,
     DocumentMetadataResponse,
-    EtsTraitlist,
     FailedJobResponse,
     HealthResponse,
     JobStatusResponse,
@@ -92,6 +91,8 @@ from .schema import (
     ReadinessUnavailableResponse,
     RunningJobResponse,
     SucceededJobResponse,
+    TraitListEts,
+    TraitListFull,
 )
 from .ui import add_ui_routes
 from .uploads import (
@@ -906,7 +907,7 @@ def trait_list(
     domain: Annotated[list[str] | None, Query()] = None,
     code: Annotated[list[str] | None, Query()] = None,
     include_deprecated: bool = False,
-) -> EtsTraitlist | TraitTable:
+) -> TraitListEts | TraitListFull:
     """The mammal trait list. ETS Traitlist rows by default, or the full entries."""
     table = mammal_traits()
     domains = tuple(domain or ())
@@ -918,13 +919,13 @@ def trait_list(
     except ValueError as exc:
         raise http_error(400, UNKNOWN_TRAIT_QUERY) from exc
     if detail == "full":
-        return TraitTable(
+        return TraitListFull(
             version=table.version,
             id_prefixes=table.id_prefixes,
             domains=table.domains,
             traits=traits,
         )
-    return EtsTraitlist(
+    return TraitListEts(
         version=table.version,
         traits=traitlist_rows(
             table, domains=domains, codes=codes, include_deprecated=include_deprecated

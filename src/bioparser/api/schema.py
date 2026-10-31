@@ -8,6 +8,7 @@ from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTORS
 from bioparser.hashing import Sha256Hex
 from bioparser.jobstate import SafeError
 from bioparser.parser_names import DEFAULT_PARSER_NAME, PARSER_BACKENDS
+from bioparser.traits.table import Domain, Trait
 from bioparser.traits.traitlist import TraitlistRow
 
 
@@ -45,11 +46,32 @@ class ReadinessUnavailableResponse(BaseModel):
     )
 
 
-class EtsTraitlist(BaseModel):
+class TraitListEts(BaseModel):
     """The trait list as ETS Traitlist rows, plus the list version."""
 
     version: str
     traits: tuple[TraitlistRow, ...]
+
+
+class TraitListFull(BaseModel):
+    """Full entries for one query.
+
+    This is not a closed list. A deprecated trait's replacement may sit outside
+    the selection, so it is not required to be one of these traits.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: str = Field(
+        pattern=r"^\d{4}\.\d{2}\.\d+$",
+        description=(
+            "YYYY.MM.REVISION. The year and month the release was made, then a revision "
+            "that starts at 0 and counts further releases in that month."
+        ),
+    )
+    id_prefixes: dict[str, str | None]
+    domains: tuple[Domain, ...]
+    traits: tuple[Trait, ...]
 
 
 class QueuedJobResponse(BaseModel):
