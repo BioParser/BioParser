@@ -17,7 +17,7 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from bioparser.traits.table import Trait, TraitTable, released_tables
+from bioparser.traits.table import CategoricalTrait, Trait, TraitTable, released_tables
 from bioparser.traits.traitlist import iri_for, traitlist_rows
 
 HERE = Path(__file__).parent
@@ -43,12 +43,13 @@ def build_site(out: Path, releases: dict[str, TraitTable] | None = None) -> None
     shutil.copytree(HERE / "static", root / "static", dirs_exist_ok=True)
     latest = next(reversed(tables))
     history = _History(tables)
+    versions = list(reversed(tables))
     for table in tables.values():
-        _write_version(root / table.version, table)
-    _write(root / "index.html", "index.html", root_path="", tables=tables, latest=latest)
+        _write_version(root / table.version, table, versions, latest)
+    _write_version(root, tables[latest], versions, latest, index=True)
     _write(root / "latest" / "index.html", "latest.html", root_path="../", latest=latest)
     for trait_id in history.versions_for:
-        _write_trait(root, tables, history, trait_id)
+        _write_trait(root, tables, history, trait_id, latest)
 
 
 class _History:
@@ -86,10 +87,13 @@ def _split(trait_id: str) -> tuple[str, str]:
     return prefix, local
 
 
-def _write_version(directory: Path, table: TraitTable) -> None:
-    rows = [row.model_dump(mode="json") for row in traitlist_rows(table, include_deprecated=True)]
-    _write_json(directory / "traitlist.json", rows)
-    (directory / "full.json").write_text(table.model_dump_json(indent=2) + "\n", "utf-8")
+def _write_version(
+    directory: Path, table: TraitTable, versions: list[str], latest: str, index: bool = False
+) -> None:
+    """A version list. The trait list index is the latest version's list at the top address."""
+    root_path = "" if index else "../"
+    if not index:
+        _write_data(directory, table)
     sections = []
     for domain in table.domains:
         traits = [trait for trait in table.traits if trait.domain == domain.name]
@@ -97,17 +101,37 @@ def _write_version(directory: Path, table: TraitTable) -> None:
             sections.append(
                 {
                     "domain": domain,
-                    "traits": [{"trait": trait, "href": _href(trait, "../")} for trait in traits],
+                    "traits": [
+                        {"trait": trait, "href": _href(trait, root_path), "unit": _unit(trait)}
+                        for trait in traits
+                    ],
                 }
             )
     _write(
         directory / "index.html",
         "version.html",
-        root_path="../",
+        root_path=root_path,
+        here=f"{table.version}/" if index else "",
+        is_index=index,
         table=table,
+        latest=latest,
+        versions=versions,
         sections=sections,
         count=len(table.traits),
     )
+
+
+def _write_data(directory: Path, table: TraitTable) -> None:
+    rows = [row.model_dump(mode="json") for row in traitlist_rows(table, include_deprecated=True)]
+    _write_json(directory / "traitlist.json", rows)
+    (directory / "full.json").write_text(table.model_dump_json(indent=2) + "\n", "utf-8")
+
+
+def _unit(trait: Trait) -> str:
+    """What to show in a list row: the stored unit, or the number of levels."""
+    if isinstance(trait, CategoricalTrait):
+        return f"{len(trait.levels)} levels"
+    return trait.stored_unit
 
 
 def _href(trait: Trait, root_path: str, version: str | None = None) -> str:
@@ -116,7 +140,7 @@ def _href(trait: Trait, root_path: str, version: str | None = None) -> str:
 
 
 def _write_trait(
-    root: Path, tables: dict[str, TraitTable], history: _History, trait_id: str
+    root: Path, tables: dict[str, TraitTable], history: _History, trait_id: str, latest: str
 ) -> None:
     prefix, local = _split(trait_id)
     for version in history.versions_for[trait_id]:
@@ -137,6 +161,7 @@ def _write_trait(
         trait=trait,
         version=version,
         versions=list(reversed(history.versions_for[trait_id])),
+        latest=latest,
         first=history.first(trait_id),
         iri=payload["iri"],
         replacement=payload["replaced_by"],
@@ -158,10 +183,12 @@ def _payload(table: TraitTable, trait: Trait, history: _History) -> dict[str, An
             "href": f"../../{prefix}/{local}/?version={since}",
             "since": since,
         }
+    domain = next(item for item in table.domains if item.name == trait.domain)
     return {
         "version": table.version,
         "trait": trait.model_dump(mode="json"),
         "iri": iri_for(table, trait.trait_id),
+        "domain_definition": domain.definition,
         "replaced_by": replaced_by,
     }
 
