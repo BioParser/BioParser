@@ -22,12 +22,8 @@
       "definition": "Activity, movement, social behaviour, where the animal lives, and where the species occurs."
     },
     {
-      "name": "home_range",
-      "definition": "Area used by an individual or a group."
-    },
-    {
-      "name": "density",
-      "definition": "Number of individuals per unit area."
+      "name": "population",
+      "definition": "Area used by an individual or a group, and the number of individuals per unit area."
     },
     {
       "name": "physiology",
@@ -933,7 +929,7 @@
       "name": "Individual home range size",
       "trait_id": "BPT:0000059",
       "definition": "Area one individual uses during normal activity.",
-      "domain": "home_range",
+      "domain": "population",
       "kind": "numeric",
       "stored_unit": "km2",
       "printed_units": {
@@ -947,7 +943,7 @@
       "name": "Group home range size",
       "trait_id": "BPT:0000060",
       "definition": "Area one social group uses during normal activity.",
-      "domain": "home_range",
+      "domain": "population",
       "kind": "numeric",
       "stored_unit": "km2",
       "printed_units": {
@@ -961,7 +957,7 @@
       "name": "Population density",
       "trait_id": "BPT:0000061",
       "definition": "Number of individuals per unit area.",
-      "domain": "density",
+      "domain": "population",
       "kind": "numeric",
       "stored_unit": "individuals/km2",
       "printed_units": {
