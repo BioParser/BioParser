@@ -1,9 +1,11 @@
 """The trait list as an ETS v0.10 Traitlist table.
 
 ``valueType`` uses the ETS vocabulary: ``numeric`` for a measurement, ``integer`` for a
-count, and ``categorical`` for a level. ``factorLevels`` is the comma-separated list ETS
-specifies. A categorical value stays ``categorical`` even when the levels are yes and no,
-because the stored text is those words and not ``TRUE`` or ``FALSE``.
+count, and ``categorical`` for a level. A count is a whole number. A mean or a median of a
+count may be a decimal, and the row stays ``integer``. ``factorLevels`` is the
+comma-separated list ETS specifies. A categorical value stays ``categorical`` even when
+the levels are yes and no, because the stored text is those words and not ``TRUE`` or
+``FALSE``.
 """
 
 from typing import Literal

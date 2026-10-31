@@ -904,13 +904,17 @@ async def extract(request: Request, file: UploadFile | None = None) -> Extractio
 def trait_list(
     detail: Literal["ets", "full"] = "ets",
     domain: Annotated[list[str] | None, Query()] = None,
+    code: Annotated[list[str] | None, Query()] = None,
     include_deprecated: bool = False,
 ) -> EtsTraitlist | TraitTable:
     """The mammal trait list. ETS Traitlist rows by default, or the full entries."""
     table = mammal_traits()
     domains = tuple(domain or ())
+    codes = tuple(code or ())
     try:
-        traits = selected_traits(table, domains=domains, include_deprecated=include_deprecated)
+        traits = selected_traits(
+            table, domains=domains, codes=codes, include_deprecated=include_deprecated
+        )
     except ValueError as exc:
         raise http_error(400, UNKNOWN_TRAIT_QUERY) from exc
     if detail == "full":
@@ -922,7 +926,9 @@ def trait_list(
         )
     return EtsTraitlist(
         version=table.version,
-        traits=traitlist_rows(table, domains=domains, include_deprecated=include_deprecated),
+        traits=traitlist_rows(
+            table, domains=domains, codes=codes, include_deprecated=include_deprecated
+        ),
     )
 
 
