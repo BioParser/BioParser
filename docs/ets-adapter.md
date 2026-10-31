@@ -114,7 +114,7 @@ Each entry has:
 - a preferred `name`, which is `traitName`.
 - a `trait_id`, which is `traitID`. It is a Vertebrate Trait Ontology term when one matches the definition, such as `VT:0001259` for body mass. Otherwise it is an opaque `BPT:` identifier published with this list. The prefix-to-IRI mapping is in the file. A `BPT:` identifier has no IRI yet, so it does not resolve to a web page.
 - a one-sentence `definition` that says which measurement the code means. Head-body length and total length are separate codes, even though both are stored in millimetres.
-- a `domain`: morphology, reproduction, life_history, life_habit, home_range, density, physiology, or acoustics. A domain is a label for selecting a subset. The adapter ignores it.
+- a `domain`: morphology, reproduction, life_history, life_habit, population, physiology, or acoustics. A domain is a label for selecting a subset. The adapter ignores it.
 - a value `kind`:
   - **numeric**: the printed units it accepts, each with its factor into the stored unit. Mass is stored in grams, length in millimetres, and age in days. A month is 30.4375 days and a year is 365.25 days, so those conversions are approximate.
   - **count**: a number of things. The entry names what is counted, such as young or teats. It is not converted.
