@@ -866,7 +866,7 @@
       "code": "activity_cycle",
       "name": "Activity cycle",
       "trait_id": "BPT:0000054",
-      "definition": "Time of day when the animal is active: nocturnal, crepuscular, diurnal, nocturnal/crepuscular, diurnal/crepuscular, or cathemeral (active at any time of day).",
+      "definition": "Time of day when the animal is mainly active.",
       "domain": "life_habit",
       "kind": "categorical",
       "levels": [
