@@ -164,9 +164,51 @@ def test_an_id_prefix_may_have_no_iri_yet() -> None:
 
 def test_a_count_can_name_its_own_unit() -> None:
     teats = mammal_traits().get("teat_number")
+    litter = mammal_traits().get("litter_size")
 
     assert isinstance(teats, CountTrait)
     assert teats.stored_unit == "teats"
+    assert isinstance(litter, CountTrait)
+    assert litter.stored_unit == "young"
+
+
+def test_a_count_must_name_its_unit() -> None:
+    data = _table()
+    count = next(trait for trait in data["traits"] if trait["kind"] == "count")
+    del count["stored_unit"]
+
+    with pytest.raises(ValidationError, match="stored_unit"):
+        _load(data)
+
+
+def test_gestation_is_not_the_implantation_term() -> None:
+    gestation = mammal_traits().get("gestation_length")
+
+    assert gestation is not None
+    assert gestation.trait_id.startswith("BPT:")
+
+
+def test_lengths_that_cannot_be_converted_are_separate_codes() -> None:
+    table = mammal_traits()
+    pairs = (
+        ("hind_foot_length", "hind_foot_length_with_claw"),
+        ("greatest_skull_length", "greatest_skull_length_excluding_incisors"),
+        ("greatest_skull_length", "skull_length"),
+        ("upper_diastema_length", "lower_diastema_length"),
+    )
+
+    for left_code, right_code in pairs:
+        left, right = table.get(left_code), table.get(right_code)
+        assert left is not None and right is not None
+        assert left.trait_id != right.trait_id
+
+
+def test_an_activity_phrase_from_the_middle_bin_is_a_level() -> None:
+    cycle = mammal_traits().get("activity_cycle")
+
+    assert isinstance(cycle, CategoricalTrait)
+    assert cycle.level_for("nocturnal/crepuscular") == "nocturnal/crepuscular"
+    assert cycle.level_for("diurnal/crepuscular") == "diurnal/crepuscular"
 
 
 def test_approximate_units_must_be_printed_units() -> None:

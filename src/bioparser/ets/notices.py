@@ -101,7 +101,13 @@ class NotApplicable(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["not_applicable"] = "not_applicable"
-    field: Literal["dispersion", "measurementValue_min", "measurementValue_max"]
+    field: Literal[
+        "dispersion",
+        "measurementValue_min",
+        "measurementValue_max",
+        "centralKind",
+        "dispersionKind",
+    ]
 
 
 class UnitNotExpected(BaseModel):
