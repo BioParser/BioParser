@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% set title = trait.name %}
+{% block heading %}<span data-slot="name">{{ trait.name }}</span>{% endblock %}
+{% block body %}
+<p><label>Version <select id="version">
+{% for item in versions %}
+<option value="{{ item }}"{{ " selected" if item == version else "" }}>{{ item }}</option>
+{% endfor %}
+</select></label></p>
+<div id="trait" data-id="{{ trait.trait_id }}">
+<p><code data-slot="trait_id">{{ trait.trait_id }}</code></p>
+<p data-slot="definition">{{ trait.definition }}</p>
+<p>Kind: <span data-slot="kind">{{ trait.kind }}</span></p>
+<p>Status: <span data-slot="status">{{ trait.status }}</span></p>
+<p>Domain: <span data-slot="domain">{{ trait.domain }}</span></p>
+<p>First released in <span>{{ first }}</span></p>
+<p id="unit-line"{{ " hidden" if trait.kind == "categorical" else "" }}>Unit: <span data-slot="unit">{{ trait.stored_unit if trait.kind != "categorical" else "" }}</span></p>
+<ul id="levels">
+{% if trait.kind == "categorical" %}
+{% for level in trait.levels %}
+<li>{{ level }}</li>
+{% endfor %}
+{% endif %}
+</ul>
+<p id="replaced-line"{{ " hidden" if replacement is none else "" }}>Replaced by <a id="replaced"{% if replacement %} href="{{ replacement.href }}"{% endif %}>{{ replacement.code if replacement else "" }}</a> in <a id="replaced-in"{% if replacement %} href="../../{{ replacement.since }}/"{% endif %}>{{ replacement.since if replacement else "" }}</a></p>
+<p><a id="version-list" href="../../{{ version }}/">{{ version }}</a></p>
+<p data-slot="iri">{{ iri }}</p>
+</div>
+<script src="{{ root_path }}static/trait.js"></script>
+{% endblock %}

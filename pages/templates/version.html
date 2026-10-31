@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% set title = "Trait list " ~ table.version %}
+{% block body %}
+{% for section in sections %}
+<h2>{{ section.domain.name }}</h2>
+<ul>
+{% for item in section.traits %}
+<li><a href="{{ item.href }}?version={{ table.version }}">{{ item.trait.name }} <code>{{ item.trait.code }}</code></a></li>
+{% endfor %}
+</ul>
+{% endfor %}
+{% endblock %}
