@@ -126,7 +126,7 @@ Rules that keep stored results valid:
 - A retired code is marked `deprecated`, with an optional `replaced_by`. It still converts. Only a code that is absent from the list is `trait_unknown`.
 - A name or an identifier may change. An artifact stores only the code, so the next run uses the new value.
 - The list has a `version` in the form `YYYY.MM.REVISION`: the year and month of the release, then a revision that starts at 0 and counts further releases in that month. Every change to the file, including a new trait or a deprecation, bumps it. The adapter result reports it.
-- Tests enforce this. `src/bioparser/traits/releases/` holds a frozen copy of every released version. After an edit, bump `version` and run `uv run python -m bioparser.traits.release`. The tests fail if the list changes without a new release. They also fail if a code is removed or changes kind, stored unit or a printed unit factor, loses a level or an approximate unit, or becomes active again after a deprecation.
+- Tests enforce this. `data/traits/releases/` holds a frozen copy of every released version, outside the installed package. After an edit, bump `version` and run `uv run python -m bioparser.traits.release`. The tests fail if the list changes without a new release. They also fail if a code is removed or changes kind, stored unit or a printed unit factor, loses a level or an approximate unit, or becomes active again after a deprecation.
 
 The model is not asked to emit a `traitID`. The extractor keeps its closed set of trait codes.
 

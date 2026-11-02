@@ -4,17 +4,22 @@ Run this when you cut a new list version, in the same change that bumps ``versio
 
     uv run python -m bioparser.traits.release
 
-It copies ``mammal_traits.json`` to ``releases/<version>.json``. It refuses to change a
-version that already exists, and it refuses a list that breaks an earlier release.
+It copies ``mammal_traits.json`` to ``data/traits/releases/<version>.json``. It refuses to
+change a version that already exists, and it refuses a list that breaks an earlier release.
+The frozen copies stay out of the installed package. The running app reads the current list.
 """
 
 import sys
 from importlib import resources
 from pathlib import Path
 
-from bioparser.traits.table import TraitTable, load_table, mammal_traits, released_tables
-
-RELEASES = Path(str(resources.files("bioparser.traits"))) / "releases"
+from bioparser.traits.table import (
+    TraitTable,
+    load_table,
+    mammal_traits,
+    released_tables,
+    releases_directory,
+)
 
 
 def compatibility_problems(old: TraitTable, new: TraitTable) -> list[str]:
@@ -53,8 +58,10 @@ def compatibility_problems(old: TraitTable, new: TraitTable) -> list[str]:
 
 def main() -> int:
     table = mammal_traits()
-    target = RELEASES / f"{table.version}.json"
-    source = RELEASES.parent / "mammal_traits.json"
+    releases = releases_directory()
+    releases.mkdir(parents=True, exist_ok=True)
+    target = releases / f"{table.version}.json"
+    source = Path(str(resources.files("bioparser.traits"))) / "mammal_traits.json"
     if target.exists():
         if load_table(target.read_text("utf-8")) != table:
             print(

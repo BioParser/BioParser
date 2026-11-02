@@ -18,6 +18,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from functools import cache
 from importlib import resources
+from pathlib import Path
 from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
@@ -226,10 +227,26 @@ def version_sort_key(version: str) -> tuple[int, int, int]:
     return (int(year), int(month), int(revision))
 
 
-def released_tables() -> dict[str, TraitTable]:
-    """Every frozen release by version, oldest first. A released version never changes."""
-    files = resources.files("bioparser.traits").joinpath("releases").iterdir()
-    tables = [load_table(file.read_text("utf-8")) for file in files if file.name.endswith(".json")]
+def releases_directory() -> Path:
+    """Frozen trait lists in the checkout. They are not part of the installed package.
+
+    The running app reads ``mammal_traits.json`` only. Tests and the release script
+    read this directory.
+    """
+    return Path(__file__).resolve().parents[3] / "data" / "traits" / "releases"
+
+
+def released_tables(directory: Path | None = None) -> dict[str, TraitTable]:
+    """Every frozen release by version, oldest first. A released version never changes.
+
+    ``directory`` defaults to :func:`releases_directory`.
+    """
+    root = releases_directory() if directory is None else directory
+    tables = [
+        load_table(path.read_text("utf-8"))
+        for path in root.iterdir()
+        if path.name.endswith(".json")
+    ]
     return {
         table.version: table
         for table in sorted(tables, key=lambda table: version_sort_key(table.version))
