@@ -84,8 +84,9 @@ def _words_from_page(page: PdfPlumberPage) -> list[WordBox]:
     return words
 
 
-# Names a child needs to start. The parent holds database and Redis passwords,
-# and the process that reads the PDF must not inherit them.
+# Names a child needs to start. The child must not inherit the database and Redis
+# passwords. This is not a sandbox: code in the child runs as the same user and can
+# still read them from /proc/<pid>/environ. #286 limits what a stolen password can do.
 _CHILD_ENV = ("PATH", "LANG", "LC_ALL", "SYSTEMROOT", "PATHEXT", "TEMP", "TMP", "TMPDIR")
 
 

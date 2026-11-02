@@ -513,9 +513,7 @@ async def upload_document(
     )
 
     try:
-        await asyncio.to_thread(
-            request.app.state.artifact_storage.store, pdf_bytes, artifact_metadata
-        )
+        await request.app.state.artifact_storage.store(pdf_bytes, artifact_metadata)
     except ArtifactAlreadyExistsError:
         pass
     except StorageError as exc:
@@ -622,9 +620,7 @@ async def get_document_file(request: Request, checksum: str) -> Response:
 
     doc_path = pdf_path(valid_checksum)
     try:
-        content: bytes = await asyncio.to_thread(
-            request.app.state.artifact_storage.retrieve, doc_path
-        )
+        content: bytes = await request.app.state.artifact_storage.retrieve(doc_path)
     except ArtifactNotFoundError as exc:
         raise http_error(404, DOCUMENT_NOT_FOUND) from exc
     except StoragePayloadError as exc:
@@ -704,7 +700,7 @@ async def submit_document_job(
 
     parse_job_message = ParseJobMessage(job_id=job_id)
     try:
-        await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
+        await request.app.state.parse_queue.submit(parse_job_message)
     except JobQueueError as exc:
         LOGGER.error("parse job enqueue failed", extra=fields | error_fields(exc))
         try:
