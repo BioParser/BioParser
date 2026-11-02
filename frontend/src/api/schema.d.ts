@@ -475,10 +475,13 @@ export interface components {
          *     ``value`` is any non-empty string, including ``traitCode``. An extractor may
          *     constrain it, and the adapter decides what a value means.
          *
+         *     ``traitCode`` is optional. Without it the measurement is still stored, and the
+         *     adapter keeps the row without a standardized name, identifier, or unit.
+         *
          *     Every other column a paper can state is optional. An extractor leaves it null.
          */
         Observation: {
-            traitCode: components["schemas"]["Interpretation"];
+            traitCode?: components["schemas"]["Interpretation"] | null;
             /** Verbatimtraitname */
             verbatimTraitName?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             scientificName?: components["schemas"]["Interpretation"] | null;
