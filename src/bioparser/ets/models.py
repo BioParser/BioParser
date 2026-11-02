@@ -30,9 +30,9 @@ class EtsRow(BaseModel):
         serialize_by_alias=True,
     )
 
-    # Both come from the trait list (traits.py), so every row has them.
-    traitID: str = Field(min_length=1)
-    traitName: str = Field(min_length=1)
+    # Filled from the trait list when the observation has a code. Empty when it does not.
+    traitID: str | None = Field(default=None, min_length=1)
+    traitName: str | None = Field(default=None, min_length=1)
     verbatimTraitName: str | None = None
 
     # Accepted name. taxonID is the optional taxonomy identifier.

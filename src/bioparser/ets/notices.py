@@ -119,6 +119,15 @@ class UnitNotExpected(BaseModel):
     field: Literal["traitUnit"] = "traitUnit"
 
 
+class UnmappedTrait(BaseModel):
+    """No trait code was stored, so the list did not name this measurement."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["unmapped"] = "unmapped"
+    field: Literal["traitName"] = "traitName"
+
+
 class DeprecatedTrait(BaseModel):
     """The trait code is deprecated. It still converts."""
 
@@ -164,6 +173,7 @@ Notice = (
     | Unspecified
     | NotApplicable
     | UnitNotExpected
+    | UnmappedTrait
     | DeprecatedTrait
     | Approximate
 )

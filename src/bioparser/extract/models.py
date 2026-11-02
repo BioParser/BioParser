@@ -107,12 +107,15 @@ class Observation(BaseModel):
     ``value`` is any non-empty string, including ``traitCode``. An extractor may
     constrain it, and the adapter decides what a value means.
 
+    ``traitCode`` is optional. Without it the measurement is still stored, and the
+    adapter keeps the row without a standardized name, identifier, or unit.
+
     Every other column a paper can state is optional. An extractor leaves it null.
     """
 
     model_config = _CONFIG
 
-    traitCode: Interpretation
+    traitCode: Interpretation | None = None
     verbatimTraitName: CitationOrCorrection | None = None
 
     scientificName: Interpretation | None = None

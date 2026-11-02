@@ -21,7 +21,7 @@ The artifact uses its own camelCase names. The adapter maps them to ETS column n
 | `measurementValueMin` | `measurementValue_min` |
 | `measurementValueMax` | `measurementValue_max` |
 
-`traitCode` is not an ETS column. The adapter uses it to look up `traitName`, `traitID`, and the standard unit.
+`traitCode` is not an ETS column. When the observation has one, the adapter uses it to look up `traitName`, `traitID`, and the standard unit. When it has none, those columns stay empty.
 
 ## Sources
 
@@ -52,7 +52,7 @@ The adapter resolves the value and the unit each on its own, then converts once.
 
 The adapter is what converts. An extractor does not store a converted pair, such as `12500` and `g` for a printed `12.5 kg`.
 
-A trait that is not on the list drops the row with `trait_unknown`. For a numeric trait, an unknown unit drops the row with `unit_unknown`, and a unit that is not valid for that trait drops it with `unit_not_for_trait`. A value that is not a positive decimal drops the row with `value_not_numeric`. A count is a positive whole number and is not converted. A count the paper prints as a mean or a median, such as a litter size of 3.5, may be a decimal. The observation says so with `centralKind` or `aggregateMeasure`. A categorical trait must match one of its levels, ignoring case, or the row drops with `level_unknown`. The printed unit of a count or a categorical trait is not checked, because papers print `unitless`, `-`, or `NA` there. It stays in `verbatimTraitUnit`, and `traitUnit` is the count's own unit, such as `young` or `teats`, and empty for a categorical trait. A measurement unit that is not that unit warns `unit_not_expected`. The count's own unit does not. A categorical row still gets the ETS defaults of `1` for `individualCount` and `0` for `dispersion`. For a categorical trait the `0` carries no meaning, because there is no mean to disperse. A stored dispersion, minimum, maximum, central choice, or dispersion choice on a categorical observation is warned about and not published, so `dispersion` is `0`, the minimum and the maximum are empty, and `statisticalMethod` is empty.
+An observation with no `traitCode` keeps its row. `traitName` and `traitID` stay empty, `traitUnit` stays empty, and `traitValue` is the printed value, unconverted. The warning is `unmapped:traitName`. A code that is not on the list still drops the row with `trait_unknown`. For a numeric trait, an unknown unit drops the row with `unit_unknown`, and a unit that is not valid for that trait drops it with `unit_not_for_trait`. A value that is not a positive decimal drops the row with `value_not_numeric`. A count is a positive whole number and is not converted. A count the paper prints as a mean or a median, such as a litter size of 3.5, may be a decimal. The observation says so with `centralKind` or `aggregateMeasure`. A categorical trait must match one of its levels, ignoring case, or the row drops with `level_unknown`. The printed unit of a count or a categorical trait is not checked, because papers print `unitless`, `-`, or `NA` there. It stays in `verbatimTraitUnit`, and `traitUnit` is the count's own unit, such as `young` or `teats`, and empty for a categorical trait. A measurement unit that is not that unit warns `unit_not_expected`. The count's own unit does not. A categorical row still gets the ETS defaults of `1` for `individualCount` and `0` for `dispersion`. For a categorical trait the `0` carries no meaning, because there is no mean to disperse. A stored dispersion, minimum, maximum, central choice, or dispersion choice on a categorical observation is warned about and not published, so `dispersion` is `0`, the minimum and the maximum are empty, and `statisticalMethod` is empty.
 
 ### Range and dispersion
 
@@ -89,7 +89,7 @@ The minimum, the maximum, and the dispersion share the trait's unit. ETS gives t
 - `references` comes from the job's document.
 - `warnings` collects what the adapter found while building the row.
 - `occurrenceID` is copied when the observation stored one.
-- `traitName` and `traitID` come from the thesaurus entry for the artifact's `traitCode`.
+- `traitName` and `traitID` come from the thesaurus entry for the artifact's `traitCode`. When the observation has no code, both stay empty and the row warns `unmapped:traitName`.
 
 ## Warnings and drops
 
@@ -99,6 +99,7 @@ Trait warnings:
 
 - `not_applicable:dispersion`, `not_applicable:measurementValue_min`, `not_applicable:measurementValue_max`, `not_applicable:centralKind`, and `not_applicable:dispersionKind`: a categorical observation stores a spread, a range, or a mean. A level has none of these, so the trait may be wrong.
 - `unit_not_expected:traitUnit`: a count or a categorical trait was printed with a real unit such as `g` or `mm`. The trait may be wrong.
+- `unmapped:traitName`: the observation has no trait code. The printed name, value, and unit stay, and the value is not converted.
 - `deprecated_trait:traitName`: the code is deprecated. It still converts.
 - `approximate:traitValue`: the value used a conventional factor, a month or a year.
 

@@ -318,6 +318,30 @@ def test_a_unit_that_does_not_belong_to_the_trait_drops_that_row() -> None:
     assert result.rows[0].row.measurementID == "1"
 
 
+def test_an_observation_without_a_trait_code_keeps_the_printed_measurement() -> None:
+    observation = _observation(
+        traitCode=None,
+        verbatimTraitName=_cited("femur circumference", start=8),
+    )
+
+    verdict = assess(observation)
+    result = to_ets(_artifact(observation), references=_DOCUMENT_ID)
+
+    assert isinstance(verdict, Kept)
+    assert verdict.trait_name is None
+    assert verdict.trait_id is None
+    assert result.drops == []
+    row = result.rows[0].row
+    assert row.traitID is None
+    assert row.traitName is None
+    assert row.traitValue == "12.5"
+    assert row.traitUnit is None
+    assert row.verbatimTraitValue == "12.5"
+    assert row.verbatimTraitUnit == "kg"
+    assert row.verbatimTraitName == "femur circumference"
+    assert row.warnings == "unmapped:traitName"
+
+
 def test_an_unknown_trait_drops_the_row() -> None:
     observation = _observation(traitCode=_read("wing_length", "wing", start=10))
 

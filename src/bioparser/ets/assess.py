@@ -1,6 +1,7 @@
 """Judge one stored observation. The observation is left unchanged."""
 
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
@@ -17,6 +18,7 @@ from bioparser.ets.notices import (
     NotNumeric,
     NumericField,
     TextField,
+    UnmappedTrait,
 )
 from bioparser.ets.numbers import parse_count, parse_decimal, parse_integer, parse_signed_decimal
 from bioparser.ets.statistics import read_statistics
@@ -113,11 +115,18 @@ class _Fields(BaseModel):
     cited: dict[TextField, str | None]
 
 
-class Kept(_Fields):
-    """The observation can become a row. The converted value is present."""
+@dataclass(frozen=True)
+class _PrintedTraitValue:
+    """A measurement with no trait code. The value is the printed one, unconverted."""
 
-    trait_name: str
-    trait_id: str
+    value: str
+
+
+class Kept(_Fields):
+    """The observation can become a row. The value is present."""
+
+    trait_name: str | None
+    trait_id: str | None
     trait_value: str
     trait_unit: str | None
 
@@ -159,6 +168,8 @@ def assess(observation: Observation) -> Assessment:
         warnings.extend(parsed.warnings)
         if categorical:
             warnings.extend(_numbers_that_do_not_apply(observation))
+    elif isinstance(parsed, _PrintedTraitValue):
+        warnings.append(UnmappedTrait())
     statistics = read_statistics(
         observation,
         trait_factor=parsed.factor if isinstance(parsed, ResolvedTraitValue) else None,
@@ -219,10 +230,18 @@ def assess(observation: Observation) -> Assessment:
         country_code=country_code,
         cited=cited,
     )
-    if not isinstance(parsed, ResolvedTraitValue):
+    if not isinstance(parsed, ResolvedTraitValue | _PrintedTraitValue):
         return Dropped(drop=parsed, **shared.model_dump())
     if _bounds_reversed(value_min, value_max):
         return Dropped(drop="bounds_reversed", **shared.model_dump())
+    if isinstance(parsed, _PrintedTraitValue):
+        return Kept(
+            trait_name=None,
+            trait_id=None,
+            trait_value=parsed.value,
+            trait_unit=None,
+            **shared.model_dump(),
+        )
     return Kept(
         trait_name=parsed.trait_name,
         trait_id=parsed.trait_id,
@@ -258,12 +277,14 @@ def _numbers_that_do_not_apply(observation: Observation) -> list[Notice]:
 
 def _parse_trait_value(
     observation: Observation, *, aggregate: bool
-) -> ResolvedTraitValue | DropReason:
+) -> ResolvedTraitValue | DropReason | _PrintedTraitValue:
     value = (
         observation.traitValue.value
         if observation.traitValue is not None
         else observation.verbatimTraitValue.text
     )
+    if observation.traitCode is None:
+        return _PrintedTraitValue(value)
     unit = (
         observation.traitUnit.value
         if observation.traitUnit is not None
