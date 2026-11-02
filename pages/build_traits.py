@@ -17,7 +17,8 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from bioparser.traits.table import CategoricalTrait, Trait, TraitTable, released_tables
+from bioparser.traits.release import releases_directory
+from bioparser.traits.table import CategoricalTrait, Trait, TraitTable, load_tables
 from bioparser.traits.traitlist import iri_for, traitlist_rows
 
 HERE = Path(__file__).parent
@@ -32,8 +33,8 @@ _ENV = Environment(
 
 
 def build_site(out: Path, releases: dict[str, TraitTable] | None = None) -> None:
-    """Write the home page and ``traits/`` under ``out``. The default is the packaged releases."""
-    tables = released_tables() if releases is None else releases
+    """Write the home page and ``traits/`` under ``out``. The default is the checkout releases."""
+    tables = load_tables(releases_directory()) if releases is None else releases
     if not tables:
         raise ValueError("no released trait lists")
     out.mkdir(parents=True, exist_ok=True)
