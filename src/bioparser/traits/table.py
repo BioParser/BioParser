@@ -227,24 +227,14 @@ def version_sort_key(version: str) -> tuple[int, int, int]:
     return (int(year), int(month), int(revision))
 
 
-def releases_directory() -> Path:
-    """Frozen trait lists in the checkout. They are not part of the installed package.
+def load_tables(directory: Path) -> dict[str, TraitTable]:
+    """Every frozen release in ``directory``, oldest first. A released version never changes.
 
-    The running app reads ``mammal_traits.json`` only. Tests and the release script
-    read this directory.
+    The directory is not part of the installed package. The caller passes it.
     """
-    return Path(__file__).resolve().parents[3] / "data" / "traits" / "releases"
-
-
-def released_tables(directory: Path | None = None) -> dict[str, TraitTable]:
-    """Every frozen release by version, oldest first. A released version never changes.
-
-    ``directory`` defaults to :func:`releases_directory`.
-    """
-    root = releases_directory() if directory is None else directory
     tables = [
         load_table(path.read_text("utf-8"))
-        for path in root.iterdir()
+        for path in directory.iterdir()
         if path.name.endswith(".json")
     ]
     return {

@@ -13,13 +13,12 @@ import sys
 from importlib import resources
 from pathlib import Path
 
-from bioparser.traits.table import (
-    TraitTable,
-    load_table,
-    mammal_traits,
-    released_tables,
-    releases_directory,
-)
+from bioparser.traits.table import TraitTable, load_table, load_tables, mammal_traits
+
+
+def releases_directory() -> Path:
+    """Frozen trait lists in the checkout. They are not part of the installed package."""
+    return Path(__file__).resolve().parents[3] / "data" / "traits" / "releases"
 
 
 def compatibility_problems(old: TraitTable, new: TraitTable) -> list[str]:
@@ -74,7 +73,7 @@ def main() -> int:
         return 0
     problems = [
         f"{version}: {problem}"
-        for version, earlier in released_tables().items()
+        for version, earlier in load_tables(releases_directory()).items()
         for problem in compatibility_problems(earlier, table)
     ]
     if problems:

@@ -5,7 +5,7 @@ from typing import Any, get_args
 import pytest
 from pydantic import ValidationError
 
-from bioparser.traits.release import compatibility_problems
+from bioparser.traits.release import compatibility_problems, releases_directory
 from bioparser.traits.table import (
     CategoricalTrait,
     CountTrait,
@@ -13,8 +13,8 @@ from bioparser.traits.table import (
     TraitTable,
     json_schema,
     load_table,
+    load_tables,
     mammal_traits,
-    released_tables,
     version_sort_key,
 )
 
@@ -41,7 +41,7 @@ def test_the_current_version_is_released_and_unchanged() -> None:
     # Any edit to the list needs a new version. Bump `version`, then run
     # `uv run python -m bioparser.traits.release` in the same change.
     table = mammal_traits()
-    released = released_tables()
+    released = load_tables(releases_directory())
 
     assert table.version in released, "release this version with bioparser.traits.release"
     assert released[table.version] == table, "bump the version and release it again"
@@ -61,7 +61,7 @@ def test_a_later_revision_in_the_same_month_sorts_after_an_earlier_one() -> None
 def test_every_released_version_is_still_compatible() -> None:
     current = mammal_traits()
 
-    for version, table in released_tables().items():
+    for version, table in load_tables(releases_directory()).items():
         assert compatibility_problems(table, current) == [], version
 
 
