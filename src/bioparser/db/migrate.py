@@ -31,27 +31,29 @@ def upgrade(url: str) -> None:
 
 
 def main() -> None:
-    """Upgrade the database named by BIOPARSER_DATABASE_URL.
+    """Create the application role, then upgrade BIOPARSER_DATABASE_URL.
 
-    When BIOPARSER_APP_PASSWORD is set, create the application role first.
-    Tables this upgrade creates are then usable by that role. Unset, only the
-    schema changes.
+    The role's password is the password in that URL.
     """
     url = os.environ.get("BIOPARSER_DATABASE_URL", "")
     if not url:
         sys.exit("BIOPARSER_DATABASE_URL is required")
-    app_password = os.environ.get("BIOPARSER_APP_PASSWORD", "")
     try:
-        if app_password:
-            bootstrap(url, app_password)
+        password = make_url(sync_database_url(url)).password
+    except (ArgumentError, ValueError):
+        sys.exit("BIOPARSER_DATABASE_URL must use the postgresql scheme")
+    if not password:
+        sys.exit("BIOPARSER_DATABASE_URL must include the password")
+    try:
+        bootstrap(url, password)
         upgrade(url)
     except Exception as exc:  # noqa: BLE001 — any failure text can contain the URL
-        sys.exit(_public_failure(url, exc, app_password))
+        sys.exit(_public_failure(url, exc))
     print("migrated to head")
 
 
-def _public_failure(url: str, exc: Exception, app_password: str = "") -> str:
-    """Failure text with the database URL and passwords removed."""
+def _public_failure(url: str, exc: Exception) -> str:
+    """Failure text with the database URL and its password removed."""
     message = str(exc)
     try:
         parsed = make_url(sync_database_url(url))
@@ -61,7 +63,4 @@ def _public_failure(url: str, exc: Exception, app_password: str = "") -> str:
         message = message.replace(parsed.password, "***")
         message = message.replace(quote(parsed.password, safe=""), "***")
         message = message.replace(parsed.render_as_string(hide_password=False), "postgresql://***")
-    if app_password:
-        message = message.replace(app_password, "***")
-        message = message.replace(quote(app_password, safe=""), "***")
     return f"database migration failed: {message}"

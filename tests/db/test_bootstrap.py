@@ -1,7 +1,6 @@
 """Application-role coverage. The Postgres test needs BIOPARSER_TEST_DATABASE_URL.
 
-The role is cluster-wide. This test sets its password. The next migrate with
-BIOPARSER_APP_PASSWORD sets that password again.
+The role is cluster-wide. migrate copies the password from that URL onto it.
 """
 
 from __future__ import annotations
@@ -16,9 +15,7 @@ from sqlalchemy.exc import DBAPIError
 
 from bioparser.db.bootstrap import APP_ROLE
 from bioparser.db.engine import sync_database_url
-from bioparser.db.migrate import main
-
-_APP_PASSWORD = "app'secret"
+from bioparser.db.migrate import main, upgrade
 
 
 @pytest.mark.integration
@@ -29,6 +26,10 @@ def test_app_role_can_use_tables_and_cannot_change_the_schema(
     if not raw:
         pytest.skip("BIOPARSER_TEST_DATABASE_URL is not set")
 
+    password = make_url(sync_database_url(raw)).password
+    if not password:
+        pytest.skip("BIOPARSER_TEST_DATABASE_URL must include the password")
+
     admin_url = make_url(sync_database_url(raw)).set(database="postgres")
     name = f"bootstrap_{uuid4().hex}"
     admin = admin_url.render_as_string(hide_password=False)
@@ -36,18 +37,16 @@ def test_app_role_can_use_tables_and_cannot_change_the_schema(
     target = make_url(sync_database_url(raw)).set(database=name).set(drivername="postgresql")
     monkeypatch.setenv("BIOPARSER_DATABASE_URL", target.render_as_string(hide_password=False))
     try:
-        monkeypatch.delenv("BIOPARSER_APP_PASSWORD", raising=False)
-        main()
-        monkeypatch.setenv("BIOPARSER_APP_PASSWORD", _APP_PASSWORD)
+        upgrade(target.render_as_string(hide_password=False))
         main()
         main()
 
-        app_url = target.set(
-            drivername="postgresql+psycopg", username=APP_ROLE, password=_APP_PASSWORD
-        )
+        app_url = target.set(drivername="postgresql+psycopg", username=APP_ROLE, password=password)
         _assert_role(admin, name)
+        _assert_table_privileges(admin, name, "jobs")
         _assert_table_use(app_url.render_as_string(hide_password=False))
         _assert_later_table(admin, name, app_url.render_as_string(hide_password=False))
+        _assert_table_privileges(admin, name, "privilege_probe")
         _assert_schema_changes_fail(app_url.render_as_string(hide_password=False))
     finally:
         _drop_database(admin, name)
@@ -84,6 +83,21 @@ def _assert_role(admin_url: str, name: str) -> None:
         ).one()
     engine.dispose()
     assert row == (False, False, False, True)
+
+
+def _assert_table_privileges(admin_url: str, name: str, table: str) -> None:
+    held = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE")
+    withheld = ("REFERENCES", "TRIGGER", "MAINTAIN")
+    url = make_url(admin_url).set(database=name)
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        for privilege in (*held, *withheld):
+            allowed = connection.execute(
+                text("SELECT has_table_privilege(:role, :table, :privilege)"),
+                {"role": APP_ROLE, "table": table, "privilege": privilege},
+            ).scalar_one()
+            assert allowed == (privilege in held)
+    engine.dispose()
 
 
 def _assert_table_use(app_url: str) -> None:

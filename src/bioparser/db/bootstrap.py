@@ -14,6 +14,7 @@ from bioparser.db.engine import sync_database_url
 
 # Compose and CI log in with this name. It is not the image superuser.
 APP_ROLE = "bioparser_app"
+_TABLE_PRIVILEGES = "SELECT, INSERT, UPDATE, DELETE, TRUNCATE"
 
 
 def bootstrap(url: str, password: str) -> None:
@@ -56,7 +57,8 @@ def _grant(connection: Connection) -> None:
     _run(connection, "GRANT USAGE ON SCHEMA public TO %I", APP_ROLE)
     _run(connection, "REVOKE CREATE ON SCHEMA public FROM %I", APP_ROLE)
     for privilege in (
-        "GRANT ALL PRIVILEGES ON TABLES TO %I",
+        "REVOKE ALL PRIVILEGES ON TABLES FROM %I",
+        f"GRANT {_TABLE_PRIVILEGES} ON TABLES TO %I",
         "GRANT ALL PRIVILEGES ON SEQUENCES TO %I",
         "GRANT EXECUTE ON FUNCTIONS TO %I",
     ):
@@ -66,7 +68,12 @@ def _grant(connection: Connection) -> None:
             migrator,
             APP_ROLE,
         )
-    _run(connection, "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO %I", APP_ROLE)
+    _run(connection, "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM %I", APP_ROLE)
+    _run(
+        connection,
+        f"GRANT {_TABLE_PRIVILEGES} ON ALL TABLES IN SCHEMA public TO %I",
+        APP_ROLE,
+    )
     _run(connection, "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO %I", APP_ROLE)
     _run(connection, "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO %I", APP_ROLE)
 

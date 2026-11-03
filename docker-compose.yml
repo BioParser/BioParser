@@ -212,9 +212,8 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      # bioparser is the image superuser. The API and workers log in as bioparser_app.
+      # Superuser URL. migrate copies this password onto bioparser_app.
       BIOPARSER_DATABASE_URL: postgresql://bioparser:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/bioparser
-      BIOPARSER_APP_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     restart: "no"
     mem_limit: 512m
     memswap_limit: 512m

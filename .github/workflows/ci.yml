@@ -112,7 +112,6 @@ jobs:
       - name: Prepare the application role
         env:
           BIOPARSER_DATABASE_URL: postgresql://bioparser:ci-postgres@localhost:5432/bioparser
-          BIOPARSER_APP_PASSWORD: ci-postgres
         run: uv run bioparser-migrate
 
       - name: Run integration tests

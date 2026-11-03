@@ -82,7 +82,7 @@ uv run bioparser
 
 Serves on `http://127.0.0.1:8080`. Job submission and polling work on their own; `POST /extract` also needs reachable MinerU and vLLM services.
 
-> The host API reads `.env` if it exists. `BIOPARSER_REDIS_URL` and `BIOPARSER_DATABASE_URL` are required, and an empty value is rejected. `.env.example` sets Redis to `redis://redis:6379/0`, which only resolves inside Compose. A host run needs both URLs pointed at services the host can reach. Compose sets the API's database URL to the `bioparser_app` login. A host run of the API or a worker should use that login. `bioparser-migrate` connects as `bioparser`, and creates `bioparser_app` when `BIOPARSER_APP_PASSWORD` is set.
+> The host API reads `.env` if it exists. `BIOPARSER_REDIS_URL` and `BIOPARSER_DATABASE_URL` are required, and an empty value is rejected. `.env.example` sets Redis to `redis://redis:6379/0`, which only resolves inside Compose. A host run needs both URLs pointed at services the host can reach. Compose sets the API's database URL to the `bioparser_app` login. A host run of the API or a worker should use that login. `bioparser-migrate` connects as `bioparser` and copies that URL's password onto `bioparser_app` before upgrading.
 > The API does not start without `BIOPARSER_API_KEY`. For local development only, set `BIOPARSER_AUTH_DISABLED=true` instead.
 
 ### Run the UI
