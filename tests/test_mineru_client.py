@@ -1,4 +1,4 @@
-"""MinerUClient and SyncMinerUClient against a misbehaving mineru-api."""
+"""MinerUClient against a misbehaving mineru-api."""
 
 import asyncio
 import itertools
@@ -20,7 +20,6 @@ from bioparser.services.mineru.client import (
     MinerUPermanentError,
     MinerUTier,
     MinerUTimeoutError,
-    SyncMinerUClient,
 )
 
 PDF = b"%PDF-1.4\n%%EOF\n"
@@ -44,22 +43,8 @@ def _client(handler: object, tier: MinerUTier = "basic") -> MinerUClient:
     return client
 
 
-def _sync_client(handler: Handler, tier: MinerUTier = "basic") -> SyncMinerUClient:
-    client = SyncMinerUClient("http://mineru:8000", wait_s=5.0, tier=tier)
-    client._http.close()
-    client._http = httpx2.Client(
-        transport=httpx2.MockTransport(handler), base_url="http://mineru:8000"
-    )
-    return client
-
-
-def _parse(
-    kind: str, handler: Handler, pdf: bytes = PDF, tier: MinerUTier = "basic"
-) -> dict[str, Any]:
-    """Run one parse through the async or the sync client."""
-    if kind == "sync":
-        with _sync_client(handler, tier) as client:
-            return client.parse(filename="a.pdf", content=pdf)
+def _parse(handler: Handler, pdf: bytes = PDF, tier: MinerUTier = "basic") -> dict[str, Any]:
+    """Run one parse and return the middle JSON."""
 
     async def run() -> dict[str, Any]:
         client = _client(handler, tier)
@@ -71,23 +56,19 @@ def _parse(
     return asyncio.run(run())
 
 
-both_clients = pytest.mark.parametrize("kind", ["async", "sync"])
-
-
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
 
 
-@both_clients
-def test_the_request_asks_for_basic_middle_json_with_only_a_file_field(kind: str) -> None:
+def test_the_request_asks_for_basic_middle_json_with_only_a_file_field() -> None:
     seen: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         seen.append(request)
         return httpx2.Response(200, content=_result())
 
-    assert _parse(kind, handler) == MIDDLE
+    assert _parse(handler) == MIDDLE
     (request,) = seen
     assert (request.method, request.url.path) == ("POST", "/v1/file_parse")
     assert dict(request.url.params) == {
@@ -102,36 +83,32 @@ def test_the_request_asks_for_basic_middle_json_with_only_a_file_field(kind: str
     assert b'name="files"; filename="a.pdf"' in body
 
 
-@both_clients
-def test_the_tier_is_the_one_the_client_was_given(kind: str) -> None:
+def test_the_tier_is_the_one_the_client_was_given() -> None:
     seen: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         seen.append(request)
         return httpx2.Response(200, content=_result())
 
-    _parse(kind, handler, tier="advanced")
+    _parse(handler, tier="advanced")
 
     assert seen[0].url.params["tier"] == "advanced"
 
 
 @pytest.mark.anyio
-async def test_neither_client_sends_through_a_proxy_from_the_environment() -> None:
+async def test_the_client_does_not_send_through_a_proxy_from_the_environment() -> None:
     # The PDF goes straight to the internal service, whatever HTTP_PROXY says.
     client = MinerUClient("http://mineru:8000", 5.0, 1.0)
-    with SyncMinerUClient("http://mineru:8000", wait_s=5.0) as sync_client:
-        assert not sync_client._http.trust_env
     assert not client._http.trust_env
     await client.aclose()
 
 
-@both_clients
-def test_an_oversized_body_is_refused_not_buffered(kind: str) -> None:
+def test_an_oversized_body_is_refused_not_buffered() -> None:
     oversized = _result(middle="x" * (MAX_RESPONSE_BYTES + 1))
 
     # The same PDF gives the same result, so a retry would parse it again for nothing.
     with pytest.raises(MinerUPermanentError, match="exceeded"):
-        _parse(kind, lambda _request: httpx2.Response(200, content=oversized))
+        _parse(lambda _request: httpx2.Response(200, content=oversized))
 
 
 def _v1_error(code: str) -> bytes:
@@ -140,7 +117,6 @@ def _v1_error(code: str) -> bytes:
     ).encode()
 
 
-@both_clients
 @pytest.mark.parametrize(
     ("status", "body", "error", "message"),
     [
@@ -152,24 +128,22 @@ def _v1_error(code: str) -> bytes:
     ids=["tier-not-served", "too-large", "busy", "down"],
 )
 def test_a_status_without_a_parse_is_judged_by_status_and_code(
-    kind: str, status: int, body: bytes, error: type[MinerUError], message: str
+    status: int, body: bytes, error: type[MinerUError], message: str
 ) -> None:
     with pytest.raises(MinerUError, match=message) as caught:
-        _parse(kind, lambda _request: httpx2.Response(status, content=body))
+        _parse(lambda _request: httpx2.Response(status, content=body))
     assert type(caught.value) is error
     assert "secret text" not in str(caught.value)
 
 
-@both_clients
-def test_a_large_error_body_is_not_read_to_the_result_cap(kind: str) -> None:
+def test_a_large_error_body_is_not_read_to_the_result_cap() -> None:
     # Classified by its status, like any 503, not refused as an oversized result.
     with pytest.raises(MinerUError, match="503 \\(unknown\\)") as caught:
-        _parse(kind, lambda _request: httpx2.Response(503, content=b"x" * (MAX_RESPONSE_BYTES + 1)))
+        _parse(lambda _request: httpx2.Response(503, content=b"x" * (MAX_RESPONSE_BYTES + 1)))
     assert type(caught.value) is MinerUError
 
 
-@both_clients
-def test_a_parse_still_running_after_the_wait_is_cancelled(kind: str) -> None:
+def test_a_parse_still_running_after_the_wait_is_cancelled() -> None:
     deleted: list[str] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -179,12 +153,11 @@ def test_a_parse_still_running_after_the_wait_is_cancelled(kind: str) -> None:
         return httpx2.Response(202, json={"task_id": "job/../x", "status": "running"})
 
     with pytest.raises(MinerUTimeoutError):
-        _parse(kind, handler)
+        _parse(handler)
     assert deleted == ["/v1/tasks/job%2F..%2Fx"]
 
 
-@both_clients
-def test_a_parse_that_never_left_the_queue_is_cancelled_and_retryable(kind: str) -> None:
+def test_a_parse_that_never_left_the_queue_is_cancelled_and_retryable() -> None:
     deleted: list[str] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -194,52 +167,47 @@ def test_a_parse_that_never_left_the_queue_is_cancelled_and_retryable(kind: str)
         return httpx2.Response(202, json={"task_id": "job_1", "status": "queued"})
 
     with pytest.raises(MinerUError, match="did not start") as caught:
-        _parse(kind, handler)
+        _parse(handler)
     assert type(caught.value) is MinerUError
     assert deleted == ["/v1/tasks/job_1"]
 
 
-@both_clients
-def test_a_failed_cancel_still_reports_the_timeout(kind: str) -> None:
+def test_a_failed_cancel_still_reports_the_timeout() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         if request.method == "DELETE":
             raise httpx2.ConnectError("gone", request=request)
         return httpx2.Response(202, json={"task_id": "job_1"})
 
     with pytest.raises(MinerUTimeoutError):
-        _parse(kind, handler)
+        _parse(handler)
 
 
-@both_clients
 @pytest.mark.parametrize(
     ("code", "message"),
     [("parse_failed", "parse failed \\(parse_failed\\)"), ("Not a code\n", "unknown")],
     ids=["catch-all", "garbage"],
 )
-def test_a_failed_parse_is_retryable_and_keeps_only_its_code(
-    kind: str, code: str, message: str
-) -> None:
+def test_a_failed_parse_is_retryable_and_keeps_only_its_code(code: str, message: str) -> None:
     body = _result(status="failed", content=None, error={"code": code, "message": "secret text"})
 
     with pytest.raises(MinerUError, match=message) as caught:
-        _parse(kind, lambda _request: httpx2.Response(409, content=body))
+        _parse(lambda _request: httpx2.Response(409, content=body))
     assert type(caught.value) is MinerUError
     assert "secret text" not in str(caught.value)
 
 
-@both_clients
 @pytest.mark.parametrize(
     "exc",
     [httpx2.ReadTimeout("slow"), httpx2.ConnectTimeout("no route"), httpx2.ConnectError("refused")],
     ids=["read-timeout", "connect-timeout", "refused"],
 )
-def test_transport_failures_are_retryable(kind: str, exc: httpx2.HTTPError) -> None:
+def test_transport_failures_are_retryable(exc: httpx2.HTTPError) -> None:
     # The read timeout outlasts the server's wait: running out of it means no answer came.
     def handler(request: httpx2.Request) -> httpx2.Response:
         raise exc
 
     with pytest.raises(MinerUError, match="unreachable") as caught:
-        _parse(kind, handler)
+        _parse(handler)
     assert type(caught.value) is MinerUError
 
 
@@ -270,10 +238,9 @@ def test_transport_failures_are_retryable(kind: str, exc: httpx2.HTTPError) -> N
         "middle-json-empty",
     ],
 )
-@both_clients
-def test_malformed_bodies_are_retryable_errors(kind: str, body: bytes) -> None:
+def test_malformed_bodies_are_retryable_errors(body: bytes) -> None:
     with pytest.raises(MinerUError) as caught:
-        _parse(kind, lambda _request: httpx2.Response(200, content=body))
+        _parse(lambda _request: httpx2.Response(200, content=body))
     assert type(caught.value) is MinerUError
 
 
@@ -302,13 +269,12 @@ def _exchanges(caplog: pytest.LogCaptureFixture) -> list[tuple[int, dict[str, ob
     ]
 
 
-@both_clients
 def test_a_completed_request_logs_status_bytes_and_latency(
-    kind: str, mineru_log: pytest.LogCaptureFixture
+    mineru_log: pytest.LogCaptureFixture,
 ) -> None:
     body = _result()
 
-    _parse(kind, lambda _request: httpx2.Response(200, content=body))
+    _parse(lambda _request: httpx2.Response(200, content=body))
 
     assert _exchanges(mineru_log) == [
         (logging.INFO, {"status_code": 200, "bytes_read": len(body), "latency_ms": 250.0})
@@ -386,14 +352,13 @@ async def test_a_cancelled_request_is_logged_and_stays_cancelled(
     ]
 
 
-@both_clients
 def test_neither_the_pdf_nor_the_response_body_is_logged(
-    kind: str, mineru_log: pytest.LogCaptureFixture
+    mineru_log: pytest.LogCaptureFixture,
 ) -> None:
     pdf = b"%PDF-1.4\n% canary-in-the-pdf\n%%EOF\n"
     body = _result(middle={"note": "canary-in-the-body"})
 
-    _parse(kind, lambda _request: httpx2.Response(200, content=body), pdf)
+    _parse(lambda _request: httpx2.Response(200, content=body), pdf)
 
     rendered = "\n".join(JsonFormatter().format(record) for record in mineru_log.records)
     assert '"bytes_read"' in rendered

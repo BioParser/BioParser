@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -209,7 +210,7 @@ def test_get_document_file_fallback_filename(
         artifact_path=f"pdf/{MINIMAL_PDF_HASH}",
         media_type="application/pdf",
     )
-    artifact_storage.store(MINIMAL_PDF, meta)
+    asyncio.run(artifact_storage.store(MINIMAL_PDF, meta))
     jobs.documents[MINIMAL_PDF_HASH] = DocumentRecord(
         checksum=MINIMAL_PDF_HASH,
         display_name=None,

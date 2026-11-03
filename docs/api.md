@@ -350,7 +350,7 @@ change.
 | `.../artifacts/parser` | `parsed`, `extracting`, `done`, or `failed` after its parse |
 | `.../artifacts/extraction` | `done` |
 
-- The route reads the stored bytes in a thread and does not parse them: the worker
+- The route loads the stored bytes through async storage and does not parse them: the worker
   validated them before it recorded the ref, and a parser artifact can be several MB.
 - `Cache-Control: private, max-age=31536000, immutable`. A job's artifact never changes:
   storage cannot replace an artifact, and the job keeps the same ref.
@@ -514,7 +514,7 @@ Holds the FastAPI app, its startup/shutdown lifecycle, and all seven route handl
 [Logging](#logging)), then builds a `VLLMService` (`bioparser.services.vllm`) from
 `config.get_api_settings()` and probes the vLLM model id once. The probe is best-effort: a failure logs one WARNING
 and startup continues. When configured, the lifecycle also opens
-the async Postgres pool (`bioparser.db.engine`, asyncpg), a Redis-backed `DramatiqJobQueue`, and a
+the async Postgres pool (`bioparser.db.engine`, asyncpg), a Redis-backed `DramatiqJobSubmitter`, and a
 `FileSystemArtifactStorage`. For `POST /extract` it creates a `ProcessPoolExecutor` and an
 `asyncio.Semaphore`, both sized `config.extract_concurrency`. On shutdown, the pool stops
 taking work (a running child is not waited for), and network clients and the Postgres
@@ -532,7 +532,8 @@ pool are closed. Migrations stay on the sync psycopg driver.
 - `GET /api/jobs/{job_id}` — reads the typed state from Postgres and
   maps it to the public status response. One Postgres read; no artifact read.
 - `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`
-  when it has no such ref, then return the stored bytes. The read runs in a thread.
+  when it has no such ref, then return the stored bytes via async storage (disk I/O runs
+  on a thread inside the storage implementation).
 - `POST /extract` — runs the same `_validated_upload()` as `POST /api/extractions`, takes a
   slot (`_start_pipeline()`), and runs [`run_pipeline()`](#bioparserpipeline) in the process
   pool. A `PipelineError` becomes a `502 HTTPException`. If a child died (for example out

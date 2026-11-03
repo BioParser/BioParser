@@ -1,5 +1,6 @@
 """A missing PDF: the parsers leave the path out of the error, the CLI prints it (#109)."""
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,7 @@ def test_missing_pdf_error_holds_no_path(tmp_path: Path, backend: str) -> None:
     missing = tmp_path / PLANTED_DIR / "missing.pdf"
 
     with pytest.raises(FileNotFoundError) as exc_info:
-        get_parser(backend).parse(missing)
+        asyncio.run(get_parser(backend).parse(missing))
 
     message = str(exc_info.value)
     assert message == "PDF not found"

@@ -27,9 +27,10 @@ from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.hashing import Sha256Hex, is_sha256_hex, sha256_bytes
 from bioparser.jobqueue import (
     JobQueueError,
+    JobSubmitter,
     ParseJobMessage,
 )
-from bioparser.jobqueue.dramatiq import DramatiqJobQueue
+from bioparser.jobqueue.dramatiq import DramatiqJobSubmitter
 from bioparser.jobstate import (
     CorruptJobStateError,
     JobState,
@@ -152,12 +153,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             redis_url = str(settings.redis_url)
             redis_timeout = settings.redis_timeout_seconds
             await database.open(str(settings.database_url))
-            app.state.parse_queue = DramatiqJobQueue.from_redis(
+            parse_queue: JobSubmitter[ParseJobMessage] = DramatiqJobSubmitter.from_redis(
                 redis_url,
                 name=settings.parse_queue_name,
-                model=ParseJobMessage,
                 timeout_s=redis_timeout,
             )
+            app.state.parse_queue = parse_queue
 
             app.state.artifact_storage = FileSystemArtifactStorage(
                 root_path=settings.artifact_storage_path
@@ -370,14 +371,14 @@ def _artifact_responses(model: type[BaseModel], description: str) -> dict[int | 
 async def _stored_artifact(request: Request, job: JobState, ref: str | None, kind: str) -> Response:
     """The artifact at ``ref`` as stored, or 409 when the job has none yet.
 
-    The bytes are read in a thread and not parsed: the worker validated them before it
-    recorded the ref, and a parser artifact can be several MB.
+    The bytes are loaded through async storage and not parsed: the worker validated them
+    before it recorded the ref, and a parser artifact can be several MB.
     """
     if ref is None:
         raise http_error(409, ARTIFACT_NOT_AVAILABLE)
     fields = {"job_id": str(job.job_id), "artifact": kind}
     try:
-        payload: bytes = await asyncio.to_thread(request.app.state.artifact_storage.retrieve, ref)
+        payload: bytes = await request.app.state.artifact_storage.retrieve(ref)
     except (ArtifactNotFoundError, StoragePayloadError) as exc:
         LOGGER.error("job artifact missing or invalid", extra=fields | error_fields(exc))
         raise http_error(500, ARTIFACT_INVALID) from exc
@@ -421,9 +422,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     }
 
     try:
-        pdf_ref = await asyncio.to_thread(
-            request.app.state.artifact_storage.store, pdf_bytes, artifact_metadata
-        )
+        pdf_ref = await request.app.state.artifact_storage.store(pdf_bytes, artifact_metadata)
     except ArtifactAlreadyExistsError:
         pdf_ref = artifact_metadata.artifact_path
     except StorageError as exc:
@@ -449,7 +448,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         LOGGER.error("job state create failed", extra=fields | error_fields(exc))
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
     try:
-        await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
+        await request.app.state.parse_queue.submit(parse_job_message)
     except JobQueueError as exc:
         LOGGER.error("parse job enqueue failed", extra=fields | error_fields(exc))
         try:
@@ -514,9 +513,7 @@ async def upload_document(
     )
 
     try:
-        await asyncio.to_thread(
-            request.app.state.artifact_storage.store, pdf_bytes, artifact_metadata
-        )
+        await request.app.state.artifact_storage.store(pdf_bytes, artifact_metadata)
     except ArtifactAlreadyExistsError:
         pass
     except StorageError as exc:
@@ -623,9 +620,7 @@ async def get_document_file(request: Request, checksum: str) -> Response:
 
     doc_path = pdf_path(valid_checksum)
     try:
-        content: bytes = await asyncio.to_thread(
-            request.app.state.artifact_storage.retrieve, doc_path
-        )
+        content: bytes = await request.app.state.artifact_storage.retrieve(doc_path)
     except ArtifactNotFoundError as exc:
         raise http_error(404, DOCUMENT_NOT_FOUND) from exc
     except StoragePayloadError as exc:
@@ -705,7 +700,7 @@ async def submit_document_job(
 
     parse_job_message = ParseJobMessage(job_id=job_id)
     try:
-        await asyncio.to_thread(request.app.state.parse_queue.submit, parse_job_message)
+        await request.app.state.parse_queue.submit(parse_job_message)
     except JobQueueError as exc:
         LOGGER.error("parse job enqueue failed", extra=fields | error_fields(exc))
         try:

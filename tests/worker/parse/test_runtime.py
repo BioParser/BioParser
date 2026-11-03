@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import runpy
@@ -75,8 +76,8 @@ def test_one_tier_setting_names_the_request_and_the_result_path(tmp_path: Path) 
             mineru_tier="standard",
         )
         _queue, handler = build_worker(settings)
-        artifact = handler._parser_factory("mineru").parse(pdf)
-        handler.close()
+        artifact = asyncio.run(handler._parser_factory("mineru").parse(pdf))
+        asyncio.run(handler.aclose())
 
     assert "tier=standard&" in seen[0]
     assert artifact.parser.configuration["tier"] == handler._mineru_tier == "standard"

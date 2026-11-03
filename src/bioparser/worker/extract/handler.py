@@ -57,10 +57,12 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         LOGGER.warning("vLLM is not answering")
         raise JobDeferred("vLLM is not answering")
 
-    def close(self) -> None:
-        if self._vllm is not None and not self._loop.is_closed():
-            self.run_async(self._vllm.aclose())
-        super().close()
+    async def aclose(self) -> None:
+        try:
+            if self._vllm is not None:
+                await self._vllm.aclose()
+        finally:
+            await super().aclose()
 
     async def run(self, state: JobState) -> None:
         artifact_path = await self._ensure_extraction_artifact(state)
@@ -77,8 +79,8 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             LOGGER.error("job has no parser artifact. Marking the job failed (internal_error)")
             raise PermanentJobFailure("internal_error")
         artifact_path = _extraction_artifact_path(ref, state.extractor)
-        parser_artifact = self._load_parser_artifact(ref)
-        stored = _retrieve_or_none(self._storage, artifact_path)
+        parser_artifact = await self._load_parser_artifact(ref)
+        stored = await _retrieve_or_none(self._storage, artifact_path)
         if stored is not None and _is_extraction_artifact(stored):
             return artifact_path
         if stored is not None:
@@ -104,7 +106,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             )
             raise PermanentJobFailure("extraction_failed") from exc
         payload = artifact.model_dump_json().encode()
-        return store_json_artifact(
+        return await store_json_artifact(
             self._storage,
             schema_version=EXTRACTION_ARTIFACT_SCHEMA_VERSION,
             payload=payload,
@@ -114,9 +116,9 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             kind="extraction artifact",
         )
 
-    def _load_parser_artifact(self, ref: str) -> ParserArtifact:
+    async def _load_parser_artifact(self, ref: str) -> ParserArtifact:
         try:
-            raw = self._storage.retrieve(ref)
+            raw = await self._storage.retrieve(ref)
         except ArtifactNotFoundError as exc:
             LOGGER.error("parser artifact is missing. Marking the job failed (internal_error)")
             raise PermanentJobFailure("internal_error") from exc

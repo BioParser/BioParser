@@ -1,10 +1,17 @@
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Iterator
 from typing import Any, cast
 from uuid import UUID
 
 import pytest
-from stubs import StubJobs, StubVLLMService, bind_jobs, clear_jobs
+from stubs import (
+    MemoryStorage,
+    StubJobs,
+    StubVLLMService,
+    bind_jobs,
+    clear_jobs,
+)
 
 from bioparser.artifact_paths import (
     ARTIFACT_PATH_MAX_LENGTH,
@@ -48,9 +55,6 @@ from bioparser.parser.models import (
 )
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.vllm import VLLMError, VLLMRequestRejectedError, VLLMTruncatedError
-from bioparser.storage import StoredArtifact
-from bioparser.storage.errors import ArtifactAlreadyExistsError, ArtifactNotFoundError
-from bioparser.storage.models import ArtifactMetadata
 from bioparser.worker.extract.config import DEFAULT_EXTRACT_MAX_RETRIES
 from bioparser.worker.extract.handler import ExtractJobHandler
 
@@ -84,36 +88,6 @@ def _stub_job_queries(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     clear_jobs()
 
 
-class MemoryStorage:
-    def __init__(self) -> None:
-        self.payloads: dict[str, bytes] = {PARSE_REF: _parser_artifact().model_dump_json().encode()}
-        self.metadata: dict[str, ArtifactMetadata] = {}
-        self.stores = 0
-
-    def store(self, content: bytes, metadata: ArtifactMetadata) -> str:
-        if metadata.artifact_path in self.payloads:
-            raise ArtifactAlreadyExistsError(metadata.artifact_path)
-        self.payloads[metadata.artifact_path] = content
-        self.metadata[metadata.artifact_path] = metadata
-        self.stores += 1
-        return metadata.artifact_path
-
-    def retrieve(self, artifact_path: str) -> bytes:
-        try:
-            return self.payloads[artifact_path]
-        except KeyError as exc:
-            raise ArtifactNotFoundError(artifact_path) from exc
-
-    def exists(self, artifact_path: str) -> bool:
-        return artifact_path in self.payloads
-
-    def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
-        return self.metadata[artifact_path]
-
-    def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
-        raise NotImplementedError
-
-
 def _parser_artifact(text: str = QUOTE) -> ParserArtifact:
     return ParserArtifact(
         schema_version=PARSER_ARTIFACT_SCHEMA_VERSION,
@@ -136,6 +110,10 @@ def _parser_artifact(text: str = QUOTE) -> ParserArtifact:
             )
         ],
     )
+
+
+def _storage() -> MemoryStorage:
+    return MemoryStorage({PARSE_REF: _parser_artifact().model_dump_json().encode()})
 
 
 def _parsed() -> JobState:
@@ -241,18 +219,18 @@ def _handler(
 
 def test_success_stores_the_report_and_marks_done() -> None:
     jobs = StubJobs(_parsed())
-    storage = MemoryStorage()
+    storage = _storage()
     vllm = _stub()
     handler = _handler(jobs, storage, _real_extract(vllm))
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.status == "done"
     assert jobs.state.extract_result_ref == RESULT_PATH
     assert jobs.state.parse_result_ref == PARSE_REF
     assert jobs.state.claims("extracting") == 1
-    stored = ExtractionArtifact.model_validate_json(storage.retrieve(RESULT_PATH))
+    stored = ExtractionArtifact.model_validate_json(asyncio.run(storage.retrieve(RESULT_PATH)))
     value = stored.observations[0].verbatimTraitValue
     assert value.text == "12.5"
     assert value.evidence is not None
@@ -268,14 +246,14 @@ def test_success_stores_the_report_and_marks_done() -> None:
 
 def test_duplicate_delivery_does_not_call_the_model_again() -> None:
     jobs = StubJobs(_parsed())
-    storage = MemoryStorage()
+    storage = _storage()
     vllm = _stub()
     handler = _handler(jobs, storage, _real_extract(vllm))
     message = _message()
-    handler.handle(message)
+    asyncio.run(handler.handle(message))
     prompts = len(vllm.prompts)
-    handler.handle(message)
-    handler.close()
+    asyncio.run(handler.handle(message))
+    asyncio.run(handler.aclose())
 
     assert len(vllm.prompts) == prompts
     assert storage.stores == 1
@@ -285,7 +263,7 @@ def test_duplicate_delivery_does_not_call_the_model_again() -> None:
 
 def test_an_unlocated_observation_is_not_stored() -> None:
     jobs = StubJobs(_parsed())
-    storage = MemoryStorage()
+    storage = _storage()
     vllm = StubVLLMService(
         observations=[
             {
@@ -299,10 +277,10 @@ def test_an_unlocated_observation_is_not_stored() -> None:
         ]
     )
     handler = _handler(jobs, storage, _real_extract(vllm))
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
-    stored = ExtractionArtifact.model_validate_json(storage.retrieve(RESULT_PATH))
+    stored = ExtractionArtifact.model_validate_json(asyncio.run(storage.retrieve(RESULT_PATH)))
     assert stored.observations == []
     assert jobs.state is not None
     assert jobs.state.status == "done"
@@ -314,9 +292,9 @@ def test_schema_failure_is_permanent() -> None:
     async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         raise ExtractionFailedError("schema")
 
-    handler = _handler(jobs, MemoryStorage(), extract)
-    handler.handle(_message())
-    handler.close()
+    handler = _handler(jobs, _storage(), extract)
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
@@ -328,12 +306,12 @@ def test_truncated_output_is_permanent() -> None:
     jobs = StubJobs(_parsed())
     handler = ExtractJobHandler(
         database_url="postgresql://unused",
-        storage=MemoryStorage(),
+        storage=_storage(),
         extractor_factory=_registered(_FailingVLLM(VLLMTruncatedError("cut off"))),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
     )
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
@@ -345,14 +323,14 @@ def test_a_rejected_request_is_permanent() -> None:
     jobs = StubJobs(_parsed())
     handler = ExtractJobHandler(
         database_url="postgresql://unused",
-        storage=MemoryStorage(),
+        storage=_storage(),
         extractor_factory=_registered(
             _FailingVLLM(VLLMRequestRejectedError("vLLM rejected the request: BadRequestError"))
         ),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
     )
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
@@ -373,7 +351,7 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
 
     handler = ExtractJobHandler(
         database_url="postgresql://unused",
-        storage=MemoryStorage(),
+        storage=_storage(),
         extractor_factory=_factory(extract),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
         vllm=cast(VLLMService, vllm),
@@ -382,8 +360,8 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
         caplog.at_level(logging.WARNING, logger="bioparser.worker.extract.handler"),
         pytest.raises(JobDeferred),
     ):
-        handler.handle(_message())
-    handler.close()
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert called is False
     assert "vLLM is not answering" in caplog.text
@@ -394,7 +372,7 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
 
 def test_vllm_answering_still_extracts() -> None:
     jobs = StubJobs(_parsed())
-    storage = MemoryStorage()
+    storage = _storage()
     vllm = _stub()
     handler = ExtractJobHandler(
         database_url="postgresql://unused",
@@ -403,8 +381,8 @@ def test_vllm_answering_still_extracts() -> None:
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
         vllm=cast(VLLMService, vllm),
     )
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.status == "done"
@@ -415,10 +393,10 @@ def test_on_failed_on_a_parsed_job_says_it_cannot_be_marked_failed(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     jobs = StubJobs(_parsed())
-    handler = _handler(jobs, MemoryStorage(), _real_extract(_stub()))
+    handler = _handler(jobs, _storage(), _real_extract(_stub()))
     with caplog.at_level(logging.INFO, logger="bioparser.worker.stage"):
-        handler.on_failed(_message(), RuntimeError("wake-up failed"))
-    handler.close()
+        asyncio.run(handler.on_failed(_message(), RuntimeError("wake-up failed")))
+    asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
@@ -430,13 +408,13 @@ def test_vllm_errors_are_retried() -> None:
     jobs = StubJobs(_parsed())
     handler = ExtractJobHandler(
         database_url="postgresql://unused",
-        storage=MemoryStorage(),
+        storage=_storage(),
         extractor_factory=_registered(_FailingVLLM(VLLMError("down"))),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
     )
     with pytest.raises(ExtractorProcessError):
-        handler.handle(_message())
-    handler.close()
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.status == "extracting"
@@ -444,15 +422,15 @@ def test_vllm_errors_are_retried() -> None:
 
 def test_a_missing_parser_artifact_fails_without_retry() -> None:
     jobs = StubJobs(_parsed())
-    storage = MemoryStorage()
+    storage = _storage()
     storage.payloads.pop(PARSE_REF)
 
     async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         raise AssertionError("model was called")
 
     handler = _handler(jobs, storage, extract)
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.error_code == "internal_error"
@@ -460,7 +438,7 @@ def test_a_missing_parser_artifact_fails_without_retry() -> None:
 
 def test_an_invalid_parser_artifact_fails_without_calling_the_model() -> None:
     jobs = StubJobs(_parsed())
-    storage = MemoryStorage()
+    storage = _storage()
     invalid = b'{"old":true}'
     storage.payloads[PARSE_REF] = invalid
 
@@ -468,11 +446,11 @@ def test_an_invalid_parser_artifact_fails_without_calling_the_model() -> None:
         raise AssertionError("model was called")
 
     handler = _handler(jobs, storage, extract)
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert storage.stores == 0
-    assert storage.retrieve(PARSE_REF) == invalid
+    assert asyncio.run(storage.retrieve(PARSE_REF)) == invalid
     assert jobs.state is not None
     assert jobs.state.status == "failed"
     assert jobs.state.error_code == "internal_error"
@@ -490,9 +468,9 @@ def test_a_job_still_parsing_is_left_alone() -> None:
         called = True
         raise AssertionError("model was called")
 
-    handler = _handler(jobs, MemoryStorage(), extract)
-    handler.handle(_message())
-    handler.close()
+    handler = _handler(jobs, _storage(), extract)
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert called is False
     assert jobs.state == state
@@ -500,9 +478,9 @@ def test_a_job_still_parsing_is_left_alone() -> None:
 
 def test_deferral_expiry_marks_an_extracting_job_failed() -> None:
     jobs = StubJobs(_parsed().with_changes(status="extracting", extracting_claims=1))
-    handler = _handler(jobs, MemoryStorage(), _real_extract(_stub()))
-    handler.on_failed(_message(), JobDeferralExpired())
-    handler.close()
+    handler = _handler(jobs, _storage(), _real_extract(_stub()))
+    asyncio.run(handler.on_failed(_message(), JobDeferralExpired()))
+    asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
@@ -512,9 +490,9 @@ def test_deferral_expiry_marks_an_extracting_job_failed() -> None:
 
 def test_on_failed_records_timeout_and_keeps_the_parser_artifact() -> None:
     jobs = StubJobs(_parsed().with_changes(status="extracting", extracting_claims=1))
-    handler = _handler(jobs, MemoryStorage(), _real_extract(_stub()))
-    handler.on_failed(_message(), JobTimeLimitExceeded())
-    handler.close()
+    handler = _handler(jobs, _storage(), _real_extract(_stub()))
+    asyncio.run(handler.on_failed(_message(), JobTimeLimitExceeded()))
+    asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
@@ -523,18 +501,18 @@ def test_on_failed_records_timeout_and_keeps_the_parser_artifact() -> None:
 
 
 def test_second_job_with_the_same_parser_artifact_reuses_the_result() -> None:
-    storage = MemoryStorage()
+    storage = _storage()
     vllm = _stub()
     first = StubJobs(_parsed())
     handler = _handler(first, storage, _real_extract(vllm))
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     other_id = UUID("9d0c6a52-1b7e-4c3f-a2d8-5e6f7a8b9c01")
     second = StubJobs(_parsed().with_changes(job_id=other_id))
     handler = _handler(second, storage, _real_extract(vllm))
-    handler.handle(ExtractJobMessage(job_id=other_id))
-    handler.close()
+    asyncio.run(handler.handle(ExtractJobMessage(job_id=other_id)))
+    asyncio.run(handler.aclose())
 
     assert len(vllm.prompts) == 1
     assert storage.stores == 1
@@ -545,7 +523,7 @@ def test_second_job_with_the_same_parser_artifact_reuses_the_result() -> None:
 
 def test_an_invalid_stored_extraction_fails_without_calling_the_model() -> None:
     jobs = StubJobs(_parsed())
-    storage = MemoryStorage()
+    storage = _storage()
     invalid = b'{"old":true}'
     storage.payloads[RESULT_PATH] = invalid
 
@@ -553,11 +531,11 @@ def test_an_invalid_stored_extraction_fails_without_calling_the_model() -> None:
         raise AssertionError("model was called")
 
     handler = _handler(jobs, storage, extract)
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert storage.stores == 0
-    assert storage.retrieve(RESULT_PATH) == invalid
+    assert asyncio.run(storage.retrieve(RESULT_PATH)) == invalid
     assert jobs.state is not None
     assert jobs.state.status == "failed"
     assert jobs.state.error_code == "internal_error"
@@ -569,15 +547,15 @@ def test_a_parse_path_that_cannot_take_an_extraction_is_internal_error() -> None
     assert len(ref) <= ARTIFACT_PATH_MAX_LENGTH
     assert len(ref) + len(suffix) > ARTIFACT_PATH_MAX_LENGTH
     jobs = StubJobs(_parsed().with_changes(parse_result_ref=ref))
-    storage = MemoryStorage()
+    storage = _storage()
     storage.payloads[ref] = _parser_artifact().model_dump_json().encode()
 
     async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         raise AssertionError("model was called")
 
     handler = _handler(jobs, storage, extract)
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.error_code == "internal_error"
@@ -589,7 +567,7 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
     standard_text = "Mus musculus standard tier recorded 40.0 kg."
     basic_ref = parse_result_path(PDF_CHECKSUM, "mineru", "2", "basic")
     standard_ref = parse_result_path(PDF_CHECKSUM, "mineru", "2", "standard")
-    storage = MemoryStorage()
+    storage = _storage()
     storage.payloads[basic_ref] = _parser_artifact(basic_text).model_dump_json().encode()
     storage.payloads[standard_ref] = _parser_artifact(standard_text).model_dump_json().encode()
     seen: list[str] = []
@@ -610,14 +588,14 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
 
     basic = StubJobs(_parsed().with_changes(parse_result_ref=basic_ref))
     handler = _handler(basic, storage, extract)
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     other_id = UUID("9d0c6a52-1b7e-4c3f-a2d8-5e6f7a8b9c01")
     standard = StubJobs(_parsed().with_changes(job_id=other_id, parse_result_ref=standard_ref))
     handler = _handler(standard, storage, extract)
-    handler.handle(ExtractJobMessage(job_id=other_id))
-    handler.close()
+    asyncio.run(handler.handle(ExtractJobMessage(job_id=other_id)))
+    asyncio.run(handler.aclose())
 
     basic_path = extract_result_path(basic_ref, "default", "1")
     standard_path = extract_result_path(standard_ref, "default", "1")
@@ -627,13 +605,15 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
     assert basic_path != standard_path
     assert seen == [basic_text, standard_text]
     basic_value = (
-        ExtractionArtifact.model_validate_json(storage.retrieve(basic_path))
+        ExtractionArtifact.model_validate_json(asyncio.run(storage.retrieve(basic_path)))
         .observations[0]
         .verbatimTraitValue
     )
     assert basic_value.evidence is not None
     assert basic_text[basic_value.evidence[0].start : basic_value.evidence[0].end] == "12.5"
-    standard_result = ExtractionArtifact.model_validate_json(storage.retrieve(standard_path))
+    standard_result = ExtractionArtifact.model_validate_json(
+        asyncio.run(storage.retrieve(standard_path))
+    )
     assert standard_result.observations == []
 
 
@@ -644,7 +624,7 @@ def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPa
         {"other": "4"},
     )
     jobs = StubJobs(_parsed().with_changes(extractor="other"))
-    storage = MemoryStorage()
+    storage = _storage()
     seen: list[str] = []
 
     async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
@@ -660,8 +640,8 @@ def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPa
         extractor_factory=extractor_factory,
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
     )
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert seen == ["other"]
     assert jobs.state is not None
@@ -683,14 +663,14 @@ def _observation_with_range(start: int, end: int, text: str) -> Observation:
 
 def _failed_with(returned: ExtractionArtifact) -> MemoryStorage:
     jobs = StubJobs(_parsed())
-    storage = MemoryStorage()
+    storage = _storage()
 
     async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         return returned
 
     handler = _handler(jobs, storage, extract)
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
@@ -711,7 +691,7 @@ def test_an_artifact_for_another_extractor_fails_the_job() -> None:
 
 def test_registered_extractor_stores_the_resolved_version() -> None:
     jobs = StubJobs(_parsed())
-    storage = MemoryStorage()
+    storage = _storage()
     vllm = _stub()
     seen: list[str] = []
 
@@ -730,8 +710,8 @@ def test_registered_extractor_stores_the_resolved_version() -> None:
         extractor_factory=extractor_factory,
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
     )
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     version = EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME]
     assert seen == [DEFAULT_EXTRACTOR_NAME]
@@ -752,14 +732,14 @@ def test_artifact_path_uses_the_version_resolved_for_the_run(
         {DEFAULT_EXTRACTOR_NAME: "4"},
     )
     jobs = StubJobs(_parsed())
-    storage = MemoryStorage()
+    storage = _storage()
 
     async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         return _artifact([], extractor_version="4")
 
     handler = _handler(jobs, storage, extract)
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.extract_result_ref == extract_result_path(
@@ -770,14 +750,14 @@ def test_artifact_path_uses_the_version_resolved_for_the_run(
 def test_an_extractor_with_no_version_is_internal_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("bioparser.worker.extract.handler.EXTRACTOR_VERSIONS", {})
     jobs = StubJobs(_parsed())
-    storage = MemoryStorage()
+    storage = _storage()
 
     async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         raise AssertionError("model was called")
 
     handler = _handler(jobs, storage, extract)
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert storage.stores == 0
     assert jobs.state is not None
@@ -787,7 +767,7 @@ def test_an_extractor_with_no_version_is_internal_error(monkeypatch: pytest.Monk
 
 def test_an_extractor_that_cannot_run_is_internal_error() -> None:
     jobs = StubJobs(_parsed())
-    storage = MemoryStorage()
+    storage = _storage()
 
     class _Down:
         async def extract(self, artifact: ParserArtifact) -> ExtractionArtifact:
@@ -799,8 +779,8 @@ def test_an_extractor_that_cannot_run_is_internal_error() -> None:
         extractor_factory=lambda _name: _Down(),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
     )
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert storage.stores == 0
     assert jobs.state is not None
@@ -810,7 +790,7 @@ def test_an_extractor_that_cannot_run_is_internal_error() -> None:
 
 def test_an_unknown_extractor_is_internal_error() -> None:
     jobs = StubJobs(_parsed())
-    storage = MemoryStorage()
+    storage = _storage()
 
     def extractor_factory(name: str) -> Extractor:
         raise ExtractorBackendUnavailableError(f"Unknown extractor {name!r}.")
@@ -821,8 +801,8 @@ def test_an_unknown_extractor_is_internal_error() -> None:
         extractor_factory=extractor_factory,
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
     )
-    handler.handle(_message())
-    handler.close()
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
 
     assert storage.stores == 0
     assert jobs.state is not None
@@ -833,9 +813,9 @@ def test_an_unknown_extractor_is_internal_error() -> None:
 def test_malformed_message_cannot_fail_a_parsed_job() -> None:
     """`parsed` has no transition to `failed`. The job stays for a valid wake-up."""
     jobs = StubJobs(_parsed())
-    handler = _handler(jobs, MemoryStorage(), _real_extract(_stub()))
-    handler.on_malformed({"job_id": str(JOB_ID), "extra": "nope"})
-    handler.close()
+    handler = _handler(jobs, _storage(), _real_extract(_stub()))
+    asyncio.run(handler.on_malformed({"job_id": str(JOB_ID), "extra": "nope"}))
+    asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
