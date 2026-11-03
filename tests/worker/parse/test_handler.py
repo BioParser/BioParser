@@ -363,6 +363,21 @@ def test_postgres_unreachable_defers_without_claiming() -> None:
     assert parser.paths == []
 
 
+def test_postgres_unreachable_on_claim_defers_without_claiming() -> None:
+    jobs = StubJobs(_queued())
+    jobs.claim_error = DatabaseUnavailableError("Postgres query failed: TimeoutError")
+    parser = RecordingParser(_artifact())
+    handler = _handler(jobs, _storage(), parser)
+    with pytest.raises(JobDeferred, match="Postgres is not reachable"):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "queued"
+    assert jobs.state.claims("parsing") == 0
+    assert parser.paths == []
+
+
 def test_database_error_without_outage_is_not_deferred() -> None:
     jobs = StubJobs(_queued())
     jobs.get_error = DatabaseError("Postgres query failed: IntegrityError")

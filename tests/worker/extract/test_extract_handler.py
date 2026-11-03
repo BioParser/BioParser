@@ -391,6 +391,24 @@ def test_postgres_unreachable_defers_without_claiming() -> None:
     assert jobs.state.claims("extracting") == 0
 
 
+def test_postgres_unreachable_on_claim_defers_without_claiming() -> None:
+    jobs = StubJobs(_parsed())
+    jobs.claim_error = DatabaseUnavailableError("Postgres query failed: TimeoutError")
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=_storage(),
+        extractor_factory=_factory(_real_extract(_stub())),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    with pytest.raises(JobDeferred, match="Postgres is not reachable"):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "parsed"
+    assert jobs.state.claims("extracting") == 0
+
+
 def test_vllm_answering_still_extracts() -> None:
     jobs = StubJobs(_parsed())
     storage = _storage()

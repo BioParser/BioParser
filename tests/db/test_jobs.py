@@ -521,23 +521,31 @@ def _engine_that_records(events: list[str]) -> object:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("error", [TimeoutError, OSError])
+@pytest.mark.parametrize(
+    ("error", "expected_type"),
+    [
+        (OSError, DatabaseUnavailableError),
+        (TimeoutError, DatabaseError),
+    ],
+)
 async def test_transaction_reports_a_driver_error_from_the_body(
-    monkeypatch: pytest.MonkeyPatch, error: type[Exception]
+    monkeypatch: pytest.MonkeyPatch,
+    error: type[Exception],
+    expected_type: type[DatabaseError],
 ) -> None:
     events: list[str] = []
     monkeypatch.setattr(db_engine, "_engine", _engine_that_records(events))
-    with pytest.raises(DatabaseUnavailableError, match=error.__name__):
+    with pytest.raises(expected_type, match=error.__name__):
         async with db_engine.transaction():
-            raise error
+            raise error()
     assert events == ["rollback", "close"]
 
 
 @pytest.mark.parametrize(
     ("driver_error", "expected_type"),
     [
-        (OperationalError("statement", {}, Exception("connect")), DatabaseUnavailableError),
         (IntegrityError("statement", {}, Exception("unique")), DatabaseError),
+        (OperationalError("statement", {}, Exception("deadlock")), DatabaseError),
     ],
 )
 def test_database_error_from_driver_classifies_outages(
@@ -546,6 +554,13 @@ def test_database_error_from_driver_classifies_outages(
 ) -> None:
     raised = db_engine._database_error_from_driver(driver_error)
     assert type(raised) is expected_type
+
+
+def test_database_error_from_driver_treats_invalidated_connection_as_outage() -> None:
+    driver_error = OperationalError("connection failed", {}, Exception("disconnect"))
+    driver_error.connection_invalidated = True
+    raised = db_engine._database_error_from_driver(driver_error)
+    assert type(raised) is DatabaseUnavailableError
 
 
 @pytest.mark.anyio

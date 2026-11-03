@@ -338,6 +338,7 @@ class StubJobs:
         self.events = events if events is not None else []
         self.create_error: Exception | None = None
         self.get_error: Exception | None = None
+        self.claim_error: Exception | None = None
         self.doc_create_error: Exception | None = None
         self.doc_get_error: Exception | None = None
 
@@ -368,6 +369,8 @@ class StubJobs:
         from_statuses: Collection[str],
         max_claims: int,
     ) -> str:
+        if self.claim_error is not None:
+            raise self.claim_error
         state = self.states.get(str(job_id))
         if state is None:
             return "missing"

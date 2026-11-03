@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import InterfaceError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
@@ -30,16 +30,16 @@ class DatabaseUnavailableError(DatabaseError):
     """
 
 
-def _is_transient_driver_error(exc: BaseException) -> bool:
-    """True when the driver error is reachability, not a failed statement."""
-    if isinstance(exc, (OSError, TimeoutError, PoolTimeoutError, OperationalError, InterfaceError)):
+def _is_connection_pool_failure(exc: BaseException) -> bool:
+    """True when the pool or a connect attempt failed, not a failed SQL statement."""
+    if isinstance(exc, (OSError, PoolTimeoutError, InterfaceError)):
         return True
     return bool(isinstance(exc, SQLAlchemyError) and getattr(exc, "connection_invalidated", False))
 
 
 def _database_error_from_driver(exc: BaseException) -> DatabaseError:
     message = f"Postgres query failed: {type(exc).__name__}"
-    if _is_transient_driver_error(exc):
+    if _is_connection_pool_failure(exc):
         return DatabaseUnavailableError(message)
     return DatabaseError(message)
 
@@ -117,9 +117,9 @@ async def transaction() -> AsyncIterator[AsyncConnection]:
     those calls is fine. Other I/O is not: it holds a pooled connection, and
     an OSError or TimeoutError from it is reported as DatabaseError.
 
-    A driver failure, including one raised by a statement, becomes
-    ``DatabaseError`` or ``DatabaseUnavailableError`` when the failure is
-    transient. The message names the error type and not the URL. Any other
+    A driver failure becomes ``DatabaseError`` or ``DatabaseUnavailableError`` when
+    the pool or connect path failed. Statement and data failures stay
+    ``DatabaseError``. The message names the error type and not the URL. Any other
     error passes through.
     """
     try:
