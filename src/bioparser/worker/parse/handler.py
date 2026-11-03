@@ -13,8 +13,8 @@ from bioparser.artifact_paths import parse_result_path
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
 from bioparser.hashing import sha256_bytes
-from bioparser.jobqueue import ParseJobMessage
-from bioparser.jobstate import CorruptJobStateError, JobState, JobStatus
+from bioparser.jobs import CorruptJobStateError, JobState, JobStatus
+from bioparser.jobs.queue import ParseJobMessage
 from bioparser.parser import (
     ParserArtifact,
     ParserBackendUnavailableError,

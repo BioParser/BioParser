@@ -36,13 +36,13 @@ from bioparser.extract.models import (
 )
 from bioparser.extract.protocol import Extractor
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
-from bioparser.jobqueue import (
+from bioparser.jobs import JobState
+from bioparser.jobs.queue import (
     ExtractJobMessage,
     JobDeferralExpired,
     JobDeferred,
     JobTimeLimitExceeded,
 )
-from bioparser.jobstate import JobState
 from bioparser.parser.models import (
     PARSER_ARTIFACT_SCHEMA_VERSION,
     BlockKind,
@@ -618,7 +618,7 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
 
 
 def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("bioparser.jobstate.models.EXTRACTORS", ("default", "other"))
+    monkeypatch.setattr("bioparser.jobs.state.EXTRACTORS", ("default", "other"))
     monkeypatch.setattr(
         "bioparser.worker.extract.handler.EXTRACTOR_VERSIONS",
         {"other": "4"},

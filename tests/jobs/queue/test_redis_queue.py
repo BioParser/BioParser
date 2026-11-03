@@ -16,7 +16,7 @@ from dramatiq.middleware import CurrentMessage, Retries
 from dramatiq.middleware.time_limit import TimeLimit
 from redis.exceptions import ConnectionError as RedisConnectionError
 
-from bioparser.jobqueue import (
+from bioparser.jobs.queue import (
     JobDeferralExpired,
     JobDeferred,
     JobHandler,
@@ -25,10 +25,10 @@ from bioparser.jobqueue import (
     JobTimeLimitExceeded,
     ParseJobMessage,
 )
-from bioparser.jobqueue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
-from bioparser.jobqueue.dramatiq import redis_queue as redis_queue_module
-from bioparser.jobqueue.dramatiq.redis_queue import _create_redis_broker
-from bioparser.jobqueue.dramatiq.watchdog import DeliveryGuard
+from bioparser.jobs.queue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
+from bioparser.jobs.queue.dramatiq import redis_queue as redis_queue_module
+from bioparser.jobs.queue.dramatiq.redis_queue import _create_redis_broker
+from bioparser.jobs.queue.dramatiq.watchdog import DeliveryGuard
 
 
 @pytest.fixture
@@ -354,7 +354,7 @@ def test_malformed_log_names_fields_without_values(
             "token": "s3cret",
         }
     )
-    with caplog.at_level(logging.WARNING, logger="bioparser.jobqueue.dramatiq.redis_queue"):
+    with caplog.at_level(logging.WARNING, logger="bioparser.jobs.queue.dramatiq.redis_queue"):
         queue.consume(_Recorder(), until_empty=True)
     assert "s3cret" not in caplog.text
     assert "token: extra_forbidden" in caplog.text
@@ -973,7 +973,7 @@ def test_a_hook_that_never_returns_exits_the_process(
 
     monkeypatch.setattr("os._exit", fake_exit)
     # This hook never settles, so the real 30 s wait would hold the test.
-    monkeypatch.setattr("bioparser.jobqueue.dramatiq.watchdog._ACK_WAIT_S", 0.2)
+    monkeypatch.setattr("bioparser.jobs.queue.dramatiq.watchdog._ACK_WAIT_S", 0.2)
 
     class _StuckHook(JobHandler[ParseJobMessage]):
         async def handle(self, message: ParseJobMessage) -> None:

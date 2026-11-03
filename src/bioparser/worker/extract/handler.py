@@ -15,8 +15,8 @@ from bioparser.extract.errors import ExtractionFailedError, ExtractorBackendUnav
 from bioparser.extract.models import EXTRACTION_ARTIFACT_SCHEMA_VERSION, ExtractionArtifact
 from bioparser.extract.protocol import Extractor
 from bioparser.extractor_names import EXTRACTOR_VERSIONS
-from bioparser.jobqueue import ExtractJobMessage, JobDeferred
-from bioparser.jobstate import JobState, JobStatus
+from bioparser.jobs import JobState, JobStatus
+from bioparser.jobs.queue import ExtractJobMessage, JobDeferred
 from bioparser.parser.models import ParserArtifact
 from bioparser.services.vllm.vllm import VLLMService
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
