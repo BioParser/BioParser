@@ -12,12 +12,12 @@ from typing import get_args
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from bioparser.db import engine as db_engine
 from bioparser.db import jobs as job_queries
-from bioparser.db.engine import DatabaseError, async_database_url, sync_database_url
+from bioparser.db.engine import DatabaseError, DatabaseUnavailableError, async_database_url, sync_database_url
 from bioparser.db.migrate import upgrade
 from bioparser.jobs import CorruptJobStateError, JobState, JobStatus
 
@@ -477,7 +477,7 @@ async def test_unreachable_postgres_raises_database_error() -> None:
     await db_engine.aclose()
     await db_engine.open("postgresql://bioparser:s3cret@127.0.0.1:1/bioparser")
     try:
-        with pytest.raises(DatabaseError) as raised:
+        with pytest.raises(DatabaseUnavailableError) as raised:
             await _create(_queued(uuid.uuid4()))
         assert "s3cret" not in str(raised.value)
     finally:
@@ -497,7 +497,7 @@ async def test_pool_exhaustion_raises_database_error(database: str) -> None:
     db_engine._engine = small
     try:
         async with db_engine.transaction():
-            with pytest.raises(DatabaseError, match="TimeoutError"):
+            with pytest.raises(DatabaseUnavailableError, match="TimeoutError"):
                 await _get(uuid.uuid4())
     finally:
         db_engine._engine = original
@@ -527,10 +527,25 @@ async def test_transaction_reports_a_driver_error_from_the_body(
 ) -> None:
     events: list[str] = []
     monkeypatch.setattr(db_engine, "_engine", _engine_that_records(events))
-    with pytest.raises(DatabaseError, match=error.__name__):
+    with pytest.raises(DatabaseUnavailableError, match=error.__name__):
         async with db_engine.transaction():
             raise error
     assert events == ["rollback", "close"]
+
+
+@pytest.mark.parametrize(
+    ("driver_error", "expected_type"),
+    [
+        (OperationalError("statement", {}, Exception("connect")), DatabaseUnavailableError),
+        (IntegrityError("statement", {}, Exception("unique")), DatabaseError),
+    ],
+)
+def test_database_error_from_driver_classifies_outages(
+    driver_error: OperationalError | IntegrityError,
+    expected_type: type[DatabaseError],
+) -> None:
+    raised = db_engine._database_error_from_driver(driver_error)
+    assert type(raised) is expected_type
 
 
 @pytest.mark.anyio

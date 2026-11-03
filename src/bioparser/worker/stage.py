@@ -9,11 +9,13 @@ subclass's `run`.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Protocol
 from uuid import UUID
 
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
+from bioparser.db.engine import DatabaseUnavailableError
 from bioparser.jobs import (
     CorruptJobStateError,
     JobNotFoundError,
@@ -21,7 +23,7 @@ from bioparser.jobs import (
     JobStatus,
     SafeErrorCode,
 )
-from bioparser.jobs.queue import JobTimeLimitExceeded
+from bioparser.jobs.queue import JobDeferred, JobTimeLimitExceeded
 from bioparser.logging_config import log_context
 
 LOGGER = logging.getLogger(__name__)
@@ -46,7 +48,7 @@ class StageJobHandler[T: JobMessage]:
 
     A status outside `owned` is left unchanged. A `PermanentJobFailure`
     from `run` is recorded as a safe error. Any other exception is retried.
-    `ready` may raise `JobDeferred` before the claim. The queue sends the
+    `before_claim` may raise `JobDeferred` before the claim. The queue sends the
     message again later without using a retry, and gives up at a deadline.
     Any other result drops that outage's clock, so a retry of this message
     starts a new hour if it has to defer.
@@ -60,11 +62,13 @@ class StageJobHandler[T: JobMessage]:
         owned: frozenset[JobStatus],
         claim_status: JobStatus,
         max_claims: int,
+        before_claim: Callable[[JobState], Awaitable[None]] | None = None,
     ) -> None:
         self._database_url = database_url
         self._owned = owned
         self._claim_status = claim_status
         self._max_claims = max_claims
+        self._before_claim = before_claim
 
     async def aopen(self) -> None:
         await database.open(self._database_url)
@@ -106,10 +110,6 @@ class StageJobHandler[T: JobMessage]:
                     f"giving up after {type(exc).__name__}. Not marking the job failed ({code})"
                 )
 
-    async def ready(self) -> None:
-        """Raise JobDeferred when a dependency is down. The job is unchanged."""
-        return
-
     async def run(self, state: JobState) -> None:
         """Do the stage's work. The claim is already stored.
 
@@ -119,21 +119,25 @@ class StageJobHandler[T: JobMessage]:
         raise NotImplementedError
 
     async def _handle(self, job_id: UUID) -> None:
-        async with database.transaction() as connection:
-            try:
+        try:
+            async with database.transaction() as connection:
                 state = await job_queries.get(connection, job_id)
-            except CorruptJobStateError:
-                LOGGER.error(
-                    "stored job state is unreadable. Dropping the message without retry, "
-                    "the job stays in its stored status"
-                )
-                return
             if state is None:
                 raise JobNotFoundError(f"no stored state for job {job_id}. Message will be retried")
             if state.status not in self._owned:
                 LOGGER.info(f"status is already {state.status!r}. Skipping this delivery")
                 return
-        await self.ready()
+        except CorruptJobStateError:
+            LOGGER.error(
+                "stored job state is unreadable. Dropping the message without retry, "
+                "the job stays in its stored status"
+            )
+            return
+        except DatabaseUnavailableError:
+            LOGGER.warning("Postgres is not reachable")
+            raise JobDeferred("Postgres is not reachable") from None
+        if self._before_claim is not None:
+            await self._before_claim(state)
         if not await self._mark_running(state):
             return
         try:
@@ -144,14 +148,18 @@ class StageJobHandler[T: JobMessage]:
 
     async def _mark_running(self, state: JobState) -> bool:
         claim = self._claim_status
-        async with database.transaction() as connection:
-            outcome = await job_queries.claim(
-                connection,
-                state.job_id,
-                status=claim,
-                from_statuses=self._owned,
-                max_claims=self._max_claims,
-            )
+        try:
+            async with database.transaction() as connection:
+                outcome = await job_queries.claim(
+                    connection,
+                    state.job_id,
+                    status=claim,
+                    from_statuses=self._owned,
+                    max_claims=self._max_claims,
+                )
+        except DatabaseUnavailableError:
+            LOGGER.warning("Postgres is not reachable")
+            raise JobDeferred("Postgres is not reachable") from None
         if outcome == "claimed":
             return True
         if outcome == "exhausted":

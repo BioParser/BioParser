@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 # Compose and the settings use a bare postgresql URL. Each engine needs its driver.
@@ -20,6 +20,27 @@ _ASYNC_PREFIXES = ("postgresql+psycopg://", "postgresql://", "postgres://")
 
 class DatabaseError(RuntimeError):
     """The pool could not borrow a connection or commit it. The message has no URL."""
+
+
+class DatabaseUnavailableError(DatabaseError):
+    """Postgres could not be reached, or the pool could not serve a connection in time.
+
+    Workers may defer the queue delivery. Other ``DatabaseError`` types are statement or data failures that should not be treated as an outage.
+    """
+
+
+def _is_transient_driver_error(exc: BaseException) -> bool:
+    """True when the driver error is reachability, not a failed statement."""
+    if isinstance(exc, (OSError, TimeoutError, OperationalError, InterfaceError)):
+        return True
+    return bool(isinstance(exc, SQLAlchemyError) and getattr(exc, "connection_invalidated", False))
+
+
+def _database_error_from_driver(exc: BaseException) -> DatabaseError:
+    message = f"Postgres query failed: {type(exc).__name__}"
+    if _is_transient_driver_error(exc):
+        return DatabaseUnavailableError(message)
+    return DatabaseError(message)
 
 
 _engine: AsyncEngine | None = None
@@ -96,11 +117,12 @@ async def transaction() -> AsyncIterator[AsyncConnection]:
     an OSError or TimeoutError from it is reported as DatabaseError.
 
     A driver failure, including one raised by a statement, becomes
-    DatabaseError. The message names the error type and not the URL. Any
-    other error passes through.
+    ``DatabaseError`` or ``DatabaseUnavailableError`` when the failure is
+    transient. The message names the error type and not the URL. Any other
+    error passes through.
     """
     try:
         async with require().begin() as connection:
             yield connection
     except _DRIVER_ERRORS as exc:
-        raise DatabaseError(f"Postgres query failed: {type(exc).__name__}") from exc
+        raise _database_error_from_driver(exc) from exc

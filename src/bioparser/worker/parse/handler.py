@@ -47,12 +47,14 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
         max_claims: int,
         mineru_tier: MinerUTier = DEFAULT_TIER,
         enqueue_extraction: Callable[[UUID], Awaitable[None]] | None = None,
+        before_claim: Callable[[JobState], Awaitable[None]] | None = None,
     ) -> None:
         super().__init__(
             database_url=database_url,
             owned=_PARSE_STAGE,
             claim_status="parsing",
             max_claims=max_claims,
+            before_claim=before_claim,
         )
         self._storage = storage
         self._parser_factory = parser_factory

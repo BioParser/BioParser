@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from pydantic import ValidationError
 
@@ -16,7 +16,7 @@ from bioparser.extract.models import EXTRACTION_ARTIFACT_SCHEMA_VERSION, Extract
 from bioparser.extract.protocol import Extractor
 from bioparser.extractor_names import EXTRACTOR_VERSIONS
 from bioparser.jobs import JobState, JobStatus
-from bioparser.jobs.queue import ExtractJobMessage, JobDeferred
+from bioparser.jobs.queue import ExtractJobMessage
 from bioparser.parser.models import ParserArtifact
 from bioparser.services.vllm.vllm import VLLMService
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
@@ -40,22 +40,18 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         extractor_factory: Callable[[str], Extractor],
         max_claims: int,
         vllm: VLLMService | None = None,
+        before_claim: Callable[[JobState], Awaitable[None]] | None = None,
     ) -> None:
         super().__init__(
             database_url=database_url,
             owned=_EXTRACT_STAGE,
             claim_status="extracting",
             max_claims=max_claims,
+            before_claim=before_claim,
         )
         self._storage = storage
         self._extractor_factory = extractor_factory
         self._vllm = vllm
-
-    async def ready(self) -> None:
-        if self._vllm is None or await self._vllm.ping():
-            return
-        LOGGER.warning("vLLM is not answering")
-        raise JobDeferred("vLLM is not answering")
 
     async def aclose(self) -> None:
         try:

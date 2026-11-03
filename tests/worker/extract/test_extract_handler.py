@@ -18,6 +18,7 @@ from bioparser.artifact_paths import (
     extract_result_path,
     parse_result_path,
 )
+from bioparser.db.engine import DatabaseUnavailableError
 from bioparser.extract.backend.default.extractor import extract_observations
 from bioparser.extract.backend.default.locate import cited_observations
 from bioparser.extract.backend.default.schema import Extraction, ModelObservation
@@ -55,6 +56,7 @@ from bioparser.parser.models import (
 )
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.vllm import VLLMError, VLLMRequestRejectedError, VLLMTruncatedError
+from bioparser.worker.before_claim import vllm_before_claim
 from bioparser.worker.extract.config import DEFAULT_EXTRACT_MAX_RETRIES
 from bioparser.worker.extract.handler import ExtractJobHandler
 
@@ -355,9 +357,10 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
         extractor_factory=_factory(extract),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
         vllm=cast(VLLMService, vllm),
+        before_claim=vllm_before_claim(cast(VLLMService, vllm)),
     )
     with (
-        caplog.at_level(logging.WARNING, logger="bioparser.worker.extract.handler"),
+        caplog.at_level(logging.WARNING, logger="bioparser.worker.before_claim"),
         pytest.raises(JobDeferred),
     ):
         asyncio.run(handler.handle(_message()))
@@ -365,6 +368,24 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
 
     assert called is False
     assert "vLLM is not answering" in caplog.text
+    assert jobs.state is not None
+    assert jobs.state.status == "parsed"
+    assert jobs.state.claims("extracting") == 0
+
+
+def test_postgres_unreachable_defers_without_claiming() -> None:
+    jobs = StubJobs(_parsed())
+    jobs.get_error = DatabaseUnavailableError("Postgres query failed: OperationalError")
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=_storage(),
+        extractor_factory=_factory(_real_extract(_stub())),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    with pytest.raises(JobDeferred, match="Postgres is not reachable"):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
     assert jobs.state.claims("extracting") == 0
@@ -380,6 +401,7 @@ def test_vllm_answering_still_extracts() -> None:
         extractor_factory=_factory(_real_extract(vllm)),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
         vllm=cast(VLLMService, vllm),
+        before_claim=vllm_before_claim(cast(VLLMService, vllm)),
     )
     asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
