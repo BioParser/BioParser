@@ -6,7 +6,7 @@ from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator, model
 
 from bioparser.extractor_names import EXTRACTORS
 from bioparser.parser_names import PARSER_BACKENDS
-from bioparser.storage.artifact_paths import ArtifactPath
+from bioparser.artifact_paths import ArtifactPath
 
 
 class JobStateError(RuntimeError):

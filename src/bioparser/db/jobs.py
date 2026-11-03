@@ -22,7 +22,7 @@ from bioparser.jobs.state import (
     JobStatus,
     SafeErrorCode,
 )
-from bioparser.storage.artifact_paths import ARTIFACT_PATH_MAX_LENGTH, pdf_path
+from bioparser.artifact_paths import ARTIFACT_PATH_MAX_LENGTH, pdf_path
 
 # The same status list the column check uses. Schema version, parser names,
 # extractor names, and error codes stay unconstrained apart from null.

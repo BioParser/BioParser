@@ -50,7 +50,7 @@ from bioparser.parser.models import (
 )
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.vllm import VLLMError, VLLMRequestRejectedError, VLLMTruncatedError
-from bioparser.storage.artifact_paths import (
+from bioparser.artifact_paths import (
     ARTIFACT_PATH_MAX_LENGTH,
     extract_result_path,
     parse_result_path,

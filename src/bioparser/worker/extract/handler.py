@@ -19,7 +19,7 @@ from bioparser.jobs.queue import ExtractJobMessage, JobDeferred
 from bioparser.parser.models import ParserArtifact
 from bioparser.services.vllm.vllm import VLLMService
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
-from bioparser.storage.artifact_paths import ArtifactPathError, extract_result_path
+from bioparser.artifact_paths import ArtifactPathError, extract_result_path
 
 from ..json_artifact import _retrieve_or_none, store_json_artifact
 from ..stage import PermanentJobFailure, StageJobHandler

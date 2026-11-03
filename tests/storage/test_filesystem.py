@@ -21,7 +21,7 @@ from bioparser.storage import (
     StoragePathTraversalError,
     StoragePayloadError,
 )
-from bioparser.storage.artifact_paths import ARTIFACT_PATH_MAX_SEGMENT_LENGTH
+from bioparser.artifact_paths import ARTIFACT_PATH_MAX_SEGMENT_LENGTH
 from bioparser.storage.filesystem import FileBlobMetadata
 
 pytestmark = pytest.mark.anyio

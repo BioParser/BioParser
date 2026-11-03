@@ -25,7 +25,7 @@ from bioparser.parser.pdf_bytes import parse_pdf_bytes
 from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
-from bioparser.storage.artifact_paths import parse_result_path
+from bioparser.artifact_paths import parse_result_path
 
 from ..json_artifact import _retrieve_or_none, store_json_artifact
 from ..stage import PermanentJobFailure, StageJobHandler

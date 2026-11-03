@@ -36,7 +36,7 @@ from bioparser.parser.models import (
     TextContent,
 )
 from bioparser.parser.protocol import PdfParser
-from bioparser.storage.artifact_paths import parse_result_path
+from bioparser.artifact_paths import parse_result_path
 from bioparser.worker.parse.config import DEFAULT_PARSE_MAX_RETRIES
 from bioparser.worker.parse.handler import ParseJobHandler
 
