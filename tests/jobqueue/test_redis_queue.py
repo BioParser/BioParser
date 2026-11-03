@@ -905,6 +905,61 @@ def test_a_stuck_delivery_on_one_queue_does_not_exit_for_another(
     assert handler.received == [_message()]
 
 
+def test_an_ack_of_another_message_on_the_same_queue_does_not_exit(
+    stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A delay-queue ack has the same actor name but another message id."""
+    exits: list[int] = []
+    monkeypatch.setattr("os._exit", exits.append)
+    queue = _queue(stub_broker)
+    queue._guard.exit_message_id = "id-of-the-stuck-delivery"
+    queue._guard.exit_after_ack.set()
+    handler = _Recorder()
+    _submit(queue, _message())
+
+    queue.consume(handler, until_empty=True)
+
+    assert exits == []
+    assert handler.received == [_message()]
+
+
+def test_an_error_after_cancel_with_a_stuck_call_is_a_final_timeout(
+    stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The handler raises after cancel while its blocking call still runs."""
+    (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
+    time_limit.manager.interval = 0.05  # type: ignore[union-attr]
+    release = Event()
+    calls = 0
+    reported: list[BaseException] = []
+
+    def fake_exit(code: int) -> None:
+        release.set()
+
+    monkeypatch.setattr("os._exit", fake_exit)
+
+    class _RaisesWhileStuck(JobHandler[ParseJobMessage]):
+        async def handle(self, message: ParseJobMessage) -> None:
+            nonlocal calls
+            calls += 1
+            asyncio.ensure_future(asyncio.to_thread(release.wait))
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                raise RuntimeError("cleanup failed") from None
+
+        async def on_failed(self, message: ParseJobMessage, exc: BaseException) -> None:
+            reported.append(exc)
+
+    queue = _queue(stub_broker, time_limit_ms=200, max_retries=1, min_backoff_ms=1)
+    _submit(queue, _message())
+
+    queue.consume(_RaisesWhileStuck(), until_empty=True)
+
+    assert calls == 1
+    assert [type(exc) for exc in reported] == [JobTimeLimitExceeded]
+
+
 def test_a_hook_that_never_returns_exits_the_process(
     stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
