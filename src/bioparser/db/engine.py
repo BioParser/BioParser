@@ -32,9 +32,7 @@ class DatabaseUnavailableError(DatabaseError):
 
 def _is_transient_driver_error(exc: BaseException) -> bool:
     """True when the driver error is reachability, not a failed statement."""
-    if isinstance(
-        exc, (OSError, TimeoutError, PoolTimeoutError, OperationalError, InterfaceError)
-    ):
+    if isinstance(exc, (OSError, TimeoutError, PoolTimeoutError, OperationalError, InterfaceError)):
         return True
     return bool(isinstance(exc, SQLAlchemyError) and getattr(exc, "connection_invalidated", False))
 
