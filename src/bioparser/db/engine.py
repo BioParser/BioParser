@@ -13,8 +13,9 @@ from contextlib import asynccontextmanager
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
-# Compose and the settings use a bare postgresql URL. The async engine needs the driver.
-_POSTGRES_PREFIXES = ("postgresql+psycopg://", "postgresql://", "postgres://")
+# Compose and the settings use a bare postgresql URL. Each engine needs its driver.
+_SYNC_PREFIXES = ("postgresql://", "postgres://")
+_ASYNC_PREFIXES = ("postgresql+psycopg://", "postgresql://", "postgres://")
 
 
 class DatabaseError(RuntimeError):
@@ -25,11 +26,21 @@ _engine: AsyncEngine | None = None
 _engine_url: str | None = None
 
 
+def sync_database_url(url: str) -> str:
+    """Return url with the psycopg driver selected."""
+    if url.startswith("postgresql+psycopg://"):
+        return url
+    for prefix in _SYNC_PREFIXES:
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix) :]
+    raise ValueError("database URL must use the postgresql scheme")
+
+
 def async_database_url(url: str) -> str:
     """Return url with the asyncpg driver selected."""
     if url.startswith("postgresql+asyncpg://"):
         return url
-    for prefix in _POSTGRES_PREFIXES:
+    for prefix in _ASYNC_PREFIXES:
         if url.startswith(prefix):
             return "postgresql+asyncpg://" + url[len(prefix) :]
     raise ValueError("database URL must use the postgresql scheme")

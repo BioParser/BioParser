@@ -12,19 +12,8 @@ from alembic.config import Config
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 
-# Alembic's sync engine needs the driver in the URL. Compose and the API use
-# the bare postgresql scheme.
-_POSTGRES_PREFIXES = ("postgresql://", "postgres://")
-
-
-def sync_database_url(url: str) -> str:
-    """Return url with the psycopg driver selected."""
-    if url.startswith("postgresql+psycopg://"):
-        return url
-    for prefix in _POSTGRES_PREFIXES:
-        if url.startswith(prefix):
-            return "postgresql+psycopg://" + url[len(prefix) :]
-    raise ValueError("database URL must use the postgresql scheme")
+from bioparser.db.bootstrap import bootstrap
+from bioparser.db.engine import sync_database_url
 
 
 def alembic_config(url: str) -> Config:
@@ -54,9 +43,6 @@ def main() -> None:
     app_password = os.environ.get("BIOPARSER_APP_PASSWORD", "")
     try:
         if app_password:
-            # Imported here so bootstrap can import sync_database_url above.
-            from bioparser.db.bootstrap import bootstrap
-
             bootstrap(url, app_password)
         upgrade(url)
     except Exception as exc:  # noqa: BLE001 — any failure text can contain the URL

@@ -10,7 +10,8 @@ from alembic import command
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
-from bioparser.db.migrate import alembic_config, main, sync_database_url
+from bioparser.db.engine import sync_database_url
+from bioparser.db.migrate import alembic_config, main
 
 # nullable, data type, maximum length
 _COLUMNS = {
@@ -101,7 +102,7 @@ def test_main_skips_the_role_without_an_app_password(
     monkeypatch.setenv("BIOPARSER_DATABASE_URL", "postgresql://bioparser@postgres/bioparser")
     monkeypatch.delenv("BIOPARSER_APP_PASSWORD", raising=False)
     monkeypatch.setattr(
-        "bioparser.db.bootstrap.bootstrap", lambda url, password: pytest.fail("bootstrapped")
+        "bioparser.db.migrate.bootstrap", lambda url, password: pytest.fail("bootstrapped")
     )
     monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: None)
     main()
@@ -119,7 +120,7 @@ def test_main_creates_the_role_before_upgrading(monkeypatch: pytest.MonkeyPatch)
     def record_upgrade(url: str) -> None:
         calls.append(("upgrade", url))
 
-    monkeypatch.setattr("bioparser.db.bootstrap.bootstrap", record_bootstrap)
+    monkeypatch.setattr("bioparser.db.migrate.bootstrap", record_bootstrap)
     monkeypatch.setattr("bioparser.db.migrate.upgrade", record_upgrade)
     main()
     assert calls == [
@@ -137,7 +138,7 @@ def test_main_hides_the_app_password(monkeypatch: pytest.MonkeyPatch) -> None:
     def fail(url: str, password: str) -> None:
         raise RuntimeError(f"rejected {password} from {url}")
 
-    monkeypatch.setattr("bioparser.db.bootstrap.bootstrap", fail)
+    monkeypatch.setattr("bioparser.db.migrate.bootstrap", fail)
     monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: pytest.fail("upgraded"))
     with pytest.raises(SystemExit, match="database migration failed") as raised:
         main()

@@ -16,7 +16,8 @@ from sqlalchemy.engine import make_url
 from bioparser.api.app import app
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
-from bioparser.db.migrate import sync_database_url, upgrade
+from bioparser.db.engine import sync_database_url
+from bioparser.db.migrate import upgrade
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.jobs import JobState
 from bioparser.jobs.queue import ParseJobMessage

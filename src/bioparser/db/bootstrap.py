@@ -10,7 +10,7 @@ from __future__ import annotations
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 
-from bioparser.db.migrate import sync_database_url
+from bioparser.db.engine import sync_database_url
 
 # Compose and CI log in with this name. It is not the image superuser.
 APP_ROLE = "bioparser_app"

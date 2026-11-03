@@ -15,7 +15,8 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 
 from bioparser.db.bootstrap import APP_ROLE
-from bioparser.db.migrate import main, sync_database_url
+from bioparser.db.engine import sync_database_url
+from bioparser.db.migrate import main
 
 _APP_PASSWORD = "app'secret"
 

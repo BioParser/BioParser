@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from bioparser.db import engine as db_engine
 from bioparser.db import jobs as job_queries
-from bioparser.db.engine import DatabaseError, async_database_url
-from bioparser.db.migrate import sync_database_url, upgrade
+from bioparser.db.engine import DatabaseError, async_database_url, sync_database_url
+from bioparser.db.migrate import upgrade
 from bioparser.jobs import CorruptJobStateError, JobState, JobStatus
 
 
