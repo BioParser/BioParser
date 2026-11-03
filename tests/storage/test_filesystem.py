@@ -8,6 +8,7 @@ from typing import NoReturn
 import pytest
 from pydantic import ValidationError
 
+from bioparser.artifact_paths import ARTIFACT_PATH_MAX_SEGMENT_LENGTH
 from bioparser.hashing import sha256_bytes
 from bioparser.storage import (
     ArtifactAlreadyExistsError,
@@ -21,7 +22,6 @@ from bioparser.storage import (
     StoragePathTraversalError,
     StoragePayloadError,
 )
-from bioparser.artifact_paths import ARTIFACT_PATH_MAX_SEGMENT_LENGTH
 from bioparser.storage.filesystem import FileBlobMetadata
 
 pytestmark = pytest.mark.anyio

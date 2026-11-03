@@ -13,6 +13,7 @@ from dramatiq.brokers.stub import StubBroker
 from dramatiq.middleware.time_limit import TimeLimit
 from stubs import MemoryStorage, StubJobs, bind_jobs, clear_jobs, fake_mineru
 
+from bioparser.artifact_paths import parse_result_path
 from bioparser.jobs.queue import JobTimeLimitExceeded
 from bioparser.jobs.queue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
 from bioparser.jobs.queue.messages import ParseJobMessage
@@ -36,7 +37,6 @@ from bioparser.parser.models import (
     TextContent,
 )
 from bioparser.parser.protocol import PdfParser
-from bioparser.artifact_paths import parse_result_path
 from bioparser.worker.parse.config import DEFAULT_PARSE_MAX_RETRIES
 from bioparser.worker.parse.handler import ParseJobHandler
 

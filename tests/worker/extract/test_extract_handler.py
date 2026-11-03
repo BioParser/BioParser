@@ -13,6 +13,11 @@ from stubs import (
     clear_jobs,
 )
 
+from bioparser.artifact_paths import (
+    ARTIFACT_PATH_MAX_LENGTH,
+    extract_result_path,
+    parse_result_path,
+)
 from bioparser.extract.backend.default.extractor import extract_observations
 from bioparser.extract.backend.default.locate import cited_observations
 from bioparser.extract.backend.default.schema import Extraction, ModelObservation
@@ -50,11 +55,6 @@ from bioparser.parser.models import (
 )
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.vllm import VLLMError, VLLMRequestRejectedError, VLLMTruncatedError
-from bioparser.artifact_paths import (
-    ARTIFACT_PATH_MAX_LENGTH,
-    extract_result_path,
-    parse_result_path,
-)
 from bioparser.worker.extract.config import DEFAULT_EXTRACT_MAX_RETRIES
 from bioparser.worker.extract.handler import ExtractJobHandler
 

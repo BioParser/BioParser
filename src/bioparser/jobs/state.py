@@ -4,9 +4,9 @@ from typing import Literal, Self
 
 from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from bioparser.artifact_paths import ArtifactPath
 from bioparser.extractor_names import EXTRACTORS
 from bioparser.parser_names import PARSER_BACKENDS
-from bioparser.artifact_paths import ArtifactPath
 
 
 class JobStateError(RuntimeError):
