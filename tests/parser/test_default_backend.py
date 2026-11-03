@@ -11,6 +11,7 @@ from bioparser.parser import (
     get_parser,
 )
 from bioparser.parser.backend.default.grouping import WordBox, group_words_into_text_blocks
+from bioparser.parser.backend.default.parser import _CHILD_ENV, _child_environment
 from bioparser.parser.models import ParserArtifact
 from bioparser.parser_names import DEFAULT_PARSER_NAME
 
@@ -73,6 +74,17 @@ def test_cancel_kills_the_parser_process(monkeypatch: pytest.MonkeyPatch) -> Non
 
     asyncio.run(_run())
     assert killed
+
+
+def test_the_parser_child_gets_no_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BIOPARSER_DATABASE_URL", "postgresql://u:secret@db/x")
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://:secret@redis:6379/0")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "secret")
+
+    env = _child_environment()
+
+    assert set(env) <= set(_CHILD_ENV)
+    assert "secret" not in "".join(env.values())
 
 
 def test_parse_rejects_pdf_without_digital_text(tmp_path: Path) -> None:
