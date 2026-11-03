@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 # Compose and the settings use a bare postgresql URL. Each engine needs its driver.
@@ -31,7 +32,9 @@ class DatabaseUnavailableError(DatabaseError):
 
 def _is_transient_driver_error(exc: BaseException) -> bool:
     """True when the driver error is reachability, not a failed statement."""
-    if isinstance(exc, (OSError, TimeoutError, OperationalError, InterfaceError)):
+    if isinstance(
+        exc, (OSError, TimeoutError, PoolTimeoutError, OperationalError, InterfaceError)
+    ):
         return True
     return bool(isinstance(exc, SQLAlchemyError) and getattr(exc, "connection_invalidated", False))
 
