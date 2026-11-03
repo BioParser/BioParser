@@ -23,7 +23,7 @@ import re
 from collections.abc import Coroutine, Iterator, Mapping
 from contextlib import contextmanager
 from threading import Event, Lock
-from typing import Any, TypeVar
+from typing import Any
 
 import dramatiq
 import redis
@@ -47,8 +47,6 @@ from ..protocol import JobConsumer, JobHandler, JobSubmitter
 from .watchdog import DeliveryGuard, start_time_limit, use_blocking_executor
 
 LOGGER = logging.getLogger(__name__)
-
-_R = TypeVar("_R")
 
 # Defaults for one delivery. The grace is how long a handler may keep running
 # after its time limit.
@@ -231,13 +229,13 @@ class DramatiqJobConsumer[T: BaseModel](JobConsumer[T]):
         use_blocking_executor(loop_thread.loop, replacement)
         self._blocking = replacement
 
-    def _on_loop(
+    def _on_loop[R](
         self,
-        coroutine: Coroutine[Any, Any, _R],
+        coroutine: Coroutine[Any, Any, R],
         *,
         bound_s: float,
         count_attempt: bool,
-    ) -> _R:
+    ) -> R:
         """Run `coroutine` on the consumer loop. Return when this worker can take another message.
 
         `bound_s` is how long this call may sit here. See `DeliveryGuard.watch` for what
@@ -247,14 +245,18 @@ class DramatiqJobConsumer[T: BaseModel](JobConsumer[T]):
         if loop_thread is None:
             coroutine.close()
             raise JobQueueError("the queue is not consuming")
+        message_id: str | None = None
+        if count_attempt:
+            current = CurrentMessage.get_current_message()
+            message_id = current.message_id if current is not None else None
         # Set from the task callback. A cancel before the first step never enters the
         # coroutine, so a `finally` there would not run.
         unwound: concurrent.futures.Future[None] = concurrent.futures.Future()
-        completed: list[_R] = []
+        completed: list[R] = []
         failed: list[BaseException] = []
-        task: asyncio.Task[_R] | None = None
+        task: asyncio.Task[R] | None = None
 
-        def finished(done: asyncio.Task[_R]) -> None:
+        def finished(done: asyncio.Task[R]) -> None:
             if not done.cancelled():
                 error = done.exception()
                 if error is None:
@@ -275,7 +277,9 @@ class DramatiqJobConsumer[T: BaseModel](JobConsumer[T]):
         # Used instead of EventLoopThread.run_coroutine, which returns one second after
         # the time limit and would let this worker take the next message while a blocking
         # call was still running.
-        with self._guard.watch(bound_s, count_attempt=count_attempt) as watch:
+        with self._guard.watch(
+            bound_s, count_attempt=count_attempt, message_id=message_id
+        ) as watch:
             loop_thread.loop.call_soon_threadsafe(start)
             try:
                 watch.wait(unwound)
@@ -291,7 +295,11 @@ class DramatiqJobConsumer[T: BaseModel](JobConsumer[T]):
                     if not completed:
                         self._replace_blocking_executor()
                         if failed:
-                            raise failed[0] from None
+                            LOGGER.error(
+                                "handler on queue %s raised after cancel during backstop wait",
+                                self._name,
+                                exc_info=failed[0],
+                            )
                         raise _DeliveryStuck() from None
                 if completed:
                     # The handler took the cancellation and returned, for example after

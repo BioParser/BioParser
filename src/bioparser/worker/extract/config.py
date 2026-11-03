@@ -19,8 +19,7 @@ DEFAULT_LIVENESS_PORT = 8081
 class ExtractWorkerSettings(BaseSettings):
     """Environment configuration for the extractor worker.
 
-    One job runs at a time. The handler drives the async extractor and the
-    job-state client from the queue thread.
+    One job runs at a time on the queue's consumer event loop.
     """
 
     model_config = SettingsConfigDict(

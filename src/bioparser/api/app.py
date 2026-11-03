@@ -371,8 +371,8 @@ def _artifact_responses(model: type[BaseModel], description: str) -> dict[int | 
 async def _stored_artifact(request: Request, job: JobState, ref: str | None, kind: str) -> Response:
     """The artifact at ``ref`` as stored, or 409 when the job has none yet.
 
-    The bytes are read in a thread and not parsed: the worker validated them before it
-    recorded the ref, and a parser artifact can be several MB.
+    The bytes are loaded through async storage and not parsed: the worker validated them
+    before it recorded the ref, and a parser artifact can be several MB.
     """
     if ref is None:
         raise http_error(409, ARTIFACT_NOT_AVAILABLE)

@@ -350,7 +350,7 @@ change.
 | `.../artifacts/parser` | `parsed`, `extracting`, `done`, or `failed` after its parse |
 | `.../artifacts/extraction` | `done` |
 
-- The route reads the stored bytes in a thread and does not parse them: the worker
+- The route loads the stored bytes through async storage and does not parse them: the worker
   validated them before it recorded the ref, and a parser artifact can be several MB.
 - `Cache-Control: private, max-age=31536000, immutable`. A job's artifact never changes:
   storage cannot replace an artifact, and the job keeps the same ref.
@@ -532,7 +532,8 @@ pool are closed. Migrations stay on the sync psycopg driver.
 - `GET /api/jobs/{job_id}` — reads the typed state from Postgres and
   maps it to the public status response. One Postgres read; no artifact read.
 - `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`
-  when it has no such ref, then return the stored bytes. The read runs in a thread.
+  when it has no such ref, then return the stored bytes via async storage (disk I/O runs
+  on a thread inside the storage implementation).
 - `POST /extract` — runs the same `_validated_upload()` as `POST /api/extractions`, takes a
   slot (`_start_pipeline()`), and runs [`run_pipeline()`](#bioparserpipeline) in the process
   pool. A `PipelineError` becomes a `502 HTTPException`. If a child died (for example out

@@ -13,8 +13,8 @@ DEFAULT_PARSE_TIME_LIMIT_SECONDS = 30 * 60
 # mineru-api waits at most an hour for one synchronous parse.
 MAX_PARSE_TIME_LIMIT_SECONDS = 60 * 60
 DEFAULT_PARSE_MAX_RETRIES = 3
-# Head start the parser process limit has over the queue limit, so the process is
-# stopped and reported before the queue interrupts the thread. Also covers fetching
+# Head start the MinerU client limit has over the queue limit, so the HTTP call
+# ends and is reported before the queue cancels the handler. Also covers fetching
 # the PDF and storing the artifact. Capped at half the limit for small limits.
 PARSE_TIME_LIMIT_MARGIN_S = 30.0
 # Probe port for GET /health.
@@ -24,9 +24,9 @@ DEFAULT_LIVENESS_PORT = 8081
 class WorkerSettings(BaseSettings):
     """Environment configuration for the parser worker.
 
-    One job runs at a time. The handler drives an asyncio job-state client and
-    blocking calls to the MinerU service from the queue thread, so the process
-    does not raise the queue's worker thread count.
+    One job runs at a time on the queue's consumer event loop. The handler uses async
+    I/O for Postgres and storage; blocking file and hash work runs on the loop's
+    single executor thread.
     """
 
     model_config = SettingsConfigDict(

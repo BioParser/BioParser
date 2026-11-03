@@ -42,6 +42,6 @@ class JobTimeLimitExceeded(Exception):
     """The job ran past the queue's time limit.
 
     The handler is cancelled. See `JobHandler.handle`. `on_failed` receives this
-    when the backstop gives up on a call that is still running, and on the last
-    retry of an attempt that already raised it.
+    when the backstop gives up on a call that is still running. Dramatiq may also
+    pass it on the last retry of an attempt that raised it before the backstop.
     """

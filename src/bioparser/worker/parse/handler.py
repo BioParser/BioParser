@@ -161,8 +161,8 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
             LOGGER.error(f"parser {parser_name!r} timed out: {type(exc).__name__}")
             raise PermanentJobFailure("timeout") from exc
         except asyncio.CancelledError as exc:
-            # The queue's time limit cancelled this attempt. The same parse would run out of
-            # time again. The job is marked failed and the queue does not retry the delivery.
+            # The queue's time limit cancelled this attempt. Record timeout and do not
+            # retry the delivery (PermanentJobFailure).
             LOGGER.error(f"parser {parser_name!r} was cancelled")
             raise PermanentJobFailure("timeout") from exc
         except UnsupportedDocumentError as exc:

@@ -63,7 +63,7 @@ On the GPU stack, MinerU and the vLLM extraction service share the card. MinerU'
 
 ## Worker image
 
-The worker image runs the parser worker as its own process. It holds BioParser only; `mineru` jobs go to the MinerU service at `BIOPARSER_MINERU_BASE_URL` (Compose: `http://mineru:8000`), and `default` jobs run in the worker.
+The worker image runs the parser worker as its own process. It holds BioParser only; `mineru` jobs go to the MinerU service at `BIOPARSER_MINERU_BASE_URL` (Compose: `http://mineru:8000`), and `default` jobs run pdfplumber in a child process the worker can kill when a time limit fires.
 
 ### Build
 

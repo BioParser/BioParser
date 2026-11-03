@@ -17,14 +17,16 @@ class JobHandler[T: BaseModel](Protocol):
         Any other result drops the deferral clock on this message, so a retry
         is not charged to the same outage.
 
-        When the time limit passes, this coroutine is cancelled and sees
-        `asyncio.CancelledError` at its next await. `asyncio.to_thread` keeps running;
-        the queue joins that thread before the next message. If this coroutine
-        raises, the attempt is retried like any other failure. If it catches the
-        cancellation and returns, the delivery counts as handled and is not retried.
-        A blocking call that is still running when the backstop passes is a final
-        failure: `on_failed` is called with `JobTimeLimitExceeded`, the message is
-        not sent again, and the process then exits.
+        When the time limit passes, the queue cancels this coroutine. At its next
+        await it sees `asyncio.CancelledError`. Raising from `handle` (including
+        after catching that error) retries the attempt like any other failure.
+        Returning after catching the cancellation counts the delivery as handled;
+        the queue does not send the message again.
+
+        If the queue's backstop passes while work for this delivery is still
+        running, the delivery is a final failure: `on_failed` is called with
+        `JobTimeLimitExceeded`, the message is not sent again, and the consumer
+        process exits.
         """
         ...
 
@@ -35,7 +37,8 @@ class JobHandler[T: BaseModel](Protocol):
     async def on_failed(self, message: T, exc: BaseException) -> None:
         """Report a message that failed its final attempt. It is poisoned.
 
-        `exc` is `JobTimeLimitExceeded` when the last attempt ran out of time.
+        `exc` is `JobTimeLimitExceeded` when the attempt ran out of time or the
+        backstop fired while work for the delivery was still running.
         """
         return
 

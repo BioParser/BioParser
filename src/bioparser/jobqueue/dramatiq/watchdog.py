@@ -11,7 +11,6 @@ import asyncio
 import concurrent.futures
 import logging
 import os
-import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from threading import Event, Lock, Timer
@@ -42,19 +41,27 @@ class DeliveryGuard:
         # Set when a delivery's bound passes, so the exit middleware leaves once
         # Dramatiq has acked or rejected that delivery.
         self.exit_after_ack = Event()
+        # The delivery message_id that triggered exit_after_ack, if any.
+        self.exit_message_id: str | None = None
         # Set once that ack or rejection has happened.
         self.recorded = Event()
         self.middleware = _ExitAfterRecordedAttempt(self)
 
     @contextmanager
-    def watch(self, bound_s: float, *, count_attempt: bool) -> Iterator["Watch"]:
+    def watch(
+        self,
+        bound_s: float,
+        *,
+        count_attempt: bool,
+        message_id: str | None = None,
+    ) -> Iterator["Watch"]:
         """Watch one call into the loop.
 
         Past `bound_s` a delivery (`count_attempt`) is settled without a retry, and
         the process exits once that settlement is stored, waiting up to `_ACK_WAIT_S`.
         Shutdown has no delivery to record, so it exits immediately.
         """
-        watch = Watch(self, bound_s, count_attempt)
+        watch = Watch(self, bound_s, count_attempt, message_id)
         timer = Timer(bound_s, watch.expire)
         timer.name = f"{self.name}-watchdog"
         timer.daemon = True
@@ -69,10 +76,17 @@ class DeliveryGuard:
 class Watch:
     """One watched call. `stuck` is set when its own bound passes."""
 
-    def __init__(self, guard: DeliveryGuard, bound_s: float, count_attempt: bool) -> None:
+    def __init__(
+        self,
+        guard: DeliveryGuard,
+        bound_s: float,
+        count_attempt: bool,
+        message_id: str | None,
+    ) -> None:
         self._guard = guard
         self._bound_s = bound_s
         self._count_attempt = count_attempt
+        self._message_id = message_id
         self._lock = Lock()
         self._finished = False
         self.stuck = Event()
@@ -88,6 +102,7 @@ class Watch:
             if self._count_attempt:
                 # Before `stuck`: the worker fails the delivery as soon as it sees `stuck`.
                 self._guard.recorded.clear()
+                self._guard.exit_message_id = self._message_id
                 self._guard.exit_after_ack.set()
             self.stuck.set()
         outcome = "failing the delivery and exiting" if self._count_attempt else "exiting"
@@ -139,11 +154,15 @@ class _ExitAfterRecordedAttempt(Middleware):
         guard = self._guard
         if message.actor_name != guard.name or not guard.exit_after_ack.is_set():
             return
+        # Delay-queue acks share the actor name; only the stuck delivery's id may exit.
+        if guard.exit_message_id is not None and message.message_id != guard.exit_message_id:
+            return
         guard.recorded.set()
         os._exit(1)
         # Tests patch os._exit, so this returns. Clear the flags or the next delivery
         # in that process is treated as another stuck exit.
         guard.exit_after_ack.clear()
+        guard.exit_message_id = None
         guard.recorded.clear()
 
     after_nack = after_ack
@@ -187,7 +206,8 @@ def _idle() -> None:
 
 
 def _report_stuck(bound_s: float, *, outcome: str) -> None:
-    message = f"a queue call was still running {bound_s:.0f} seconds after it started; {outcome}"
-    LOGGER.critical(message)
-    sys.stderr.write(message + "\n")
-    sys.stderr.flush()
+    LOGGER.critical(
+        "a queue call was still running %.0f seconds after it started; %s",
+        bound_s,
+        outcome,
+    )

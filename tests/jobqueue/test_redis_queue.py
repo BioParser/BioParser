@@ -543,7 +543,7 @@ def test_time_limit_calls_on_failed_after_retries(stub_broker: StubBroker) -> No
 
 
 class _Blocking(JobHandler[ParseJobMessage]):
-    """A parse that sits in a thread longer than the time limit."""
+    """A handler that sits in ``asyncio.to_thread`` longer than the time limit."""
 
     def __init__(self, seconds: float) -> None:
         self.seconds = seconds
@@ -589,8 +589,8 @@ def test_consume_enforces_the_time_limit(stub_broker: StubBroker) -> None:
     """
     (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
     time_limit.manager.interval = 0.05  # type: ignore[union-attr]
-    # The call runs past the limit, and returns within the second limit. A call that
-    # is still going after that exits the process.
+    # The call runs past the Dramatiq limit, then returns during the backstop grace. A call
+    # still running when the backstop passes exits the process.
     queue = _queue(stub_broker, time_limit_ms=1000, max_retries=0)
     handler = _Blocking(1.2)
     _submit(queue, _message())
@@ -698,12 +698,12 @@ def test_a_blocking_call_that_never_returns_exits_the_process(
     queue.consume(_Stuck(), until_empty=True)
 
     assert exits == [1]
-    # The delivery is settled, so it is not retried and not dead-lettered.
+    # The delivery is settled as a final failure, so it is not retried and not dead-lettered.
     assert list(stub_broker.dead_letters) == []
 
 
 def test_the_backstop_adds_at_most_60_seconds(stub_broker: StubBroker) -> None:
-    """A long limit does not get a second full limit. A short one still doubles."""
+    """Bound is the time limit plus at most 60 s grace, not a second full limit."""
     long = _queue(stub_broker, name="long", time_limit_ms=1_800_000)
     short = _queue(stub_broker, name="short", time_limit_ms=1_000)
 
@@ -788,7 +788,7 @@ def test_a_stuck_last_attempt_is_reported_before_the_process_exits(
 def test_a_stuck_blocking_call_does_not_block_the_failure_hook(
     stub_broker: StubBroker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """on_failed runs on a new thread. The stuck parse thread cannot be killed."""
+    """on_failed runs after the queue replaces a stuck blocking executor."""
     (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
     time_limit.manager.interval = 0.05  # type: ignore[union-attr]
     release = Event()
@@ -853,7 +853,7 @@ def test_cleanup_queued_behind_a_stuck_call_still_runs_the_hook(
 
 
 def test_an_error_raised_after_cancel_is_the_failure(stub_broker: StubBroker) -> None:
-    """A handler that raises out of the cancellation is retried as that error."""
+    """When cancel finishes without a stuck blocking call, on_failed sees that error."""
     (time_limit,) = [m for m in stub_broker.middleware if isinstance(m, TimeLimit)]
     time_limit.manager.interval = 0.05  # type: ignore[union-attr]
     seen: list[BaseException] = []
