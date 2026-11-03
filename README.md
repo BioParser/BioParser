@@ -97,7 +97,7 @@ npm run dev
 
 Open `http://localhost:5173/ui/`. The page reloads when you save a file. The dev server forwards `/api` and `/ready` to the API on `127.0.0.1:8080`, so run `uv run bioparser` in a second terminal.
 
-> The UI does not send the API key yet (#253), so its API calls get `401`. For local development only, set `BIOPARSER_AUTH_DISABLED=true` in `.env`.
+> The UI asks for the API key (`BIOPARSER_API_KEY`) when it first opens and sends it with every request. "Remember on this device" keeps the key after the tab is closed; the **API key** page forgets it. With `BIOPARSER_AUTH_DISABLED=true` the API accepts any key, so run it with a real key to check the key screen.
 
 After a change to the API, regenerate the UI's API types and commit both files. CI fails while they are out of date.
 
