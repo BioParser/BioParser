@@ -51,9 +51,11 @@ Postgres holds one `jobs` row per job, including that job's artifact paths
 read and write those rows. Neither Redis nor Postgres holds PDF bytes or model
 results; those stay in artifact storage.
 
-Compose gives the API and both workers `BIOPARSER_DATABASE_URL`. A one-shot
-`migrate` container uses the API image to create the `jobs` table, then exits.
-The API and the workers start after that exit and do not migrate themselves.
+Compose gives the API and both workers `BIOPARSER_DATABASE_URL` as the
+`bioparser_app` login. That role is not a superuser and cannot create roles
+or databases. A one-shot `migrate` container logs in as `bioparser`, creates
+`bioparser_app`, and then creates or upgrades the tables. The API and the
+workers start after that exit and do not migrate themselves.
 
 ## Components
 

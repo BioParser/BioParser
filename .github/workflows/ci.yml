@@ -109,6 +109,12 @@ jobs:
           done
           docker exec postgres pg_isready -h 127.0.0.1 -U bioparser -d bioparser
 
+      - name: Prepare the application role
+        env:
+          BIOPARSER_DATABASE_URL: postgresql://bioparser:ci-postgres@localhost:5432/bioparser
+          BIOPARSER_APP_PASSWORD: ci-postgres
+        run: uv run bioparser-migrate
+
       - name: Run integration tests
         env:
           BIOPARSER_TEST_DATABASE_URL: postgresql://bioparser:ci-postgres@localhost:5432/bioparser

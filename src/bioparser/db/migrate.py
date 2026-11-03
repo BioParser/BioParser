@@ -42,19 +42,30 @@ def upgrade(url: str) -> None:
 
 
 def main() -> None:
-    """Upgrade the database named by BIOPARSER_DATABASE_URL."""
+    """Upgrade the database named by BIOPARSER_DATABASE_URL.
+
+    When BIOPARSER_APP_PASSWORD is set, create the application role first.
+    Tables this upgrade creates are then usable by that role. Unset, only the
+    schema changes.
+    """
     url = os.environ.get("BIOPARSER_DATABASE_URL", "")
     if not url:
         sys.exit("BIOPARSER_DATABASE_URL is required")
+    app_password = os.environ.get("BIOPARSER_APP_PASSWORD", "")
     try:
+        if app_password:
+            # Imported here so bootstrap can import sync_database_url above.
+            from bioparser.db.bootstrap import bootstrap
+
+            bootstrap(url, app_password)
         upgrade(url)
     except Exception as exc:  # noqa: BLE001 — any failure text can contain the URL
-        sys.exit(_public_failure(url, exc))
+        sys.exit(_public_failure(url, exc, app_password))
     print("migrated to head")
 
 
-def _public_failure(url: str, exc: Exception) -> str:
-    """Failure text with the database URL and password removed."""
+def _public_failure(url: str, exc: Exception, app_password: str = "") -> str:
+    """Failure text with the database URL and passwords removed."""
     message = str(exc)
     try:
         parsed = make_url(sync_database_url(url))
@@ -64,4 +75,7 @@ def _public_failure(url: str, exc: Exception) -> str:
         message = message.replace(parsed.password, "***")
         message = message.replace(quote(parsed.password, safe=""), "***")
         message = message.replace(parsed.render_as_string(hide_password=False), "postgresql://***")
+    if app_password:
+        message = message.replace(app_password, "***")
+        message = message.replace(quote(app_password, safe=""), "***")
     return f"database migration failed: {message}"
