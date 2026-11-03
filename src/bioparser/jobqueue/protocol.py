@@ -26,7 +26,10 @@ class JobHandler[T: BaseModel](Protocol):
         If the queue's backstop passes while work for this delivery is still
         running, the delivery is a final failure: `on_failed` is called with
         `JobTimeLimitExceeded`, the message is not sent again, and the consumer
-        process exits.
+        process exits. That does not apply if `handle` already returned
+        normally, including after catching the cancellation; then the delivery
+        is handled and `on_failed` is not called even if blocking cleanup is
+        still running when the backstop passes.
         """
         ...
 
@@ -38,7 +41,8 @@ class JobHandler[T: BaseModel](Protocol):
         """Report a message that failed its final attempt. It is poisoned.
 
         `exc` is `JobTimeLimitExceeded` when the attempt ran out of time or the
-        backstop fired while work for the delivery was still running.
+        backstop fired while work for the delivery was still running and
+        `handle` had not already returned normally.
         """
         return
 
