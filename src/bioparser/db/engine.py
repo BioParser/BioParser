@@ -31,7 +31,11 @@ class DatabaseUnavailableError(DatabaseError):
 
 
 def _is_connection_pool_failure(exc: BaseException) -> bool:
-    """True when the pool or a connect attempt failed, not a failed SQL statement."""
+    """True when the pool or a connect attempt failed, not a failed SQL statement.
+
+    Used by ``_database_error_from_driver`` to choose ``DatabaseUnavailableError``
+    (workers may defer) over ``DatabaseError``.
+    """
     if isinstance(exc, (OSError, PoolTimeoutError, InterfaceError)):
         return True
     return bool(isinstance(exc, SQLAlchemyError) and getattr(exc, "connection_invalidated", False))
@@ -102,9 +106,11 @@ def require() -> AsyncEngine:
     return _engine
 
 
-# Pool exhaustion is a SQLAlchemy error. A stalled query under command_timeout
-# is a bare TimeoutError, which SQLAlchemy does not wrap. A refused or dropped
-# connection is an OSError.
+# Errors caught around transaction() are mapped by _database_error_from_driver.
+# Pool exhaustion is sqlalchemy.exc.TimeoutError. A stalled query under
+# command_timeout is a bare TimeoutError, which SQLAlchemy does not wrap. A refused
+# or dropped connection is an OSError. Outage vs statement failure is decided in
+# _is_connection_pool_failure (pool, connect, and invalidated connections defer).
 _DRIVER_ERRORS = (SQLAlchemyError, OSError, TimeoutError)
 
 
@@ -114,13 +120,10 @@ async def transaction() -> AsyncIterator[AsyncConnection]:
 
     Query functions take this connection, so a caller can run several of them
     in one transaction and pass the same connection through. Logic between
-    those calls is fine. Other I/O is not: it holds a pooled connection, and
-    an OSError or TimeoutError from it is reported as DatabaseError.
+    those calls is fine. Other I/O is not: it holds a pooled connection.
 
-    A driver failure becomes ``DatabaseError`` or ``DatabaseUnavailableError`` when
-    the pool or connect path failed. Statement and data failures stay
-    ``DatabaseError``. The message names the error type and not the URL. Any other
-    error passes through.
+    Driver errors from the pool or from work inside the transaction body are
+    wrapped as ``DatabaseError`` subclasses. Any other exception passes through.
     """
     try:
         async with require().begin() as connection:
