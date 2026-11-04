@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import datetime
 from typing import cast
 
@@ -63,6 +63,21 @@ async def get(connection: AsyncConnection, checksum: Sha256Hex) -> DocumentRecor
     if row is None:
         return None
     return _row_to_document_record(cast(Mapping[str, object], row))
+
+
+async def get_display_names(
+    connection: AsyncConnection,
+    checksums: Collection[Sha256Hex],
+) -> dict[Sha256Hex, str | None]:
+    """Load document display names for the requested checksums."""
+    if not checksums:
+        return {}
+    rows = (
+        await connection.execute(
+            select(Document.checksum, Document.display_name).where(Document.checksum.in_(checksums))
+        )
+    ).all()
+    return {checksum: name for checksum, name in rows}
 
 
 async def create(

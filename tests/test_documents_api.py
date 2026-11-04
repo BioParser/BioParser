@@ -289,6 +289,7 @@ def test_submit_document_job_success(
     data = res.json()
     assert data["status"] == "queued"
     assert datetime.fromisoformat(data["created_at"]).tzinfo is not None
+    assert data["display_name"] == "paper.pdf"
     assert data["parser"] == "mineru"
     assert data["extractor"] == "default"
     assert data["document_checksum"] == MINIMAL_PDF_HASH
@@ -399,11 +400,13 @@ def test_list_document_jobs(
     job_ids_1 = {j["job_id"] for j in document_jobs}
     assert job_ids_1 == {j1["job_id"], j2["job_id"]}
     assert all(j["document_checksum"] == MINIMAL_PDF_HASH for j in document_jobs)
+    assert all(j["display_name"] == "paper1.pdf" for j in document_jobs)
     assert all(j["has_parse_result"] is False for j in document_jobs)
     assert all(datetime.fromisoformat(j["created_at"]).tzinfo is not None for j in document_jobs)
 
     res2 = client.get(f"/api/documents/{SECOND_PDF_HASH}/jobs")
     assert res2.status_code == 200
+    assert all(j["display_name"] == "paper2.pdf" for j in res2.json())
     job_ids_2 = {j["job_id"] for j in res2.json()}
     assert job_ids_2 == {j3["job_id"]}
 
@@ -455,6 +458,7 @@ def test_list_jobs_and_filtering(
     assert jobs_by_id[j2_id]["has_parse_result"] is True
     assert jobs_by_id[j3_id]["has_parse_result"] is False
     assert all(job["document_checksum"] == MINIMAL_PDF_HASH for job in all_jobs)
+    assert all(job["display_name"] == "paper.pdf" for job in all_jobs)
     assert all(datetime.fromisoformat(job["created_at"]).tzinfo is not None for job in all_jobs)
 
     # 2. Filter by status=queued

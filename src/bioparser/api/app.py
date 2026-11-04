@@ -290,11 +290,12 @@ def _replace_pipeline_pool(app: FastAPI, broken: Executor) -> Executor:
     return pool
 
 
-def _job_state_response(state: JobState) -> JobStatusResponse:
+def _job_state_response(state: JobState, display_name: str | None) -> JobStatusResponse:
     """The public status. No storage paths: they are internal, and no route takes one."""
     response_fields: dict[str, Any] = {
         "job_id": state.job_id,
         "created_at": state.created_at,
+        "display_name": display_name,
         "parser": state.parser,
         "extractor": state.extractor,
         "document_checksum": pdf_checksum(state.pdf_ref),
@@ -488,6 +489,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         job_id=job_state.job_id,
         status="queued",
         created_at=job_state.created_at,
+        display_name=None,
         parser=job_state.parser,
         extractor=job_state.extractor,
         document_checksum=document_id,
@@ -749,6 +751,7 @@ async def submit_document_job(
         job_id=job_state.job_id,
         status="queued",
         created_at=job_state.created_at,
+        display_name=doc.display_name,
         parser=job_state.parser,
         extractor=job_state.extractor,
         document_checksum=valid_checksum,
@@ -794,7 +797,7 @@ async def list_document_jobs(
         )
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
 
-    return [_job_state_response(j) for j in jobs]
+    return [_job_state_response(j, doc.display_name) for j in jobs]
 
 
 @app.get(
@@ -819,6 +822,8 @@ async def list_jobs(
                 status=status,
                 parser=parser,
             )
+            checksums = {pdf_checksum(job.pdf_ref) for job in jobs}
+            display_names = await document_queries.get_display_names(connection, checksums)
     except CorruptJobStateError as exc:
         LOGGER.error("corrupt job state in list jobs", extra=error_fields(exc))
         raise http_error(500, JOB_STATE_UNREADABLE) from exc
@@ -826,7 +831,7 @@ async def list_jobs(
         LOGGER.warning("job store list failed", extra=error_fields(exc))
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
 
-    return [_job_state_response(j) for j in jobs]
+    return [_job_state_response(job, display_names.get(pdf_checksum(job.pdf_ref))) for job in jobs]
 
 
 @app.get(
@@ -841,9 +846,18 @@ async def list_jobs(
     },
 )
 async def job_status(request: Request, job_id: str) -> JobStatusResponse:
-    # One Postgres read. The worker validated the artifact before it recorded the ref, so this
-    # route does not read it again: that cost grows with the paper and ran on the event loop.
-    return _job_state_response(await _read_job(request, _parse_job_id(job_id)))
+    job = await _read_job(request, _parse_job_id(job_id))
+    checksum = pdf_checksum(job.pdf_ref)
+    try:
+        async with database.transaction() as connection:
+            display_names = await document_queries.get_display_names(connection, {checksum})
+    except DatabaseError as exc:
+        LOGGER.warning(
+            "document display name read failed",
+            extra={"job_id": str(job.job_id), **error_fields(exc)},
+        )
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
+    return _job_state_response(job, display_names.get(checksum))
 
 
 @app.get(

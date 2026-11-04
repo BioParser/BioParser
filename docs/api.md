@@ -95,6 +95,7 @@ The checks run in a fixed order: `Content-Length` header format and size →
   "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
   "status": "queued",
   "created_at": "2026-10-30T10:15:30Z",
+  "display_name": null,
   "parser": "default",
   "extractor": "default",
   "document_checksum": "18c1d82f9a9c9be88b6ee58f7486e5672f73a4e885f163001c2a66a0f983bc1a",
@@ -103,8 +104,9 @@ The checks run in a fixed order: `Content-Length` header format and size →
 ```
 
 The response identifies the selected parser and extractor and includes the
-SHA-256 checksum of the uploaded document. A newly queued job cannot yet have a
-parse result, so `has_parse_result` is always `false` here.
+SHA-256 checksum of the uploaded document. This legacy direct-upload route does
+not create document metadata, so `display_name` is `null`. A newly queued job
+cannot yet have a parse result, so `has_parse_result` is always `false` here.
 
 **Failure:**
 
@@ -242,8 +244,14 @@ If omitted or `{}` is sent, parameters default to `parser: "default"` and `extra
 
 ```json
 {
-  "job_id": "b3f1c2a4-...",
-  "status": "queued"
+  "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
+  "status": "queued",
+  "created_at": "2026-10-30T10:15:30Z",
+  "display_name": "paper.pdf",
+  "parser": "default",
+  "extractor": "default",
+  "document_checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
+  "has_parse_result": false
 }
 ```
 
@@ -267,8 +275,14 @@ List all jobs associated with a specific document.
 ```json
 [
   {
-    "job_id": "b3f1c2a4-...",
-    "status": "queued"
+    "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
+    "status": "queued",
+    "created_at": "2026-10-30T10:15:30Z",
+    "display_name": "paper.pdf",
+    "parser": "default",
+    "extractor": "default",
+    "document_checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
+    "has_parse_result": false
   }
 ]
 ```
@@ -289,8 +303,14 @@ List jobs across all documents, with optional query filters.
 ```json
 [
   {
-    "job_id": "b3f1c2a4-...",
-    "status": "queued"
+    "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
+    "status": "queued",
+    "created_at": "2026-10-30T10:15:30Z",
+    "display_name": "paper.pdf",
+    "parser": "default",
+    "extractor": "default",
+    "document_checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
+    "has_parse_result": false
   }
 ]
 ```
@@ -316,6 +336,7 @@ Poll a job.
   "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
   "status": "queued",
   "created_at": "2026-10-30T10:15:30Z",
+  "display_name": null,
   "parser": "default",
   "extractor": "default",
   "document_checksum": "18c1d82f9a9c9be88b6ee58f7486e5672f73a4e885f163001c2a66a0f983bc1a",
@@ -325,8 +346,9 @@ Poll a job.
 
 - `status` is one of `"queued"`, `"parsing"`, `"parsed"`, `"extracting"`,
   `"done"`, or `"failed"`. Failed responses include a safe error code.
-- `created_at`, `parser`, `extractor`, and `document_checksum` are returned for
-  every status.
+- `created_at`, `display_name`, `parser`, `extractor`, and `document_checksum`
+  are returned for every status. `display_name` is `null` when the job has no
+  corresponding document metadata.
 - `has_parse_result` is `true` once the parser artifact has been recorded. It may
   remain `true` when extraction later fails.
 - The response holds no storage paths. When a job is `done`, #179 adds its ETS response
@@ -547,8 +569,8 @@ pool are closed. Migrations stay on the sync psycopg driver.
   Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it is still
   being received. A missing or understated `Content-Length` is still capped while
   reading the file in chunks.
-- `GET /api/jobs/{job_id}` — reads the typed state from Postgres and
-  maps it to the public status response. One Postgres read; no artifact read.
+- `GET /api/jobs/{job_id}` — reads the typed state and the document display name
+  from Postgres and maps them to the public status response. No artifact is read.
 - `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`
   when it has no such ref, then return the stored bytes via async storage (disk I/O runs
   on a thread inside the storage implementation).
@@ -738,10 +760,14 @@ curl -s localhost:8080/health
 # -> {"status":"ok"}
 
 curl -s -F file=@sample.pdf localhost:8080/api/extractions
-# -> 202  {"job_id":"...","status":"queued"}
+# -> 202  {"job_id":"...","status":"queued","created_at":"...","display_name":null,
+#           "parser":"default",
+#           "extractor":"default","document_checksum":"...","has_parse_result":false}
 
 curl -s localhost:8080/api/jobs/<job_id>
-# -> 200  {"job_id":"...","status":"queued"}
+# -> 200  {"job_id":"...","status":"queued","created_at":"...","display_name":null,
+#           "parser":"default",
+#           "extractor":"default","document_checksum":"...","has_parse_result":false}
 ```
 
 Each validation path responds with `{"detail": {"code": ..., "message": ...}}`:

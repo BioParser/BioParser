@@ -17,6 +17,7 @@ from bioparser.api.app import app as api_app
 from bioparser.api.errors import ErrorResponse
 from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
+from bioparser.db.documents import DocumentRecord
 from bioparser.db.engine import DatabaseError
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.jobs import (
@@ -80,6 +81,7 @@ def test_submit_and_retrieve_job(
 
     assert record["job_id"]
     assert record["status"] == "queued"
+    assert record["display_name"] is None
     assert events == ["artifact.store", "job_state.create", "queue.submit"]
 
     state = jobs.states[record["job_id"]]
@@ -365,6 +367,12 @@ def test_running_job_status(
         created_at=CREATED_AT,
     )
     jobs.states[str(job_id)] = state
+    jobs.documents[DOCUMENT_CHECKSUM] = DocumentRecord(
+        checksum=DOCUMENT_CHECKSUM,
+        display_name="sample.pdf",
+        size_bytes=len(MINIMAL_PDF),
+        created_at=CREATED_AT,
+    )
 
     response = client.get(f"/api/jobs/{job_id}")
 
@@ -374,6 +382,7 @@ def test_running_job_status(
         "job_id": str(job_id),
         "status": "parsing",
         "created_at": "2026-01-01T00:00:00Z",
+        "display_name": "sample.pdf",
         "parser": "default",
         "extractor": "default",
         "document_checksum": DOCUMENT_CHECKSUM,
@@ -406,6 +415,7 @@ def test_succeeded_job_status(
         "job_id": str(job_id),
         "status": "parsed",
         "created_at": "2026-01-01T00:00:00Z",
+        "display_name": None,
         "parser": "default",
         "extractor": "default",
         "document_checksum": DOCUMENT_CHECKSUM,
@@ -453,6 +463,7 @@ def test_a_finished_stage_names_no_storage_path(
         "job_id": str(state.job_id),
         "status": status,
         "created_at": "2026-01-01T00:00:00Z",
+        "display_name": None,
         "parser": "default",
         "extractor": "default",
         "document_checksum": DOCUMENT_CHECKSUM,
@@ -640,6 +651,7 @@ def test_failed_job_status(
         "job_id": str(job_id),
         "status": "failed",
         "created_at": "2026-01-01T00:00:00Z",
+        "display_name": None,
         "parser": "default",
         "extractor": "default",
         "document_checksum": DOCUMENT_CHECKSUM,
@@ -656,6 +668,22 @@ def test_job_status_returns_503_when_postgres_unavailable(
     jobs.get_error = DatabaseError("Postgres query failed: OperationalError")
 
     response = client.get(f"/api/jobs/{uuid4()}")
+
+    assert response.status_code == 503
+    ErrorResponse.model_validate(response.json())
+    assert response.json()["detail"]["code"] == "database_unavailable"
+
+
+def test_job_status_returns_503_when_display_name_read_fails(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    jobs = stub_api_adapters[1]
+    state = _job("queued")
+    jobs.states[str(state.job_id)] = state
+    jobs.doc_get_error = DatabaseError("Postgres query failed: OperationalError")
+
+    response = client.get(f"/api/jobs/{state.job_id}")
 
     assert response.status_code == 503
     ErrorResponse.model_validate(response.json())
