@@ -64,7 +64,7 @@ With `docker-compose.traefik.yml`:
 
 Inside Compose, the API and the extractor worker use `BIOPARSER_VLLM_BASE_URL=http://vllm:8000/v1`, and the API and the parser worker use `BIOPARSER_MINERU_BASE_URL=http://mineru:8000`. On the host, `test_prompt` should use `http://localhost:8000/v1` (the default in `.env.example`).
 
-Weights cache on the host at `~/.cache/huggingface`.
+Weights cache on the host at `~/.cache/huggingface` (or `%USERPROFILE%/.cache/huggingface` on Windows; override with `HF_CACHE_DIR`).
 
 ## Start
 

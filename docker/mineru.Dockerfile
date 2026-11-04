@@ -37,7 +37,7 @@ ENV UV_CACHE_DIR=/root/.cache/uv \
 FROM build AS cpu-build
 
 # The mineru pin is checked against MINERU_VERSION.
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     uv venv /opt/mineru \
     && uv pip install --python /opt/mineru/bin/python "mineru==4.0.12"
 
@@ -50,7 +50,7 @@ FROM build AS gpu-build
 
 # full = torch and vLLM. vLLM pins its torch, so no torch index is chosen here: the PyPI
 # wheels (vLLM 0.28, torch 2.13) are CUDA 13 builds and need an NVIDIA driver for CUDA 13.
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     uv venv /opt/mineru \
     && uv pip install --python /opt/mineru/bin/python "mineru[full]==4.0.12"
 

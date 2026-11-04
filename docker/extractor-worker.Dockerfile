@@ -28,7 +28,7 @@ ENV UV_CACHE_DIR=/root/.cache/uv \
 WORKDIR /app
 
 # Locked dependencies first, then the project, so a code change reuses the dependency layer.
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-editable --no-install-project
@@ -36,7 +36,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     uv sync --locked --no-editable
 
 #-------------------------------------------
