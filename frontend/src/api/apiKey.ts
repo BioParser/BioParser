@@ -6,12 +6,24 @@ const STORAGE_KEY = "bioparser.apiKey";
 
 type StorageName = "sessionStorage" | "localStorage";
 
-// Why the key was last removed: the user forgot it, or the API answered 401.
-export type RemovedReason = "forgotten" | "rejected";
+// Why the key was last removed: the user forgot it, the API answered 401, or another tab
+// removed the remembered key.
+export type RemovedReason = "forgotten" | "rejected" | "elsewhere";
 
 let memoryKey: string | null = null;
 let removedReason: RemovedReason | null = null;
 const listeners = new Set<() => void>();
+
+// When another tab saves or removes a remembered key, the browser sends this tab a storage
+// event. The tab that made the change gets none: it already notified its own listeners.
+// event.key is null when another tab cleared all of this site's storage.
+window.addEventListener("storage", (event) => {
+  if (event.key !== STORAGE_KEY && event.key !== null) {
+    return;
+  }
+  removedReason = getApiKey() === null ? "elsewhere" : null;
+  notifyListeners();
+});
 
 export function getApiKey(): string | null {
   return memoryKey ?? readFrom("sessionStorage") ?? readFrom("localStorage");

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { changeKeyInAnotherTab } from "./anotherTab";
 import { clearApiKey, getApiKey, getRemovedReason, setApiKey, subscribeToApiKey } from "./apiKey";
 
 const STORAGE_KEY = "bioparser.apiKey";
@@ -85,5 +86,45 @@ describe("apiKey", () => {
     unsubscribe();
     setApiKey("key", false);
     expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  describe("apiKey and other tabs", () => {
+    it("notices when another tab removes the remembered key", () => {
+      setApiKey("shared-key", true);
+      const listener = vi.fn();
+      const unsubscribe = subscribeToApiKey(listener);
+      changeKeyInAnotherTab(null);
+      unsubscribe();
+      expect(getApiKey()).toBeNull();
+      expect(getRemovedReason()).toBe("elsewhere");
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it("notices when another tab saves a remembered key", () => {
+      clearApiKey("rejected");
+      const listener = vi.fn();
+      const unsubscribe = subscribeToApiKey(listener);
+      changeKeyInAnotherTab("shared-key");
+      unsubscribe();
+      expect(getApiKey()).toBe("shared-key");
+      expect(getRemovedReason()).toBeNull();
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps this tab's own key when another tab removes the remembered one", () => {
+      localStorage.setItem(STORAGE_KEY, "shared-key");
+      sessionStorage.setItem(STORAGE_KEY, "tab-key");
+      changeKeyInAnotherTab(null);
+      expect(getApiKey()).toBe("tab-key");
+      expect(getRemovedReason()).toBeNull();
+    });
+
+    it("ignores changes to other storage entries", () => {
+      const listener = vi.fn();
+      const unsubscribe = subscribeToApiKey(listener);
+      window.dispatchEvent(new StorageEvent("storage", { key: "something-else", newValue: "x" }));
+      unsubscribe();
+      expect(listener).not.toHaveBeenCalled();
+    });
   });
 });

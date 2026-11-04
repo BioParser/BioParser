@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { changeKeyInAnotherTab } from "./anotherTab";
 import { clearApiKey, setApiKey } from "./apiKey";
 import { ApiError, getJob } from "./client";
 import { createQueryClient, shouldRetry } from "./queryClient";
@@ -62,6 +63,14 @@ describe("createQueryClient", () => {
       vi.fn<typeof fetch>(async () => new Response(null, { status: 401 })),
     );
     await getJob("abc").catch(() => undefined);
+    expect(queryClient.getQueryData(JOB_KEY)).toBeUndefined();
+  });
+
+  it("drops cached data when another tab removes the key", () => {
+    setApiKey("shared-key", true);
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(JOB_KEY, { status: "queued" });
+    changeKeyInAnotherTab(null);
     expect(queryClient.getQueryData(JOB_KEY)).toBeUndefined();
   });
 });

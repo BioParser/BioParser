@@ -50,6 +50,11 @@ function KeyForm() {
           The API did not accept the key. Enter it again.
         </p>
       )}
+      {removedReason === "elsewhere" && (
+        <p role="status" className="key-message">
+          The key was removed in another tab.
+        </p>
+      )}
       {removedReason === "forgotten" && (
         <p role="status" className="key-message">
           The key was forgotten.
