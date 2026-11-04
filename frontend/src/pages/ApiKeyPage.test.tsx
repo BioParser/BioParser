@@ -4,6 +4,8 @@ import { clearApiKey, getApiKey, setApiKey } from "../api/apiKey";
 import { ApiKeyPage } from "./ApiKeyPage";
 
 const STORAGE_KEY = "bioparser.apiKey";
+const INVALID_KEY_MESSAGE =
+  "This is not a valid API key. A key has only letters, digits and symbols, with no spaces.";
 
 afterEach(() => {
   cleanup();
@@ -43,11 +45,26 @@ describe("ApiKeyPage", () => {
     expect(getApiKey()).toBe("secret-key");
   });
 
-  it("does not save a key of only spaces", () => {
+  it("does not save a key of only spaces, and says why", () => {
     render(<ApiKeyPage />);
     saveKey("   ");
     expect(getApiKey()).toBeNull();
-    expect(screen.getByRole("button", { name: "Save key" })).toBeDefined();
+    expect(screen.getByRole("alert").textContent).toBe(INVALID_KEY_MESSAGE);
+    expect(screen.getByLabelText("API key").getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("does not save a key with a character that cannot be sent in a header", () => {
+    render(<ApiKeyPage />);
+    // A zero-width space, as a chat app may add. trim() does not remove it.
+    saveKey("secret\u200bkey");
+    expect(getApiKey()).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe(INVALID_KEY_MESSAGE);
+  });
+
+  it("accepts letters, digits and symbols from ! to ~", () => {
+    render(<ApiKeyPage />);
+    saveKey("!azAZ09~");
+    expect(getApiKey()).toBe("!azAZ09~");
   });
 
   it("never shows the key after saving", () => {
