@@ -1,6 +1,9 @@
 import { Link, NavLink, Outlet } from "react-router";
+import { useHasApiKey } from "../api/useHasApiKey";
+import { ApiKeyPage } from "../pages/ApiKeyPage";
 
 export function Layout() {
+  const hasApiKey = useHasApiKey();
   return (
     <>
       <header className="layout-header">
@@ -17,7 +20,9 @@ export function Layout() {
         </nav>
       </header>
       <main className="layout-main">
-        <Outlet />
+        {/* Without a key, the key screen takes the page's place. The URL stays the same,
+            so the requested page shows as soon as a key is entered. */}
+        {hasApiKey ? <Outlet /> : <ApiKeyPage />}
       </main>
     </>
   );
