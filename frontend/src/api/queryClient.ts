@@ -21,11 +21,16 @@ export function createQueryClient(): QueryClient {
   return queryClient;
 }
 
-// A 401 is not tried again: the key was wrong, so the same request fails the same way.
-// The key screen asks for a new key instead.
+// A 4xx error means the request itself was refused: a wrong key (401), an unknown job (404),
+// invalid input (422). Sent again, it fails the same way, so it is not retried. 408 (timeout)
+// and 429 (too many requests) are the exceptions: they can succeed later.
 export function shouldRetry(failureCount: number, error: Error): boolean {
-  if (error instanceof ApiError && error.status === 401) {
+  if (error instanceof ApiError && isFinalClientError(error.status)) {
     return false;
   }
   return failureCount < MAX_RETRIES;
+}
+
+function isFinalClientError(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
 }

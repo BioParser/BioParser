@@ -14,12 +14,21 @@ afterEach(() => {
 });
 
 describe("shouldRetry", () => {
-  it("does not retry a 401", () => {
-    const error = new ApiError(401, "unauthorized", "Invalid or missing API key");
-    expect(shouldRetry(0, error)).toBe(false);
+  it("does not retry a refused request (4xx)", () => {
+    for (const status of [400, 401, 403, 404, 409, 413, 415, 422]) {
+      expect(shouldRetry(0, new ApiError(status, undefined, "Refused"))).toBe(false);
+    }
   });
 
-  it("retries other API errors up to three times", () => {
+  it("retries a timeout (408) or too many requests (429) up to three times", () => {
+    for (const status of [408, 429]) {
+      const error = new ApiError(status, undefined, "Try again later");
+      expect(shouldRetry(0, error)).toBe(true);
+      expect(shouldRetry(3, error)).toBe(false);
+    }
+  });
+
+  it("retries a server error up to three times", () => {
     const error = new ApiError(503, "database_unavailable", "Database unavailable");
     expect(shouldRetry(0, error)).toBe(true);
     expect(shouldRetry(2, error)).toBe(true);
