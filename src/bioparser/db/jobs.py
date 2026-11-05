@@ -19,11 +19,11 @@ from bioparser.hashing import Sha256Hex
 from bioparser.jobs.state import (
     ALLOWED_TRANSITIONS,
     CorruptJobStateError,
-    JOB_FILE_NAME_MAX_LENGTH,
     JobState,
     JobStatus,
     SafeErrorCode,
 )
+
 # The same status list the column check uses. Schema version, parser names,
 # extractor names, and error codes stay unconstrained apart from null.
 _STATUSES = get_args(JobStatus)

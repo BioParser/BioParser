@@ -26,12 +26,7 @@ from bioparser.db.engine import DatabaseError
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.hashing import Sha256Hex, is_sha256_hex, sha256_bytes
-from bioparser.jobqueue import (
-    JobQueueError,
-    ParseJobMessage,
-)
-from bioparser.jobqueue.dramatiq import DramatiqJobQueue
-from bioparser.jobstate import (
+from bioparser.jobs import (
     CorruptJobStateError,
     JobState,
     JobStatus,
