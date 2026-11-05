@@ -526,7 +526,7 @@ def _engine_that_records(events: list[str]) -> object:
     ("error", "expected_type"),
     [
         (OSError, DatabaseUnavailableError),
-        (TimeoutError, DatabaseError),
+        (TimeoutError, DatabaseUnavailableError),
     ],
 )
 async def test_transaction_reports_a_driver_error_from_the_body(
@@ -562,7 +562,7 @@ class _PgError(Exception):
         (PoolTimeoutError("pool", None, None), DatabaseUnavailableError),
         (InterfaceError("interface", None, Exception("broken")), DatabaseUnavailableError),
         (ConnectionRefusedError(), DatabaseUnavailableError),
-        (TimeoutError(), DatabaseError),
+        (TimeoutError(), DatabaseUnavailableError),
         (OperationalError("statement", {}, Exception("deadlock")), DatabaseError),
         (IntegrityError("statement", {}, _PgError("23505")), DatabaseError),
         (DBAPIError("statement", {}, _PgError("57014")), DatabaseError),
@@ -573,7 +573,7 @@ class _PgError(Exception):
         "pool_timeout",
         "interface",
         "connect_oserror",
-        "command_timeout",
+        "timeout",
         "operational_statement",
         "integrity",
         "query_canceled_sqlstate",

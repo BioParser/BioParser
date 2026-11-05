@@ -35,7 +35,7 @@ def _is_connection_pool_failure(exc: BaseException) -> bool:
     """True when the pool or a connect attempt failed, not a failed SQL statement."""
     if isinstance(exc, (PoolTimeoutError, InterfaceError)):
         return True
-    if isinstance(exc, OSError) and not isinstance(exc, TimeoutError):
+    if isinstance(exc, OSError):
         return True
     if not isinstance(exc, SQLAlchemyError):
         return False
@@ -111,8 +111,8 @@ def require() -> AsyncEngine:
 
 
 # Mapped in transaction() by _database_error_from_driver. Pool exhaustion is
-# sqlalchemy.exc.TimeoutError; command_timeout is bare TimeoutError. Other OSError
-# values are connect failures. Pool vs statement is decided in _is_connection_pool_failure.
+# sqlalchemy.exc.TimeoutError. Connect and command timeouts are bare TimeoutError
+# (an OSError). Pool vs statement is decided in _is_connection_pool_failure.
 _DRIVER_ERRORS = (SQLAlchemyError, OSError, TimeoutError)
 
 
