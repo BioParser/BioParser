@@ -168,6 +168,7 @@ async def test_redis_backed_submission_and_polling(
         response_fields = {
             "job_id": job_id,
             "created_at": submission["created_at"],
+            "display_name": None,
             "parser": DEFAULT_PARSER_NAME,
             "extractor": DEFAULT_EXTRACTOR_NAME,
             "document_checksum": document_checksum,

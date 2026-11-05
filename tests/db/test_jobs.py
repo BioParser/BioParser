@@ -357,7 +357,7 @@ async def test_a_write_does_not_require_a_valid_job_state(database: str) -> None
         connection.execute(
             text(
                 "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
-                "VALUES (:job_id, 2, 'queued', 'default', 'default', :pdf_ref)"
+                "VALUES (:job_id, 2, 'parsing', 'default', 'default', :pdf_ref)"
             ),
             {"job_id": job_id, "pdf_ref": str(uuid.uuid4())},
         )

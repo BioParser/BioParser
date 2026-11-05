@@ -3,8 +3,7 @@ import hashlib
 import json
 import logging
 import tempfile
-import time
-from collections.abc import Callable, Iterator, Awaitable
+from collections.abc import Awaitable, Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
