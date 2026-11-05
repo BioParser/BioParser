@@ -12,7 +12,7 @@ from alembic.config import Config
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 
-from bioparser.db.bootstrap import bootstrap, revoke_version_table_writes
+from bioparser.db.bootstrap import bootstrap
 from bioparser.db.engine import sync_database_url
 
 
@@ -31,7 +31,7 @@ def upgrade(url: str) -> None:
 
 
 def main() -> None:
-    """Create the application role, then upgrade BIOPARSER_DATABASE_URL.
+    """Upgrade BIOPARSER_DATABASE_URL, then create the application role.
 
     The role's password is POSTGRES_APP_PASSWORD. It can read alembic_version
     and cannot change it.
@@ -49,9 +49,8 @@ def main() -> None:
     if parsed.password == app_password:
         sys.exit("POSTGRES_APP_PASSWORD must differ from the password in BIOPARSER_DATABASE_URL")
     try:
-        bootstrap(url, app_password)
         upgrade(url)
-        revoke_version_table_writes(url)
+        bootstrap(url, app_password)
     except Exception as exc:  # noqa: BLE001 — any failure text can contain the URL
         sys.exit(_public_failure(url, app_password, exc))
     print("migrated to head")

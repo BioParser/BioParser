@@ -1,8 +1,8 @@
 """Create the login the API and workers use, and grant it the migrator's objects.
 
 The migrator stays a superuser so it can change the schema. The application role
-cannot. Default privileges are recorded before Alembic creates tables, so a
-later revision needs no grant of its own.
+cannot. Default privileges cover tables a later migrate creates, so that
+revision needs no grant of its own.
 """
 
 from __future__ import annotations
@@ -21,8 +21,9 @@ _TABLE_PRIVILEGES = "SELECT, INSERT, UPDATE, DELETE, TRUNCATE"
 def bootstrap(url: str, password: str) -> None:
     """Grant APP_ROLE password and the ordinary privileges on url's database.
 
-    url is the migrator's login. It must be allowed to create roles. A second
-    call sets the password again and leaves the privileges in place.
+    url is the migrator's login. It must be a superuser, which the log settings
+    in this transaction require. A second call sets the password again and
+    leaves the privileges in place.
     """
     if not password:
         raise ValueError("application password is required")
@@ -79,20 +80,18 @@ def _grant(connection: Connection) -> None:
     )
     _execute(connection, "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {}", role)
     _execute(connection, "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO {}", role)
+    _revoke_version_writes(connection)
 
 
-def revoke_version_table_writes(url: str) -> None:
-    """Leave the application role able to read alembic_version only."""
-    engine = create_engine(sync_database_url(url))
-    try:
-        with engine.begin() as connection:
-            _execute(
-                connection,
-                "REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public.alembic_version FROM {}",
-                sql.Identifier(APP_ROLE),
-            )
-    finally:
-        engine.dispose()
+def _revoke_version_writes(connection: Connection) -> None:
+    """Take write access to alembic_version away from the application role."""
+    if connection.execute(text("SELECT to_regclass('public.alembic_version')")).scalar() is None:
+        return
+    _execute(
+        connection,
+        "REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public.alembic_version FROM {}",
+        sql.Identifier(APP_ROLE),
+    )
 
 
 def _execute(connection: Connection, template: str, *parts: sql.Composable) -> None:

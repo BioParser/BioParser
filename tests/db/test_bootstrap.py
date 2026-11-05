@@ -13,7 +13,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 
-from bioparser.db.bootstrap import APP_ROLE
+from bioparser.db.bootstrap import APP_ROLE, bootstrap
 from bioparser.db.engine import sync_database_url
 from bioparser.db.migrate import main, upgrade
 
@@ -42,12 +42,15 @@ def test_app_role_can_use_tables_and_cannot_change_the_schema(
     monkeypatch.setenv("POSTGRES_APP_PASSWORD", app_password)
     try:
         upgrade(target.render_as_string(hide_password=False))
-        main()
-        main()
-
+        bootstrap(target.render_as_string(hide_password=False), app_password)
         app_url = target.set(
             drivername="postgresql+psycopg", username=APP_ROLE, password=app_password
         )
+        _assert_version_table_is_read_only(
+            admin, name, app_url.render_as_string(hide_password=False)
+        )
+        main()
+        main()
         _assert_role(admin, name)
         _assert_table_privileges(admin, name, "jobs")
         _assert_version_table_is_read_only(

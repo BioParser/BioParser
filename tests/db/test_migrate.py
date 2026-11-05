@@ -79,7 +79,6 @@ def test_main_reports_success(
     monkeypatch.setenv("POSTGRES_APP_PASSWORD", "app-secret")
     monkeypatch.setattr("bioparser.db.migrate.bootstrap", lambda url, password: None)
     monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: None)
-    monkeypatch.setattr("bioparser.db.migrate.revoke_version_table_writes", lambda url: None)
     main()
     assert capsys.readouterr().out.strip() == "migrated to head"
 
@@ -134,34 +133,28 @@ def test_main_accepts_a_url_without_a_password(monkeypatch: pytest.MonkeyPatch) 
         "bioparser.db.migrate.bootstrap", lambda url, password: calls.append(password)
     )
     monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: None)
-    monkeypatch.setattr("bioparser.db.migrate.revoke_version_table_writes", lambda url: None)
     main()
     assert calls == ["app-secret"]
 
 
-def test_main_creates_the_role_before_upgrading(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_upgrades_before_creating_the_role(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, str]] = []
     url = "postgresql://bioparser:super-secret@postgres/bioparser"
     monkeypatch.setenv("BIOPARSER_DATABASE_URL", url)
     monkeypatch.setenv("POSTGRES_APP_PASSWORD", "app-secret")
 
-    def record_bootstrap(url: str, password: str) -> None:
-        calls.append(("bootstrap", f"{url} {password}"))
-
     def record_upgrade(url: str) -> None:
         calls.append(("upgrade", url))
 
-    def record_revoke(url: str) -> None:
-        calls.append(("revoke", url))
+    def record_bootstrap(url: str, password: str) -> None:
+        calls.append(("bootstrap", f"{url} {password}"))
 
-    monkeypatch.setattr("bioparser.db.migrate.bootstrap", record_bootstrap)
     monkeypatch.setattr("bioparser.db.migrate.upgrade", record_upgrade)
-    monkeypatch.setattr("bioparser.db.migrate.revoke_version_table_writes", record_revoke)
+    monkeypatch.setattr("bioparser.db.migrate.bootstrap", record_bootstrap)
     main()
     assert calls == [
-        ("bootstrap", f"{url} app-secret"),
         ("upgrade", url),
-        ("revoke", url),
+        ("bootstrap", f"{url} app-secret"),
     ]
 
 
@@ -174,8 +167,8 @@ def test_main_hides_the_app_password(monkeypatch: pytest.MonkeyPatch) -> None:
     def fail(url: str, password: str) -> None:
         raise RuntimeError(f"rejected {password} from {url}")
 
+    monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: None)
     monkeypatch.setattr("bioparser.db.migrate.bootstrap", fail)
-    monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: pytest.fail("upgraded"))
     with pytest.raises(SystemExit, match="database migration failed") as raised:
         main()
     message = str(raised.value)
@@ -193,8 +186,8 @@ def test_main_hides_a_quoted_password(monkeypatch: pytest.MonkeyPatch) -> None:
         quoted = password.replace("'", "''")
         raise RuntimeError(f"rejected {password} as {quoted} from {url}")
 
+    monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: None)
     monkeypatch.setattr("bioparser.db.migrate.bootstrap", fail)
-    monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: pytest.fail("upgraded"))
     with pytest.raises(SystemExit, match="database migration failed") as raised:
         main()
     message = str(raised.value)
