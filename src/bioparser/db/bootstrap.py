@@ -15,7 +15,7 @@ from bioparser.db.engine import sync_database_url
 
 # Compose and CI log in with this name. It is not the image superuser.
 APP_ROLE = "bioparser_app"
-_TABLE_PRIVILEGES = "SELECT, INSERT, UPDATE, DELETE, TRUNCATE"
+_TABLE_PRIVILEGES = "SELECT, INSERT, UPDATE, DELETE"
 
 
 def bootstrap(url: str, password: str) -> None:

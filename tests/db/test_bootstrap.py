@@ -117,8 +117,8 @@ def _assert_table_privileges(
     admin_url: str,
     name: str,
     table: str,
-    held: tuple[str, ...] = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"),
-    withheld: tuple[str, ...] = ("REFERENCES", "TRIGGER", "MAINTAIN"),
+    held: tuple[str, ...] = ("SELECT", "INSERT", "UPDATE", "DELETE"),
+    withheld: tuple[str, ...] = ("TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"),
 ) -> None:
     url = make_url(admin_url).set(database=name)
     engine = create_engine(url)
@@ -149,7 +149,6 @@ def _assert_table_use(app_url: str) -> None:
             {"job_id": job_id},
         )
         connection.execute(text("DELETE FROM jobs WHERE job_id = :job_id"), {"job_id": job_id})
-        connection.execute(text("TRUNCATE jobs"))
     engine.dispose()
 
 
@@ -163,7 +162,6 @@ def _assert_later_table(admin_url: str, name: str, app_url: str) -> None:
     with app.begin() as connection:
         connection.execute(text("INSERT INTO privilege_probe (id) VALUES (1)"))
         connection.execute(text("DELETE FROM privilege_probe WHERE id = 1"))
-        connection.execute(text("TRUNCATE privilege_probe"))
     app.dispose()
 
 
