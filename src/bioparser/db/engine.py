@@ -24,21 +24,25 @@ class DatabaseError(RuntimeError):
 
 
 class DatabaseUnavailableError(DatabaseError):
-    """Postgres could not be reached, or the pool could not serve a connection in time.
+    """Postgres could not be reached, or the pool could not serve a connection in time."""
 
-    Workers may defer the queue delivery. Other ``DatabaseError`` types are statement or data failures that should not be treated as an outage.
-    """
+
+# Shutdown, startup, too many connections, and connection failure SQLSTATEs.
+_OUTAGE_SQLSTATES = frozenset({"57P01", "57P02", "57P03", "53300"})
 
 
 def _is_connection_pool_failure(exc: BaseException) -> bool:
-    """True when the pool or a connect attempt failed, not a failed SQL statement.
-
-    Used by ``_database_error_from_driver`` to choose ``DatabaseUnavailableError``
-    (workers may defer) over ``DatabaseError``.
-    """
-    if isinstance(exc, (OSError, PoolTimeoutError, InterfaceError)):
+    """True when the pool or a connect attempt failed, not a failed SQL statement."""
+    if isinstance(exc, (PoolTimeoutError, InterfaceError)):
         return True
-    return bool(isinstance(exc, SQLAlchemyError) and getattr(exc, "connection_invalidated", False))
+    if isinstance(exc, OSError) and not isinstance(exc, TimeoutError):
+        return True
+    if not isinstance(exc, SQLAlchemyError):
+        return False
+    if getattr(exc, "connection_invalidated", False):
+        return True
+    sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None) or ""
+    return sqlstate.startswith("08") or sqlstate in _OUTAGE_SQLSTATES
 
 
 def _database_error_from_driver(exc: BaseException) -> DatabaseError:
@@ -106,11 +110,9 @@ def require() -> AsyncEngine:
     return _engine
 
 
-# Errors caught around transaction() are mapped by _database_error_from_driver.
-# Pool exhaustion is sqlalchemy.exc.TimeoutError. A stalled query under
-# command_timeout is a bare TimeoutError, which SQLAlchemy does not wrap. A refused
-# or dropped connection is an OSError. Outage vs statement failure is decided in
-# _is_connection_pool_failure (pool, connect, and invalidated connections defer).
+# Mapped in transaction() by _database_error_from_driver. Pool exhaustion is
+# sqlalchemy.exc.TimeoutError; command_timeout is bare TimeoutError. Other OSError
+# values are connect failures. Pool vs statement is decided in _is_connection_pool_failure.
 _DRIVER_ERRORS = (SQLAlchemyError, OSError, TimeoutError)
 
 

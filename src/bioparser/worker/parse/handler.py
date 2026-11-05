@@ -14,7 +14,7 @@ from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
 from bioparser.hashing import sha256_bytes
 from bioparser.jobs import CorruptJobStateError, JobState, JobStatus
-from bioparser.jobs.queue import ParseJobMessage
+from bioparser.jobs.queue import JobDeferred, ParseJobMessage
 from bioparser.parser import (
     ParserArtifact,
     ParserBackendUnavailableError,
@@ -70,6 +70,8 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
         """
         try:
             await super().handle(message)
+        except JobDeferred:
+            raise
         except BaseException:
             await self._wake_without_hiding_the_delivery_error(message.job_id)
             raise

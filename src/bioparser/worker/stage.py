@@ -133,9 +133,9 @@ class StageJobHandler[T: JobMessage]:
                 "the job stays in its stored status"
             )
             return
-        except DatabaseUnavailableError:
-            LOGGER.warning("Postgres is not reachable")
-            raise JobDeferred("Postgres is not reachable") from None
+        except DatabaseUnavailableError as exc:
+            LOGGER.warning("Postgres is not reachable: %s", exc)
+            raise JobDeferred("Postgres is not reachable") from exc
         if self._before_claim is not None:
             await self._before_claim(state)
         if not await self._mark_running(state):
@@ -157,9 +157,9 @@ class StageJobHandler[T: JobMessage]:
                     from_statuses=self._owned,
                     max_claims=self._max_claims,
                 )
-        except DatabaseUnavailableError:
-            LOGGER.warning("Postgres is not reachable")
-            raise JobDeferred("Postgres is not reachable") from None
+        except DatabaseUnavailableError as exc:
+            LOGGER.warning("Postgres is not reachable: %s", exc)
+            raise JobDeferred("Postgres is not reachable") from exc
         if outcome == "claimed":
             return True
         if outcome == "exhausted":

@@ -12,7 +12,7 @@ from typing import get_args
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from bioparser.db import engine as db_engine
@@ -535,9 +535,10 @@ async def test_transaction_reports_a_driver_error_from_the_body(
 ) -> None:
     events: list[str] = []
     monkeypatch.setattr(db_engine, "_engine", _engine_that_records(events))
-    with pytest.raises(expected_type, match=error.__name__):
+    with pytest.raises(DatabaseError, match=error.__name__) as raised:
         async with db_engine.transaction():
             raise error()
+    assert type(raised.value) is expected_type
     assert events == ["rollback", "close"]
 
 
@@ -561,6 +562,18 @@ def test_database_error_from_driver_treats_invalidated_connection_as_outage() ->
     driver_error.connection_invalidated = True
     raised = db_engine._database_error_from_driver(driver_error)
     assert type(raised) is DatabaseUnavailableError
+
+
+class _PgError(Exception):
+    def __init__(self, sqlstate: str) -> None:
+        super().__init__(sqlstate)
+        self.sqlstate = sqlstate
+
+
+@pytest.mark.parametrize("sqlstate", ["57P03", "57P01", "08006", "53300"])
+def test_a_server_that_does_not_serve_now_is_an_outage(sqlstate: str) -> None:
+    error = DBAPIError("connect", {}, _PgError(sqlstate))
+    assert type(db_engine._database_error_from_driver(error)) is DatabaseUnavailableError
 
 
 @pytest.mark.anyio

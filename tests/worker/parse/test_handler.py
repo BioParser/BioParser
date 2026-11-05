@@ -363,6 +363,33 @@ def test_postgres_unreachable_defers_without_claiming() -> None:
     assert parser.paths == []
 
 
+def test_postgres_defer_does_not_run_extract_wake_up(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    jobs = StubJobs(_queued())
+    jobs.get_error = DatabaseUnavailableError("Postgres query failed: OperationalError")
+    woken: list[UUID] = []
+
+    async def enqueue(job_id: UUID) -> None:
+        woken.append(job_id)
+
+    handler = _handler(
+        jobs,
+        _storage(),
+        RecordingParser(_artifact()),
+        enqueue=enqueue,
+    )
+    with (
+        caplog.at_level(logging.ERROR, logger="bioparser.worker.parse.handler"),
+        pytest.raises(JobDeferred, match="Postgres is not reachable"),
+    ):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert woken == []
+    assert "extract message was not sent" not in caplog.text
+
+
 def test_postgres_unreachable_on_claim_defers_without_claiming() -> None:
     jobs = StubJobs(_queued())
     jobs.claim_error = DatabaseUnavailableError("Postgres query failed: TimeoutError")
