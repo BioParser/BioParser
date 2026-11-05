@@ -44,6 +44,11 @@ def test_a_negative_claim_count_is_rejected() -> None:
         _queued(extracting_claims=-1)
 
 
+def test_created_at_must_include_a_timezone() -> None:
+    with pytest.raises(ValidationError, match="timezone"):
+        _queued(created_at=datetime(2026, 1, 1))
+
+
 def test_every_status_has_a_transition_row() -> None:
     """The Redis transition test only walks this table, so a missing status would never run."""
     assert set(ALLOWED_TRANSITIONS) == set(get_args(JobStatus))

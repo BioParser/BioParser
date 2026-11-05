@@ -104,9 +104,10 @@ The checks run in a fixed order: `Content-Length` header format and size →
 ```
 
 The response identifies the selected parser and extractor and includes the
-SHA-256 checksum of the uploaded document. This legacy direct-upload route does
-not create document metadata, so `display_name` is `null`. A newly queued job
-cannot yet have a parse result, so `has_parse_result` is always `false` here.
+SHA-256 checksum of the uploaded document. If the same content was uploaded through
+`POST /api/documents`, `display_name` is that document's stored name; otherwise it
+is `null`. A newly queued job cannot yet have a parse result, so
+`has_parse_result` is always `false` here.
 
 **Failure:**
 

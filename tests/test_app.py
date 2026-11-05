@@ -9,7 +9,7 @@ from conftest import TEST_API_KEY
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from httpx2 import ASGITransport
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from stubs import StubArtifactStorage, StubJobs, StubParseQueue
 
 from bioparser.api import config
@@ -55,15 +55,15 @@ _STATUS_FIELDS: dict[JobStatus, dict[str, Any]] = {
 
 def _job(status: JobStatus, **fields: Any) -> JobState:
     """A valid stored job in [status]. [fields] replace the defaults for that status."""
-    return JobState(
-        job_id=uuid4(),
-        parser="default",
-        extractor="default",
-        status=status,
-        pdf_ref=PDF_REF,
-        created_at=CREATED_AT,
-        **(_STATUS_FIELDS[status] | fields),
-    )
+    values = {
+        "job_id": uuid4(),
+        "parser": "default",
+        "extractor": "default",
+        "status": status,
+        "pdf_ref": PDF_REF,
+        "created_at": CREATED_AT,
+    }
+    return JobState.model_validate(values | _STATUS_FIELDS[status] | fields)
 
 
 def test_submit_and_retrieve_job(
@@ -82,7 +82,12 @@ def test_submit_and_retrieve_job(
     assert record["job_id"]
     assert record["status"] == "queued"
     assert record["display_name"] is None
-    assert events == ["artifact.store", "job_state.create", "queue.submit"]
+    assert events == [
+        "artifact.store",
+        "job_state.create",
+        "document.get",
+        "queue.submit",
+    ]
 
     state = jobs.states[record["job_id"]]
     message = parse_queue.messages[0]
@@ -95,6 +100,28 @@ def test_submit_and_retrieve_job(
     assert response.status_code == 200
     JOB_STATUS_ADAPTER.validate_python(response.json())
     assert response.json() == record
+
+
+def test_submit_uses_an_existing_document_display_name(
+    client: TestClient,
+) -> None:
+    upload = client.post(
+        "/api/documents",
+        files={"file": ("paper.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+    assert upload.status_code == 201
+
+    submitted = client.post(
+        "/api/extractions",
+        files={"file": ("ignored.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+
+    assert submitted.status_code == 202
+    assert submitted.json()["display_name"] == "paper.pdf"
+
+    status = client.get(f"/api/jobs/{submitted.json()['job_id']}")
+    assert status.status_code == 200
+    assert status.json()["display_name"] == "paper.pdf"
 
 
 def test_job_status_openapi_schema() -> None:
@@ -120,6 +147,22 @@ def test_job_status_openapi_schema() -> None:
         {"$ref": "#/components/schemas/SucceededJobResponse"},
         {"$ref": "#/components/schemas/FailedJobResponse"},
     ]
+
+
+def test_job_status_response_requires_an_aware_creation_time() -> None:
+    response = {
+        "job_id": str(uuid4()),
+        "status": "queued",
+        "created_at": "2026-01-01T00:00:00",
+        "display_name": None,
+        "parser": "default",
+        "extractor": "default",
+        "document_checksum": DOCUMENT_CHECKSUM,
+        "has_parse_result": False,
+    }
+
+    with pytest.raises(ValidationError, match="timezone"):
+        JOB_STATUS_ADAPTER.validate_python(response)
 
 
 def test_unknown_job_returns_404(client: TestClient) -> None:
@@ -709,6 +752,24 @@ def test_job_status_returns_500_when_stored_state_is_unreadable(
     }
 
 
+@pytest.mark.parametrize("route", ["status", "list"])
+def test_invalid_job_pdf_ref_returns_job_state_unreadable(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+    route: str,
+) -> None:
+    jobs = stub_api_adapters[1]
+    state = _job("queued", pdf_ref="legacy-ref")
+    jobs.states[str(state.job_id)] = state
+    path = f"/api/jobs/{state.job_id}" if route == "status" else "/api/jobs"
+
+    response = client.get(path)
+
+    assert response.status_code == 500
+    ErrorResponse.model_validate(response.json())
+    assert response.json()["detail"]["code"] == "job_state_unreadable"
+
+
 def test_submit_returns_503_when_postgres_unavailable(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
@@ -772,6 +833,7 @@ def test_submit_returns_503_when_queue_unavailable(
     assert events == [
         "artifact.store",
         "job_state.create",
+        "document.get",
         "queue.submit",
         "job_state.mark_failed",
     ]

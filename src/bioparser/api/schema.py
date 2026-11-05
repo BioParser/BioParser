@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTORS
 from bioparser.hashing import Sha256Hex
@@ -12,7 +12,7 @@ from bioparser.parser_names import DEFAULT_PARSER_NAME, PARSER_BACKENDS
 
 class JobResponseBase(BaseModel):
     job_id: UUID
-    created_at: datetime
+    created_at: AwareDatetime
     display_name: str | None
     parser: str
     extractor: str

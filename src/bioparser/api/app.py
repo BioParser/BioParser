@@ -17,7 +17,7 @@ from uuid import UUID
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ValidationError
 
-from bioparser.artifact_paths import pdf_checksum, pdf_path
+from bioparser.artifact_paths import ArtifactPathError, pdf_checksum, pdf_path
 from bioparser.db import documents as document_queries
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
@@ -293,7 +293,7 @@ def _job_state_response(state: JobState, display_name: str | None) -> JobStatusR
         "display_name": display_name,
         "parser": state.parser,
         "extractor": state.extractor,
-        "document_checksum": pdf_checksum(state.pdf_ref),
+        "document_checksum": _job_pdf_checksum(state),
         "has_parse_result": state.parse_result_ref is not None,
     }
     match state.status:
@@ -311,6 +311,15 @@ def _job_state_response(state: JobState, display_name: str | None) -> JobStatusR
                 error=SafeError(code=state.error_code),
                 **response_fields,
             )
+
+
+def _job_pdf_checksum(state: JobState) -> str:
+    """Return a job's document checksum or the public corrupt-state error."""
+    try:
+        return pdf_checksum(state.pdf_ref)
+    except ArtifactPathError as exc:
+        LOGGER.error("job PDF reference unreadable", extra={"job_id": str(state.job_id)})
+        raise http_error(500, JOB_STATE_UNREADABLE) from exc
 
 
 def _parse_job_id(job_id: str) -> UUID:
@@ -439,6 +448,8 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         LOGGER.error("artifact store failed", extra=fields | error_fields(exc))
         raise http_error(503, STORAGE_UNAVAILABLE) from exc
 
+    # JobState needs an aware value before persistence. `create` omits this placeholder
+    # from the insert and returns the database-generated creation time instead.
     job_state = JobState(
         job_id=job_id,
         status="queued",
@@ -455,6 +466,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     try:
         async with database.transaction() as connection:
             job_state = await job_queries.create(connection, job_state)
+            document = await document_queries.get(connection, document_id)
     except DatabaseError as exc:
         LOGGER.error("job state create failed", extra=fields | error_fields(exc))
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
@@ -484,7 +496,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         job_id=job_state.job_id,
         status="queued",
         created_at=job_state.created_at,
-        display_name=None,
+        display_name=document.display_name if document is not None else None,
         parser=job_state.parser,
         extractor=job_state.extractor,
         document_checksum=document_id,
@@ -702,6 +714,8 @@ async def submit_document_job(
         raise http_error(404, DOCUMENT_NOT_FOUND)
 
     job_id = uuid.uuid4()
+    # JobState needs an aware value before persistence. `create` omits this placeholder
+    # from the insert and returns the database-generated creation time instead.
     job_state = JobState(
         job_id=job_id,
         status="queued",
@@ -817,7 +831,7 @@ async def list_jobs(
                 status=status,
                 parser=parser,
             )
-            checksums = {pdf_checksum(job.pdf_ref) for job in jobs}
+            checksums = {_job_pdf_checksum(job) for job in jobs}
             display_names = await document_queries.get_display_names(connection, checksums)
     except CorruptJobStateError as exc:
         LOGGER.error("corrupt job state in list jobs", extra=error_fields(exc))
@@ -826,7 +840,7 @@ async def list_jobs(
         LOGGER.warning("job store list failed", extra=error_fields(exc))
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
 
-    return [_job_state_response(job, display_names.get(pdf_checksum(job.pdf_ref))) for job in jobs]
+    return [_job_state_response(job, display_names.get(_job_pdf_checksum(job))) for job in jobs]
 
 
 @app.get(
@@ -842,7 +856,7 @@ async def list_jobs(
 )
 async def job_status(request: Request, job_id: str) -> JobStatusResponse:
     job = await _read_job(request, _parse_job_id(job_id))
-    checksum = pdf_checksum(job.pdf_ref)
+    checksum = _job_pdf_checksum(job)
     try:
         async with database.transaction() as connection:
             display_names = await document_queries.get_display_names(connection, {checksum})

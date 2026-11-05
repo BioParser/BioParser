@@ -400,6 +400,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Display Name */
+            display_name: string | null;
             /** Parser */
             parser: string;
             /** Extractor */
@@ -616,6 +618,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Display Name */
+            display_name: string | null;
             /** Parser */
             parser: string;
             /** Extractor */
@@ -680,6 +684,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Display Name */
+            display_name: string | null;
             /** Parser */
             parser: string;
             /** Extractor */
@@ -717,6 +723,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Display Name */
+            display_name: string | null;
             /** Parser */
             parser: string;
             /** Extractor */
