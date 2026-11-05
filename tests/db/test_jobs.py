@@ -560,7 +560,7 @@ class _PgError(Exception):
     ("driver_error", "expected_type"),
     [
         (PoolTimeoutError("pool", None, None), DatabaseUnavailableError),
-        (InterfaceError("interface", None, None), DatabaseUnavailableError),
+        (InterfaceError("interface", None, Exception("broken")), DatabaseUnavailableError),
         (ConnectionRefusedError(), DatabaseUnavailableError),
         (TimeoutError(), DatabaseError),
         (OperationalError("statement", {}, Exception("deadlock")), DatabaseError),
