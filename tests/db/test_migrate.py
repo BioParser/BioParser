@@ -74,10 +74,12 @@ def test_main_reports_success(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setenv(
-        "BIOPARSER_DATABASE_URL", "postgresql://bioparser:app-secret@postgres/bioparser"
+        "BIOPARSER_DATABASE_URL", "postgresql://bioparser:super-secret@postgres/bioparser"
     )
+    monkeypatch.setenv("POSTGRES_APP_PASSWORD", "app-secret")
     monkeypatch.setattr("bioparser.db.migrate.bootstrap", lambda url, password: None)
     monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: None)
+    monkeypatch.setattr("bioparser.db.migrate.revoke_version_table_writes", lambda url: None)
     main()
     assert capsys.readouterr().out.strip() == "migrated to head"
 
@@ -87,6 +89,7 @@ def test_main_hides_the_password(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
         "BIOPARSER_DATABASE_URL", "postgresql://bioparser:s3cret@postgres:5432/bioparser"
     )
+    monkeypatch.setenv("POSTGRES_APP_PASSWORD", "app-secret")
 
     def fail(url: str) -> None:
         raise RuntimeError(f"could not connect to {url}")
@@ -97,20 +100,50 @@ def test_main_hides_the_password(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "s3cret" not in str(raised.value)
 
 
-def test_main_requires_a_password_in_the_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("BIOPARSER_DATABASE_URL", "postgresql://bioparser@postgres/bioparser")
+def test_main_requires_an_app_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "BIOPARSER_DATABASE_URL", "postgresql://bioparser:super-secret@postgres/bioparser"
+    )
+    monkeypatch.delenv("POSTGRES_APP_PASSWORD", raising=False)
     monkeypatch.setattr(
         "bioparser.db.migrate.bootstrap", lambda url, password: pytest.fail("bootstrapped")
     )
     monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: pytest.fail("upgraded"))
-    with pytest.raises(SystemExit, match="must include the password"):
+    with pytest.raises(SystemExit, match="POSTGRES_APP_PASSWORD is required"):
         main()
+
+
+def test_main_rejects_the_same_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "BIOPARSER_DATABASE_URL", "postgresql://bioparser:same-secret@postgres/bioparser"
+    )
+    monkeypatch.setenv("POSTGRES_APP_PASSWORD", "same-secret")
+    monkeypatch.setattr(
+        "bioparser.db.migrate.bootstrap", lambda url, password: pytest.fail("bootstrapped")
+    )
+    with pytest.raises(SystemExit, match="must differ"):
+        main()
+
+
+def test_main_accepts_a_url_without_a_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    url = "postgresql://bioparser@postgres/bioparser"
+    monkeypatch.setenv("BIOPARSER_DATABASE_URL", url)
+    monkeypatch.setenv("POSTGRES_APP_PASSWORD", "app-secret")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "bioparser.db.migrate.bootstrap", lambda url, password: calls.append(password)
+    )
+    monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: None)
+    monkeypatch.setattr("bioparser.db.migrate.revoke_version_table_writes", lambda url: None)
+    main()
+    assert calls == ["app-secret"]
 
 
 def test_main_creates_the_role_before_upgrading(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, str]] = []
-    url = "postgresql://bioparser:app-secret@postgres/bioparser"
+    url = "postgresql://bioparser:super-secret@postgres/bioparser"
     monkeypatch.setenv("BIOPARSER_DATABASE_URL", url)
+    monkeypatch.setenv("POSTGRES_APP_PASSWORD", "app-secret")
 
     def record_bootstrap(url: str, password: str) -> None:
         calls.append(("bootstrap", f"{url} {password}"))
@@ -118,19 +151,25 @@ def test_main_creates_the_role_before_upgrading(monkeypatch: pytest.MonkeyPatch)
     def record_upgrade(url: str) -> None:
         calls.append(("upgrade", url))
 
+    def record_revoke(url: str) -> None:
+        calls.append(("revoke", url))
+
     monkeypatch.setattr("bioparser.db.migrate.bootstrap", record_bootstrap)
     monkeypatch.setattr("bioparser.db.migrate.upgrade", record_upgrade)
+    monkeypatch.setattr("bioparser.db.migrate.revoke_version_table_writes", record_revoke)
     main()
     assert calls == [
         ("bootstrap", f"{url} app-secret"),
         ("upgrade", url),
+        ("revoke", url),
     ]
 
 
 def test_main_hides_the_app_password(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
-        "BIOPARSER_DATABASE_URL", "postgresql://bioparser:s3cret@postgres:5432/bioparser"
+        "BIOPARSER_DATABASE_URL", "postgresql://bioparser:super-secret@postgres:5432/bioparser"
     )
+    monkeypatch.setenv("POSTGRES_APP_PASSWORD", "s3cret")
 
     def fail(url: str, password: str) -> None:
         raise RuntimeError(f"rejected {password} from {url}")
@@ -139,7 +178,30 @@ def test_main_hides_the_app_password(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: pytest.fail("upgraded"))
     with pytest.raises(SystemExit, match="database migration failed") as raised:
         main()
-    assert "s3cret" not in str(raised.value)
+    message = str(raised.value)
+    assert "s3cret" not in message
+    assert "super-secret" not in message
+
+
+def test_main_hides_a_quoted_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "BIOPARSER_DATABASE_URL", "postgresql://bioparser:super-secret@postgres:5432/bioparser"
+    )
+    monkeypatch.setenv("POSTGRES_APP_PASSWORD", "pa'ss")
+
+    def fail(url: str, password: str) -> None:
+        quoted = password.replace("'", "''")
+        raise RuntimeError(f"rejected {password} as {quoted} from {url}")
+
+    monkeypatch.setattr("bioparser.db.migrate.bootstrap", fail)
+    monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: pytest.fail("upgraded"))
+    with pytest.raises(SystemExit, match="database migration failed") as raised:
+        main()
+    message = str(raised.value)
+    assert "pa'ss" not in message
+    assert "pa''ss" not in message
+    assert "pa%27ss" not in message
+    assert "super-secret" not in message
 
 
 def test_main_hides_a_percent_encoded_password(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -147,6 +209,7 @@ def test_main_hides_a_percent_encoded_password(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv(
         "BIOPARSER_DATABASE_URL", "postgresql://bioparser:s%2Fcret@postgres:5432/bioparser"
     )
+    monkeypatch.setenv("POSTGRES_APP_PASSWORD", "app-secret")
 
     def fail(url: str) -> None:
         raise RuntimeError(f"rejected s/cret and s%2Fcret from {url}")
@@ -169,6 +232,10 @@ def test_jobs_migration_upgrades_an_empty_database(monkeypatch: pytest.MonkeyPat
     _create_database(admin_url.render_as_string(hide_password=False), name)
     target = make_url(sync_database_url(raw)).set(database=name).set(drivername="postgresql")
     monkeypatch.setenv("BIOPARSER_DATABASE_URL", target.render_as_string(hide_password=False))
+    app_password = "app-password"
+    if make_url(target).password == app_password:
+        app_password = "app-password-2"
+    monkeypatch.setenv("POSTGRES_APP_PASSWORD", app_password)
     try:
         main()
         _assert_jobs_table(admin_url.render_as_string(hide_password=False), name)

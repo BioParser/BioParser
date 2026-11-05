@@ -1,6 +1,6 @@
 """Application-role coverage. The Postgres test needs BIOPARSER_TEST_DATABASE_URL.
 
-The role is cluster-wide. migrate copies the password from that URL onto it.
+The role is cluster-wide. migrate sets POSTGRES_APP_PASSWORD on it.
 """
 
 from __future__ import annotations
@@ -36,14 +36,23 @@ def test_app_role_can_use_tables_and_cannot_change_the_schema(
     _create_database(admin, name)
     target = make_url(sync_database_url(raw)).set(database=name).set(drivername="postgresql")
     monkeypatch.setenv("BIOPARSER_DATABASE_URL", target.render_as_string(hide_password=False))
+    app_password = "app-password"
+    if app_password == password:
+        app_password = "app-password-2"
+    monkeypatch.setenv("POSTGRES_APP_PASSWORD", app_password)
     try:
         upgrade(target.render_as_string(hide_password=False))
         main()
         main()
 
-        app_url = target.set(drivername="postgresql+psycopg", username=APP_ROLE, password=password)
+        app_url = target.set(
+            drivername="postgresql+psycopg", username=APP_ROLE, password=app_password
+        )
         _assert_role(admin, name)
         _assert_table_privileges(admin, name, "jobs")
+        _assert_version_table_is_read_only(
+            admin, name, app_url.render_as_string(hide_password=False)
+        )
         _assert_table_use(app_url.render_as_string(hide_password=False))
         _assert_later_table(admin, name, app_url.render_as_string(hide_password=False))
         _assert_table_privileges(admin, name, "privilege_probe")
@@ -85,9 +94,29 @@ def _assert_role(admin_url: str, name: str) -> None:
     assert row == (False, False, False, True)
 
 
-def _assert_table_privileges(admin_url: str, name: str, table: str) -> None:
-    held = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE")
-    withheld = ("REFERENCES", "TRIGGER", "MAINTAIN")
+def _assert_version_table_is_read_only(admin_url: str, name: str, app_url: str) -> None:
+    _assert_table_privileges(
+        admin_url,
+        name,
+        "alembic_version",
+        held=("SELECT",),
+        withheld=("INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"),
+    )
+    engine = create_engine(app_url, isolation_level="AUTOCOMMIT")
+    with engine.connect() as connection:
+        connection.execute(text("SELECT version_num FROM alembic_version"))
+        with pytest.raises(DBAPIError, match="permission denied"):
+            connection.execute(text("UPDATE alembic_version SET version_num = 'changed'"))
+    engine.dispose()
+
+
+def _assert_table_privileges(
+    admin_url: str,
+    name: str,
+    table: str,
+    held: tuple[str, ...] = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"),
+    withheld: tuple[str, ...] = ("REFERENCES", "TRIGGER", "MAINTAIN"),
+) -> None:
     url = make_url(admin_url).set(database=name)
     engine = create_engine(url)
     with engine.connect() as connection:

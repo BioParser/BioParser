@@ -7,6 +7,7 @@ later revision needs no grant of its own.
 
 from __future__ import annotations
 
+from psycopg import sql
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 
@@ -28,6 +29,9 @@ def bootstrap(url: str, password: str) -> None:
     engine = create_engine(sync_database_url(url))
     try:
         with engine.begin() as connection:
+            # This transaction's statements stay out of the server log.
+            connection.exec_driver_sql("SET LOCAL log_statement = 'none'")
+            connection.exec_driver_sql("SET LOCAL log_min_error_statement = 'panic'")
             _ensure_role(connection, password)
             _grant(connection)
     finally:
@@ -41,55 +45,60 @@ def _ensure_role(connection: Connection, password: str) -> None:
         {"role": APP_ROLE},
     ).scalar()
     if exists:
-        template = "ALTER ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE"
+        template = "ALTER ROLE {} WITH LOGIN PASSWORD {} NOSUPERUSER NOCREATEDB NOCREATEROLE"
     else:
-        template = "CREATE ROLE %I LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE"
-    # CREATE ROLE cannot take a bound password. format(%L) quotes it, and the
-    # result is executed as SQL rather than as a statement with bind markers.
-    _run(connection, template, APP_ROLE, password)
+        template = "CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER NOCREATEDB NOCREATEROLE"
+    _execute(connection, template, sql.Identifier(APP_ROLE), sql.Literal(password))
 
 
 def _grant(connection: Connection) -> None:
     """Let the application role use objects the current login creates."""
     database = str(connection.execute(text("SELECT current_database()")).scalar_one())
     migrator = str(connection.execute(text("SELECT current_user")).scalar_one())
-    _run(connection, "GRANT CONNECT ON DATABASE %I TO %I", database, APP_ROLE)
-    _run(connection, "GRANT USAGE ON SCHEMA public TO %I", APP_ROLE)
-    _run(connection, "REVOKE CREATE ON SCHEMA public FROM %I", APP_ROLE)
+    role = sql.Identifier(APP_ROLE)
+    _execute(connection, "GRANT CONNECT ON DATABASE {} TO {}", sql.Identifier(database), role)
+    _execute(connection, "GRANT USAGE ON SCHEMA public TO {}", role)
+    _execute(connection, "REVOKE CREATE ON SCHEMA public FROM {}", role)
     for privilege in (
-        "REVOKE ALL PRIVILEGES ON TABLES FROM %I",
-        f"GRANT {_TABLE_PRIVILEGES} ON TABLES TO %I",
-        "GRANT ALL PRIVILEGES ON SEQUENCES TO %I",
-        "GRANT EXECUTE ON FUNCTIONS TO %I",
+        "REVOKE ALL PRIVILEGES ON TABLES FROM {}",
+        f"GRANT {_TABLE_PRIVILEGES} ON TABLES TO {{}}",
+        "GRANT ALL PRIVILEGES ON SEQUENCES TO {}",
+        "GRANT EXECUTE ON FUNCTIONS TO {}",
     ):
-        _run(
+        _execute(
             connection,
-            f"ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public {privilege}",
-            migrator,
-            APP_ROLE,
+            "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA public " + privilege,
+            sql.Identifier(migrator),
+            role,
         )
-    _run(connection, "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM %I", APP_ROLE)
-    _run(
+    _execute(connection, "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM {}", role)
+    _execute(
         connection,
-        f"GRANT {_TABLE_PRIVILEGES} ON ALL TABLES IN SCHEMA public TO %I",
-        APP_ROLE,
+        f"GRANT {_TABLE_PRIVILEGES} ON ALL TABLES IN SCHEMA public TO {{}}",
+        role,
     )
-    _run(connection, "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO %I", APP_ROLE)
-    _run(connection, "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO %I", APP_ROLE)
+    _execute(connection, "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {}", role)
+    _execute(connection, "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO {}", role)
 
 
-def _run(connection: Connection, template: str, *args: str) -> None:
-    """Run one identifier-quoted statement. The template's %I and %L are Postgres format."""
-    if len(args) == 1:
-        rendered = connection.execute(
-            text("SELECT format(CAST(:template AS text), CAST(:a AS text))"),
-            {"template": template, "a": args[0]},
-        ).scalar_one()
-    elif len(args) == 2:
-        rendered = connection.execute(
-            text("SELECT format(CAST(:template AS text), CAST(:a AS text), CAST(:b AS text))"),
-            {"template": template, "a": args[0], "b": args[1]},
-        ).scalar_one()
-    else:
-        raise ValueError("bootstrap statement needs one or two arguments")
-    connection.exec_driver_sql(str(rendered))
+def revoke_version_table_writes(url: str) -> None:
+    """Leave the application role able to read alembic_version only."""
+    engine = create_engine(sync_database_url(url))
+    try:
+        with engine.begin() as connection:
+            _execute(
+                connection,
+                "REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public.alembic_version FROM {}",
+                sql.Identifier(APP_ROLE),
+            )
+    finally:
+        engine.dispose()
+
+
+def _execute(connection: Connection, template: str, *parts: sql.Composable) -> None:
+    """Run one statement. The cursor has no parameters, so '%' stays literal."""
+    cursor = connection.connection.cursor()
+    try:
+        cursor.execute(sql.SQL(template).format(*parts))
+    finally:
+        cursor.close()
