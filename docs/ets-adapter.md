@@ -77,7 +77,7 @@ A minimum greater than the maximum is kept as printed, and the row warns `bounds
 - A missing `basisOfRecord` stays empty. ETS does not default it. `aggregateMeasure` stays empty.
 - A missing `individualCount` is empty. A missing `dispersion` is empty. A measured dispersion of zero is stored as `0`. The minimum and the maximum have no default either.
 - `measurementID` is assigned when the rows are built.
-- `references` comes from the job's document.
+- `references` comes from the job's document. The API writes the document checksum, the last segment of `pdf_ref`, until a bibliographic citation exists.
 - `warnings` collects what the adapter found while building the row.
 - `occurrenceID` is the printed token, or a value read from a wider phrase, when the observation stored one.
 - `taxonRank` stays empty. A taxonomy lookup fills it with `taxonID`. A printed kingdom, phylum, class, order, family, or genus is copied, and a later lookup fills one of those columns only when the observation left it empty.
