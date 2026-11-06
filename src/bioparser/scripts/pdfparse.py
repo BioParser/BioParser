@@ -12,8 +12,8 @@ from bioparser.parser import (
     ParserProcessError,
     ParserTimeoutError,
     UnsupportedDocumentError,
-    get_parser,
 )
+from bioparser.parser.backend.factory import get_parser
 
 
 def build_parser() -> argparse.ArgumentParser:
