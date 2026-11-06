@@ -81,3 +81,26 @@ export function submitJob(file: File): Promise<QueuedJobResponse> {
 export function getJob(jobId: string): Promise<JobStatusResponse> {
   return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}`);
 }
+
+export type DocumentMetadataResponse = Schemas["DocumentMetadataResponse"];
+export type CreateJobRequest = Schemas["CreateJobRequest"];
+
+// Stores the PDF. The API answers 201 for a new document and 200 for one it already has;
+// both return the checksum the job is started with.
+export function uploadDocument(file: File): Promise<DocumentMetadataResponse> {
+  const body = new FormData();
+  body.append("file", file);
+  // No Content-Type header: the browser sets multipart/form-data with its boundary.
+  return apiFetch("/api/documents", { method: "POST", body });
+}
+
+export function startDocumentJob(
+  checksum: string,
+  request: CreateJobRequest,
+): Promise<QueuedJobResponse> {
+  return apiFetch(`/api/documents/${encodeURIComponent(checksum)}/jobs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+}

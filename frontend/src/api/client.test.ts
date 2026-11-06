@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { clearApiKey, getApiKey, getRemovedReason, setApiKey } from "./apiKey";
-import { ApiError, apiFetch, getJob } from "./client";
+import { ApiError, apiFetch, getJob, startDocumentJob, uploadDocument } from "./client";
 
 function stubFetch(response: Response): Mock<typeof fetch> {
   const fetchMock = vi.fn<typeof fetch>(async () => response);
@@ -117,5 +117,40 @@ describe("apiFetch and the API key", () => {
     stubFetch(new Response("Bad Gateway", { status: 502 }));
     await expect(getJob("abc")).rejects.toMatchObject({ status: 502 });
     expect(getApiKey()).toBe("the-key");
+  });
+
+  // The path and options of the first request the stubbed fetch received.
+  function sentRequest(fetchMock: Mock<typeof fetch>): { path: unknown; init: RequestInit } {
+    const [path, init] = fetchMock.mock.calls[0] ?? [];
+    return { path, init: init ?? {} };
+  }
+
+  describe("uploadDocument", () => {
+    it("posts the file as multipart form data", async () => {
+      const fetchMock = stubFetch(Response.json({ checksum: "abc" }, { status: 201 }));
+      const file = new File(["%PDF-1.7"], "paper.pdf", { type: "application/pdf" });
+      await expect(uploadDocument(file)).resolves.toMatchObject({ checksum: "abc" });
+      const { path, init } = sentRequest(fetchMock);
+      expect(path).toBe("/api/documents");
+      expect(init.method).toBe("POST");
+      expect(init.body).toBeInstanceOf(FormData);
+      expect((init.body as FormData).get("file")).toBe(file);
+    });
+  });
+
+  describe("startDocumentJob", () => {
+    it("posts the parser and extractor as JSON", async () => {
+      const fetchMock = stubFetch(
+        Response.json({ job_id: "job-1", status: "queued" }, { status: 202 }),
+      );
+      await expect(
+        startDocumentJob("abc", { parser: "mineru", extractor: "default" }),
+      ).resolves.toEqual({ job_id: "job-1", status: "queued" });
+      const { path, init } = sentRequest(fetchMock);
+      expect(path).toBe("/api/documents/abc/jobs");
+      expect(init.method).toBe("POST");
+      expect(sentHeaders(fetchMock).get("Content-Type")).toBe("application/json");
+      expect(JSON.parse(String(init.body))).toEqual({ parser: "mineru", extractor: "default" });
+    });
   });
 });
