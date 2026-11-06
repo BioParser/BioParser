@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.13.*"
 
 [[package]]
@@ -112,6 +112,7 @@ wheels = [
 name = "bioparser"
 version = "0.1.0"
 source = { editable = "." }
+default-groups = "all"
 dependencies = [
     { name = "asyncpg" },
     { name = "httpx2" },
