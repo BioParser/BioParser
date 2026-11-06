@@ -76,16 +76,13 @@ def test_submit_and_retrieve_job(
         files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
     )
     assert response.status_code == 202
-    JOB_STATUS_ADAPTER.validate_python(response.json())
     record = response.json()
-
-    assert record["job_id"]
+    assert set(record) == {"job_id", "status"}
     assert record["status"] == "queued"
-    assert record["display_name"] is None
     assert events == [
         "artifact.store",
+        "document.create",
         "job_state.create",
-        "document.get",
         "queue.submit",
     ]
 
@@ -99,7 +96,8 @@ def test_submit_and_retrieve_job(
 
     assert response.status_code == 200
     JOB_STATUS_ADAPTER.validate_python(response.json())
-    assert response.json() == record
+    assert response.json()["job_id"] == record["job_id"]
+    assert response.json()["display_name"] == "sample.pdf"
 
 
 def test_submit_uses_an_existing_document_display_name(
@@ -117,7 +115,7 @@ def test_submit_uses_an_existing_document_display_name(
     )
 
     assert submitted.status_code == 202
-    assert submitted.json()["display_name"] == "paper.pdf"
+    assert set(submitted.json()) == {"job_id", "status"}
 
     status = client.get(f"/api/jobs/{submitted.json()['job_id']}")
     assert status.status_code == 200
@@ -787,7 +785,9 @@ def test_submit_returns_503_when_postgres_unavailable(
     assert response.json()["detail"]["code"] == "database_unavailable"
     assert len(artifact_storage.artifacts) == 1
     assert parse_queue.messages == []
-    assert events == ["artifact.store", "job_state.create"]
+    assert events == ["artifact.store", "document.create", "job_state.create"]
+    assert jobs.documents == {}
+    assert jobs.states == {}
 
 
 def test_submit_returns_503_when_storage_unavailable(
@@ -832,8 +832,9 @@ def test_submit_returns_503_when_queue_unavailable(
     assert failed_state.error_code == "internal_error"
     assert events == [
         "artifact.store",
+        "document.create",
         "job_state.create",
-        "document.get",
         "queue.submit",
         "job_state.mark_failed",
     ]
+    assert len(jobs.documents) == 1

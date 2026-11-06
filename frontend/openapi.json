@@ -7,13 +7,14 @@
   "paths": {
     "/api/extractions": {
       "post": {
-        "summary": "Submit Job",
-        "operationId": "submit_job_api_extractions_post",
+        "summary": "Upload Document And Submit Job",
+        "description": "Store the PDF and queue a job.\n\nThe document row and the job row are inserted in one transaction. A checksum\nthat already has a document keeps that row. The request does not parse or extract.",
+        "operationId": "upload_document_and_submit_job_api_extractions_post",
         "requestBody": {
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_submit_job_api_extractions_post"
+                "$ref": "#/components/schemas/Body_upload_document_and_submit_job_api_extractions_post"
               }
             }
           }
@@ -24,7 +25,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/QueuedJobResponse"
+                  "$ref": "#/components/schemas/AcceptedJobResponse"
                 }
               }
             }
@@ -783,7 +784,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/QueuedJobResponse"
+                  "$ref": "#/components/schemas/AcceptedJobResponse"
                 }
               }
             }
@@ -2031,6 +2032,28 @@
   },
   "components": {
     "schemas": {
+      "AcceptedJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "queued",
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "AcceptedJobResponse",
+        "description": "The 202 body from queueing a job. A later read carries the stored record."
+      },
       "BlockKind": {
         "type": "string",
         "enum": [
@@ -2072,7 +2095,7 @@
         "type": "object",
         "title": "Body_extract_extract_post"
       },
-      "Body_submit_job_api_extractions_post": {
+      "Body_upload_document_and_submit_job_api_extractions_post": {
         "properties": {
           "file": {
             "anyOf": [
@@ -2088,7 +2111,7 @@
           }
         },
         "type": "object",
-        "title": "Body_submit_job_api_extractions_post"
+        "title": "Body_upload_document_and_submit_job_api_extractions_post"
       },
       "Body_upload_document_api_documents_post": {
         "properties": {
