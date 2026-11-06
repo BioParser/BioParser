@@ -72,4 +72,3 @@ def test_a_malformed_redis_url_does_not_echo_its_password(
         config.ApiSettings()  # type: ignore[call-arg]
 
     assert "canary-redis-pass" not in str(failure.value)
-
