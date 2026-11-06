@@ -64,7 +64,7 @@ workers start after that exit and do not migrate themselves.
 
 FastAPI owns the public HTTP contract:
 
-- `POST /api/extractions` stores a PDF, inserts its document and a job in one transaction, and queues that job
+- `POST /api/documents` to store a PDF, then `POST /api/documents/{checksum}/jobs` to queue a job. `POST /api/extractions` does both
 - `GET /api/jobs/{job_id}` for job status and results
 - `/health` for process liveness
 - `/ready` a readiness endpoint for Redis and artifact storage availability
@@ -136,10 +136,13 @@ sequenceDiagram
     participant Parser as Parser worker
     participant Extractor as Extractor worker
 
-    Client->>API: POST /api/extractions (PDF)
+    Client->>API: POST /api/documents (PDF)
     API->>API: Validate and calculate checksum
     API->>Store: Store PDF artifact
-    API->>Postgres: Insert document and job
+    API->>Postgres: Create document row
+    API-->>Client: 201 Created + checksum
+    Client->>API: POST /api/documents/{checksum}/jobs
+    API->>Postgres: Create job state
     API->>Redis: Enqueue job id
     API-->>Client: 202 Accepted + job_id
 

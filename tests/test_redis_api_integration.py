@@ -155,10 +155,13 @@ async def test_redis_backed_submission_and_polling(
         base_url="http://test",
         headers={"X-API-Key": TEST_API_KEY},
     ) as client:
-        response = await client.post(
-            "/api/extractions",
+        uploaded = await client.post(
+            "/api/documents",
             files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
         )
+        assert uploaded.status_code == 201
+        checksum = uploaded.json()["checksum"]
+        response = await client.post(f"/api/documents/{checksum}/jobs", json={})
 
         assert response.status_code == 202
         submission = response.json()
@@ -184,15 +187,7 @@ async def test_redis_backed_submission_and_polling(
 
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
-        response_fields = {
-            "job_id": job_id,
-            "created_at": poll.json()["created_at"],
-            "display_name": "sample.pdf",
-            "parser": DEFAULT_PARSER_NAME,
-            "extractor": DEFAULT_EXTRACTOR_NAME,
-            "document_checksum": document_checksum,
-        }
-        assert poll.json() == response_fields | {"status": "queued", "has_parse_result": False}
+        assert poll.json() == {"job_id": job_id, "status": "queued"}
 
         # Drain the real Redis-backed Dramatiq queue to verify the serialized
         # message contract, rather than inspecting an in-memory fake.
@@ -219,10 +214,7 @@ async def test_redis_backed_submission_and_polling(
             )
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
-        assert poll.json() == response_fields | {
-            "status": "parsing",
-            "has_parse_result": False,
-        }
+        assert poll.json() == {"job_id": job_id, "status": "parsing"}
 
         output_artifact_ref = f"art-result-{job_id}"
 
@@ -245,10 +237,7 @@ async def test_redis_backed_submission_and_polling(
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
         # The status names no storage path
-        assert poll.json() == response_fields | {
-            "status": "parsed",
-            "has_parse_result": True,
-        }
+        assert poll.json() == {"job_id": job_id, "status": "parsed"}
 
         artifact = await client.get(f"/api/jobs/{job_id}/artifacts/parser")
         assert artifact.status_code == 200
@@ -265,12 +254,14 @@ async def test_same_pdf_can_be_submitted_twice(
         base_url="http://test",
         headers={"X-API-Key": TEST_API_KEY},
     ) as client:
+        uploaded = await client.post(
+            "/api/documents",
+            files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
+        )
+        assert uploaded.status_code == 201
+        checksum = uploaded.json()["checksum"]
         responses = [
-            await client.post(
-                "/api/extractions",
-                files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
-            )
-            for _ in range(2)
+            await client.post(f"/api/documents/{checksum}/jobs", json={}) for _ in range(2)
         ]
 
     assert [response.status_code for response in responses] == [202, 202]

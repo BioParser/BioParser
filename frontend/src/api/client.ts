@@ -6,7 +6,6 @@ type Schemas = components["schemas"];
 // The header the API reads the key from (API_KEY_HEADER in src/bioparser/api/auth.py).
 const API_KEY_HEADER = "X-API-Key";
 export type ErrorCode = Schemas["ErrorDetail"]["code"];
-export type QueuedJobResponse = Schemas["QueuedJobResponse"];
 // JobStatusResponse is a union in Python, not a model, so it has no entry in the schemas.
 export type JobStatusResponse =
   paths["/api/jobs/{job_id}"]["get"]["responses"][200]["content"]["application/json"];
@@ -69,13 +68,6 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     throw await toApiError(response);
   }
   return (await response.json()) as T;
-}
-
-export function submitJob(file: File): Promise<QueuedJobResponse> {
-  const body = new FormData();
-  body.append("file", file);
-  // No Content-Type header: the browser sets multipart/form-data with its boundary.
-  return apiFetch("/api/extractions", { method: "POST", body });
 }
 
 export function getJob(jobId: string): Promise<JobStatusResponse> {

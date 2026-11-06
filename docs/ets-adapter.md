@@ -86,7 +86,7 @@ The minimum, the maximum, and the dispersion share the trait's unit. ETS gives t
 - `basisOfRecord` is `literatureData` when the observation did not record one. `aggregateMeasure` stays empty.
 - A missing `individualCount` is `1`. A missing `dispersion` is `0`. ETS defines those defaults. The `0` means the measurement did not report a dispersion. It is not a measured dispersion of zero. The minimum and the maximum have no default, so they stay empty.
 - `measurementID` is assigned when the rows are built.
-- `references` comes from the job's document.
+- `references` comes from the job's document. The API writes the document checksum, the last segment of `pdf_ref`, until a bibliographic citation exists.
 - `warnings` collects what the adapter found while building the row.
 - `occurrenceID` is copied when the observation stored one.
 - `traitName` and `traitID` come from the thesaurus entry for the artifact's `traitCode`. When the observation has no code, both stay empty and the row warns `unmapped:traitName`.
@@ -103,7 +103,7 @@ Trait warnings:
 - `deprecated_trait:traitName`: the code is deprecated. It still converts.
 - `approximate:traitValue`: the value used a conventional factor, a month or a year.
 
-A dropped observation must not disappear silently. The adapter returns, with the rows, a list of drops. Each has the source index of the observation in the artifact and a reason: `trait_unknown`, `unit_unknown`, `unit_not_for_trait`, `value_not_numeric`, `level_unknown`, or `bounds_reversed`. The result also names the `trait_list_version` that was used. It also keeps each row's source index, so a row can be traced back to its observation. The index is not derived from `measurementID`, which counts only kept rows.
+A dropped observation must not disappear silently. The adapter returns, with the rows, a list of drops. Each has the source index of the observation in the artifact and a reason: `trait_unknown`, `unit_unknown`, `unit_not_for_trait`, `value_not_numeric`, `level_unknown`, or `bounds_reversed`. The result also names the `trait_list_version` that was used. Each kept row carries the same source index beside its ETS columns, so a row can be traced back to its observation. The index is not an ETS column, and it is not derived from `measurementID`, which counts only kept rows. `GET /api/jobs/{job_id}` returns the ETS columns and the version. `?detail=full` adds the index and the drops. The trait list is `GET /api/traits`.
 
 ## Trait thesaurus
 

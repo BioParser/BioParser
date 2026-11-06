@@ -121,7 +121,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Job Status */
+        /**
+         * Job Status
+         * @description The job.
+         *
+         *     `queued`, `parsing`, `parsed`, and `extracting` are `job_id` and `status`. `failed`
+         *     adds `error`. `done` adds the ETS rows and `trait_list_version`. Open and failed jobs
+         *     do not read the extraction artifact.
+         *
+         *     `?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,
+         *     `extractor`, and `document_checksum`. A done job then also adds each row's observation
+         *     index and the drops.
+         */
         get: operations["job_status_api_jobs__job_id__get"];
         put?: never;
         post?: never;
@@ -252,22 +263,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /**
-         * AcceptedJobResponse
-         * @description The 202 body from queueing a job. A later read carries the stored record.
-         */
-        AcceptedJobResponse: {
-            /**
-             * Job Id
-             * Format: uuid
-             */
-            job_id: string;
-            /**
-             * Status
-             * @constant
-             */
-            status: "queued";
-        };
         /**
          * BlockKind
          * @enum {string}
@@ -470,6 +465,74 @@ export interface components {
             /** Definition */
             definition: string;
         };
+        /**
+         * DoneJobFullResponse
+         * @description A finished job with the record, the observation index, and the drops.
+         */
+        DoneJobFullResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Parser */
+            parser: string;
+            /** Extractor */
+            extractor: string;
+            /** Document Checksum */
+            document_checksum: string;
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "done";
+            /** Trait List Version */
+            trait_list_version: string;
+            /** Rows */
+            rows: components["schemas"]["EtsSourceRow"][];
+            /** Drops */
+            drops: components["schemas"]["DroppedObservation"][];
+        };
+        /**
+         * DoneJobResponse
+         * @description A finished job: the ETS rows built from its extraction artifact.
+         */
+        DoneJobResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "done";
+            /** Trait List Version */
+            trait_list_version: string;
+            /** Rows */
+            rows: components["schemas"]["EtsRow"][];
+        };
+        /**
+         * DroppedObservation
+         * @description One observation that did not become a row.
+         */
+        DroppedObservation: {
+            /** Source Index */
+            source_index: number;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "trait_unknown" | "unit_not_for_trait" | "unit_unknown" | "value_not_numeric" | "level_unknown" | "bounds_reversed";
+        };
         /** ErrorDetail */
         ErrorDetail: {
             /**
@@ -483,6 +546,256 @@ export interface components {
         /** ErrorResponse */
         ErrorResponse: {
             detail: components["schemas"]["ErrorDetail"];
+        };
+        /**
+         * EtsRow
+         * @description ETS v0.10 core, taxon, measurement-or-fact, and occurrence columns.
+         *
+         *     The order follows the stored observation. Columns the artifact does not
+         *     store sit beside the field they belong with.
+         */
+        EtsRow: {
+            /** Traitid */
+            traitID?: string | null;
+            /** Traitname */
+            traitName?: string | null;
+            /** Verbatimtraitname */
+            verbatimTraitName?: string | null;
+            /** Scientificname */
+            scientificName: string;
+            /** Verbatimscientificname */
+            verbatimScientificName: string;
+            /** Taxonid */
+            taxonID?: string | null;
+            /** Traitvalue */
+            traitValue: string;
+            /** Verbatimtraitvalue */
+            verbatimTraitValue: string;
+            /** Traitunit */
+            traitUnit?: string | null;
+            /** Verbatimtraitunit */
+            verbatimTraitUnit: string;
+            /** Taxonrank */
+            taxonRank?: string | null;
+            /** Kingdom */
+            kingdom?: string | null;
+            /** Phylum */
+            phylum?: string | null;
+            /** Class */
+            class?: string | null;
+            /** Order */
+            order?: string | null;
+            /** Family */
+            family?: string | null;
+            /** Genus */
+            genus?: string | null;
+            /** Sex */
+            sex?: ("male" | "female" | "subadult" | "unknown" | "hermaphrodite") | null;
+            /** Lifestage */
+            lifeStage?: string | null;
+            /** Age */
+            age?: number | null;
+            /** Morphotype */
+            morphotype?: string | null;
+            /**
+             * Basisofrecord
+             * @enum {string}
+             */
+            basisOfRecord: "LivingSpecimen" | "PreservedSpecimen" | "FossilSpecimen" | "literatureData" | "traitDatabase" | "expertKnowledge";
+            /** Basisofrecorddescription */
+            basisOfRecordDescription?: string | null;
+            /** Measurementmethod */
+            measurementMethod?: string | null;
+            /** Measurementresolution */
+            measurementResolution?: string | null;
+            /** Measurementremarks */
+            measurementRemarks?: string | null;
+            /** Measurementdeterminedby */
+            measurementDeterminedBy?: string | null;
+            /** Measurementdetermineddate */
+            measurementDeterminedDate?: string | null;
+            /** Aggregatemeasure */
+            aggregateMeasure?: boolean | null;
+            /** Statisticalmethod */
+            statisticalMethod?: string | null;
+            /** Individualcount */
+            individualCount?: number | null;
+            /** Dispersion */
+            dispersion?: number | null;
+            /** Measurementvalue Min */
+            measurementValue_min?: number | null;
+            /** Measurementvalue Max */
+            measurementValue_max?: number | null;
+            /** Measurementaccuracy */
+            measurementAccuracy?: string | null;
+            /** Measurementid */
+            measurementID: string;
+            /** Occurrenceid */
+            occurrenceID?: string | null;
+            /** Warnings */
+            warnings: string;
+            /** References */
+            references: string;
+            /** Eventid */
+            eventID?: string | null;
+            /** Preparations */
+            preparations?: string | null;
+            /** Samplingprotocol */
+            samplingProtocol?: string | null;
+            /** Year */
+            year?: number | null;
+            /** Month */
+            month?: number | null;
+            /** Day */
+            day?: number | null;
+            /** Eventdate */
+            eventDate?: string | null;
+            /** Locationid */
+            locationID?: string | null;
+            /** Habitat */
+            habitat?: string | null;
+            /** Decimallongitude */
+            decimalLongitude?: number | null;
+            /** Decimallatitude */
+            decimalLatitude?: number | null;
+            /** Elevation */
+            elevation?: number | null;
+            /** Geodeticdatum */
+            geodeticDatum?: string | null;
+            /** Verbatimlocality */
+            verbatimLocality?: string | null;
+            /** Country */
+            country?: string | null;
+            /** Countrycode */
+            countryCode?: string | null;
+            /** Occurrenceremarks */
+            occurrenceRemarks?: string | null;
+        };
+        /**
+         * EtsSourceRow
+         * @description An ETS row plus the observation it was built from.
+         *
+         *     ``source_index`` is not an ETS column. It is the position in the artifact's
+         *     observations, so a row can be matched back to the observation that produced it.
+         */
+        EtsSourceRow: {
+            /** Traitid */
+            traitID?: string | null;
+            /** Traitname */
+            traitName?: string | null;
+            /** Verbatimtraitname */
+            verbatimTraitName?: string | null;
+            /** Scientificname */
+            scientificName: string;
+            /** Verbatimscientificname */
+            verbatimScientificName: string;
+            /** Taxonid */
+            taxonID?: string | null;
+            /** Traitvalue */
+            traitValue: string;
+            /** Verbatimtraitvalue */
+            verbatimTraitValue: string;
+            /** Traitunit */
+            traitUnit?: string | null;
+            /** Verbatimtraitunit */
+            verbatimTraitUnit: string;
+            /** Taxonrank */
+            taxonRank?: string | null;
+            /** Kingdom */
+            kingdom?: string | null;
+            /** Phylum */
+            phylum?: string | null;
+            /** Class */
+            class?: string | null;
+            /** Order */
+            order?: string | null;
+            /** Family */
+            family?: string | null;
+            /** Genus */
+            genus?: string | null;
+            /** Sex */
+            sex?: ("male" | "female" | "subadult" | "unknown" | "hermaphrodite") | null;
+            /** Lifestage */
+            lifeStage?: string | null;
+            /** Age */
+            age?: number | null;
+            /** Morphotype */
+            morphotype?: string | null;
+            /**
+             * Basisofrecord
+             * @enum {string}
+             */
+            basisOfRecord: "LivingSpecimen" | "PreservedSpecimen" | "FossilSpecimen" | "literatureData" | "traitDatabase" | "expertKnowledge";
+            /** Basisofrecorddescription */
+            basisOfRecordDescription?: string | null;
+            /** Measurementmethod */
+            measurementMethod?: string | null;
+            /** Measurementresolution */
+            measurementResolution?: string | null;
+            /** Measurementremarks */
+            measurementRemarks?: string | null;
+            /** Measurementdeterminedby */
+            measurementDeterminedBy?: string | null;
+            /** Measurementdetermineddate */
+            measurementDeterminedDate?: string | null;
+            /** Aggregatemeasure */
+            aggregateMeasure?: boolean | null;
+            /** Statisticalmethod */
+            statisticalMethod?: string | null;
+            /** Individualcount */
+            individualCount?: number | null;
+            /** Dispersion */
+            dispersion?: number | null;
+            /** Measurementvalue Min */
+            measurementValue_min?: number | null;
+            /** Measurementvalue Max */
+            measurementValue_max?: number | null;
+            /** Measurementaccuracy */
+            measurementAccuracy?: string | null;
+            /** Measurementid */
+            measurementID: string;
+            /** Occurrenceid */
+            occurrenceID?: string | null;
+            /** Warnings */
+            warnings: string;
+            /** References */
+            references: string;
+            /** Eventid */
+            eventID?: string | null;
+            /** Preparations */
+            preparations?: string | null;
+            /** Samplingprotocol */
+            samplingProtocol?: string | null;
+            /** Year */
+            year?: number | null;
+            /** Month */
+            month?: number | null;
+            /** Day */
+            day?: number | null;
+            /** Eventdate */
+            eventDate?: string | null;
+            /** Locationid */
+            locationID?: string | null;
+            /** Habitat */
+            habitat?: string | null;
+            /** Decimallongitude */
+            decimalLongitude?: number | null;
+            /** Decimallatitude */
+            decimalLatitude?: number | null;
+            /** Elevation */
+            elevation?: number | null;
+            /** Geodeticdatum */
+            geodeticDatum?: string | null;
+            /** Verbatimlocality */
+            verbatimLocality?: string | null;
+            /** Country */
+            country?: string | null;
+            /** Countrycode */
+            countryCode?: string | null;
+            /** Occurrenceremarks */
+            occurrenceRemarks?: string | null;
+            /** Source Index */
+            source_index: number;
         };
         /**
          * ExtractionArtifact
@@ -502,13 +815,11 @@ export interface components {
             /** Observations */
             observations?: components["schemas"]["Observation"][];
         };
-        /** FailedJobResponse */
-        FailedJobResponse: {
-            /**
-             * Job Id
-             * Format: uuid
-             */
-            job_id: string;
+        /**
+         * FailedJobFullResponse
+         * @description A failed job with the stored record beside the error.
+         */
+        FailedJobFullResponse: {
             /**
              * Created At
              * Format: date-time
@@ -522,11 +833,28 @@ export interface components {
             extractor: string;
             /** Document Checksum */
             document_checksum: string;
-            /** Has Parse Result */
-            has_parse_result: boolean;
             /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "failed";
+            error: components["schemas"]["SafeError"];
+        };
+        /** FailedJobResponse */
+        FailedJobResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @constant
              */
             status: "failed";
             error: components["schemas"]["SafeError"];
@@ -562,6 +890,51 @@ export interface components {
             /** Value */
             value: string;
             passage: components["schemas"]["Citation"];
+        };
+        /**
+         * ListedJobFullResponse
+         * @description One listed job with the stored record. Still no ETS rows.
+         */
+        ListedJobFullResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Parser */
+            parser: string;
+            /** Extractor */
+            extractor: string;
+            /** Document Checksum */
+            document_checksum: string;
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "parsing" | "parsed" | "extracting" | "done";
+        };
+        /**
+         * ListedJobResponse
+         * @description One job in a list. A done job does not include its ETS rows.
+         */
+        ListedJobResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "parsing" | "parsed" | "extracting" | "done";
         };
         /**
          * NumericTrait
@@ -731,6 +1104,51 @@ export interface components {
             /** Occurrenceremarks */
             occurrenceRemarks?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
         };
+        /**
+         * OpenJobFullResponse
+         * @description An open job with the stored record beside the status.
+         */
+        OpenJobFullResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Parser */
+            parser: string;
+            /** Extractor */
+            extractor: string;
+            /** Document Checksum */
+            document_checksum: string;
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "parsing" | "parsed" | "extracting";
+        };
+        /**
+         * OpenJobResponse
+         * @description A job that is not done and has not failed. It has no observations.
+         */
+        OpenJobResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "parsing" | "parsed" | "extracting";
+        };
         /** Page */
         Page: {
             /** Page Number */
@@ -763,7 +1181,10 @@ export interface components {
                 [key: string]: string | number | boolean;
             };
         };
-        /** QueuedJobResponse */
+        /**
+         * QueuedJobResponse
+         * @description The body of a request that creates a job. The status is only `queued`.
+         */
         QueuedJobResponse: {
             /**
              * Job Id
@@ -771,23 +1192,8 @@ export interface components {
              */
             job_id: string;
             /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Display Name */
-            display_name: string | null;
-            /** Parser */
-            parser: string;
-            /** Extractor */
-            extractor: string;
-            /** Document Checksum */
-            document_checksum: string;
-            /** Has Parse Result */
-            has_parse_result: boolean;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
+             * Status
+             * @constant
              */
             status: "queued";
         };
@@ -829,34 +1235,6 @@ export interface components {
         ReadinessUnavailableResponse: {
             detail: components["schemas"]["ReadinessUnavailableDetail"];
         };
-        /** RunningJobResponse */
-        RunningJobResponse: {
-            /**
-             * Job Id
-             * Format: uuid
-             */
-            job_id: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Display Name */
-            display_name: string | null;
-            /** Parser */
-            parser: string;
-            /** Extractor */
-            extractor: string;
-            /** Document Checksum */
-            document_checksum: string;
-            /** Has Parse Result */
-            has_parse_result: boolean;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            status: "parsing" | "extracting";
-        };
         /**
          * SafeError
          * @description A short, non-sensitive description of why a job failed.
@@ -867,34 +1245,6 @@ export interface components {
              * @enum {string}
              */
             code: "invalid_pdf" | "parse_failed" | "extraction_failed" | "timeout" | "internal_error";
-        };
-        /** SucceededJobResponse */
-        SucceededJobResponse: {
-            /**
-             * Job Id
-             * Format: uuid
-             */
-            job_id: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Display Name */
-            display_name: string | null;
-            /** Parser */
-            parser: string;
-            /** Extractor */
-            extractor: string;
-            /** Document Checksum */
-            document_checksum: string;
-            /** Has Parse Result */
-            has_parse_result: boolean;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            status: "parsed" | "done";
         };
         /** TableCell */
         TableCell: {
@@ -1076,7 +1426,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                    "application/json": components["schemas"]["QueuedJobResponse"];
                 };
             };
             /** @description Bad Request */
@@ -1396,7 +1746,9 @@ export interface operations {
     };
     list_document_jobs_api_documents__checksum__jobs_get: {
         parameters: {
-            query?: never;
+            query?: {
+                detail?: "ets" | "full";
+            };
             header?: never;
             path: {
                 checksum: string;
@@ -1411,7 +1763,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": (components["schemas"]["QueuedJobResponse"] | components["schemas"]["RunningJobResponse"] | components["schemas"]["SucceededJobResponse"] | components["schemas"]["FailedJobResponse"])[];
+                    "application/json": (components["schemas"]["ListedJobResponse"] | components["schemas"]["ListedJobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"])[];
                 };
             };
             /** @description Unauthorized */
@@ -1482,7 +1834,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                    "application/json": components["schemas"]["QueuedJobResponse"];
                 };
             };
             /** @description Unauthorized */
@@ -1537,6 +1889,7 @@ export interface operations {
             query?: {
                 status?: ("queued" | "parsing" | "parsed" | "extracting" | "done" | "failed") | null;
                 parser?: string | null;
+                detail?: "ets" | "full";
             };
             header?: never;
             path?: never;
@@ -1550,7 +1903,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": (components["schemas"]["QueuedJobResponse"] | components["schemas"]["RunningJobResponse"] | components["schemas"]["SucceededJobResponse"] | components["schemas"]["FailedJobResponse"])[];
+                    "application/json": (components["schemas"]["ListedJobResponse"] | components["schemas"]["ListedJobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"])[];
                 };
             };
             /** @description Unauthorized */
@@ -1593,7 +1946,9 @@ export interface operations {
     };
     job_status_api_jobs__job_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                detail?: "ets" | "full";
+            };
             header?: never;
             path: {
                 job_id: string;
@@ -1608,7 +1963,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QueuedJobResponse"] | components["schemas"]["RunningJobResponse"] | components["schemas"]["SucceededJobResponse"] | components["schemas"]["FailedJobResponse"];
+                    "application/json": components["schemas"]["OpenJobResponse"] | components["schemas"]["OpenJobFullResponse"] | components["schemas"]["DoneJobResponse"] | components["schemas"]["DoneJobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"];
                 };
             };
             /** @description Unauthorized */
