@@ -57,7 +57,7 @@ Published ports bind to `127.0.0.1` only. Ports, environment variables, and `tes
 
 ## Running on an OKD-cluster (kubernetes)
 
-The manifest files can be bound [here](manifests/). For more info on running BioParser on an OKD-cluster see [here](manifests/README.md).
+The manifest files can be found [here](manifests/). For more info on running BioParser on an OKD-cluster see [here](manifests/README.md).
 
 ## Local development (uv)
 
