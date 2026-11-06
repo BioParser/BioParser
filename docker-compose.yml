@@ -200,12 +200,12 @@ services:
   migrate:
     build:
       context: .
-      dockerfile: docker/api.Dockerfile
-    image: bioparser-api
+      dockerfile: docker/migrate.Dockerfile
+    image: bioparser-migrate
     # command replaces the image CMD. The entrypoint stays tini, which runs this.
     command: ["bioparser-migrate"]
-    # The API image checks http://127.0.0.1:8080/health. This container runs the
-    # migration and exits, so that inherited check would mark a success unhealthy.
+    # The process exits when the upgrade finishes, so a health check would
+    # mark a successful run unhealthy.
     healthcheck:
       disable: true
     depends_on:
