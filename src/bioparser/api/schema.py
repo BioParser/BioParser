@@ -84,6 +84,15 @@ class TraitListFull(BaseModel):
     traits: tuple[Trait, ...]
 
 
+class AcceptedJobResponse(BaseModel):
+    """The 202 body from queueing a job. A later read carries the stored record."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: UUID
+    status: Literal["queued"]
+
+
 class QueuedJobResponse(JobResponseBase):
     status: Literal["queued"]
 

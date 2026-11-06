@@ -13,8 +13,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Submit Job */
-        post: operations["submit_job_api_extractions_post"];
+        /**
+         * Upload Document And Submit Job
+         * @description Store the PDF and queue a job.
+         *
+         *     The document row and the job row are inserted in one transaction. A checksum
+         *     that already has a document keeps that row. The request does not parse or extract.
+         */
+        post: operations["upload_document_and_submit_job_api_extractions_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -247,6 +253,22 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * AcceptedJobResponse
+         * @description The 202 body from queueing a job. A later read carries the stored record.
+         */
+        AcceptedJobResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "queued";
+        };
+        /**
          * BlockKind
          * @enum {string}
          */
@@ -261,8 +283,8 @@ export interface components {
             /** File */
             file?: string | null;
         };
-        /** Body_submit_job_api_extractions_post */
-        Body_submit_job_api_extractions_post: {
+        /** Body_upload_document_and_submit_job_api_extractions_post */
+        Body_upload_document_and_submit_job_api_extractions_post: {
             /** File */
             file?: string | null;
         };
@@ -1035,7 +1057,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    submit_job_api_extractions_post: {
+    upload_document_and_submit_job_api_extractions_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -1044,7 +1066,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_submit_job_api_extractions_post"];
+                "multipart/form-data": components["schemas"]["Body_upload_document_and_submit_job_api_extractions_post"];
             };
         };
         responses: {
@@ -1054,7 +1076,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QueuedJobResponse"];
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
                 };
             };
             /** @description Bad Request */
@@ -1460,7 +1482,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QueuedJobResponse"];
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
                 };
             };
             /** @description Unauthorized */

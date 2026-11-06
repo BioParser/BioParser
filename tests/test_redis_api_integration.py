@@ -3,7 +3,6 @@ import hashlib
 import os
 import uuid
 from collections.abc import AsyncGenerator
-from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -164,36 +163,36 @@ async def test_redis_backed_submission_and_polling(
         assert response.status_code == 202
         submission = response.json()
         job_id = submission["job_id"]
+        assert submission == {"job_id": job_id, "status": "queued"}
         document_checksum = hashlib.sha256(MINIMAL_PDF).hexdigest()
-        created_at = datetime.fromisoformat(submission["created_at"])
-        response_fields = {
-            "job_id": job_id,
-            "created_at": submission["created_at"],
-            "display_name": None,
-            "parser": DEFAULT_PARSER_NAME,
-            "extractor": DEFAULT_EXTRACTOR_NAME,
-            "document_checksum": document_checksum,
-        }
-        assert submission == response_fields | {"status": "queued", "has_parse_result": False}
 
         expected_pdf_ref = f"pdf/{document_checksum}"
         parsed_job_id = UUID(job_id)
         async with database.transaction() as connection:
             queued = await job_queries.get(connection, parsed_job_id)
         assert queued is not None
+        assert queued.created_at.tzinfo is not None
         assert queued == JobState(
             job_id=parsed_job_id,
             status="queued",
             parser=DEFAULT_PARSER_NAME,
             extractor=DEFAULT_EXTRACTOR_NAME,
             pdf_ref=expected_pdf_ref,
-            created_at=created_at,
+            created_at=queued.created_at,
         )
         assert await artifact_storage.retrieve(queued.pdf_ref) == MINIMAL_PDF
 
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
-        assert poll.json() == submission
+        response_fields = {
+            "job_id": job_id,
+            "created_at": poll.json()["created_at"],
+            "display_name": "sample.pdf",
+            "parser": DEFAULT_PARSER_NAME,
+            "extractor": DEFAULT_EXTRACTOR_NAME,
+            "document_checksum": document_checksum,
+        }
+        assert poll.json() == response_fields | {"status": "queued", "has_parse_result": False}
 
         # Drain the real Redis-backed Dramatiq queue to verify the serialized
         # message contract, rather than inspecting an in-memory fake.

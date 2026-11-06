@@ -595,7 +595,17 @@ def bind_jobs(monkeypatch: Any) -> None:
 
     @asynccontextmanager
     async def _transaction():  # type: ignore[no-untyped-def]
-        yield object()
+        jobs = tables[-1]
+        saved_states = dict(jobs.states)
+        saved_documents = dict(jobs.documents)
+        try:
+            yield object()
+        except BaseException:
+            jobs.states.clear()
+            jobs.states.update(saved_states)
+            jobs.documents.clear()
+            jobs.documents.update(saved_documents)
+            raise
 
     monkeypatch.setattr(job_queries, "get", get)
     monkeypatch.setattr(job_queries, "create", create)

@@ -83,6 +83,7 @@ from .errors import (
 )
 from .middleware import TypedRequestBodyLimitMiddleware
 from .schema import (
+    AcceptedJobResponse,
     CreateJobRequest,
     DocumentMetadataResponse,
     FailedJobResponse,
@@ -427,17 +428,28 @@ async def _stored_artifact(request: Request, job: JobState, ref: str | None, kin
         503: error_response(STORAGE_UNAVAILABLE, DATABASE_UNAVAILABLE, QUEUE_UNAVAILABLE),
     },
 )
-async def submit_job(request: Request, file: UploadFile | None = None) -> QueuedJobResponse:
+async def upload_document_and_submit_job(
+    request: Request, file: UploadFile | None = None
+) -> AcceptedJobResponse:
+    """Store the PDF and queue a job.
+
+    The document row and the job row are inserted in one transaction. A checksum
+    that already has a document keeps that row. The request does not parse or extract.
+    """
     pdf_bytes = await _validated_upload(request, file)
     # The same PDF always gets the same id. hashlib releases the GIL, so a thread keeps the
     # hashing of up to max_upload_bytes off the event loop.
     document_id = await asyncio.to_thread(sha256_bytes, pdf_bytes)
     job_id = uuid.uuid4()
+    doc_path = pdf_path(document_id)
+    display_name = sanitize_display_name(file.filename) if file else None
     creation_info = CreationInfo(created_by="api-upload")
     artifact_metadata = ArtifactMetadata(
-        artifact_path=f"pdf/{document_id}",
+        artifact_path=doc_path,
         media_type="application/pdf",
         creation_info=creation_info,
+        size_bytes=len(pdf_bytes),
+        checksum=document_id,
     )
 
     fields = {
@@ -446,9 +458,9 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     }
 
     try:
-        pdf_ref = await request.app.state.artifact_storage.store(pdf_bytes, artifact_metadata)
+        await request.app.state.artifact_storage.store(pdf_bytes, artifact_metadata)
     except ArtifactAlreadyExistsError:
-        pdf_ref = artifact_metadata.artifact_path
+        pass
     except StorageError as exc:
         LOGGER.error("artifact store failed", extra=fields | error_fields(exc))
         raise http_error(503, STORAGE_UNAVAILABLE) from exc
@@ -460,20 +472,25 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         status="queued",
         parser=DEFAULT_PARSER_NAME,
         extractor=DEFAULT_EXTRACTOR_NAME,
-        pdf_ref=pdf_ref,
+        pdf_ref=doc_path,
         created_at=datetime.now(UTC),
     )
     parse_job_message = ParseJobMessage(
         job_id=job_id,
     )
-    # Commit the row before calling Redis, so a queue round trip does not hold a
-    # pooled connection. A failed enqueue marks that row failed afterwards.
+    # Commit both rows before calling Redis, so a queue round trip does not hold a
+    # pooled connection. A failed enqueue marks that job failed afterwards.
     try:
         async with database.transaction() as connection:
+            await document_queries.create(
+                connection,
+                checksum=document_id,
+                display_name=display_name,
+                size_bytes=len(pdf_bytes),
+            )
             job_state = await job_queries.create(connection, job_state)
-            document = await document_queries.get(connection, document_id)
     except DatabaseError as exc:
-        LOGGER.error("job state create failed", extra=fields | error_fields(exc))
+        LOGGER.error("extraction insert failed", extra=fields | error_fields(exc))
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
     try:
         await request.app.state.parse_queue.submit(parse_job_message)
@@ -497,16 +514,7 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
                 LOGGER.error("queued job remains after the enqueue failed", extra=fields)
         raise http_error(503, QUEUE_UNAVAILABLE) from exc
 
-    return QueuedJobResponse(
-        job_id=job_state.job_id,
-        status="queued",
-        created_at=job_state.created_at,
-        display_name=document.display_name if document is not None else None,
-        parser=job_state.parser,
-        extractor=job_state.extractor,
-        document_checksum=document_id,
-        has_parse_result=False,
-    )
+    return AcceptedJobResponse(job_id=job_state.job_id, status="queued")
 
 
 @app.post(
@@ -688,7 +696,7 @@ async def get_document_file(request: Request, checksum: str) -> Response:
     "/api/documents/{checksum}/jobs",
     status_code=202,
     dependencies=[Depends(require_api_key)],
-    response_model=QueuedJobResponse,
+    response_model=AcceptedJobResponse,
     responses={
         401: error_response(UNAUTHORIZED),
         404: error_response(DOCUMENT_NOT_FOUND),
@@ -701,7 +709,7 @@ async def submit_document_job(
     request: Request,
     checksum: str,
     payload: CreateJobRequest | None = None,
-) -> QueuedJobResponse:
+) -> AcceptedJobResponse:
     if payload is None:
         payload = CreateJobRequest()
     valid_checksum = _validate_checksum(checksum)
@@ -761,16 +769,7 @@ async def submit_document_job(
                 LOGGER.error("queued job remains after the enqueue failed", extra=fields)
         raise http_error(503, QUEUE_UNAVAILABLE) from exc
 
-    return QueuedJobResponse(
-        job_id=job_state.job_id,
-        status="queued",
-        created_at=job_state.created_at,
-        display_name=doc.display_name,
-        parser=job_state.parser,
-        extractor=job_state.extractor,
-        document_checksum=valid_checksum,
-        has_parse_result=False,
-    )
+    return AcceptedJobResponse(job_id=job_state.job_id, status="queued")
 
 
 @app.get(
