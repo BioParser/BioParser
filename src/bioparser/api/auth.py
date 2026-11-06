@@ -35,7 +35,7 @@ api_key_header = APIKeyHeader(
     name=API_KEY_HEADER,
     scheme_name="ApiKeyAuth",
     auto_error=False,
-    description="Shared API key required for all /api/* and /extract operations.",
+    description="Shared API key required for all /api/* operations.",
 )
 
 

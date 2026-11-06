@@ -9,7 +9,7 @@ from bioparser.logging_config import parse_level
 DEFAULT_EXTRACT_TIME_LIMIT_SECONDS = 10 * 60
 DEFAULT_EXTRACT_MAX_RETRIES = 3
 
-# Same character budget as the API test route. Not a token budget.
+# A character budget, not a token budget.
 # The generation ceiling is BIOPARSER_VLLM_MAX_TOKENS on the vLLM client.
 DEFAULT_EXTRACTION_CHAR_BUDGET = 8000
 # Probe port for GET /health.

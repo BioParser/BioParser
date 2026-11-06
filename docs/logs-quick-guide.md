@@ -46,7 +46,7 @@ Then open http://localhost:3000 on your laptop.
 # API lines that contain a word, ignoring upper and lower case
 {service_name="bioparser"} |~ "(?i)timeout"
 
-# Everything about one PDF sent to /extract (the API logs the file's SHA-256 as checksum)
+# Lines that carry a document checksum, when a record has one
 {service_name="bioparser"} | json | checksum="<sha256 of the file>"
 
 # Failed requests

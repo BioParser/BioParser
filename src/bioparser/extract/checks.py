@@ -1,7 +1,6 @@
 """The check an extraction artifact passes before it is used. It holds for every extractor.
 
-The extractor worker runs it before it stores an artifact, and ``POST /extract`` before it
-returns one, so both give the same result for the same parser artifact.
+The extractor worker runs it before it stores an artifact.
 """
 
 from __future__ import annotations
