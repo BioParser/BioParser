@@ -182,29 +182,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/extract": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Extract
-         * @description Dev route: a queued job's pipeline in one request, without the queue and the workers.
-         *
-         *     The same parser, extractor and settings as a job from `POST /api/extractions`. Nothing is
-         *     stored. The response is the extraction artifact that the job stores.
-         */
-        post: operations["extract_extract_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/traits": {
         parameters: {
             query?: never;
@@ -273,11 +250,6 @@ export interface components {
          * @enum {string}
          */
         BlockRole: "title" | "heading" | "body" | "list" | "caption" | "footnote" | "header" | "footer" | "reference";
-        /** Body_extract_extract_post */
-        Body_extract_extract_post: {
-            /** File */
-            file?: string | null;
-        };
         /** Body_upload_document_and_submit_job_api_extractions_post */
         Body_upload_document_and_submit_job_api_extractions_post: {
             /** File */
@@ -2162,62 +2134,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
-            };
-        };
-    };
-    extract_extract_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_extract_extract_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExtractionArtifact"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description The pipeline gave no result. `detail` names the failed step. */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Every pipeline process is busy. Retry after `Retry-After`. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };

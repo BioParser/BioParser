@@ -1,8 +1,6 @@
-import asyncio
 import logging
 import os
-from collections.abc import Callable, Generator, Iterator
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Generator
 from typing import Any
 
 import httpx2
@@ -11,11 +9,9 @@ from fastapi.testclient import TestClient
 from openai import AsyncOpenAI
 from stubs import (
     Handler,
-    InlinePipeline,
     StubArtifactStorage,
     StubJobs,
     StubParseQueue,
-    StubParser,
     bind_jobs,
 )
 
@@ -24,7 +20,6 @@ os.environ.setdefault("BIOPARSER_REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("BIOPARSER_DATABASE_URL", "postgresql://bioparser@localhost/bioparser")
 os.environ.setdefault("BIOPARSER_ARTIFACT_STORAGE_PATH", "/tmp")
 
-from bioparser import pipeline as pipeline_module
 from bioparser.api import config
 from bioparser.api.app import app
 from bioparser.logging_config import HANDLER_NAME
@@ -54,25 +49,6 @@ def client(
     stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> TestClient:
     return TestClient(app, headers={"X-API-Key": TEST_API_KEY})
-
-
-@pytest.fixture
-def inline_pipeline(monkeypatch: pytest.MonkeyPatch) -> Iterator[InlinePipeline]:
-    """Stub parser and vLLM for the pipeline. /extract runs it in threads of this process,
-    not in child processes, so the stubs apply."""
-    # TestClient(app) without `with` runs no lifespan, so the test sets the pool.
-    inline = InlinePipeline()
-
-    def get_parser(name: str, **kwargs: Any) -> StubParser:
-        inline.parser_requests.append((name, kwargs))
-        return inline.parser
-
-    monkeypatch.setattr(pipeline_module, "get_parser", get_parser)
-    monkeypatch.setattr(pipeline_module, "VLLMService", lambda: inline.vllm)
-    pool = ThreadPoolExecutor(max_workers=4)
-    monkeypatch.setattr(app.state, "pipeline_pool", pool, raising=False)
-    yield inline
-    pool.shutdown(wait=True)
 
 
 @pytest.fixture(autouse=True)
@@ -114,22 +90,8 @@ def vllm_transport(monkeypatch: pytest.MonkeyPatch) -> Callable[[Handler], None]
     return install
 
 
-@pytest.fixture
-def extract_semaphore(
-    reset_api_settings_cache: None,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    settings = config.get_api_settings()
-    monkeypatch.setattr(
-        app.state,
-        "extract_sem",
-        asyncio.Semaphore(settings.extract_concurrency),
-        raising=False,
-    )
-
-
 @pytest.fixture(autouse=True)
-def restore_logging() -> Iterator[None]:
+def restore_logging() -> Generator[None]:
     root = logging.getLogger()
     root_level = root.level
     touched = ("bioparser", "uvicorn", "uvicorn.error", "uvicorn.access")
