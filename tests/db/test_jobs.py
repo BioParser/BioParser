@@ -6,7 +6,7 @@ import os
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import get_args
 
 import pytest
@@ -26,6 +26,8 @@ from bioparser.db.engine import (
 )
 from bioparser.db.migrate import upgrade
 from bioparser.jobs import CorruptJobStateError, JobState, JobStatus
+
+CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def test_async_url_selects_asyncpg() -> None:
@@ -74,14 +76,15 @@ def _queued(job_id: uuid.UUID, **overrides: object) -> JobState:
         "parser": "default",
         "extractor": "default",
         "pdf_ref": str(uuid.uuid4()),
+        "created_at": CREATED_AT,
     }
     fields.update(overrides)
     return JobState.model_validate(fields)
 
 
-async def _create(state: JobState) -> None:
+async def _create(state: JobState) -> JobState:
     async with db_engine.transaction() as connection:
-        await job_queries.create(connection, state)
+        return await job_queries.create(connection, state)
 
 
 async def _get(job_id: uuid.UUID) -> JobState | None:
@@ -138,9 +141,10 @@ async def database() -> AsyncIterator[str]:
 @pytest.mark.anyio
 async def test_create_then_get_round_trips(database: str) -> None:
     state = _queued(uuid.uuid4())
-    await _create(state)
+    created = await _create(state)
 
-    assert await _get(state.job_id) == state
+    assert created.created_at != state.created_at
+    assert await _get(state.job_id) == created
 
 
 @pytest.mark.integration
@@ -614,7 +618,7 @@ async def test_transaction_passes_through_an_unrelated_error(
 
 def test_job_columns_match_the_job_state_fields() -> None:
     columns = {column.name for column in job_queries.Job.__table__.columns}
-    assert columns - {"created_at", "updated_at"} == set(JobState.model_fields)
+    assert columns - {"updated_at"} == set(JobState.model_fields)
 
 
 @pytest.mark.integration

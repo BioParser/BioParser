@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -8,7 +9,7 @@ from conftest import TEST_API_KEY
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from httpx2 import ASGITransport
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from stubs import StubArtifactStorage, StubJobs, StubParseQueue
 
 from bioparser.api import config
@@ -16,12 +17,14 @@ from bioparser.api.app import app as api_app
 from bioparser.api.errors import ErrorResponse
 from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
+from bioparser.db.documents import DocumentRecord
 from bioparser.db.engine import DatabaseError
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.jobs import (
     CorruptJobStateError,
     JobState,
     JobStatus,
+    SafeErrorCode,
 )
 from bioparser.jobs.queue import JobQueueError
 from bioparser.storage import (
@@ -34,8 +37,11 @@ from bioparser.storage import (
 # A minimal byte string that passes every /api/extractions validation check.
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
 JOB_STATUS_ADAPTER: TypeAdapter[JobStatusResponse] = TypeAdapter(JobStatusResponse)
-PARSE_REF = f"pdf/{'a' * 64}/parsed/default/1"
+DOCUMENT_CHECKSUM = "a" * 64
+PDF_REF = f"pdf/{DOCUMENT_CHECKSUM}"
+PARSE_REF = f"{PDF_REF}/parsed/default/1"
 EXTRACT_REF = f"{PARSE_REF}/extracted/default/1"
+CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 # What each status needs on a stored job besides its id: refs and error
 _STATUS_FIELDS: dict[JobStatus, dict[str, Any]] = {
     "queued": {},
@@ -49,14 +55,15 @@ _STATUS_FIELDS: dict[JobStatus, dict[str, Any]] = {
 
 def _job(status: JobStatus, **fields: Any) -> JobState:
     """A valid stored job in [status]. [fields] replace the defaults for that status."""
-    return JobState(
-        job_id=uuid4(),
-        parser="default",
-        extractor="default",
-        status=status,
-        pdf_ref=f"pdf/{'a' * 64}",
-        **(_STATUS_FIELDS[status] | fields),
-    )
+    values = {
+        "job_id": uuid4(),
+        "parser": "default",
+        "extractor": "default",
+        "status": status,
+        "pdf_ref": PDF_REF,
+        "created_at": CREATED_AT,
+    }
+    return JobState.model_validate(values | _STATUS_FIELDS[status] | fields)
 
 
 def test_submit_and_retrieve_job(
@@ -74,7 +81,13 @@ def test_submit_and_retrieve_job(
 
     assert record["job_id"]
     assert record["status"] == "queued"
-    assert events == ["artifact.store", "job_state.create", "queue.submit"]
+    assert record["display_name"] is None
+    assert events == [
+        "artifact.store",
+        "job_state.create",
+        "document.get",
+        "queue.submit",
+    ]
 
     state = jobs.states[record["job_id"]]
     message = parse_queue.messages[0]
@@ -87,6 +100,28 @@ def test_submit_and_retrieve_job(
     assert response.status_code == 200
     JOB_STATUS_ADAPTER.validate_python(response.json())
     assert response.json() == record
+
+
+def test_submit_uses_an_existing_document_display_name(
+    client: TestClient,
+) -> None:
+    upload = client.post(
+        "/api/documents",
+        files={"file": ("paper.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+    assert upload.status_code == 201
+
+    submitted = client.post(
+        "/api/extractions",
+        files={"file": ("ignored.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+
+    assert submitted.status_code == 202
+    assert submitted.json()["display_name"] == "paper.pdf"
+
+    status = client.get(f"/api/jobs/{submitted.json()['job_id']}")
+    assert status.status_code == 200
+    assert status.json()["display_name"] == "paper.pdf"
 
 
 def test_job_status_openapi_schema() -> None:
@@ -112,6 +147,22 @@ def test_job_status_openapi_schema() -> None:
         {"$ref": "#/components/schemas/SucceededJobResponse"},
         {"$ref": "#/components/schemas/FailedJobResponse"},
     ]
+
+
+def test_job_status_response_requires_an_aware_creation_time() -> None:
+    response = {
+        "job_id": str(uuid4()),
+        "status": "queued",
+        "created_at": "2026-01-01T00:00:00",
+        "display_name": None,
+        "parser": "default",
+        "extractor": "default",
+        "document_checksum": DOCUMENT_CHECKSUM,
+        "has_parse_result": False,
+    }
+
+    with pytest.raises(ValidationError, match="timezone"):
+        JOB_STATUS_ADAPTER.validate_python(response)
 
 
 def test_unknown_job_returns_404(client: TestClient) -> None:
@@ -355,15 +406,31 @@ def test_running_job_status(
         parser="default",
         extractor="default",
         status="parsing",
-        pdf_ref="art-pdf-test",
+        pdf_ref=PDF_REF,
+        created_at=CREATED_AT,
     )
     jobs.states[str(job_id)] = state
+    jobs.documents[DOCUMENT_CHECKSUM] = DocumentRecord(
+        checksum=DOCUMENT_CHECKSUM,
+        display_name="sample.pdf",
+        size_bytes=len(MINIMAL_PDF),
+        created_at=CREATED_AT,
+    )
 
     response = client.get(f"/api/jobs/{job_id}")
 
     assert response.status_code == 200
     JOB_STATUS_ADAPTER.validate_python(response.json())
-    assert response.json() == {"job_id": str(job_id), "status": "parsing"}
+    assert response.json() == {
+        "job_id": str(job_id),
+        "status": "parsing",
+        "created_at": "2026-01-01T00:00:00Z",
+        "display_name": "sample.pdf",
+        "parser": "default",
+        "extractor": "default",
+        "document_checksum": DOCUMENT_CHECKSUM,
+        "has_parse_result": False,
+    }
 
 
 def test_succeeded_job_status(
@@ -372,20 +439,31 @@ def test_succeeded_job_status(
 ) -> None:
     jobs = stub_api_adapters[1]
     job_id = uuid4()
-    jobs.states[str(job_id)] = JobState(
+    state = JobState(
         job_id=job_id,
         parser="default",
         extractor="default",
         status="parsed",
-        pdf_ref="pdf/test",
-        parse_result_ref="art-result-test",
+        pdf_ref=PDF_REF,
+        parse_result_ref=PARSE_REF,
+        created_at=CREATED_AT,
     )
+    jobs.states[str(job_id)] = state
 
     response = client.get(f"/api/jobs/{job_id}")
 
     assert response.status_code == 200
     JOB_STATUS_ADAPTER.validate_python(response.json())
-    assert response.json() == {"job_id": str(job_id), "status": "parsed"}
+    assert response.json() == {
+        "job_id": str(job_id),
+        "status": "parsed",
+        "created_at": "2026-01-01T00:00:00Z",
+        "display_name": None,
+        "parser": "default",
+        "extractor": "default",
+        "document_checksum": DOCUMENT_CHECKSUM,
+        "has_parse_result": True,
+    }
 
 
 def test_job_status_does_not_read_the_artifact(
@@ -401,8 +479,9 @@ def test_job_status_does_not_read_the_artifact(
         parser="default",
         extractor="default",
         status="parsed",
-        pdf_ref="pdf/test",
-        parse_result_ref="art-result-test",
+        pdf_ref=PDF_REF,
+        parse_result_ref=PARSE_REF,
+        created_at=CREATED_AT,
     )
 
     response = client.get(f"/api/jobs/{job_id}")
@@ -423,7 +502,16 @@ def test_a_finished_stage_names_no_storage_path(
 
     response = client.get(f"/api/jobs/{state.job_id}")
 
-    assert response.json() == {"job_id": str(state.job_id), "status": status}
+    assert response.json() == {
+        "job_id": str(state.job_id),
+        "status": status,
+        "created_at": "2026-01-01T00:00:00Z",
+        "display_name": None,
+        "parser": "default",
+        "extractor": "default",
+        "document_checksum": DOCUMENT_CHECKSUM,
+        "has_parse_result": True,
+    }
 
 
 # --- job artifacts for the UI -------------------------------------------------
@@ -568,9 +656,19 @@ def test_the_artifact_routes_are_documented_as_internal(kind: str, schema: str) 
     assert body == {"$ref": f"#/components/schemas/{schema}"}
 
 
+@pytest.mark.parametrize(
+    ("error_code", "parse_result_ref", "has_parse_result"),
+    [
+        ("parse_failed", None, False),
+        ("extraction_failed", PARSE_REF, True),
+    ],
+)
 def test_failed_job_status(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+    error_code: SafeErrorCode,
+    parse_result_ref: str | None,
+    has_parse_result: bool,
 ) -> None:
     jobs = stub_api_adapters[1]
     job_id = uuid4()
@@ -580,8 +678,10 @@ def test_failed_job_status(
         parser="default",
         extractor="default",
         status="failed",
-        pdf_ref="art-pdf-test",
-        error_code="parse_failed",
+        pdf_ref=PDF_REF,
+        parse_result_ref=parse_result_ref,
+        error_code=error_code,
+        created_at=CREATED_AT,
     )
 
     jobs.states[str(job_id)] = state
@@ -593,7 +693,13 @@ def test_failed_job_status(
     assert response.json() == {
         "job_id": str(job_id),
         "status": "failed",
-        "error": {"code": "parse_failed"},
+        "created_at": "2026-01-01T00:00:00Z",
+        "display_name": None,
+        "parser": "default",
+        "extractor": "default",
+        "document_checksum": DOCUMENT_CHECKSUM,
+        "has_parse_result": has_parse_result,
+        "error": {"code": error_code},
     }
 
 
@@ -605,6 +711,22 @@ def test_job_status_returns_503_when_postgres_unavailable(
     jobs.get_error = DatabaseError("Postgres query failed: OperationalError")
 
     response = client.get(f"/api/jobs/{uuid4()}")
+
+    assert response.status_code == 503
+    ErrorResponse.model_validate(response.json())
+    assert response.json()["detail"]["code"] == "database_unavailable"
+
+
+def test_job_status_returns_503_when_display_name_read_fails(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    jobs = stub_api_adapters[1]
+    state = _job("queued")
+    jobs.states[str(state.job_id)] = state
+    jobs.doc_get_error = DatabaseError("Postgres query failed: OperationalError")
+
+    response = client.get(f"/api/jobs/{state.job_id}")
 
     assert response.status_code == 503
     ErrorResponse.model_validate(response.json())
@@ -628,6 +750,24 @@ def test_job_status_returns_500_when_stored_state_is_unreadable(
             "message": "Stored job state is unreadable",
         }
     }
+
+
+@pytest.mark.parametrize("route", ["status", "list"])
+def test_invalid_job_pdf_ref_returns_job_state_unreadable(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+    route: str,
+) -> None:
+    jobs = stub_api_adapters[1]
+    state = _job("queued", pdf_ref="legacy-ref")
+    jobs.states[str(state.job_id)] = state
+    path = f"/api/jobs/{state.job_id}" if route == "status" else "/api/jobs"
+
+    response = client.get(path)
+
+    assert response.status_code == 500
+    ErrorResponse.model_validate(response.json())
+    assert response.json()["detail"]["code"] == "job_state_unreadable"
 
 
 def test_submit_returns_503_when_postgres_unavailable(
@@ -693,6 +833,7 @@ def test_submit_returns_503_when_queue_unavailable(
     assert events == [
         "artifact.store",
         "job_state.create",
+        "document.get",
         "queue.submit",
         "job_state.mark_failed",
     ]

@@ -396,6 +396,21 @@ export interface components {
              */
             job_id: string;
             /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Parser */
+            parser: string;
+            /** Extractor */
+            extractor: string;
+            /** Document Checksum */
+            document_checksum: string;
+            /** Has Parse Result */
+            has_parse_result: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -599,6 +614,21 @@ export interface components {
              */
             job_id: string;
             /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Parser */
+            parser: string;
+            /** Extractor */
+            extractor: string;
+            /** Document Checksum */
+            document_checksum: string;
+            /** Has Parse Result */
+            has_parse_result: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -650,6 +680,21 @@ export interface components {
              */
             job_id: string;
             /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Parser */
+            parser: string;
+            /** Extractor */
+            extractor: string;
+            /** Document Checksum */
+            document_checksum: string;
+            /** Has Parse Result */
+            has_parse_result: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -673,6 +718,21 @@ export interface components {
              * Format: uuid
              */
             job_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Parser */
+            parser: string;
+            /** Extractor */
+            extractor: string;
+            /** Document Checksum */
+            document_checksum: string;
+            /** Has Parse Result */
+            has_parse_result: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}

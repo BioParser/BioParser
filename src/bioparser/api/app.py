@@ -10,13 +10,14 @@ from collections.abc import AsyncIterator
 from concurrent.futures import Executor, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ValidationError
 
-from bioparser.artifact_paths import pdf_path
+from bioparser.artifact_paths import ArtifactPathError, pdf_checksum, pdf_path
 from bioparser.db import documents as document_queries
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
@@ -284,23 +285,41 @@ def _replace_pipeline_pool(app: FastAPI, broken: Executor) -> Executor:
     return pool
 
 
-def _job_state_response(state: JobState) -> JobStatusResponse:
+def _job_state_response(state: JobState, display_name: str | None) -> JobStatusResponse:
     """The public status. No storage paths: they are internal, and no route takes one."""
+    response_fields: dict[str, Any] = {
+        "job_id": state.job_id,
+        "created_at": state.created_at,
+        "display_name": display_name,
+        "parser": state.parser,
+        "extractor": state.extractor,
+        "document_checksum": _job_pdf_checksum(state),
+        "has_parse_result": state.parse_result_ref is not None,
+    }
     match state.status:
         case "queued":
-            return QueuedJobResponse(job_id=state.job_id, status="queued")
+            return QueuedJobResponse(status="queued", **response_fields)
         case "parsing" | "extracting":
-            return RunningJobResponse(job_id=state.job_id, status=state.status)
+            return RunningJobResponse(status=state.status, **response_fields)
         case "parsed" | "done":
-            return SucceededJobResponse(job_id=state.job_id, status=state.status)
+            return SucceededJobResponse(status=state.status, **response_fields)
         case "failed":
             if state.error_code is None:
                 raise ValueError("Failed job is missing error_code")
             return FailedJobResponse(
-                job_id=state.job_id,
                 status="failed",
                 error=SafeError(code=state.error_code),
+                **response_fields,
             )
+
+
+def _job_pdf_checksum(state: JobState) -> str:
+    """Return a job's document checksum or the public corrupt-state error."""
+    try:
+        return pdf_checksum(state.pdf_ref)
+    except ArtifactPathError as exc:
+        LOGGER.error("job PDF reference unreadable", extra={"job_id": str(state.job_id)})
+        raise http_error(500, JOB_STATE_UNREADABLE) from exc
 
 
 def _parse_job_id(job_id: str) -> UUID:
@@ -429,12 +448,15 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         LOGGER.error("artifact store failed", extra=fields | error_fields(exc))
         raise http_error(503, STORAGE_UNAVAILABLE) from exc
 
+    # JobState needs an aware value before persistence. `create` omits this placeholder
+    # from the insert and returns the database-generated creation time instead.
     job_state = JobState(
         job_id=job_id,
         status="queued",
         parser=DEFAULT_PARSER_NAME,
         extractor=DEFAULT_EXTRACTOR_NAME,
         pdf_ref=pdf_ref,
+        created_at=datetime.now(UTC),
     )
     parse_job_message = ParseJobMessage(
         job_id=job_id,
@@ -443,7 +465,8 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
     # pooled connection. A failed enqueue marks that row failed afterwards.
     try:
         async with database.transaction() as connection:
-            await job_queries.create(connection, job_state)
+            job_state = await job_queries.create(connection, job_state)
+            document = await document_queries.get(connection, document_id)
     except DatabaseError as exc:
         LOGGER.error("job state create failed", extra=fields | error_fields(exc))
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
@@ -469,7 +492,16 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
                 LOGGER.error("queued job remains after the enqueue failed", extra=fields)
         raise http_error(503, QUEUE_UNAVAILABLE) from exc
 
-    return QueuedJobResponse(job_id=job_id, status="queued")
+    return QueuedJobResponse(
+        job_id=job_state.job_id,
+        status="queued",
+        created_at=job_state.created_at,
+        display_name=document.display_name if document is not None else None,
+        parser=job_state.parser,
+        extractor=job_state.extractor,
+        document_checksum=document_id,
+        has_parse_result=False,
+    )
 
 
 @app.post(
@@ -682,18 +714,21 @@ async def submit_document_job(
         raise http_error(404, DOCUMENT_NOT_FOUND)
 
     job_id = uuid.uuid4()
+    # JobState needs an aware value before persistence. `create` omits this placeholder
+    # from the insert and returns the database-generated creation time instead.
     job_state = JobState(
         job_id=job_id,
         status="queued",
         parser=payload.parser,
         extractor=payload.extractor,
         pdf_ref=pdf_path(valid_checksum),
+        created_at=datetime.now(UTC),
     )
     fields = {"job_id": str(job_id), "document_id": valid_checksum}
 
     try:
         async with database.transaction() as connection:
-            await job_queries.create(connection, job_state)
+            job_state = await job_queries.create(connection, job_state)
     except DatabaseError as exc:
         LOGGER.error("job state create failed", extra=fields | error_fields(exc))
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
@@ -721,7 +756,16 @@ async def submit_document_job(
                 LOGGER.error("queued job remains after the enqueue failed", extra=fields)
         raise http_error(503, QUEUE_UNAVAILABLE) from exc
 
-    return QueuedJobResponse(job_id=job_id, status="queued")
+    return QueuedJobResponse(
+        job_id=job_state.job_id,
+        status="queued",
+        created_at=job_state.created_at,
+        display_name=doc.display_name,
+        parser=job_state.parser,
+        extractor=job_state.extractor,
+        document_checksum=valid_checksum,
+        has_parse_result=False,
+    )
 
 
 @app.get(
@@ -762,7 +806,7 @@ async def list_document_jobs(
         )
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
 
-    return [_job_state_response(j) for j in jobs]
+    return [_job_state_response(j, doc.display_name) for j in jobs]
 
 
 @app.get(
@@ -787,6 +831,8 @@ async def list_jobs(
                 status=status,
                 parser=parser,
             )
+            checksums = {_job_pdf_checksum(job) for job in jobs}
+            display_names = await document_queries.get_display_names(connection, checksums)
     except CorruptJobStateError as exc:
         LOGGER.error("corrupt job state in list jobs", extra=error_fields(exc))
         raise http_error(500, JOB_STATE_UNREADABLE) from exc
@@ -794,7 +840,7 @@ async def list_jobs(
         LOGGER.warning("job store list failed", extra=error_fields(exc))
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
 
-    return [_job_state_response(j) for j in jobs]
+    return [_job_state_response(job, display_names.get(_job_pdf_checksum(job))) for job in jobs]
 
 
 @app.get(
@@ -809,9 +855,18 @@ async def list_jobs(
     },
 )
 async def job_status(request: Request, job_id: str) -> JobStatusResponse:
-    # One Postgres read. The worker validated the artifact before it recorded the ref, so this
-    # route does not read it again: that cost grows with the paper and ran on the event loop.
-    return _job_state_response(await _read_job(request, _parse_job_id(job_id)))
+    job = await _read_job(request, _parse_job_id(job_id))
+    checksum = _job_pdf_checksum(job)
+    try:
+        async with database.transaction() as connection:
+            display_names = await document_queries.get_display_names(connection, {checksum})
+    except DatabaseError as exc:
+        LOGGER.warning(
+            "document display name read failed",
+            extra={"job_id": str(job.job_id), **error_fields(exc)},
+        )
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
+    return _job_state_response(job, display_names.get(checksum))
 
 
 @app.get(

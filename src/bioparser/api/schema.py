@@ -2,12 +2,22 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTORS
 from bioparser.hashing import Sha256Hex
 from bioparser.jobs import SafeError
 from bioparser.parser_names import DEFAULT_PARSER_NAME, PARSER_BACKENDS
+
+
+class JobResponseBase(BaseModel):
+    job_id: UUID
+    created_at: AwareDatetime
+    display_name: str | None
+    parser: str
+    extractor: str
+    document_checksum: str
+    has_parse_result: bool
 
 
 class HealthResponse(BaseModel):
@@ -44,23 +54,19 @@ class ReadinessUnavailableResponse(BaseModel):
     )
 
 
-class QueuedJobResponse(BaseModel):
-    job_id: UUID
+class QueuedJobResponse(JobResponseBase):
     status: Literal["queued"]
 
 
-class RunningJobResponse(BaseModel):
-    job_id: UUID
+class RunningJobResponse(JobResponseBase):
     status: Literal["parsing", "extracting"]
 
 
-class SucceededJobResponse(BaseModel):
-    job_id: UUID
+class SucceededJobResponse(JobResponseBase):
     status: Literal["parsed", "done"]
 
 
-class FailedJobResponse(BaseModel):
-    job_id: UUID
+class FailedJobResponse(JobResponseBase):
     status: Literal["failed"]
     error: SafeError
 

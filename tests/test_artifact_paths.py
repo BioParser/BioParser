@@ -9,6 +9,7 @@ from bioparser.artifact_paths import (
     ArtifactPathTraversalError,
     extract_result_path,
     parse_result_path,
+    pdf_checksum,
     pdf_path,
     validate_artifact_path,
     validate_path_segment,
@@ -141,6 +142,19 @@ def test_pydantic_field_round_trips_json() -> None:
 
 def test_pdf_path_follows_the_convention() -> None:
     assert pdf_path(CHECKSUM) == f"pdf/{CHECKSUM}"
+
+
+def test_pdf_checksum_inverts_pdf_path() -> None:
+    assert pdf_checksum(pdf_path(CHECKSUM)) == CHECKSUM
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["art-pdf-test", f"pdf/{CHECKSUM}/parsed/default/1", "pdf/", f"x/{CHECKSUM}"],
+)
+def test_pdf_checksum_rejects_non_pdf_artifact_paths(path: str) -> None:
+    with pytest.raises(ArtifactPathError):
+        pdf_checksum(path)
 
 
 def test_parse_result_path_follows_the_convention() -> None:

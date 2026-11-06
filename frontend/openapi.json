@@ -2272,6 +2272,38 @@
             "format": "uuid",
             "title": "Job Id"
           },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "parser": {
+            "type": "string",
+            "title": "Parser"
+          },
+          "extractor": {
+            "type": "string",
+            "title": "Extractor"
+          },
+          "document_checksum": {
+            "type": "string",
+            "title": "Document Checksum"
+          },
+          "has_parse_result": {
+            "type": "boolean",
+            "title": "Has Parse Result"
+          },
           "status": {
             "type": "string",
             "const": "failed",
@@ -2284,6 +2316,12 @@
         "type": "object",
         "required": [
           "job_id",
+          "created_at",
+          "display_name",
+          "parser",
+          "extractor",
+          "document_checksum",
+          "has_parse_result",
           "status",
           "error"
         ],
@@ -3604,6 +3642,38 @@
             "format": "uuid",
             "title": "Job Id"
           },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "parser": {
+            "type": "string",
+            "title": "Parser"
+          },
+          "extractor": {
+            "type": "string",
+            "title": "Extractor"
+          },
+          "document_checksum": {
+            "type": "string",
+            "title": "Document Checksum"
+          },
+          "has_parse_result": {
+            "type": "boolean",
+            "title": "Has Parse Result"
+          },
           "status": {
             "type": "string",
             "const": "queued",
@@ -3613,6 +3683,12 @@
         "type": "object",
         "required": [
           "job_id",
+          "created_at",
+          "display_name",
+          "parser",
+          "extractor",
+          "document_checksum",
+          "has_parse_result",
           "status"
         ],
         "title": "QueuedJobResponse"
@@ -3688,6 +3764,38 @@
             "format": "uuid",
             "title": "Job Id"
           },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "parser": {
+            "type": "string",
+            "title": "Parser"
+          },
+          "extractor": {
+            "type": "string",
+            "title": "Extractor"
+          },
+          "document_checksum": {
+            "type": "string",
+            "title": "Document Checksum"
+          },
+          "has_parse_result": {
+            "type": "boolean",
+            "title": "Has Parse Result"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -3700,6 +3808,12 @@
         "type": "object",
         "required": [
           "job_id",
+          "created_at",
+          "display_name",
+          "parser",
+          "extractor",
+          "document_checksum",
+          "has_parse_result",
           "status"
         ],
         "title": "RunningJobResponse"
@@ -3733,6 +3847,38 @@
             "format": "uuid",
             "title": "Job Id"
           },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "parser": {
+            "type": "string",
+            "title": "Parser"
+          },
+          "extractor": {
+            "type": "string",
+            "title": "Extractor"
+          },
+          "document_checksum": {
+            "type": "string",
+            "title": "Document Checksum"
+          },
+          "has_parse_result": {
+            "type": "boolean",
+            "title": "Has Parse Result"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -3745,6 +3891,12 @@
         "type": "object",
         "required": [
           "job_id",
+          "created_at",
+          "display_name",
+          "parser",
+          "extractor",
+          "document_checksum",
+          "has_parse_result",
           "status"
         ],
         "title": "SucceededJobResponse"

@@ -4,6 +4,7 @@ import json
 import logging
 import tempfile
 from collections.abc import Awaitable, Callable, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -50,6 +51,7 @@ PDF_REF = (
 PDF_BYTES = b"%PDF-1.4"
 PDF_CHECKSUM = hashlib.sha256(PDF_BYTES).hexdigest()
 RESULT_PATH = parse_result_path(PDF_CHECKSUM, "default", "1")
+CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 @pytest.fixture(autouse=True)
@@ -121,6 +123,7 @@ def _queued() -> JobState:
         parser="default",
         extractor="default",
         pdf_ref=PDF_REF,
+        created_at=CREATED_AT,
     )
 
 
