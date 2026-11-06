@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from bioparser.jobs import JobState
 from bioparser.jobs.queue import JobDeferred
 from bioparser.parser_names import MINERU_PARSER_NAME
 from bioparser.services.mineru.client import MinerUClient
-from bioparser.services.vllm.vllm import VLLMService
+
+# Annotation only. Importing the client loads openai, which the parser image
+# does not install, and the parser worker imports this module.
+if TYPE_CHECKING:
+    from bioparser.services.vllm.vllm import VLLMService
 
 LOGGER = logging.getLogger(__name__)
 
