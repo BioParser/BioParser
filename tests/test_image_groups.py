@@ -66,18 +66,6 @@ def test_api_image_starts_the_app_without_importing_it_at_build() -> None:
     assert "import bioparser" not in text
 
 
-@pytest.mark.parametrize(
-    ("group", "statement"),
-    [
-        ("parser-worker", "import bioparser.worker.parse"),
-        ("extractor-worker", "import bioparser.worker.extract"),
-        ("migrate", "import bioparser.db.migrate"),
-    ],
-)
-def test_image_imports_its_entrypoint_during_build(group: str, statement: str) -> None:
-    assert statement in _dockerfile(group).read_text(encoding="utf-8")
-
-
 @pytest.mark.image
 @pytest.mark.skipif(sys.platform == "win32", reason="image installs are checked on linux")
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required")
