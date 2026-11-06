@@ -32,7 +32,13 @@ _OUTAGE_SQLSTATES = frozenset({"57P01", "57P02", "57P03", "53300"})
 
 
 def _is_connection_pool_failure(exc: BaseException) -> bool:
-    """True when the pool or a connect attempt failed, not a failed SQL statement."""
+    """True when the failure looks like reachability or the connection layer.
+
+    Includes pool timeouts, connect errors, asyncpg ``command_timeout`` (builtin
+    ``TimeoutError``, same type as connect timeout), and admin SQLSTATEs. Excludes
+    typical in-transaction SQL errors (e.g. integrity, deadlock) unless the
+    connection was invalidated or the SQLSTATE is class 08 or admin shutdown.
+    """
     if isinstance(exc, (PoolTimeoutError, InterfaceError)):
         return True
     if isinstance(exc, OSError):
