@@ -167,10 +167,10 @@ def test_a_bad_entry_is_rejected(edit: Any, message: str) -> None:
         _load(data)
 
 
-def test_an_id_prefix_may_have_no_iri_yet() -> None:
+def test_the_bpt_prefix_resolves_to_the_pages() -> None:
     table = mammal_traits()
 
-    assert table.id_prefixes["BPT"] is None
+    assert table.id_prefixes["BPT"] == "https://bioparser.github.io/BioParser/traits/BPT/"
     assert table.id_prefixes["VT"] is not None
 
 
