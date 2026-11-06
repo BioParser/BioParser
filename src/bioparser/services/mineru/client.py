@@ -1,6 +1,6 @@
 """Clients for mineru-api's ``POST /v1/file_parse``: one PDF in, its middle.json out.
 
-``MinerUClient`` is async. It is the one client for the parser and the API.
+``MinerUClient`` is async. The parser worker is the client that uses it.
 """
 
 from __future__ import annotations

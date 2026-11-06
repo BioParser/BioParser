@@ -1,14 +1,11 @@
 import asyncio
 import contextlib
 import logging
-import multiprocessing
 import os
 import socket
 import tempfile
 import uuid
 from collections.abc import AsyncIterator
-from concurrent.futures import Executor, ProcessPoolExecutor
-from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
@@ -24,7 +21,6 @@ from bioparser.db import jobs as job_queries
 from bioparser.db.documents import DocumentRecord
 from bioparser.db.engine import DatabaseError
 from bioparser.extract.models import ExtractionArtifact
-from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME
 from bioparser.hashing import Sha256Hex, is_sha256_hex, sha256_bytes
 from bioparser.jobs import (
     CorruptJobStateError,
@@ -37,13 +33,8 @@ from bioparser.jobs.queue import (
     ParseJobMessage,
 )
 from bioparser.jobs.queue.dramatiq import DramatiqJobSubmitter
-from bioparser.logging_config import error_fields, redact_url, setup_logging
+from bioparser.logging_config import error_fields, setup_logging
 from bioparser.parser.models import ParserArtifact
-from bioparser.parser_names import DEFAULT_PARSER_NAME
-from bioparser.pipeline import PipelineError, PipelineOptions, run_pipeline
-from bioparser.services.vllm import VLLMService
-from bioparser.services.vllm.config import get_settings as get_vllm_settings
-from bioparser.services.vllm.vllm import VLLMError
 from bioparser.storage import (
     ArtifactAlreadyExistsError,
     ArtifactMetadata,
@@ -147,22 +138,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 raise RuntimeError(
                     "BIOPARSER_API_KEY is required when BIOPARSER_AUTH_DISABLED is false"
                 )
-            app.state.vllm = VLLMService()
-            vllm_base_url = redact_url(get_vllm_settings().vllm_base_url)
-            try:
-                model = await app.state.vllm.get_model()
-            except Exception as exc:
-                LOGGER.warning(
-                    "vllm model discovery failed",
-                    exc_info=not isinstance(exc, VLLMError),
-                    extra={"vllm_base_url": vllm_base_url, **error_fields(exc)},
-                )
-            else:
-                LOGGER.info(
-                    "vllm model discovered",
-                    extra={"vllm_base_url": vllm_base_url, "model": model},
-                )
-
             redis_url = str(settings.redis_url)
             redis_timeout = settings.redis_timeout_seconds
             await database.open(str(settings.database_url))
@@ -177,39 +152,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 root_path=settings.artifact_storage_path
             )
 
-            # /extract runs the whole pipeline in these processes, never on this event loop.
-            # The semaphore holds one slot per process, so the pool never queues work.
-            app.state.pipeline_pool = _new_pipeline_pool(
-                settings.extract_concurrency, settings.log_level
-            )
-            app.state.extract_sem = asyncio.Semaphore(settings.extract_concurrency)
-
         yield
     finally:
         async with _failure_logged_redacted("shutdown"):
-            pool = getattr(app.state, "pipeline_pool", None)
-            if pool is not None:
-                # A running child cannot be stopped; the shutdown does not wait for it.
-                pool.shutdown(wait=False, cancel_futures=True)
-            vllm = getattr(app.state, "vllm", None)
-            if vllm is not None:
-                await vllm.aclose()
             await database.aclose()
-
-
-def _pipeline_start_method() -> str:
-    """forkserver: forking this threaded process is unsafe. Windows has no forkserver, so spawn."""
-    return "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
-
-
-def _new_pipeline_pool(workers: int, log_level: int) -> Executor:
-    """Processes for /extract."""
-    return ProcessPoolExecutor(
-        max_workers=workers,
-        mp_context=multiprocessing.get_context(_pipeline_start_method()),
-        initializer=setup_logging,
-        initargs=(log_level,),
-    )
 
 
 # Uvicorn imports the app before emitting its first log line.
@@ -240,61 +186,6 @@ async def _validated_upload(request: Request, file: UploadFile | None) -> bytes:
     content = await read_upload(file)
     validate_pdf_content(content)
     return content
-
-
-async def _start_pipeline(
-    app: FastAPI, content: bytes, options: PipelineOptions
-) -> tuple[asyncio.Future[ExtractionArtifact], Executor]:
-    """Take a pipeline slot and start one run. Returns the run and the pool it runs in.
-
-    503 when no slot frees up in time.
-
-    The run, not the request, frees the slot: a client that goes away cannot stop a running
-    child, and the pool must not queue the next run behind it.
-    """
-    sem: asyncio.Semaphore = app.state.extract_sem
-    timeout = config.get_api_settings().extract_queue_timeout_seconds
-    try:
-        async with asyncio.timeout(timeout):
-            await sem.acquire()
-    except TimeoutError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="Pipeline is saturated, retry shortly",
-            headers={"Retry-After": "30"},
-        ) from exc
-    loop = asyncio.get_running_loop()
-    pool: Executor = app.state.pipeline_pool
-    try:
-        try:
-            run = loop.run_in_executor(pool, run_pipeline, content, options)
-        except BrokenProcessPool:
-            # An earlier child died, for example out of memory, and the pool takes no more work.
-            pool = _replace_pipeline_pool(app, pool)
-            run = loop.run_in_executor(pool, run_pipeline, content, options)
-    except BaseException:
-        sem.release()
-        raise
-    run.add_done_callback(lambda finished: _free_slot(sem, finished))
-    return run, pool
-
-
-def _free_slot(sem: asyncio.Semaphore, finished: asyncio.Future[ExtractionArtifact]) -> None:
-    sem.release()
-    if not finished.cancelled():
-        finished.exception()  # read: a run whose client went away logs no "never retrieved"
-
-
-def _replace_pipeline_pool(app: FastAPI, broken: Executor) -> Executor:
-    """Put a new pool in place of a broken one, unless another request already did."""
-    if app.state.pipeline_pool is broken:
-        settings = config.get_api_settings()
-        app.state.pipeline_pool = _new_pipeline_pool(
-            settings.extract_concurrency, settings.log_level
-        )
-        broken.shutdown(wait=False, cancel_futures=True)
-    pool: Executor = app.state.pipeline_pool
-    return pool
 
 
 def _parse_job_id(job_id: str) -> UUID:
@@ -887,44 +778,6 @@ async def job_extraction_artifact(request: Request, job_id: str) -> Response:
     """The extraction artifact of a `done` job."""
     job = await _read_job(request, _parse_job_id(job_id))
     return await _stored_artifact(request, job, job.extract_result_ref, "extraction")
-
-
-@app.post(
-    "/extract",
-    dependencies=[Depends(require_api_key)],
-    responses={
-        401: error_response(UNAUTHORIZED),
-        502: {"description": "The pipeline gave no result. `detail` names the failed step."},
-        503: {"description": "Every pipeline process is busy. Retry after `Retry-After`."},
-    },
-)
-async def extract(request: Request, file: UploadFile | None = None) -> ExtractionArtifact:
-    """Dev route: a queued job's pipeline in one request, without the queue and the workers.
-
-    The same parser, extractor and settings as a job from `POST /api/extractions`. Nothing is
-    stored. The response is the extraction artifact that the job stores.
-    """
-    content = await _validated_upload(request, file)
-    settings = config.get_api_settings()
-    options = PipelineOptions(
-        parser=DEFAULT_PARSER_NAME,
-        extractor=DEFAULT_EXTRACTOR_NAME,
-        parser_timeout_s=settings.mineru_timeout_seconds,
-        mineru_base_url=settings.mineru_base_url,
-        mineru_tier=settings.mineru_tier,
-        char_budget=settings.extraction_char_budget,
-        max_tokens=settings.extraction_max_tokens,
-    )
-    run, pool = await _start_pipeline(request.app, content, options)
-    try:
-        # Shielded: a client that goes away must not cancel the run that holds the slot.
-        return await asyncio.shield(run)
-    except PipelineError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except BrokenProcessPool as exc:
-        LOGGER.error("pipeline process died", extra=error_fields(exc))
-        _replace_pipeline_pool(request.app, pool)
-        raise HTTPException(status_code=502, detail="Pipeline process died") from exc
 
 
 @app.get(
