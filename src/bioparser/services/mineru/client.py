@@ -5,14 +5,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import math
 import re
-import time
 from collections.abc import Iterator
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Literal, get_args
 from urllib.parse import quote
@@ -39,7 +37,6 @@ MAX_WAIT_SECONDS = 3600
 _READ_MARGIN_S = 10.0
 # A cancel or a health probe is best effort and must not hold the caller for a whole parse wait.
 _CANCEL_TIMEOUT_S = 5.0
-_READY_POLL_S = 5.0
 _FILE_PARSE = "/v1/file_parse"
 _HEALTH = "/v1/health"
 # Replies that carry a parse: done (200), not finished when the wait ran out (202), failed (409).
@@ -260,21 +257,13 @@ class MinerUClient:
         except httpx2.HTTPError as exc:
             LOGGER.warning("mineru-api task cancel failed", extra={"error": type(exc).__name__})
 
-
-async def wait_until_ready(base_url: str, timeout_s: float) -> None:
-    """Return once ``GET /v1/health`` answers 200; raise MinerUError after about timeout_s.
-
-    mineru-api answers 503 until its models are loaded, minutes on GPU. Waiting here holds the
-    job instead of spending its retries on a service that is restarting.
-    """
-    deadline = time.monotonic() + timeout_s
-    async with httpx2.AsyncClient(
-        base_url=base_url, timeout=_CANCEL_TIMEOUT_S, trust_env=False
-    ) as http:
-        while True:
-            with suppress(httpx2.HTTPError):
-                if (await http.get(_HEALTH)).status_code == 200:
-                    return
-            if time.monotonic() + _READY_POLL_S > deadline:
-                raise MinerUError("mineru-api is not ready")
-            await asyncio.sleep(_READY_POLL_S)
+    @staticmethod
+    async def ping(base_url: str) -> bool:
+        """True when ``GET /v1/health`` answers 200."""
+        async with httpx2.AsyncClient(
+            base_url=base_url, timeout=_CANCEL_TIMEOUT_S, trust_env=False
+        ) as http:
+            try:
+                return (await http.get(_HEALTH)).status_code == 200
+            except httpx2.HTTPError:
+                return False

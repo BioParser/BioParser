@@ -7,6 +7,7 @@ from bioparser.jobs.queue.dramatiq import DramatiqJobConsumer
 from bioparser.logging_config import setup_logging
 from bioparser.services.vllm import VLLMService
 from bioparser.storage.filesystem import FileSystemArtifactStorage
+from bioparser.worker.before_claim import vllm_before_claim
 from bioparser.worker.health import LivenessServer
 from bioparser.worker.process import install_shutdown
 
@@ -44,6 +45,7 @@ def build_worker(
         extractor_factory=extractor_factory,
         max_claims=settings.extract_max_claims,
         vllm=vllm,
+        before_claim=vllm_before_claim(vllm),
     )
     return queue, handler
 

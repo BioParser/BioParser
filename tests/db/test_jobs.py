@@ -12,12 +12,18 @@ from typing import get_args
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError, InterfaceError, OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from bioparser.db import engine as db_engine
 from bioparser.db import jobs as job_queries
-from bioparser.db.engine import DatabaseError, async_database_url, sync_database_url
+from bioparser.db.engine import (
+    DatabaseError,
+    DatabaseUnavailableError,
+    async_database_url,
+    sync_database_url,
+)
 from bioparser.db.migrate import upgrade
 from bioparser.jobs import CorruptJobStateError, JobState, JobStatus
 
@@ -477,7 +483,7 @@ async def test_unreachable_postgres_raises_database_error() -> None:
     await db_engine.aclose()
     await db_engine.open("postgresql://bioparser:s3cret@127.0.0.1:1/bioparser")
     try:
-        with pytest.raises(DatabaseError) as raised:
+        with pytest.raises(DatabaseUnavailableError) as raised:
             await _create(_queued(uuid.uuid4()))
         assert "s3cret" not in str(raised.value)
     finally:
@@ -497,7 +503,7 @@ async def test_pool_exhaustion_raises_database_error(database: str) -> None:
     db_engine._engine = small
     try:
         async with db_engine.transaction():
-            with pytest.raises(DatabaseError, match="TimeoutError"):
+            with pytest.raises(DatabaseUnavailableError, match="TimeoutError"):
                 await _get(uuid.uuid4())
     finally:
         db_engine._engine = original
@@ -521,16 +527,77 @@ def _engine_that_records(events: list[str]) -> object:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("error", [TimeoutError, OSError])
+@pytest.mark.parametrize(
+    ("error", "expected_type"),
+    [
+        (OSError, DatabaseUnavailableError),
+        (TimeoutError, DatabaseUnavailableError),
+    ],
+)
 async def test_transaction_reports_a_driver_error_from_the_body(
-    monkeypatch: pytest.MonkeyPatch, error: type[Exception]
+    monkeypatch: pytest.MonkeyPatch,
+    error: type[Exception],
+    expected_type: type[DatabaseError],
 ) -> None:
     events: list[str] = []
     monkeypatch.setattr(db_engine, "_engine", _engine_that_records(events))
-    with pytest.raises(DatabaseError, match=error.__name__):
+    with pytest.raises(DatabaseError, match=error.__name__) as raised:
         async with db_engine.transaction():
-            raise error
+            raise error()
+    assert type(raised.value) is expected_type
     assert events == ["rollback", "close"]
+
+
+def test_database_error_from_driver_treats_invalidated_connection_as_outage() -> None:
+    driver_error = OperationalError("connection failed", {}, Exception("disconnect"))
+    driver_error.connection_invalidated = True
+    raised = db_engine._database_error_from_driver(driver_error)
+    assert type(raised) is DatabaseUnavailableError
+
+
+class _PgError(Exception):
+    def __init__(self, sqlstate: str) -> None:
+        super().__init__(sqlstate)
+        self.sqlstate = sqlstate
+
+
+@pytest.mark.parametrize(
+    ("driver_error", "expected_type"),
+    [
+        (PoolTimeoutError("pool", None, None), DatabaseUnavailableError),
+        (InterfaceError("interface", None, Exception("broken")), DatabaseUnavailableError),
+        (ConnectionRefusedError(), DatabaseUnavailableError),
+        (TimeoutError(), DatabaseUnavailableError),
+        (OperationalError("statement", {}, Exception("deadlock")), DatabaseError),
+        (IntegrityError("statement", {}, _PgError("23505")), DatabaseError),
+        (DBAPIError("statement", {}, _PgError("57014")), DatabaseError),
+        (DBAPIError("statement", {}, _PgError("40001")), DatabaseError),
+        (DBAPIError("connect", {}, _PgError("08001")), DatabaseUnavailableError),
+    ],
+    ids=[
+        "pool_timeout",
+        "interface",
+        "connect_oserror",
+        "timeout",
+        "operational_statement",
+        "integrity",
+        "query_canceled_sqlstate",
+        "serialization_failure",
+        "connection_sqlstate",
+    ],
+)
+def test_database_error_from_driver_classifies_connection_failures(
+    driver_error: BaseException,
+    expected_type: type[DatabaseError],
+) -> None:
+    raised = db_engine._database_error_from_driver(driver_error)
+    assert type(raised) is expected_type
+
+
+@pytest.mark.parametrize("sqlstate", ["57P03", "57P01", "08006", "53300"])
+def test_a_server_that_does_not_serve_now_is_an_outage(sqlstate: str) -> None:
+    error = DBAPIError("connect", {}, _PgError(sqlstate))
+    assert type(db_engine._database_error_from_driver(error)) is DatabaseUnavailableError
 
 
 @pytest.mark.anyio

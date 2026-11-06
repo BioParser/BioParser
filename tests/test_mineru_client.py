@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx2
 import pytest
+from stubs import fake_mineru
 
 from bioparser import logging_config
 from bioparser.logging_config import JsonFormatter
@@ -363,3 +364,18 @@ def test_neither_the_pdf_nor_the_response_body_is_logged(
     rendered = "\n".join(JsonFormatter().format(record) for record in mineru_log.records)
     assert '"bytes_read"' in rendered
     assert "canary" not in rendered
+
+
+def test_ping_is_true_when_health_returns_200() -> None:
+    with fake_mineru() as (url, seen):
+        assert asyncio.run(MinerUClient.ping(url)) is True
+    assert seen == []
+
+
+def test_ping_is_false_when_health_is_not_ready() -> None:
+    with fake_mineru(health=[503]) as (url, _seen):
+        assert asyncio.run(MinerUClient.ping(url)) is False
+
+
+def test_ping_is_false_when_the_service_is_unreachable() -> None:
+    assert asyncio.run(MinerUClient.ping("http://127.0.0.1:9")) is False
