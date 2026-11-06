@@ -1,23 +1,25 @@
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
+from bioparser.ets.adapter import EtsSourceRow
+from bioparser.ets.models import EtsRow
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTORS
 from bioparser.hashing import Sha256Hex
 from bioparser.jobs import SafeError
 from bioparser.parser_names import DEFAULT_PARSER_NAME, ParserName
 
 
-class JobResponseBase(BaseModel):
-    job_id: UUID
+class JobRecord(BaseModel):
+    """Fields a `detail=full` body adds. The status already says which artifacts exist."""
+
     created_at: AwareDatetime
     display_name: str | None
     parser: str
     extractor: str
     document_checksum: str
-    has_parse_result: bool
 
 
 class HealthResponse(BaseModel):
@@ -69,27 +71,72 @@ class AcceptedJobResponse(BaseModel):
     status: Literal["queued"]
 
 
-class QueuedJobResponse(JobResponseBase):
-    status: Literal["queued"]
+class OpenJobResponse(BaseModel):
+    """A job that is not done and has not failed. It has no observations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: UUID
+    status: Literal["queued", "parsing", "parsed", "extracting"]
 
 
-class RunningJobResponse(JobResponseBase):
-    status: Literal["parsing", "extracting"]
+class OpenJobFullResponse(OpenJobResponse, JobRecord):
+    """An open job with the stored record beside the status."""
 
 
-class SucceededJobResponse(JobResponseBase):
-    status: Literal["parsed", "done"]
+class ListedJobResponse(BaseModel):
+    """One job in a list. A done job does not include its ETS rows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: UUID
+    status: Literal["queued", "parsing", "parsed", "extracting", "done"]
 
 
-class FailedJobResponse(JobResponseBase):
+class ListedJobFullResponse(ListedJobResponse, JobRecord):
+    """One listed job with the stored record. Still no ETS rows."""
+
+
+class _DoneJob(BaseModel):
+    """Fields shared by the two finished-job bodies. The row type differs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: UUID
+    status: Literal["done"]
+
+
+class DoneJobResponse(_DoneJob):
+    """A finished job: the ETS rows built from its extraction artifact."""
+
+    rows: list[EtsRow]
+
+
+class DoneJobFullResponse(_DoneJob, JobRecord):
+    """A finished job with the record and the observation index."""
+
+    rows: list[EtsSourceRow]
+
+
+class FailedJobResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: UUID
     status: Literal["failed"]
     error: SafeError
 
 
-JobStatusResponse = Annotated[
-    QueuedJobResponse | RunningJobResponse | SucceededJobResponse | FailedJobResponse,
-    Field(discriminator="status"),
-]
+class FailedJobFullResponse(FailedJobResponse, JobRecord):
+    """A failed job with the stored record beside the error."""
+
+
+OpenJob = OpenJobResponse | OpenJobFullResponse
+DoneJob = DoneJobResponse | DoneJobFullResponse
+FailedJob = FailedJobResponse | FailedJobFullResponse
+ListedJob = ListedJobResponse | ListedJobFullResponse
+
+JobStatusResponse = OpenJob | DoneJob | FailedJob
+JobListResponse = ListedJob | FailedJob
 
 
 class DocumentMetadataResponse(BaseModel):

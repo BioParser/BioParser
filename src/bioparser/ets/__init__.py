@@ -3,7 +3,7 @@
 The helpers judge an observation. They do not write that judgment back.
 """
 
-from bioparser.ets.adapter import EtsResult, MappedRow, to_ets
+from bioparser.ets.adapter import EtsResult, EtsSourceRow, to_ets
 from bioparser.ets.assess import Assessment, assess
 from bioparser.ets.notices import Notice
 
@@ -13,7 +13,7 @@ __all__ = [
     "ETS_VERSION",
     "Assessment",
     "EtsResult",
-    "MappedRow",
+    "EtsSourceRow",
     "Notice",
     "assess",
     "to_ets",
