@@ -7,10 +7,10 @@ from bioparser.jobs.queue.dramatiq import DramatiqJobConsumer
 from bioparser.logging_config import setup_logging
 from bioparser.services.vllm import VLLMService
 from bioparser.storage.filesystem import FileSystemArtifactStorage
-from bioparser.worker.before_claim import vllm_before_claim
 from bioparser.worker.health import LivenessServer
 from bioparser.worker.process import install_shutdown
 
+from .before_claim import vllm_before_claim
 from .config import ExtractWorkerSettings
 from .handler import ExtractJobHandler
 

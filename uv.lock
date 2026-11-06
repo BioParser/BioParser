@@ -112,55 +112,100 @@ wheels = [
 name = "bioparser"
 version = "0.1.0"
 source = { editable = "." }
+default-groups = "all"
 dependencies = [
-    { name = "alembic" },
     { name = "asyncpg" },
-    { name = "dramatiq", extra = ["redis"] },
-    { name = "fastapi" },
     { name = "httpx2" },
-    { name = "openai" },
-    { name = "pdfplumber" },
-    { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "python-multipart" },
-    { name = "redis" },
     { name = "sqlalchemy", extra = ["asyncio"] },
-    { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.dev-dependencies]
+api = [
+    { name = "dramatiq", extra = ["redis"] },
+    { name = "fastapi" },
+    { name = "openai" },
+    { name = "pdfplumber" },
+    { name = "python-multipart" },
+    { name = "redis" },
+    { name = "uvicorn", extra = ["standard"] },
+]
 dev = [
     { name = "mypy" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "ruff" },
 ]
+extractor-worker = [
+    { name = "dramatiq", extra = ["redis"] },
+    { name = "openai" },
+    { name = "redis" },
+]
+llm = [
+    { name = "openai" },
+]
+migrate = [
+    { name = "alembic" },
+    { name = "psycopg", extra = ["binary"] },
+]
+parser-worker = [
+    { name = "dramatiq", extra = ["redis"] },
+    { name = "pdfplumber" },
+    { name = "redis" },
+]
+pdf = [
+    { name = "pdfplumber" },
+]
+queue = [
+    { name = "dramatiq", extra = ["redis"] },
+    { name = "redis" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "alembic", specifier = ">=1.20.1" },
     { name = "asyncpg", specifier = ">=0.31" },
-    { name = "dramatiq", extras = ["redis"], specifier = ">=2.2.1" },
-    { name = "fastapi", specifier = ">=0.141.1" },
     { name = "httpx2", specifier = ">=2.12" },
-    { name = "openai", specifier = ">=3.8.0" },
-    { name = "pdfplumber", specifier = ">=0.11.10" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6" },
     { name = "pydantic", specifier = ">=2.13.5" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
-    { name = "python-multipart", specifier = ">=0.0.32" },
-    { name = "redis", specifier = ">=8.1.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1.6" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.4" },
 ]
 
 [package.metadata.requires-dev]
+api = [
+    { name = "dramatiq", extras = ["redis"], specifier = ">=2.2.1" },
+    { name = "fastapi", specifier = ">=0.141.1" },
+    { name = "openai", specifier = ">=3.8.0" },
+    { name = "pdfplumber", specifier = ">=0.11.10" },
+    { name = "python-multipart", specifier = ">=0.0.32" },
+    { name = "redis", specifier = ">=8.1.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.4" },
+]
 dev = [
     { name = "mypy", specifier = ">=2.3.1" },
     { name = "pre-commit", specifier = ">=4.6.2" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "ruff", specifier = ">=0.16.5" },
+]
+extractor-worker = [
+    { name = "dramatiq", extras = ["redis"], specifier = ">=2.2.1" },
+    { name = "openai", specifier = ">=3.8.0" },
+    { name = "redis", specifier = ">=8.1.0" },
+]
+llm = [{ name = "openai", specifier = ">=3.8.0" }]
+migrate = [
+    { name = "alembic", specifier = ">=1.20.1" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6" },
+]
+parser-worker = [
+    { name = "dramatiq", extras = ["redis"], specifier = ">=2.2.1" },
+    { name = "pdfplumber", specifier = ">=0.11.10" },
+    { name = "redis", specifier = ">=8.1.0" },
+]
+pdf = [{ name = "pdfplumber", specifier = ">=0.11.10" }]
+queue = [
+    { name = "dramatiq", extras = ["redis"], specifier = ">=2.2.1" },
+    { name = "redis", specifier = ">=8.1.0" },
 ]
 
 [[package]]
