@@ -9,16 +9,17 @@ from bioparser.extract.models import ExtractionArtifact
 from bioparser.traits.table import mammal_traits
 
 
-class MappedRow(BaseModel):
-    """One kept row and the observation it was built from."""
+class EtsSourceRow(EtsRow):
+    """An ETS row plus the observation it was built from.
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    ``source_index`` is not an ETS column. It is the position in the artifact's
+    observations, so a row can be matched back to the observation that produced it.
+    """
 
     source_index: int = Field(ge=0)
-    row: EtsRow
 
 
-class Drop(BaseModel):
+class DroppedObservation(BaseModel):
     """One observation that did not become a row."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -32,8 +33,8 @@ class EtsResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    rows: list[MappedRow]
-    drops: list[Drop]
+    rows: list[EtsSourceRow]
+    drops: list[DroppedObservation]
     # The version of the trait list that named these rows.
     trait_list_version: str
 
@@ -46,17 +47,19 @@ def to_ets(artifact: ExtractionArtifact, *, references: str) -> EtsResult:
     """
     if references == "":
         raise ValueError("references is empty")
-    rows: list[MappedRow] = []
-    drops: list[Drop] = []
+    rows: list[EtsSourceRow] = []
+    drops: list[DroppedObservation] = []
     for index, observation in enumerate(artifact.observations):
         verdict = assess(observation)
         if isinstance(verdict, Dropped):
-            drops.append(Drop(source_index=index, reason=verdict.drop))
+            drops.append(DroppedObservation(source_index=index, reason=verdict.drop))
             continue
         rows.append(
-            MappedRow(
+            _row(
+                verdict,
+                references=references,
+                measurement_id=str(len(rows) + 1),
                 source_index=index,
-                row=_row(verdict, references=references, measurement_id=str(len(rows) + 1)),
             )
         )
     return EtsResult(rows=rows, drops=drops, trait_list_version=mammal_traits().version)
@@ -67,8 +70,9 @@ def _row(
     *,
     references: str,
     measurement_id: str,
-) -> EtsRow:
-    return EtsRow.model_validate(
+    source_index: int,
+) -> EtsSourceRow:
+    return EtsSourceRow.model_validate(
         {
             "traitID": verdict.trait_id,
             "traitName": verdict.trait_name,
@@ -125,5 +129,6 @@ def _row(
             "measurementID": measurement_id,
             "warnings": " | ".join(format_warning(warning) for warning in verdict.warnings),
             "references": references,
+            "source_index": source_index,
         }
     )

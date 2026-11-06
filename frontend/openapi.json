@@ -25,7 +25,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AcceptedJobResponse"
+                  "$ref": "#/components/schemas/QueuedJobResponse"
                 }
               }
             }
@@ -784,7 +784,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AcceptedJobResponse"
+                  "$ref": "#/components/schemas/QueuedJobResponse"
                 }
               }
             }
@@ -922,6 +922,20 @@
               "type": "string",
               "title": "Checksum"
             }
+          },
+          {
+            "name": "detail",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "ets",
+                "full"
+              ],
+              "type": "string",
+              "default": "ets",
+              "title": "Detail"
+            }
           }
         ],
         "responses": {
@@ -932,31 +946,20 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "oneOf": [
+                    "anyOf": [
                       {
-                        "$ref": "#/components/schemas/QueuedJobResponse"
+                        "$ref": "#/components/schemas/ListedJobResponse"
                       },
                       {
-                        "$ref": "#/components/schemas/RunningJobResponse"
-                      },
-                      {
-                        "$ref": "#/components/schemas/SucceededJobResponse"
+                        "$ref": "#/components/schemas/ListedJobFullResponse"
                       },
                       {
                         "$ref": "#/components/schemas/FailedJobResponse"
+                      },
+                      {
+                        "$ref": "#/components/schemas/FailedJobFullResponse"
                       }
-                    ],
-                    "discriminator": {
-                      "propertyName": "status",
-                      "mapping": {
-                        "queued": "#/components/schemas/QueuedJobResponse",
-                        "parsing": "#/components/schemas/RunningJobResponse",
-                        "extracting": "#/components/schemas/RunningJobResponse",
-                        "parsed": "#/components/schemas/SucceededJobResponse",
-                        "done": "#/components/schemas/SucceededJobResponse",
-                        "failed": "#/components/schemas/FailedJobResponse"
-                      }
-                    }
+                    ]
                   },
                   "title": "Response List Document Jobs Api Documents  Checksum  Jobs Get"
                 }
@@ -1120,6 +1123,20 @@
               ],
               "title": "Parser"
             }
+          },
+          {
+            "name": "detail",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "ets",
+                "full"
+              ],
+              "type": "string",
+              "default": "ets",
+              "title": "Detail"
+            }
           }
         ],
         "responses": {
@@ -1130,31 +1147,20 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "oneOf": [
+                    "anyOf": [
                       {
-                        "$ref": "#/components/schemas/QueuedJobResponse"
+                        "$ref": "#/components/schemas/ListedJobResponse"
                       },
                       {
-                        "$ref": "#/components/schemas/RunningJobResponse"
-                      },
-                      {
-                        "$ref": "#/components/schemas/SucceededJobResponse"
+                        "$ref": "#/components/schemas/ListedJobFullResponse"
                       },
                       {
                         "$ref": "#/components/schemas/FailedJobResponse"
+                      },
+                      {
+                        "$ref": "#/components/schemas/FailedJobFullResponse"
                       }
-                    ],
-                    "discriminator": {
-                      "propertyName": "status",
-                      "mapping": {
-                        "queued": "#/components/schemas/QueuedJobResponse",
-                        "parsing": "#/components/schemas/RunningJobResponse",
-                        "extracting": "#/components/schemas/RunningJobResponse",
-                        "parsed": "#/components/schemas/SucceededJobResponse",
-                        "done": "#/components/schemas/SucceededJobResponse",
-                        "failed": "#/components/schemas/FailedJobResponse"
-                      }
-                    }
+                    ]
                   },
                   "title": "Response List Jobs Api Jobs Get"
                 }
@@ -1240,6 +1246,7 @@
     "/api/jobs/{job_id}": {
       "get": {
         "summary": "Job Status",
+        "description": "The job.\n\n`queued`, `parsing`, `parsed`, and `extracting` are `job_id` and `status`. `failed`\nadds `error`. `done` adds the ETS rows and `trait_list_version`. Open and failed jobs\ndo not read the extraction artifact.\n\n`?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,\n`extractor`, and `document_checksum`. A done job then also adds each row's observation\nindex and the drops.",
         "operationId": "job_status_api_jobs__job_id__get",
         "security": [
           {
@@ -1255,6 +1262,20 @@
               "type": "string",
               "title": "Job Id"
             }
+          },
+          {
+            "name": "detail",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "ets",
+                "full"
+              ],
+              "type": "string",
+              "default": "ets",
+              "title": "Detail"
+            }
           }
         ],
         "responses": {
@@ -1263,31 +1284,26 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [
+                  "anyOf": [
                     {
-                      "$ref": "#/components/schemas/QueuedJobResponse"
+                      "$ref": "#/components/schemas/OpenJobResponse"
                     },
                     {
-                      "$ref": "#/components/schemas/RunningJobResponse"
+                      "$ref": "#/components/schemas/OpenJobFullResponse"
                     },
                     {
-                      "$ref": "#/components/schemas/SucceededJobResponse"
+                      "$ref": "#/components/schemas/DoneJobResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DoneJobFullResponse"
                     },
                     {
                       "$ref": "#/components/schemas/FailedJobResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/FailedJobFullResponse"
                     }
                   ],
-                  "discriminator": {
-                    "propertyName": "status",
-                    "mapping": {
-                      "queued": "#/components/schemas/QueuedJobResponse",
-                      "parsing": "#/components/schemas/RunningJobResponse",
-                      "extracting": "#/components/schemas/RunningJobResponse",
-                      "parsed": "#/components/schemas/SucceededJobResponse",
-                      "done": "#/components/schemas/SucceededJobResponse",
-                      "failed": "#/components/schemas/FailedJobResponse"
-                    }
-                  },
                   "title": "Response Job Status Api Jobs  Job Id  Get"
                 }
               }
@@ -1368,6 +1384,15 @@
                         "message": "Stored job state is unreadable"
                       }
                     }
+                  },
+                  "artifact_invalid": {
+                    "summary": "Stored artifact is missing or invalid",
+                    "value": {
+                      "detail": {
+                        "code": "artifact_invalid",
+                        "message": "Stored artifact is missing or invalid"
+                      }
+                    }
                   }
                 },
                 "schema": {
@@ -1387,6 +1412,15 @@
                       "detail": {
                         "code": "database_unavailable",
                         "message": "Database is unavailable"
+                      }
+                    }
+                  },
+                  "storage_unavailable": {
+                    "summary": "Artifact storage is unavailable",
+                    "value": {
+                      "detail": {
+                        "code": "storage_unavailable",
+                        "message": "Artifact storage is unavailable"
                       }
                     }
                   }
@@ -2032,28 +2066,6 @@
   },
   "components": {
     "schemas": {
-      "AcceptedJobResponse": {
-        "properties": {
-          "job_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Job Id"
-          },
-          "status": {
-            "type": "string",
-            "const": "queued",
-            "title": "Status"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "job_id",
-          "status"
-        ],
-        "title": "AcceptedJobResponse",
-        "description": "The 202 body from queueing a job. A later read carries the stored record."
-      },
       "BlockKind": {
         "type": "string",
         "enum": [
@@ -2513,6 +2525,146 @@
         ],
         "title": "Domain"
       },
+      "DoneJobFullResponse": {
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "parser": {
+            "type": "string",
+            "title": "Parser"
+          },
+          "extractor": {
+            "type": "string",
+            "title": "Extractor"
+          },
+          "document_checksum": {
+            "type": "string",
+            "title": "Document Checksum"
+          },
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "done",
+            "title": "Status"
+          },
+          "trait_list_version": {
+            "type": "string",
+            "title": "Trait List Version"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/EtsSourceRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "drops": {
+            "items": {
+              "$ref": "#/components/schemas/DroppedObservation"
+            },
+            "type": "array",
+            "title": "Drops"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "created_at",
+          "display_name",
+          "parser",
+          "extractor",
+          "document_checksum",
+          "job_id",
+          "status",
+          "trait_list_version",
+          "rows",
+          "drops"
+        ],
+        "title": "DoneJobFullResponse",
+        "description": "A finished job with the record, the observation index, and the drops."
+      },
+      "DoneJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "done",
+            "title": "Status"
+          },
+          "trait_list_version": {
+            "type": "string",
+            "title": "Trait List Version"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/EtsRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "trait_list_version",
+          "rows"
+        ],
+        "title": "DoneJobResponse",
+        "description": "A finished job: the ETS rows built from its extraction artifact."
+      },
+      "DroppedObservation": {
+        "properties": {
+          "source_index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Source Index"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "trait_unknown",
+              "unit_not_for_trait",
+              "unit_unknown",
+              "value_not_numeric",
+              "level_unknown",
+              "bounds_reversed"
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source_index",
+          "reason"
+        ],
+        "title": "DroppedObservation",
+        "description": "One observation that did not become a row."
+      },
       "ErrorDetail": {
         "properties": {
           "code": {
@@ -2563,6 +2715,1208 @@
         ],
         "title": "ErrorResponse"
       },
+      "EtsRow": {
+        "properties": {
+          "traitID": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traitid"
+          },
+          "traitName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traitname"
+          },
+          "verbatimTraitName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verbatimtraitname"
+          },
+          "scientificName": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Scientificname"
+          },
+          "verbatimScientificName": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Verbatimscientificname"
+          },
+          "taxonID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taxonid"
+          },
+          "traitValue": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Traitvalue"
+          },
+          "verbatimTraitValue": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Verbatimtraitvalue"
+          },
+          "traitUnit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traitunit"
+          },
+          "verbatimTraitUnit": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Verbatimtraitunit"
+          },
+          "taxonRank": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taxonrank"
+          },
+          "kingdom": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kingdom"
+          },
+          "phylum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phylum"
+          },
+          "class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class"
+          },
+          "order": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Family"
+          },
+          "genus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Genus"
+          },
+          "sex": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "male",
+                  "female",
+                  "subadult",
+                  "unknown",
+                  "hermaphrodite"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sex"
+          },
+          "lifeStage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifestage"
+          },
+          "age": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age"
+          },
+          "morphotype": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Morphotype"
+          },
+          "basisOfRecord": {
+            "type": "string",
+            "enum": [
+              "LivingSpecimen",
+              "PreservedSpecimen",
+              "FossilSpecimen",
+              "literatureData",
+              "traitDatabase",
+              "expertKnowledge"
+            ],
+            "title": "Basisofrecord"
+          },
+          "basisOfRecordDescription": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basisofrecorddescription"
+          },
+          "measurementMethod": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementmethod"
+          },
+          "measurementResolution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementresolution"
+          },
+          "measurementRemarks": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementremarks"
+          },
+          "measurementDeterminedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementdeterminedby"
+          },
+          "measurementDeterminedDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementdetermineddate"
+          },
+          "aggregateMeasure": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aggregatemeasure"
+          },
+          "statisticalMethod": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statisticalmethod"
+          },
+          "individualCount": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Individualcount"
+          },
+          "dispersion": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispersion"
+          },
+          "measurementValue_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementvalue Min"
+          },
+          "measurementValue_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementvalue Max"
+          },
+          "measurementAccuracy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementaccuracy"
+          },
+          "measurementID": {
+            "type": "string",
+            "title": "Measurementid"
+          },
+          "occurrenceID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurrenceid"
+          },
+          "warnings": {
+            "type": "string",
+            "title": "Warnings"
+          },
+          "references": {
+            "type": "string",
+            "minLength": 1,
+            "title": "References"
+          },
+          "eventID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eventid"
+          },
+          "preparations": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preparations"
+          },
+          "samplingProtocol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Samplingprotocol"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          },
+          "month": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Month"
+          },
+          "day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day"
+          },
+          "eventDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eventdate"
+          },
+          "locationID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locationid"
+          },
+          "habitat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Habitat"
+          },
+          "decimalLongitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decimallongitude"
+          },
+          "decimalLatitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decimallatitude"
+          },
+          "elevation": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation"
+          },
+          "geodeticDatum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geodeticdatum"
+          },
+          "verbatimLocality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verbatimlocality"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "countryCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Countrycode"
+          },
+          "occurrenceRemarks": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurrenceremarks"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scientificName",
+          "verbatimScientificName",
+          "traitValue",
+          "verbatimTraitValue",
+          "verbatimTraitUnit",
+          "basisOfRecord",
+          "measurementID",
+          "warnings",
+          "references"
+        ],
+        "title": "EtsRow",
+        "description": "ETS v0.10 core, taxon, measurement-or-fact, and occurrence columns.\n\nThe order follows the stored observation. Columns the artifact does not\nstore sit beside the field they belong with."
+      },
+      "EtsSourceRow": {
+        "properties": {
+          "traitID": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traitid"
+          },
+          "traitName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traitname"
+          },
+          "verbatimTraitName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verbatimtraitname"
+          },
+          "scientificName": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Scientificname"
+          },
+          "verbatimScientificName": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Verbatimscientificname"
+          },
+          "taxonID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taxonid"
+          },
+          "traitValue": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Traitvalue"
+          },
+          "verbatimTraitValue": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Verbatimtraitvalue"
+          },
+          "traitUnit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traitunit"
+          },
+          "verbatimTraitUnit": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Verbatimtraitunit"
+          },
+          "taxonRank": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taxonrank"
+          },
+          "kingdom": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kingdom"
+          },
+          "phylum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phylum"
+          },
+          "class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class"
+          },
+          "order": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Family"
+          },
+          "genus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Genus"
+          },
+          "sex": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "male",
+                  "female",
+                  "subadult",
+                  "unknown",
+                  "hermaphrodite"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sex"
+          },
+          "lifeStage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifestage"
+          },
+          "age": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age"
+          },
+          "morphotype": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Morphotype"
+          },
+          "basisOfRecord": {
+            "type": "string",
+            "enum": [
+              "LivingSpecimen",
+              "PreservedSpecimen",
+              "FossilSpecimen",
+              "literatureData",
+              "traitDatabase",
+              "expertKnowledge"
+            ],
+            "title": "Basisofrecord"
+          },
+          "basisOfRecordDescription": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basisofrecorddescription"
+          },
+          "measurementMethod": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementmethod"
+          },
+          "measurementResolution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementresolution"
+          },
+          "measurementRemarks": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementremarks"
+          },
+          "measurementDeterminedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementdeterminedby"
+          },
+          "measurementDeterminedDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementdetermineddate"
+          },
+          "aggregateMeasure": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aggregatemeasure"
+          },
+          "statisticalMethod": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statisticalmethod"
+          },
+          "individualCount": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Individualcount"
+          },
+          "dispersion": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispersion"
+          },
+          "measurementValue_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementvalue Min"
+          },
+          "measurementValue_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementvalue Max"
+          },
+          "measurementAccuracy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurementaccuracy"
+          },
+          "measurementID": {
+            "type": "string",
+            "title": "Measurementid"
+          },
+          "occurrenceID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurrenceid"
+          },
+          "warnings": {
+            "type": "string",
+            "title": "Warnings"
+          },
+          "references": {
+            "type": "string",
+            "minLength": 1,
+            "title": "References"
+          },
+          "eventID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eventid"
+          },
+          "preparations": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preparations"
+          },
+          "samplingProtocol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Samplingprotocol"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          },
+          "month": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Month"
+          },
+          "day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day"
+          },
+          "eventDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eventdate"
+          },
+          "locationID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locationid"
+          },
+          "habitat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Habitat"
+          },
+          "decimalLongitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decimallongitude"
+          },
+          "decimalLatitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decimallatitude"
+          },
+          "elevation": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation"
+          },
+          "geodeticDatum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geodeticdatum"
+          },
+          "verbatimLocality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verbatimlocality"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "countryCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Countrycode"
+          },
+          "occurrenceRemarks": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurrenceremarks"
+          },
+          "source_index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Source Index"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scientificName",
+          "verbatimScientificName",
+          "traitValue",
+          "verbatimTraitValue",
+          "verbatimTraitUnit",
+          "basisOfRecord",
+          "measurementID",
+          "warnings",
+          "references",
+          "source_index"
+        ],
+        "title": "EtsSourceRow",
+        "description": "An ETS row plus the observation it was built from.\n\n``source_index`` is not an ETS column. It is the position in the artifact's\nobservations, so a row can be matched back to the observation that produced it."
+      },
       "ExtractionArtifact": {
         "properties": {
           "schema_version": {
@@ -2598,13 +3952,8 @@
         "title": "ExtractionArtifact",
         "description": "Versioned extraction result stored for a job."
       },
-      "FailedJobResponse": {
+      "FailedJobFullResponse": {
         "properties": {
-          "job_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Job Id"
-          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -2633,9 +3982,10 @@
             "type": "string",
             "title": "Document Checksum"
           },
-          "has_parse_result": {
-            "type": "boolean",
-            "title": "Has Parse Result"
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
           },
           "status": {
             "type": "string",
@@ -2646,15 +3996,41 @@
             "$ref": "#/components/schemas/SafeError"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
-          "job_id",
           "created_at",
           "display_name",
           "parser",
           "extractor",
           "document_checksum",
-          "has_parse_result",
+          "job_id",
+          "status",
+          "error"
+        ],
+        "title": "FailedJobFullResponse",
+        "description": "A failed job with the stored record beside the error."
+      },
+      "FailedJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "failed",
+            "title": "Status"
+          },
+          "error": {
+            "$ref": "#/components/schemas/SafeError"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
           "status",
           "error"
         ],
@@ -2717,6 +4093,95 @@
         ],
         "title": "Interpretation",
         "description": "A value read from one citation. ``passage`` is that citation."
+      },
+      "ListedJobFullResponse": {
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "parser": {
+            "type": "string",
+            "title": "Parser"
+          },
+          "extractor": {
+            "type": "string",
+            "title": "Extractor"
+          },
+          "document_checksum": {
+            "type": "string",
+            "title": "Document Checksum"
+          },
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "parsing",
+              "parsed",
+              "extracting",
+              "done"
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "created_at",
+          "display_name",
+          "parser",
+          "extractor",
+          "document_checksum",
+          "job_id",
+          "status"
+        ],
+        "title": "ListedJobFullResponse",
+        "description": "One listed job with the stored record. Still no ETS rows."
+      },
+      "ListedJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "parsing",
+              "parsed",
+              "extracting",
+              "done"
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "ListedJobResponse",
+        "description": "One job in a list. A done job does not include its ETS rows."
       },
       "NumericTrait": {
         "properties": {
@@ -3955,6 +5420,93 @@
         "title": "Observation",
         "description": "One measurement.\n\nA citation-only field is printed text. A citation or correction is that citation, or a\ncorrection that keeps the narrow citation beside an interpretation. A citation\nor interpretation has no verbatim sibling. Its check can reject the printed\ntext, so it is a citation or an interpretation of one passage. The passage\nfails that check, so it is not a usable column value. ``basisOfRecord``,\n``aggregateMeasure``, ``centralKind``, and ``dispersionKind``\nare interpretations only. A paper does not print those tokens. The adapter\nuses ``centralKind`` and ``dispersionKind`` to write ``statisticalMethod``\nwhen no phrase was stored, and ``dispersionKind`` to convert the dispersion.\nThe minimum and the maximum use the same factor as the trait value. One\nunit covers the measurement.\n\n``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations\nbeside a required verbatim citation. The interpretation is omitted when the\nprinted token is already the value. ``traitValue`` and ``traitUnit`` are\nthat printed number and unit, cleaned up, not a converted pair.\n``scientificName`` is another name a later taxonomy lookup can try.\n\nThe artifact does not enforce a closed set of values. An interpretation's\n``value`` is any non-empty string, including ``traitCode``. An extractor may\nconstrain it, and the adapter decides what a value means.\n\n``traitCode`` is optional. Without it the measurement is still stored, and the\nadapter keeps the row without a standardized name, identifier, or unit.\n\nEvery other column a paper can state is optional. An extractor leaves it null."
       },
+      "OpenJobFullResponse": {
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "parser": {
+            "type": "string",
+            "title": "Parser"
+          },
+          "extractor": {
+            "type": "string",
+            "title": "Extractor"
+          },
+          "document_checksum": {
+            "type": "string",
+            "title": "Document Checksum"
+          },
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "parsing",
+              "parsed",
+              "extracting"
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "created_at",
+          "display_name",
+          "parser",
+          "extractor",
+          "document_checksum",
+          "job_id",
+          "status"
+        ],
+        "title": "OpenJobFullResponse",
+        "description": "An open job with the stored record beside the status."
+      },
+      "OpenJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "parsing",
+              "parsed",
+              "extracting"
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "OpenJobResponse",
+        "description": "A job that is not done and has not failed. It has no observations."
+      },
       "Page": {
         "properties": {
           "page_number": {
@@ -4066,56 +5618,20 @@
             "format": "uuid",
             "title": "Job Id"
           },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "display_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Display Name"
-          },
-          "parser": {
-            "type": "string",
-            "title": "Parser"
-          },
-          "extractor": {
-            "type": "string",
-            "title": "Extractor"
-          },
-          "document_checksum": {
-            "type": "string",
-            "title": "Document Checksum"
-          },
-          "has_parse_result": {
-            "type": "boolean",
-            "title": "Has Parse Result"
-          },
           "status": {
             "type": "string",
             "const": "queued",
             "title": "Status"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "job_id",
-          "created_at",
-          "display_name",
-          "parser",
-          "extractor",
-          "document_checksum",
-          "has_parse_result",
           "status"
         ],
-        "title": "QueuedJobResponse"
+        "title": "QueuedJobResponse",
+        "description": "The body of a request that creates a job. The status is only `queued`."
       },
       "ReadinessResponse": {
         "properties": {
@@ -4181,67 +5697,6 @@
           }
         ]
       },
-      "RunningJobResponse": {
-        "properties": {
-          "job_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Job Id"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "display_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Display Name"
-          },
-          "parser": {
-            "type": "string",
-            "title": "Parser"
-          },
-          "extractor": {
-            "type": "string",
-            "title": "Extractor"
-          },
-          "document_checksum": {
-            "type": "string",
-            "title": "Document Checksum"
-          },
-          "has_parse_result": {
-            "type": "boolean",
-            "title": "Has Parse Result"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "parsing",
-              "extracting"
-            ],
-            "title": "Status"
-          }
-        },
-        "type": "object",
-        "required": [
-          "job_id",
-          "created_at",
-          "display_name",
-          "parser",
-          "extractor",
-          "document_checksum",
-          "has_parse_result",
-          "status"
-        ],
-        "title": "RunningJobResponse"
-      },
       "SafeError": {
         "properties": {
           "code": {
@@ -4263,67 +5718,6 @@
         ],
         "title": "SafeError",
         "description": "A short, non-sensitive description of why a job failed."
-      },
-      "SucceededJobResponse": {
-        "properties": {
-          "job_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Job Id"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "display_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Display Name"
-          },
-          "parser": {
-            "type": "string",
-            "title": "Parser"
-          },
-          "extractor": {
-            "type": "string",
-            "title": "Extractor"
-          },
-          "document_checksum": {
-            "type": "string",
-            "title": "Document Checksum"
-          },
-          "has_parse_result": {
-            "type": "boolean",
-            "title": "Has Parse Result"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "parsed",
-              "done"
-            ],
-            "title": "Status"
-          }
-        },
-        "type": "object",
-        "required": [
-          "job_id",
-          "created_at",
-          "display_name",
-          "parser",
-          "extractor",
-          "document_checksum",
-          "has_parse_result",
-          "status"
-        ],
-        "title": "SucceededJobResponse"
       },
       "TableCell": {
         "properties": {

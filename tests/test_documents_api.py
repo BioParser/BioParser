@@ -283,8 +283,8 @@ def test_extract_stores_the_document_and_queues_a_job(
 
     assert res.status_code == 202
     body = res.json()
-    assert set(body) == {"job_id", "status"}
     assert body["status"] == "queued"
+    assert set(body) == {"job_id", "status"}
     state = job_store.states[body["job_id"]]
     assert state.parser == "default"
     assert state.extractor == "default"
@@ -293,8 +293,30 @@ def test_extract_stores_the_document_and_queues_a_job(
     assert parse_queue.messages[0].job_id == UUID(body["job_id"])
     stored = client.get(f"/api/documents/{MINIMAL_PDF_HASH}")
     assert stored.status_code == 200
+    assert stored.json()["checksum"] == MINIMAL_PDF_HASH
     assert stored.json()["display_name"] == "paper.pdf"
     assert stored.json()["size_bytes"] == len(MINIMAL_PDF)
+
+
+def test_extract_of_the_same_pdf_creates_another_job(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    _artifact_storage, job_store, parse_queue, _events = stub_api_adapters
+
+    responses = [
+        client.post(
+            "/api/extractions", files={"file": ("paper.pdf", MINIMAL_PDF, "application/pdf")}
+        )
+        for _ in range(2)
+    ]
+
+    assert [response.status_code for response in responses] == [202, 202]
+    assert len(job_store.states) == 2
+    assert len(parse_queue.messages) == 2
+    listed = client.get("/api/documents")
+    assert listed.status_code == 200
+    assert [doc["checksum"] for doc in listed.json()] == [MINIMAL_PDF_HASH]
 
 
 def test_extract_keeps_the_existing_display_name(
@@ -316,6 +338,7 @@ def test_extract_keeps_the_existing_display_name(
     assert second.status_code == 202
     assert len(job_store.states) == 2
     stored = client.get(f"/api/documents/{MINIMAL_PDF_HASH}")
+    assert stored.status_code == 200
     assert stored.json()["display_name"] == "paper.pdf"
 
 
@@ -357,6 +380,7 @@ def test_a_failed_extraction_insert_keeps_an_existing_document(
     assert res.status_code == 503
     assert job_store.states == {}
     stored = client.get(f"/api/documents/{MINIMAL_PDF_HASH}")
+    assert stored.status_code == 200
     assert stored.json()["display_name"] == "paper.pdf"
 
 
@@ -479,17 +503,18 @@ def test_list_document_jobs(
     j2 = client.post(f"/api/documents/{MINIMAL_PDF_HASH}/jobs", json={"parser": "mineru"}).json()
     j3 = client.post(f"/api/documents/{SECOND_PDF_HASH}/jobs", json={"parser": "default"}).json()
 
-    res1 = client.get(f"/api/documents/{MINIMAL_PDF_HASH}/jobs")
+    res1 = client.get(f"/api/documents/{MINIMAL_PDF_HASH}/jobs", params={"detail": "full"})
     assert res1.status_code == 200
     document_jobs = res1.json()
     job_ids_1 = {j["job_id"] for j in document_jobs}
     assert job_ids_1 == {j1["job_id"], j2["job_id"]}
     assert all(j["document_checksum"] == MINIMAL_PDF_HASH for j in document_jobs)
     assert all(j["display_name"] == "paper1.pdf" for j in document_jobs)
-    assert all(j["has_parse_result"] is False for j in document_jobs)
+    assert all("has_parse_result" not in j for j in document_jobs)
+    assert all("rows" not in j for j in document_jobs)
     assert all(datetime.fromisoformat(j["created_at"]).tzinfo is not None for j in document_jobs)
 
-    res2 = client.get(f"/api/documents/{SECOND_PDF_HASH}/jobs")
+    res2 = client.get(f"/api/documents/{SECOND_PDF_HASH}/jobs", params={"detail": "full"})
     assert res2.status_code == 200
     assert all(j["display_name"] == "paper2.pdf" for j in res2.json())
     job_ids_2 = {j["job_id"] for j in res2.json()}
@@ -534,14 +559,16 @@ def test_list_jobs_and_filtering(
     job_store.states[j2_id] = parsed_state
 
     # 1. List all jobs
-    all_res = client.get("/api/jobs")
+    all_res = client.get("/api/jobs", params={"detail": "full"})
     assert all_res.status_code == 200
     all_jobs = all_res.json()
     assert len(all_jobs) == 3
     jobs_by_id = {job["job_id"]: job for job in all_jobs}
-    assert jobs_by_id[j1_id]["has_parse_result"] is False
-    assert jobs_by_id[j2_id]["has_parse_result"] is True
-    assert jobs_by_id[j3_id]["has_parse_result"] is False
+    assert jobs_by_id[j1_id]["status"] == "queued"
+    assert jobs_by_id[j2_id]["status"] == "parsed"
+    assert jobs_by_id[j3_id]["status"] == "queued"
+    assert all("has_parse_result" not in job for job in all_jobs)
+    assert all("rows" not in job for job in all_jobs)
     assert all(job["document_checksum"] == MINIMAL_PDF_HASH for job in all_jobs)
     assert all(job["display_name"] == "paper.pdf" for job in all_jobs)
     assert all(datetime.fromisoformat(job["created_at"]).tzinfo is not None for job in all_jobs)
