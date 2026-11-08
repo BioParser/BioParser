@@ -255,3 +255,4 @@ frontend/dist/
 
 # Traefik Basic Auth users hold password hashes. See docker/traefik/users.example.
 docker/traefik/users
+.artifacts/
