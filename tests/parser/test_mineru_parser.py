@@ -18,14 +18,8 @@ from bioparser.parser.errors import (
     ParserTimeoutError,
     UnsupportedDocumentError,
 )
-from bioparser.services.mineru import client as client_module
 
 PDF = b"%PDF-1.4\n%%EOF\n"
-
-
-@pytest.fixture(autouse=True)
-def quick_health_polls(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(client_module, "_READY_POLL_S", 0.01)
 
 
 @pytest.fixture
@@ -77,13 +71,6 @@ def test_without_a_limit_mineru_waits_its_maximum(pdf: Path) -> None:
     assert seen[0].endswith("wait_timeout=3600")
 
 
-def test_a_restarting_service_is_waited_for(pdf: Path) -> None:
-    with fake_mineru(file_parse_reply(), health=[503, 503]) as (url, seen):
-        asyncio.run(MinerUParser(url, timeout_s=120.0).parse(pdf))
-
-    assert [request.split("?")[0] for request in seen] == ["POST /v1/file_parse"]
-
-
 def test_a_failed_parse_is_a_process_error_to_retry(pdf: Path) -> None:
     with (
         fake_mineru(_failed("parse_failed")) as (url, _seen),
@@ -127,7 +114,7 @@ def test_an_unreachable_service_is_a_process_error(pdf: Path) -> None:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]  # nothing listens once the socket closes
 
-    with pytest.raises(ParserProcessError, match="not ready"):
+    with pytest.raises(ParserProcessError, match="unreachable"):
         asyncio.run(MinerUParser(f"http://127.0.0.1:{port}", timeout_s=0.1).parse(pdf))
 
 

@@ -338,6 +338,7 @@ class StubJobs:
         self.events = events if events is not None else []
         self.create_error: Exception | None = None
         self.get_error: Exception | None = None
+        self.claim_error: Exception | None = None
         self.doc_create_error: Exception | None = None
         self.doc_get_error: Exception | None = None
 
@@ -347,11 +348,12 @@ class StubJobs:
             return None
         return next(iter(self.states.values()))
 
-    async def create(self, connection: object, state: JobState) -> None:
+    async def create(self, connection: object, state: JobState) -> JobState:
         self.events.append("job_state.create")
         if self.create_error is not None:
             raise self.create_error
         self.states[str(state.job_id)] = state
+        return state
 
     async def get(self, connection: object, job_id: object) -> JobState | None:
         if self.get_error is not None:
@@ -368,6 +370,8 @@ class StubJobs:
         from_statuses: Collection[str],
         max_claims: int,
     ) -> str:
+        if self.claim_error is not None:
+            raise self.claim_error
         state = self.states.get(str(job_id))
         if state is None:
             return "missing"
@@ -490,6 +494,20 @@ class StubJobs:
         docs.sort(key=lambda d: d.created_at, reverse=True)
         return docs
 
+    async def get_document_display_names(
+        self,
+        connection: object,
+        checksums: Collection[str],
+    ) -> dict[str, str | None]:
+        self.events.append("document.get_display_names")
+        if self.doc_get_error is not None:
+            raise self.doc_get_error
+        return {
+            checksum: self.documents[checksum].display_name
+            for checksum in checksums
+            if checksum in self.documents
+        }
+
 
 def bind_jobs(monkeypatch: Any) -> None:
     """Point job queries and the pool at the jobs table most recently constructed."""
@@ -498,8 +516,8 @@ def bind_jobs(monkeypatch: Any) -> None:
     async def get(connection: object, job_id: object) -> JobState | None:
         return await tables[-1].get(connection, job_id)
 
-    async def create(connection: object, state: JobState) -> None:
-        await tables[-1].create(connection, state)
+    async def create(connection: object, state: JobState) -> JobState:
+        return await tables[-1].create(connection, state)
 
     async def claim(
         connection: object,
@@ -563,6 +581,12 @@ def bind_jobs(monkeypatch: Any) -> None:
     async def list_documents(connection: object) -> list[DocumentRecord]:
         return await tables[-1].list_documents(connection)
 
+    async def get_display_names(
+        connection: object,
+        checksums: Collection[str],
+    ) -> dict[str, str | None]:
+        return await tables[-1].get_document_display_names(connection, checksums)
+
     async def open_pool(url: str) -> None:
         return None
 
@@ -584,6 +608,7 @@ def bind_jobs(monkeypatch: Any) -> None:
     monkeypatch.setattr(document_queries, "get", get_document)
     monkeypatch.setattr(document_queries, "create", create_document)
     monkeypatch.setattr(document_queries, "list_documents", list_documents)
+    monkeypatch.setattr(document_queries, "get_display_names", get_display_names)
     monkeypatch.setattr(database, "open", open_pool)
     monkeypatch.setattr(database, "aclose", close_pool)
     monkeypatch.setattr(database, "transaction", _transaction)

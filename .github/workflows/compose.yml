@@ -33,6 +33,8 @@ jobs:
           TRAEFIK_USERS_FILE: docker/traefik/users.example
           # Postgres rejects an empty password. .env.example leaves it empty.
           POSTGRES_PASSWORD: compose-config
+          # The application role rejects an empty password. .env.example leaves it empty.
+          POSTGRES_APP_PASSWORD: compose-app
         run: |
           set -euo pipefail
           # cpu.yml or gpu.yml supplies the vLLM image. The base file alone does not.
@@ -49,6 +51,12 @@ jobs:
           if POSTGRES_PASSWORD= validate -f docker-compose.yml -f docker-compose.cpu.yml \
               2>/dev/null; then
             echo "docker-compose.yml accepted an empty POSTGRES_PASSWORD" >&2
+            exit 1
+          fi
+          # The application role must not start without its own password.
+          if POSTGRES_APP_PASSWORD= validate -f docker-compose.yml -f docker-compose.cpu.yml \
+              2>/dev/null; then
+            echo "docker-compose.yml accepted an empty POSTGRES_APP_PASSWORD" >&2
             exit 1
           fi
           validate -f docker-compose.yml -f docker-compose.cpu.yml

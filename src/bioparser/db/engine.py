@@ -10,26 +10,73 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import InterfaceError, SQLAlchemyError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
-# Compose and the settings use a bare postgresql URL. The async engine needs the driver.
-_POSTGRES_PREFIXES = ("postgresql+psycopg://", "postgresql://", "postgres://")
+# Compose and the settings use a bare postgresql URL. Each engine needs its driver.
+_SYNC_PREFIXES = ("postgresql://", "postgres://")
+_ASYNC_PREFIXES = ("postgresql+psycopg://", "postgresql://", "postgres://")
 
 
 class DatabaseError(RuntimeError):
     """The pool could not borrow a connection or commit it. The message has no URL."""
 
 
+class DatabaseUnavailableError(DatabaseError):
+    """Postgres could not be reached, or the pool could not serve a connection in time."""
+
+
+# Shutdown, startup, too many connections, and connection failure SQLSTATEs.
+_OUTAGE_SQLSTATES = frozenset({"57P01", "57P02", "57P03", "53300"})
+
+
+def _is_connection_pool_failure(exc: BaseException) -> bool:
+    """True when the failure looks like reachability or the connection layer.
+
+    Includes pool timeouts, connect errors, asyncpg ``command_timeout`` (builtin
+    ``TimeoutError``, same type as connect timeout), and admin SQLSTATEs. Excludes
+    typical in-transaction SQL errors (e.g. integrity, deadlock) unless the
+    connection was invalidated or the SQLSTATE is class 08 or admin shutdown.
+    """
+    if isinstance(exc, (PoolTimeoutError, InterfaceError)):
+        return True
+    if isinstance(exc, OSError):
+        return True
+    if not isinstance(exc, SQLAlchemyError):
+        return False
+    if getattr(exc, "connection_invalidated", False):
+        return True
+    sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None) or ""
+    return sqlstate.startswith("08") or sqlstate in _OUTAGE_SQLSTATES
+
+
+def _database_error_from_driver(exc: BaseException) -> DatabaseError:
+    message = f"Postgres query failed: {type(exc).__name__}"
+    if _is_connection_pool_failure(exc):
+        return DatabaseUnavailableError(message)
+    return DatabaseError(message)
+
+
 _engine: AsyncEngine | None = None
 _engine_url: str | None = None
+
+
+def sync_database_url(url: str) -> str:
+    """Return url with the psycopg driver selected."""
+    if url.startswith("postgresql+psycopg://"):
+        return url
+    for prefix in _SYNC_PREFIXES:
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix) :]
+    raise ValueError("database URL must use the postgresql scheme")
 
 
 def async_database_url(url: str) -> str:
     """Return url with the asyncpg driver selected."""
     if url.startswith("postgresql+asyncpg://"):
         return url
-    for prefix in _POSTGRES_PREFIXES:
+    for prefix in _ASYNC_PREFIXES:
         if url.startswith(prefix):
             return "postgresql+asyncpg://" + url[len(prefix) :]
     raise ValueError("database URL must use the postgresql scheme")
@@ -69,9 +116,9 @@ def require() -> AsyncEngine:
     return _engine
 
 
-# Pool exhaustion is a SQLAlchemy error. A stalled query under command_timeout
-# is a bare TimeoutError, which SQLAlchemy does not wrap. A refused or dropped
-# connection is an OSError.
+# Mapped in transaction() by _database_error_from_driver. Pool exhaustion is
+# sqlalchemy.exc.TimeoutError. Connect and command timeouts are bare TimeoutError
+# (an OSError). Pool vs statement is decided in _is_connection_pool_failure.
 _DRIVER_ERRORS = (SQLAlchemyError, OSError, TimeoutError)
 
 
@@ -81,15 +128,13 @@ async def transaction() -> AsyncIterator[AsyncConnection]:
 
     Query functions take this connection, so a caller can run several of them
     in one transaction and pass the same connection through. Logic between
-    those calls is fine. Other I/O is not: it holds a pooled connection, and
-    an OSError or TimeoutError from it is reported as DatabaseError.
+    those calls is fine. Other I/O is not: it holds a pooled connection.
 
-    A driver failure, including one raised by a statement, becomes
-    DatabaseError. The message names the error type and not the URL. Any
-    other error passes through.
+    Driver errors from the pool or from work inside the transaction body are
+    wrapped as ``DatabaseError`` subclasses. Any other exception passes through.
     """
     try:
         async with require().begin() as connection:
             yield connection
     except _DRIVER_ERRORS as exc:
-        raise DatabaseError(f"Postgres query failed: {type(exc).__name__}") from exc
+        raise _database_error_from_driver(exc) from exc

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Iterator
+from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from bioparser.artifact_paths import (
     extract_result_path,
     parse_result_path,
 )
+from bioparser.db.engine import DatabaseUnavailableError
 from bioparser.extract.backend.default.extractor import extract_observations
 from bioparser.extract.backend.default.locate import cited_observations
 from bioparser.extract.backend.default.schema import Extraction, ModelObservation
@@ -55,6 +57,7 @@ from bioparser.parser.models import (
 )
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.vllm import VLLMError, VLLMRequestRejectedError, VLLMTruncatedError
+from bioparser.worker.before_claim import vllm_before_claim
 from bioparser.worker.extract.config import DEFAULT_EXTRACT_MAX_RETRIES
 from bioparser.worker.extract.handler import ExtractJobHandler
 
@@ -63,6 +66,7 @@ PARSE_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
 PDF_CHECKSUM = "a" * 64
 RESULT_PATH = extract_result_path(PARSE_REF, "default", "1")
 QUOTE = "Mus musculus adults averaged 12.5 kg in the sampled population."
+CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _stub() -> StubVLLMService:
@@ -124,6 +128,7 @@ def _parsed() -> JobState:
         extractor="default",
         pdf_ref="pdf/abc",
         parse_result_ref=PARSE_REF,
+        created_at=CREATED_AT,
     )
 
 
@@ -355,9 +360,10 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
         extractor_factory=_factory(extract),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
         vllm=cast(VLLMService, vllm),
+        before_claim=vllm_before_claim(cast(VLLMService, vllm)),
     )
     with (
-        caplog.at_level(logging.WARNING, logger="bioparser.worker.extract.handler"),
+        caplog.at_level(logging.WARNING, logger="bioparser.worker.before_claim"),
         pytest.raises(JobDeferred),
     ):
         asyncio.run(handler.handle(_message()))
@@ -365,6 +371,42 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
 
     assert called is False
     assert "vLLM is not answering" in caplog.text
+    assert jobs.state is not None
+    assert jobs.state.status == "parsed"
+    assert jobs.state.claims("extracting") == 0
+
+
+def test_postgres_unreachable_defers_without_claiming() -> None:
+    jobs = StubJobs(_parsed())
+    jobs.get_error = DatabaseUnavailableError("Postgres query failed: OperationalError")
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=_storage(),
+        extractor_factory=_factory(_real_extract(_stub())),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    with pytest.raises(JobDeferred, match="Postgres is not reachable"):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "parsed"
+    assert jobs.state.claims("extracting") == 0
+
+
+def test_postgres_unreachable_on_claim_defers_without_claiming() -> None:
+    jobs = StubJobs(_parsed())
+    jobs.claim_error = DatabaseUnavailableError("Postgres query failed: TimeoutError")
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=_storage(),
+        extractor_factory=_factory(_real_extract(_stub())),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    with pytest.raises(JobDeferred, match="Postgres is not reachable"):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
     assert jobs.state.claims("extracting") == 0
@@ -380,6 +422,7 @@ def test_vllm_answering_still_extracts() -> None:
         extractor_factory=_factory(_real_extract(vllm)),
         max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
         vllm=cast(VLLMService, vllm),
+        before_claim=vllm_before_claim(cast(VLLMService, vllm)),
     )
     asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
@@ -458,7 +501,12 @@ def test_an_invalid_parser_artifact_fails_without_calling_the_model() -> None:
 
 def test_a_job_still_parsing_is_left_alone() -> None:
     state = JobState(
-        job_id=JOB_ID, status="parsing", parser="default", extractor="default", pdf_ref="pdf/abc"
+        job_id=JOB_ID,
+        status="parsing",
+        parser="default",
+        extractor="default",
+        pdf_ref="pdf/abc",
+        created_at=CREATED_AT,
     )
     jobs = StubJobs(state)
     called = False

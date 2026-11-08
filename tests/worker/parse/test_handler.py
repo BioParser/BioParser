@@ -4,6 +4,7 @@ import json
 import logging
 import tempfile
 from collections.abc import Awaitable, Callable, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -14,7 +15,8 @@ from dramatiq.middleware.time_limit import TimeLimit
 from stubs import MemoryStorage, StubJobs, bind_jobs, clear_jobs, fake_mineru
 
 from bioparser.artifact_paths import parse_result_path
-from bioparser.jobs.queue import JobTimeLimitExceeded
+from bioparser.db.engine import DatabaseError, DatabaseUnavailableError
+from bioparser.jobs.queue import JobDeferred, JobTimeLimitExceeded
 from bioparser.jobs.queue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
 from bioparser.jobs.queue.messages import ParseJobMessage
 from bioparser.jobs.state import CorruptJobStateError, JobNotFoundError, JobState
@@ -37,6 +39,8 @@ from bioparser.parser.models import (
     TextContent,
 )
 from bioparser.parser.protocol import PdfParser
+from bioparser.services.mineru.client import MinerUClient
+from bioparser.worker.before_claim import mineru_before_claim
 from bioparser.worker.parse.config import DEFAULT_PARSE_MAX_RETRIES
 from bioparser.worker.parse.handler import ParseJobHandler
 
@@ -47,6 +51,7 @@ PDF_REF = (
 PDF_BYTES = b"%PDF-1.4"
 PDF_CHECKSUM = hashlib.sha256(PDF_BYTES).hexdigest()
 RESULT_PATH = parse_result_path(PDF_CHECKSUM, "default", "1")
+CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 @pytest.fixture(autouse=True)
@@ -54,6 +59,15 @@ def _stub_job_queries(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     bind_jobs(monkeypatch)
     yield
     clear_jobs()
+
+
+async def _mineru_up(_base_url: str) -> bool:
+    return True
+
+
+@pytest.fixture(autouse=True)
+def _mineru_ready_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(MinerUClient, "ping", _mineru_up)
 
 
 def _storage() -> MemoryStorage:
@@ -109,6 +123,7 @@ def _queued() -> JobState:
         parser="default",
         extractor="default",
         pdf_ref=PDF_REF,
+        created_at=CREATED_AT,
     )
 
 
@@ -140,6 +155,7 @@ def _handler(
         parser_factory=factory or _factory,
         max_claims=max_claims,
         enqueue_extraction=enqueue,
+        before_claim=mineru_before_claim("http://mineru:8000"),
     )
 
 
@@ -335,6 +351,101 @@ def test_parser_without_a_version_is_internal_error(monkeypatch: pytest.MonkeyPa
     assert jobs.state.error_code == "internal_error"
 
 
+def test_postgres_unreachable_defers_without_claiming() -> None:
+    jobs = StubJobs(_queued())
+    jobs.get_error = DatabaseUnavailableError("Postgres query failed: OperationalError")
+    parser = RecordingParser(_artifact())
+    handler = _handler(jobs, _storage(), parser)
+    with pytest.raises(JobDeferred, match="Postgres is not reachable"):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "queued"
+    assert jobs.state.claims("parsing") == 0
+    assert parser.paths == []
+
+
+def test_postgres_defer_does_not_run_extract_wake_up(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    jobs = StubJobs(_queued())
+    jobs.get_error = DatabaseUnavailableError("Postgres query failed: OperationalError")
+    woken: list[UUID] = []
+
+    async def enqueue(job_id: UUID) -> None:
+        woken.append(job_id)
+
+    handler = _handler(
+        jobs,
+        _storage(),
+        RecordingParser(_artifact()),
+        enqueue=enqueue,
+    )
+    with (
+        caplog.at_level(logging.ERROR, logger="bioparser.worker.parse.handler"),
+        pytest.raises(JobDeferred, match="Postgres is not reachable"),
+    ):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert woken == []
+    assert "extract message was not sent" not in caplog.text
+
+
+def test_postgres_unreachable_on_claim_defers_without_claiming() -> None:
+    jobs = StubJobs(_queued())
+    jobs.claim_error = DatabaseUnavailableError("Postgres query failed: TimeoutError")
+    parser = RecordingParser(_artifact())
+    handler = _handler(jobs, _storage(), parser)
+    with pytest.raises(JobDeferred, match="Postgres is not reachable"):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "queued"
+    assert jobs.state.claims("parsing") == 0
+    assert parser.paths == []
+
+
+def test_database_error_without_outage_is_not_deferred() -> None:
+    jobs = StubJobs(_queued())
+    jobs.get_error = DatabaseError("Postgres query failed: IntegrityError")
+    handler = _handler(jobs, _storage(), RecordingParser(_artifact()))
+    with pytest.raises(DatabaseError):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+
+async def _mineru_down(_base_url: str) -> bool:
+    return False
+
+
+def test_mineru_down_defers_before_claim(monkeypatch: pytest.MonkeyPatch) -> None:
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
+    parser = RecordingParser(_artifact())
+    monkeypatch.setattr(MinerUClient, "ping", _mineru_down)
+
+    def factory(name: str) -> PdfParser:
+        return parser
+
+    handler = ParseJobHandler(
+        database_url="postgresql://unused",
+        storage=_storage(),
+        parser_factory=factory,
+        max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
+        before_claim=mineru_before_claim("http://mineru:8000"),
+    )
+    with pytest.raises(JobDeferred, match="mineru-api is not answering"):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "queued"
+    assert jobs.state.claims("parsing") == 0
+    assert parser.paths == []
+
+
 def test_unavailable_parser_fails_without_retry() -> None:
     jobs = StubJobs(_queued().with_changes(parser="mineru"))
     parser = RecordingParser(_artifact())
@@ -360,6 +471,7 @@ def test_a_mineru_failure_is_retried_not_failed_as_invalid_pdf() -> None:
             storage=_storage(),
             parser_factory=lambda name: get_parser(name, timeout_s=5.0, mineru_base_url=url),
             max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
+            before_claim=mineru_before_claim(url),
         )
         with pytest.raises(ParserProcessError, match="parse_failed"):
             asyncio.run(handler.handle(_message()))

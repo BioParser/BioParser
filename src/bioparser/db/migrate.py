@@ -12,19 +12,8 @@ from alembic.config import Config
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 
-# Alembic's sync engine needs the driver in the URL. Compose and the API use
-# the bare postgresql scheme.
-_POSTGRES_PREFIXES = ("postgresql://", "postgres://")
-
-
-def sync_database_url(url: str) -> str:
-    """Return url with the psycopg driver selected."""
-    if url.startswith("postgresql+psycopg://"):
-        return url
-    for prefix in _POSTGRES_PREFIXES:
-        if url.startswith(prefix):
-            return "postgresql+psycopg://" + url[len(prefix) :]
-    raise ValueError("database URL must use the postgresql scheme")
+from bioparser.db.bootstrap import bootstrap
+from bioparser.db.engine import sync_database_url
 
 
 def alembic_config(url: str) -> Config:
@@ -42,26 +31,49 @@ def upgrade(url: str) -> None:
 
 
 def main() -> None:
-    """Upgrade the database named by BIOPARSER_DATABASE_URL."""
+    """Upgrade BIOPARSER_DATABASE_URL, then create the application role.
+
+    The role's password is POSTGRES_APP_PASSWORD. It can read alembic_version
+    and cannot change it.
+    """
     url = os.environ.get("BIOPARSER_DATABASE_URL", "")
     if not url:
         sys.exit("BIOPARSER_DATABASE_URL is required")
+    app_password = os.environ.get("POSTGRES_APP_PASSWORD", "")
+    if not app_password:
+        sys.exit("POSTGRES_APP_PASSWORD is required")
+    try:
+        parsed = make_url(sync_database_url(url))
+    except (ArgumentError, ValueError):
+        sys.exit("BIOPARSER_DATABASE_URL must use the postgresql scheme")
+    if parsed.password == app_password:
+        sys.exit("POSTGRES_APP_PASSWORD must differ from the password in BIOPARSER_DATABASE_URL")
     try:
         upgrade(url)
+        bootstrap(url, app_password)
     except Exception as exc:  # noqa: BLE001 — any failure text can contain the URL
-        sys.exit(_public_failure(url, exc))
+        sys.exit(_public_failure(url, app_password, exc))
     print("migrated to head")
 
 
-def _public_failure(url: str, exc: Exception) -> str:
-    """Failure text with the database URL and password removed."""
+def _public_failure(url: str, app_password: str, exc: Exception) -> str:
+    """Failure text with the database URL and both passwords removed."""
     message = str(exc)
+    secrets = [app_password]
     try:
         parsed = make_url(sync_database_url(url))
     except (ArgumentError, ValueError):
         parsed = None
     if parsed is not None and parsed.password:
-        message = message.replace(parsed.password, "***")
-        message = message.replace(quote(parsed.password, safe=""), "***")
+        secrets.append(parsed.password)
         message = message.replace(parsed.render_as_string(hide_password=False), "postgresql://***")
+    for secret in sorted(secrets, key=len, reverse=True):
+        message = _hide_secret(message, secret)
     return f"database migration failed: {message}"
+
+
+def _hide_secret(message: str, secret: str) -> str:
+    """Remove one password, including its SQL-quoted and percent-encoded forms."""
+    message = message.replace(secret.replace("'", "''"), "***")
+    message = message.replace(secret, "***")
+    return message.replace(quote(secret, safe=""), "***")

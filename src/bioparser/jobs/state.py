@@ -2,7 +2,15 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Literal, Self
 
-from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    UUID4,
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from bioparser.artifact_paths import ArtifactPath
 from bioparser.extractor_names import EXTRACTORS
@@ -75,6 +83,7 @@ class JobState(BaseModel):
     error_code: SafeErrorCode | None = None
     parsing_claims: int = Field(default=0, ge=0)
     extracting_claims: int = Field(default=0, ge=0)
+    created_at: AwareDatetime
 
     def claims(self, status: JobStatus) -> int:
         """How many times this stage has been claimed. Other statuses are not claims."""

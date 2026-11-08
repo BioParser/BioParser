@@ -7,6 +7,7 @@ from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
 from bioparser.parser.protocol import PdfParser
 from bioparser.storage.filesystem import FileSystemArtifactStorage
+from bioparser.worker.before_claim import mineru_before_claim
 from bioparser.worker.health import LivenessServer
 from bioparser.worker.process import install_shutdown
 
@@ -51,6 +52,7 @@ def build_worker(
         parser_factory=parser_factory,
         max_claims=settings.parse_max_claims,
         mineru_tier=settings.mineru_tier,
+        before_claim=mineru_before_claim(str(settings.mineru_base_url)),
         enqueue_extraction=enqueue_extraction,
     )
     return queue, handler

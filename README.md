@@ -38,7 +38,7 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
    docker compose up --build
 ```
 
-   The first run is slow: the MinerU service downloads its models during its image build, and vLLM downloads the model set in `VLLM_MODEL` (default `Qwen/Qwen3-0.6B`). The extractor image does not download a model; it calls the vLLM service. The API starts only after `vllm`, `mineru`, and `redis` pass their health checks and `migrate` has created the `jobs` table. `migrate` waits for `postgres`. The parser worker starts after `mineru` and Redis do. The extractor worker starts after `vllm` and Redis do. Set `POSTGRES_PASSWORD` in `.env` before the first start.
+   The first run is slow: the MinerU service downloads its models during its image build, and vLLM downloads the model set in `VLLM_MODEL` (default `Qwen/Qwen3-0.6B`). The extractor image does not download a model; it calls the vLLM service. The API starts only after `vllm`, `mineru`, and `redis` pass their health checks and `migrate` has created the `bioparser_app` login and the `jobs` table. `migrate` waits for `postgres`. The parser worker starts after `mineru` and Redis do. The extractor worker starts after `vllm` and Redis do. Set `POSTGRES_PASSWORD` and `POSTGRES_APP_PASSWORD` in `.env` before the first start. They must differ. The API and both workers use `POSTGRES_APP_PASSWORD` as `bioparser_app`. `migrate` uses `POSTGRES_PASSWORD` as the `bioparser` superuser and sets `POSTGRES_APP_PASSWORD` on the role. An existing `postgres-data` volume picks up `bioparser_app` on the next start. Removing that volume recreates the cluster.
 
 3. Check the API:
 
@@ -82,7 +82,7 @@ uv run bioparser
 
 Serves on `http://127.0.0.1:8080`. Job submission and polling work on their own; `POST /extract` also needs reachable MinerU and vLLM services.
 
-> The host API reads `.env` if it exists. `BIOPARSER_REDIS_URL` and `BIOPARSER_DATABASE_URL` are required, and an empty value is rejected. `.env.example` sets Redis to `redis://redis:6379/0`, which only resolves inside Compose. A host run needs both URLs pointed at services the host can reach. Compose sets the database URL on the API container.
+> The host API reads `.env` if it exists. `BIOPARSER_REDIS_URL` and `BIOPARSER_DATABASE_URL` are required, and an empty value is rejected. `.env.example` sets Redis to `redis://redis:6379/0`, which only resolves inside Compose. A host run needs both URLs pointed at services the host can reach. Compose sets the API's database URL to the `bioparser_app` login. A host run of the API or a worker should use that login and `POSTGRES_APP_PASSWORD`. `bioparser-migrate` connects as `bioparser`, upgrades, and then sets `POSTGRES_APP_PASSWORD` on `bioparser_app`.
 > The API does not start without `BIOPARSER_API_KEY`. For local development only, set `BIOPARSER_AUTH_DISABLED=true` instead.
 
 ### Run the UI
