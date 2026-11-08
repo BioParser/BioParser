@@ -16,6 +16,12 @@ class HealthResponse(BaseModel):
     model_config = ConfigDict(json_schema_extra={"examples": [{"status": "ok"}]})
 
 
+class UploadLimitsResponse(BaseModel):
+    max_upload_bytes: int = Field(description="Largest PDF the API accepts, in bytes")
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"max_upload_bytes": 20971520}]})
+
+
 class ReadinessResponse(BaseModel):
     status: Literal["ready"]
 

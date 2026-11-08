@@ -56,6 +56,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/upload-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Upload Limits */
+        get: operations["upload_limits_api_upload_limits_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{checksum}/file": {
         parameters: {
             query?: never;
@@ -751,6 +768,19 @@ export interface components {
             line: number;
             bbox: components["schemas"]["BoundingBox"];
         };
+        /**
+         * UploadLimitsResponse
+         * @example {
+         *       "max_upload_bytes": 20971520
+         *     }
+         */
+        UploadLimitsResponse: {
+            /**
+             * Max Upload Bytes
+             * @description Largest PDF the API accepts, in bytes
+             */
+            max_upload_bytes: number;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1034,6 +1064,35 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    upload_limits_api_upload_limits_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadLimitsResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

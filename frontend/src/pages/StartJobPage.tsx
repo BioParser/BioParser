@@ -1,14 +1,21 @@
-import { type DragEvent, type FormEvent, useRef, useState } from "react";
+import { type DragEvent, type FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { ApiError, startDocumentJob, uploadDocument } from "../api/client";
-import { checkPdf, TOO_LARGE } from "../upload/checkPdf";
+import {
+  ApiError,
+  type CreateJobRequest,
+  getUploadLimits,
+  startDocumentJob,
+  uploadDocument,
+} from "../api/client";
+import { checkPdf, DEFAULT_MAX_UPLOAD_BYTES, formatMiB, tooLarge } from "../upload/checkPdf";
 
-// The parsers a curator can choose from (PARSER_BACKENDS in src/bioparser/parser_names.py).
-const PARSERS = [
-  { name: "mineru", label: "MinerU" },
-  { name: "default", label: "Default" },
-] as const;
-type ParserName = (typeof PARSERS)[number]["name"];
+// The parsers a curator can choose from, with their labels. The keys come from the API's
+// schema (ParserName in src/bioparser/parser_names.py), so tsc fails when a name is added,
+// removed or renamed there and not here.
+type ParserName = CreateJobRequest["parser"];
+const PARSER_LABELS: Record<ParserName, string> = { mineru: "MinerU", default: "Default" };
+// Object.entries types its keys as string; they are exactly the ParserName keys above.
+const PARSERS = Object.entries(PARSER_LABELS) as [ParserName, string][];
 
 // Fixed for now: there is one extractor, and it looks for these traits
 // (DEFAULT_EXTRACTOR_NAME in src/bioparser/extractor_names.py, Trait in
@@ -21,7 +28,7 @@ type FileResult =
   | { state: "rejected"; reason: string }
   | { state: "sending" }
   | { state: "started"; jobId: string }
-  | { state: "failed"; reason: string };
+  | { state: "failed"; reason: string; status?: number };
 
 type Row = { id: number; file: File; result: FileResult | null };
 
@@ -33,7 +40,41 @@ export function StartJobPage() {
   const [parser, setParser] = useState<ParserName>("default");
   const [sending, setSending] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [maxBytes, setMaxBytes] = useState(DEFAULT_MAX_UPLOAD_BYTES);
   const inputRef = useRef<HTMLInputElement>(null);
+  const batch = useRef<AbortController | null>(null);
+
+  // Leaving the page (a nav link, or the key screen after a 401) stops the batch, so no
+  // upload or job starts that the curator cannot see.
+  useEffect(() => () => batch.current?.abort(), []);
+
+  // The limit the API runs with. Until it answers, or if it fails, the default is used;
+  // the API still enforces its own limit either way.
+  useEffect(() => {
+    let current = true;
+    getUploadLimits()
+      .then((limits) => {
+        if (current) {
+          setMaxBytes(limits.max_upload_bytes);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, []);
+
+  // Only the drop zone takes files. A drop anywhere else must not open the PDF and leave
+  // the app, which would also stop the batch.
+  useEffect(() => {
+    const block = (event: Event) => event.preventDefault();
+    window.addEventListener("dragover", block);
+    window.addEventListener("drop", block);
+    return () => {
+      window.removeEventListener("dragover", block);
+      window.removeEventListener("drop", block);
+    };
+  }, []);
 
   function chooseFiles(files: FileList | null) {
     if (files === null || files.length === 0) {
@@ -79,22 +120,31 @@ export function StartJobPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const controller = new AbortController();
+    batch.current = controller;
     setSending(true);
-    // One file at a time: the API reads each upload into memory, and the results then show
-    // in the order of the list.
-    for (const row of rows) {
-      if (row.result !== null) {
-        continue;
+    try {
+      // One file at a time: the API reads each upload into memory, and the results then show
+      // in the order of the list.
+      for (const row of rows) {
+        if (controller.signal.aborted) {
+          break;
+        }
+        if (row.result !== null) {
+          continue;
+        }
+        setResult(row.id, { state: "sending" });
+        const result = await processFile(row.file, parser, maxBytes, controller.signal);
+        setResult(row.id, result);
+        // The key was refused: every other file would get a 401 too.
+        if (result.state === "failed" && result.status === 401) {
+          break;
+        }
       }
-      const reason = await checkPdf(row.file);
-      if (reason !== null) {
-        setResult(row.id, { state: "rejected", reason });
-        continue;
-      }
-      setResult(row.id, { state: "sending" });
-      setResult(row.id, await sendFile(row.file, parser));
+    } finally {
+      // Always release the form, whatever happened to the files.
+      setSending(false);
     }
-    setSending(false);
   }
 
   const unsent = rows.some((row) => row.result === null);
@@ -125,11 +175,11 @@ export function StartJobPage() {
                 onChange={(event) => chooseFiles(event.currentTarget.files)}
               />
             </label>
-            <p className="job-drop-hint">or drop them here. Up to 20 MiB each.</p>
+            <p className="job-drop-hint">or drop them here. Up to {formatMiB(maxBytes)} each.</p>
           </div>
           <fieldset className="job-parsers">
             <legend>Parser</legend>
-            {PARSERS.map(({ name, label }) => (
+            {PARSERS.map(([name, label]) => (
               <label key={name}>
                 <input
                   type="radio"
@@ -147,7 +197,7 @@ export function StartJobPage() {
           <h2 id="job-summary-heading">Summary</h2>
           <dl>
             <dt>Parser</dt>
-            <dd>{PARSERS.find(({ name }) => name === parser)?.label}</dd>
+            <dd>{PARSER_LABELS[parser]}</dd>
             <dt>Extractor</dt>
             <dd>{EXTRACTOR.label}</dd>
             <dt>Traits</dt>
@@ -193,21 +243,44 @@ function FileStatus({ result }: { result: FileResult | null }) {
   }
 }
 
-// Uploads the file, then starts its job. Never throws: a failure becomes the reason to show.
-async function sendFile(file: File, parser: ParserName): Promise<FileResult> {
+// Checks the file, uploads it, then starts its job. Never throws: every failure, the file
+// check included, becomes a result to show, so one file cannot stop the batch or lock the form.
+async function processFile(
+  file: File,
+  parser: ParserName,
+  maxBytes: number,
+  signal: AbortSignal,
+): Promise<FileResult> {
   try {
-    const document = await uploadDocument(file);
-    const job = await startDocumentJob(document.checksum, { parser, extractor: EXTRACTOR.name });
+    // Rejects with NotReadableError when the file changed on disk after it was picked.
+    const reason = await checkPdf(file, maxBytes);
+    if (reason !== null) {
+      return { state: "rejected", reason };
+    }
+    const document = await uploadDocument(file, signal);
+    const job = await startDocumentJob(
+      document.checksum,
+      { parser, extractor: EXTRACTOR.name },
+      signal,
+    );
     return { state: "started", jobId: job.job_id };
   } catch (error) {
-    return { state: "failed", reason: failureReason(error) };
+    const status = error instanceof ApiError ? error.status : undefined;
+    return { state: "failed", reason: failureReason(error, maxBytes), status };
   }
 }
 
-function failureReason(error: unknown): string {
+function failureReason(error: unknown, maxBytes: number): string {
   if (error instanceof ApiError) {
     // A 413 can come from a proxy in front of the API, with a plain-text body and no message.
-    return error.status === 413 ? TOO_LARGE : error.message;
+    return error.status === 413 ? tooLarge(maxBytes) : error.message;
+  }
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return "Stopped.";
+  }
+  if (error instanceof DOMException) {
+    // NotReadableError or NotFoundError: the file changed or was removed after it was picked.
+    return "The file cannot be read. Pick it again.";
   }
   // fetch rejects with a TypeError when the request never got an answer.
   return "The API could not be reached. Try again.";

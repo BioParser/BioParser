@@ -20,6 +20,15 @@ _CHUNK_SIZE = 1024 * 1024  # 1 MiB
 _PDF_MAGIC = b"%PDF-"
 _MAX_DISPLAY_NAME_LENGTH = 255
 
+# Room for the multipart boundary, part headers and a long file name. The file bytes
+# themselves are still held to max_upload_bytes exactly, in read_upload().
+MULTIPART_ALLOWANCE = 64 * 1024
+
+
+def max_body_bytes() -> int:
+    """The request-body limit: the file limit plus the multipart envelope."""
+    return config.get_api_settings().max_upload_bytes + MULTIPART_ALLOWANCE
+
 
 def sanitize_display_name(
     filename: str | None, max_length: int = _MAX_DISPLAY_NAME_LENGTH
@@ -74,7 +83,7 @@ def validate_content_length(header: str | None) -> None:
         raise http_error(400, INVALID_CONTENT_LENGTH) from None
     if length < 0:
         raise http_error(400, INVALID_CONTENT_LENGTH)
-    if length > config.get_api_settings().max_upload_bytes:
+    if length > max_body_bytes():
         raise http_error(413, CONTENT_TOO_LARGE)
 
 

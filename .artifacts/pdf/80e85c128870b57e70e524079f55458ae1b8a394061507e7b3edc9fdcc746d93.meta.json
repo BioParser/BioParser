@@ -1,0 +1,13 @@
+{
+  "schema_version": "1",
+  "artifact_path": "pdf/80e85c128870b57e70e524079f55458ae1b8a394061507e7b3edc9fdcc746d93",
+  "media_type": "application/pdf",
+  "creation_info": {
+    "created_at": "2026-11-05T17:42:44.200095Z",
+    "created_by": "api-upload"
+  },
+  "content_schema_version": null,
+  "size_bytes": 2393978,
+  "checksum": "80e85c128870b57e70e524079f55458ae1b8a394061507e7b3edc9fdcc746d93",
+  "blob_id": "bf52070e244e4a97b64f0bfd2f6ec8ac"
+}

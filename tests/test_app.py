@@ -16,6 +16,7 @@ from bioparser.api.app import app as api_app
 from bioparser.api.errors import ErrorResponse
 from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import JobStatusResponse
+from bioparser.api.uploads import max_body_bytes
 from bioparser.db.engine import DatabaseError
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.jobs import (
@@ -273,7 +274,7 @@ def test_submit_file_too_large(client: TestClient, monkeypatch: pytest.MonkeyPat
 
 
 def test_submit_declared_content_length_too_large(client: TestClient) -> None:
-    over_limit = config.DEFAULT_MAX_UPLOAD_BYTES + 1
+    over_limit = max_body_bytes() + 1
     response = client.post(
         "/api/extractions",
         files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
@@ -696,3 +697,14 @@ def test_submit_returns_503_when_queue_unavailable(
         "queue.submit",
         "job_state.mark_failed",
     ]
+
+
+def test_upload_limits(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        config,
+        "get_api_settings",
+        lambda: config.ApiSettings(max_upload_bytes=1234),  # type: ignore[call-arg]
+    )
+    response = client.get("/api/upload-limits")
+    assert response.status_code == 200
+    assert response.json() == {"max_upload_bytes": 1234}
