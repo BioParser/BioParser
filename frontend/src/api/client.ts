@@ -10,6 +10,50 @@ export type QueuedJobResponse = Schemas["QueuedJobResponse"];
 // JobStatusResponse is a union in Python, not a model, so it has no entry in the schemas.
 export type JobStatusResponse =
   paths["/api/jobs/{job_id}"]["get"]["responses"][200]["content"]["application/json"];
+export type JobList = paths["/api/jobs"]["get"]["responses"][200]["content"]["application/json"];
+export type JobStatus = JobList[number]["status"];
+
+export function listJobs(status: string, parser: string, signal?: AbortSignal): Promise<JobList> {
+  // Request metadata explicitly, also after the API's default response becomes smaller.
+  const params = new URLSearchParams({ detail: "full" });
+  if (status) params.set("status", status);
+  if (parser) params.set("parser", parser);
+  return apiFetch(`/api/jobs?${params}`, { signal });
+}
+
+export type Readiness = { unavailable: string[] };
+
+// /ready is public. Its 503 response is data, not a generic request error.
+export async function getReadiness(signal?: AbortSignal): Promise<Readiness> {
+  const response = await fetch("/ready", {
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(10000)])
+      : AbortSignal.timeout(10000),
+  });
+  const body: unknown = await response.json();
+  if (
+    response.ok &&
+    typeof body === "object" &&
+    body !== null &&
+    "status" in body &&
+    body.status === "ready"
+  ) {
+    return { unavailable: [] };
+  }
+  if (response.status === 503 && typeof body === "object" && body !== null && "detail" in body) {
+    const detail = body.detail;
+    if (
+      typeof detail === "object" &&
+      detail !== null &&
+      "unavailable" in detail &&
+      Array.isArray(detail.unavailable) &&
+      detail.unavailable.every((check) => typeof check === "string")
+    ) {
+      return { unavailable: detail.unavailable };
+    }
+  }
+  throw new Error("Readiness could not be read");
+}
 
 export class ApiError extends Error {
   readonly status: number;
