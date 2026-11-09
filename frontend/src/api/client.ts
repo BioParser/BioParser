@@ -10,6 +10,9 @@ export type QueuedJobResponse = Schemas["QueuedJobResponse"];
 // JobStatusResponse is a union in Python, not a model, so it has no entry in the schemas.
 export type JobStatusResponse =
   paths["/api/jobs/{job_id}"]["get"]["responses"][200]["content"]["application/json"];
+export type DocumentMetadataResponse = Schemas["DocumentMetadataResponse"];
+export type CreateJobRequest = Schemas["CreateJobRequest"];
+export type UploadLimitsResponse = Schemas["UploadLimitsResponse"];
 
 export class ApiError extends Error {
   readonly status: number;
@@ -51,7 +54,8 @@ async function toApiError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, undefined, `Request failed with status ${response.status}`);
 }
 
-// The one place the UI calls the API. A network failure rejects with fetch's own TypeError.
+// The one place the UI calls the API. A network failure rejects with fetch's own TypeError,
+// and an aborted request (init.signal) with a DOMException named AbortError.
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   // Read the key on every call, so a key entered or forgotten since the last call is used.
   const headers = new Headers(init?.headers);
@@ -71,13 +75,37 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return (await response.json()) as T;
 }
 
-export function submitJob(file: File): Promise<QueuedJobResponse> {
+export function getJob(jobId: string): Promise<JobStatusResponse> {
+  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+}
+
+// The largest PDF the API accepts (BIOPARSER_MAX_UPLOAD_BYTES), so the browser checks
+// against the limit the API really runs with.
+export function getUploadLimits(): Promise<UploadLimitsResponse> {
+  return apiFetch("/api/upload-limits");
+}
+
+// Stores the PDF. The API answers 201 for a new document and 200 for one it already has;
+// both return the checksum the job is started with.
+export function uploadDocument(
+  file: File,
+  signal?: AbortSignal,
+): Promise<DocumentMetadataResponse> {
   const body = new FormData();
   body.append("file", file);
   // No Content-Type header: the browser sets multipart/form-data with its boundary.
-  return apiFetch("/api/extractions", { method: "POST", body });
+  return apiFetch("/api/documents", { method: "POST", body, signal });
 }
 
-export function getJob(jobId: string): Promise<JobStatusResponse> {
-  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+export function startDocumentJob(
+  checksum: string,
+  request: CreateJobRequest,
+  signal?: AbortSignal,
+): Promise<QueuedJobResponse> {
+  return apiFetch(`/api/documents/${encodeURIComponent(checksum)}/jobs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+    signal,
+  });
 }

@@ -7,7 +7,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validato
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTORS
 from bioparser.hashing import Sha256Hex
 from bioparser.jobs import SafeError
-from bioparser.parser_names import DEFAULT_PARSER_NAME, PARSER_BACKENDS
+from bioparser.parser_names import DEFAULT_PARSER_NAME, ParserName
 
 
 class JobResponseBase(BaseModel):
@@ -24,6 +24,12 @@ class HealthResponse(BaseModel):
     status: Literal["ok"]
 
     model_config = ConfigDict(json_schema_extra={"examples": [{"status": "ok"}]})
+
+
+class UploadLimitsResponse(BaseModel):
+    max_upload_bytes: int = Field(description="Largest PDF the API accepts, in bytes")
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"max_upload_bytes": 20971520}]})
 
 
 class ReadinessResponse(BaseModel):
@@ -98,15 +104,10 @@ class DocumentMetadataResponse(BaseModel):
 
 
 class CreateJobRequest(BaseModel):
-    parser: str = Field(default=DEFAULT_PARSER_NAME, description="Parser backend name")
+    # A Literal, so the OpenAPI schema lists the parser names and the frontend's
+    # generated types do too.
+    parser: ParserName = Field(default=DEFAULT_PARSER_NAME, description="Parser backend name")
     extractor: str = Field(default=DEFAULT_EXTRACTOR_NAME, description="Extractor backend name")
-
-    @field_validator("parser")
-    @classmethod
-    def validate_parser(cls, value: str) -> str:
-        if value not in PARSER_BACKENDS:
-            raise ValueError(f"must be one of: {', '.join(PARSER_BACKENDS)}")
-        return value
 
     @field_validator("extractor")
     @classmethod

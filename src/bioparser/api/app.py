@@ -90,10 +90,12 @@ from .schema import (
     ReadinessUnavailableResponse,
     RunningJobResponse,
     SucceededJobResponse,
+    UploadLimitsResponse,
 )
 from .ui import add_ui_routes
 from .uploads import (
     inline_content_disposition,
+    max_body_bytes,
     read_upload,
     require_file,
     sanitize_display_name,
@@ -213,7 +215,7 @@ except ValidationError as exc:
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     TypedRequestBodyLimitMiddleware,
-    max_body_size=config.get_api_settings().max_upload_bytes,
+    max_body_size=max_body_bytes(),
 )
 # Added last, so it runs first: a request without the key gets 401 before the body
 # limit, the form parser or a route reads any of its body.
@@ -618,6 +620,16 @@ async def get_document(request: Request, checksum: str) -> DocumentMetadataRespo
     if doc is None:
         raise http_error(404, DOCUMENT_NOT_FOUND)
     return _document_response(doc)
+
+
+@app.get(
+    "/api/upload-limits",
+    dependencies=[Depends(require_api_key)],
+    response_model=UploadLimitsResponse,
+    responses={401: error_response(UNAUTHORIZED)},
+)
+def upload_limits() -> UploadLimitsResponse:
+    return UploadLimitsResponse(max_upload_bytes=config.get_api_settings().max_upload_bytes)
 
 
 @app.get(

@@ -596,6 +596,50 @@
         }
       }
     },
+    "/api/upload-limits": {
+      "get": {
+        "summary": "Upload Limits",
+        "operationId": "upload_limits_api_upload_limits_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadLimitsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "unauthorized": {
+                    "summary": "Invalid or missing API key",
+                    "value": {
+                      "detail": {
+                        "code": "unauthorized",
+                        "message": "Invalid or missing API key"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      }
+    },
     "/api/documents/{checksum}/file": {
       "get": {
         "summary": "Get Document File",
@@ -2116,6 +2160,10 @@
         "properties": {
           "parser": {
             "type": "string",
+            "enum": [
+              "default",
+              "mineru"
+            ],
             "title": "Parser",
             "description": "Parser backend name",
             "default": "default"
@@ -4060,6 +4108,25 @@
         ],
         "title": "TextSpan",
         "description": "Word box mapped onto `TextContent.text` as a half-open character range."
+      },
+      "UploadLimitsResponse": {
+        "properties": {
+          "max_upload_bytes": {
+            "type": "integer",
+            "title": "Max Upload Bytes",
+            "description": "Largest PDF the API accepts, in bytes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "max_upload_bytes"
+        ],
+        "title": "UploadLimitsResponse",
+        "examples": [
+          {
+            "max_upload_bytes": 20971520
+          }
+        ]
       },
       "ValidationError": {
         "properties": {

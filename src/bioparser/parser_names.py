@@ -7,9 +7,15 @@ which names are valid, such as job state, can import this module cheaply.
 
 from collections.abc import Mapping
 from types import MappingProxyType
+from typing import Final, Literal
 
-DEFAULT_PARSER_NAME = "default"
-MINERU_PARSER_NAME = "mineru"
+# The names the API accepts. A Literal becomes an enum in the OpenAPI schema, so the
+# frontend's generated types list the same names.
+ParserName = Literal["default", "mineru"]
+
+# Final keeps the Literal type: mypy sees Literal["default"], not str.
+DEFAULT_PARSER_NAME: Final = "default"
+MINERU_PARSER_NAME: Final = "mineru"
 
 # Bump a backend's version when its output changes. A new version gets a new parse-result
 # path, so results from the old version are not reused.

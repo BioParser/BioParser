@@ -79,3 +79,98 @@ input {
   border-left-color: #d33;
   background: #d332;
 }
+
+.job-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+  max-width: 40rem;
+}
+
+/* The outer fieldset only disables the controls while sending; it draws nothing. */
+.job-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-self: stretch;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.job-drop {
+  padding: 1rem;
+  border: 2px dashed #8888;
+  border-radius: 0.5rem;
+}
+
+.job-drop-active {
+  border-color: currentColor;
+  background: #8882;
+}
+
+.job-drop-hint {
+  margin: 0.5rem 0 0;
+}
+
+.job-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.job-field input {
+  max-width: 100%;
+}
+
+.job-parsers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+}
+
+.job-summary h2 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.job-summary dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0.5rem 0 0;
+}
+
+.job-summary dd {
+  margin: 0;
+}
+
+.job-files {
+  max-width: 40rem;
+  padding: 0;
+  list-style: none;
+}
+
+.job-file {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #8884;
+}
+
+/* Long file names and job IDs wrap instead of widening the page on a phone. */
+.job-file-name,
+.job-file-status {
+  overflow-wrap: anywhere;
+}
+
+.job-file-name {
+  font-weight: 600;
+}
+
+.job-file-error {
+  color: #d33;
+}
