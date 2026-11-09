@@ -86,6 +86,10 @@ def test_synced_image_group_imports_its_entrypoint(group: str, tmp_path: Path) -
     if group == "api":
         import_env.update(_API_ENV)
     python = tmp_path / "bin" / "python"
-    subprocess.run([python, "-c", f"import {_ENTRYPOINTS[group]}"], env=import_env, check=True)
+    # The API image starts uvicorn. The app module does not import it.
+    statement = f"import {_ENTRYPOINTS[group]}"
+    if group == "api":
+        statement += "\nimport uvicorn"
+    subprocess.run([python, "-c", statement], env=import_env, check=True)
     if group == "migrate":
         subprocess.run([python, "-c", _REVISION_CHECK], check=True)
