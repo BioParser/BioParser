@@ -22,8 +22,7 @@ COPY --from=uv /uv /uvx /bin/
 ENV UV_CACHE_DIR=/root/.cache/uv \
     UV_PYTHON_DOWNLOADS=0 \
     UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_NO_DEV=1
+    UV_LINK_MODE=copy
 
 WORKDIR /app
 
