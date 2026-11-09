@@ -205,6 +205,8 @@ def _bounds_reversed(lower: float | None, upper: float | None) -> bool:
 
 
 def _parse_trait_value(observation: Observation) -> CanonicalTraitValue | DropReason:
+    if observation.trait is None:
+        return "trait_unknown"
     value = (
         observation.traitValue.value
         if observation.traitValue is not None

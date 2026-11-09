@@ -319,6 +319,15 @@ def test_an_unknown_trait_drops_the_row() -> None:
     assert verdict.drop == "trait_unknown"
 
 
+def test_a_missing_trait_drops_the_row() -> None:
+    observation = _observation(trait=None)
+
+    verdict = assess(observation)
+
+    assert isinstance(verdict, Dropped)
+    assert verdict.drop == "trait_unknown"
+
+
 def test_a_citation_without_a_range_is_rejected() -> None:
     with pytest.raises(ValidationError):
         ExtractionArtifact.model_validate(
