@@ -1,5 +1,6 @@
 """Each image syncs only its dependency group, then its process can import."""
 
+import json
 import os
 import shutil
 import subprocess
@@ -45,6 +46,23 @@ def _sync_commands(text: str) -> list[list[str]]:
     return [line.split() for line in text.splitlines() if line.strip().startswith("uv sync ")]
 
 
+def _command_modules(text: str) -> list[str]:
+    """Modules the image command names. The process has to be able to import them."""
+    line = next(line for line in text.splitlines() if line.startswith("CMD "))
+    command = json.loads(line.removeprefix("CMD "))
+    if not isinstance(command, list):
+        raise TypeError(line)
+    modules: list[str] = []
+    for token in command:
+        if not isinstance(token, str):
+            raise TypeError(line)
+        name = token.split(":", 1)[0]
+        parts = name.split(".")
+        if name != "python" and all(part.isidentifier() for part in parts):
+            modules.append(name)
+    return list(dict.fromkeys(modules))
+
+
 @pytest.mark.parametrize("group", _ENTRYPOINTS)
 def test_image_dockerfile_syncs_its_own_group(group: str) -> None:
     commands = _sync_commands(_dockerfile(group).read_text(encoding="utf-8"))
@@ -60,6 +78,17 @@ def test_image_dockerfile_syncs_its_own_group(group: str) -> None:
         assert command[command.index("--group") + 1] == group
 
 
+def test_image_commands_name_their_modules() -> None:
+    modules = {
+        group: _command_modules(_dockerfile(group).read_text(encoding="utf-8"))
+        for group in _ENTRYPOINTS
+    }
+    assert modules["api"] == ["uvicorn", "bioparser.api.app"]
+    assert modules["parser-worker"] == ["bioparser.worker.parse"]
+    assert modules["extractor-worker"] == ["bioparser.worker.extract"]
+    assert modules["migrate"] == []
+
+
 def test_api_image_starts_the_app_without_importing_it_at_build() -> None:
     text = _dockerfile("api").read_text(encoding="utf-8")
     assert "bioparser.api.app:app" in text
@@ -71,7 +100,8 @@ def test_api_image_starts_the_app_without_importing_it_at_build() -> None:
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required")
 @pytest.mark.parametrize("group", _ENTRYPOINTS)
 def test_synced_image_group_imports_its_entrypoint(group: str, tmp_path: Path) -> None:
-    commands = _sync_commands(_dockerfile(group).read_text(encoding="utf-8"))
+    text = _dockerfile(group).read_text(encoding="utf-8")
+    commands = _sync_commands(text)
     project_install = [command for command in commands if "--no-install-project" not in command]
     assert len(project_install) == 1
     env = os.environ.copy()
@@ -86,10 +116,8 @@ def test_synced_image_group_imports_its_entrypoint(group: str, tmp_path: Path) -
     if group == "api":
         import_env.update(_API_ENV)
     python = tmp_path / "bin" / "python"
-    # The API image starts uvicorn. The app module does not import it.
-    statement = f"import {_ENTRYPOINTS[group]}"
-    if group == "api":
-        statement += "\nimport uvicorn"
+    modules = dict.fromkeys([_ENTRYPOINTS[group], *_command_modules(text)])
+    statement = "\n".join(f"import {module}" for module in modules)
     subprocess.run([python, "-c", statement], env=import_env, check=True)
     if group == "migrate":
         subprocess.run([python, "-c", _REVISION_CHECK], check=True)
