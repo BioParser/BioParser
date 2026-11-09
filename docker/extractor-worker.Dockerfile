@@ -2,7 +2,7 @@
 # The model is not in this image.
 #   docker build -f docker/extractor-worker.Dockerfile -t bioparser-extractor-worker .
 
-# uv 0.13.6, the same pin as CI. Index digest so amd64 and arm64 both resolve.
+# uv 0.13.7, the same pin as CI. Index digest so amd64 and arm64 both resolve.
 FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
 
 # python 3.13.16-slim-trixie; index digest so amd64 and arm64 both resolve.
