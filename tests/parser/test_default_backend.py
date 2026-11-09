@@ -4,14 +4,10 @@ from pathlib import Path
 import pytest
 
 from bioparser.hashing import sha256_file
-from bioparser.parser import (
-    DefaultParser,
-    ParserBackendUnavailableError,
-    UnsupportedDocumentError,
-    get_parser,
-)
+from bioparser.parser import ParserBackendUnavailableError, UnsupportedDocumentError
 from bioparser.parser.backend.default.grouping import WordBox, group_words_into_text_blocks
-from bioparser.parser.backend.default.parser import _CHILD_ENV, _child_environment
+from bioparser.parser.backend.default.parser import _CHILD_ENV, DefaultParser, _child_environment
+from bioparser.parser.backend.factory import get_parser
 from bioparser.parser.models import ParserArtifact
 from bioparser.parser_names import DEFAULT_PARSER_NAME
 

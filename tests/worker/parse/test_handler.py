@@ -40,7 +40,7 @@ from bioparser.parser.models import (
 )
 from bioparser.parser.protocol import PdfParser
 from bioparser.services.mineru.client import MinerUClient
-from bioparser.worker.before_claim import mineru_before_claim
+from bioparser.worker.parse.before_claim import mineru_before_claim
 from bioparser.worker.parse.config import DEFAULT_PARSE_MAX_RETRIES
 from bioparser.worker.parse.handler import ParseJobHandler
 

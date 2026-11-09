@@ -16,9 +16,9 @@ from bioparser.parser import (
     ParserProcessError,
     ParserTimeoutError,
     UnsupportedDocumentError,
-    get_parser,
     parse_pdf_bytes,
 )
+from bioparser.parser.backend.factory import get_parser
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 

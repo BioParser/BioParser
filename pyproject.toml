@@ -13,20 +13,11 @@ authors = [
 ]
 requires-python = "==3.13.*"
 dependencies = [
-  "alembic>=1.20.1",
   "asyncpg>=0.31",
-  "dramatiq[redis]>=2.2.1",
-  "fastapi>=0.141.1",
   "httpx2>=2.12",
-  "openai>=3.8.0",
-  "pdfplumber>=0.11.10",
-  "psycopg[binary]>=3.3.6",
   "pydantic>=2.13.5",
   "pydantic-settings>=2.15.0",
-  "python-multipart>=0.0.32",
-  "redis>=8.1.0",
   "sqlalchemy[asyncio]>=2.1.6",
-  "uvicorn[standard]>=0.52.4",
 ]
 
 [project.scripts]
@@ -40,6 +31,10 @@ test_prompt = "bioparser.scripts.test_prompt:main"
 requires = ["uv_build>=0.12.3,<0.14.0"]
 build-backend = "uv_build"
 
+# Image installs. `uv sync` installs every group (tool.uv.default-groups).
+# An image passes `--no-default-groups --group <name>`. `--only-group` is wrong
+# here: it omits the project and the shared dependencies above.
+# queue, pdf, and llm keep one pin for a library two images import.
 [dependency-groups]
 dev = [
   "mypy>=2.3.1",
@@ -47,6 +42,35 @@ dev = [
   "pytest>=9.1.1",
   "ruff>=0.16.5",
 ]
+queue = [
+  "dramatiq[redis]>=2.2.1",
+  "redis>=8.1.0",
+]
+pdf = ["pdfplumber>=0.11.10"]
+llm = ["openai>=3.8.0"]
+api = [
+  "fastapi>=0.141.1",
+  "python-multipart>=0.0.32",
+  "uvicorn[standard]>=0.52.4",
+  { include-group = "queue" },
+  { include-group = "pdf" },
+  { include-group = "llm" },
+]
+parser-worker = [
+  { include-group = "queue" },
+  { include-group = "pdf" },
+]
+extractor-worker = [
+  { include-group = "queue" },
+  { include-group = "llm" },
+]
+migrate = [
+  "alembic>=1.20.1",
+  "psycopg[binary]>=3.3.6",
+]
+
+[tool.uv]
+default-groups = "all"
 
 [tool.ruff]
 target-version = "py313"
@@ -73,4 +97,7 @@ files = ["src", "tests"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
-markers = ["integration: requires a real Redis or Postgres instance (see BIOPARSER_TEST_REDIS_URL and BIOPARSER_TEST_DATABASE_URL)"]
+markers = [
+  "integration: requires a real Redis or Postgres instance (see BIOPARSER_TEST_REDIS_URL and BIOPARSER_TEST_DATABASE_URL)",
+  "image: installs one image dependency group into a temporary environment",
+]
