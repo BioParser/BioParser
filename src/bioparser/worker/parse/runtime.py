@@ -7,10 +7,10 @@ from bioparser.logging_config import setup_logging
 from bioparser.parser.backend.factory import get_parser
 from bioparser.parser.protocol import PdfParser
 from bioparser.storage.filesystem import FileSystemArtifactStorage
-from bioparser.worker.before_claim import mineru_before_claim
 from bioparser.worker.health import LivenessServer
 from bioparser.worker.process import install_shutdown
 
+from .before_claim import mineru_before_claim
 from .config import WorkerSettings
 from .handler import ParseJobHandler
 

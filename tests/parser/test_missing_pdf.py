@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from bioparser.parser import PARSER_BACKENDS, get_parser
+from bioparser.parser import PARSER_BACKENDS
+from bioparser.parser.backend.factory import get_parser
 from bioparser.scripts import pdfparse
 
 PLANTED_DIR = "planted-secret-dir"

@@ -57,7 +57,7 @@ from bioparser.parser.models import (
 )
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.vllm import VLLMError, VLLMRequestRejectedError, VLLMTruncatedError
-from bioparser.worker.before_claim import vllm_before_claim
+from bioparser.worker.extract.before_claim import vllm_before_claim
 from bioparser.worker.extract.config import DEFAULT_EXTRACT_MAX_RETRIES
 from bioparser.worker.extract.handler import ExtractJobHandler
 
@@ -363,7 +363,7 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
         before_claim=vllm_before_claim(cast(VLLMService, vllm)),
     )
     with (
-        caplog.at_level(logging.WARNING, logger="bioparser.worker.before_claim"),
+        caplog.at_level(logging.WARNING, logger="bioparser.worker.extract.before_claim"),
         pytest.raises(JobDeferred),
     ):
         asyncio.run(handler.handle(_message()))

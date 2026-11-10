@@ -117,7 +117,7 @@ is `null`. A newly queued job cannot yet have a parse result, so
 | 400 | the file body is empty |
 | 400 | the file body does not start with `%PDF-` |
 | 400 | the Content-Length header is not a valid non-negative integer |
-| 413 | the file exceeds `config.MAX_UPLOAD_BYTES` |
+| 413 | the file exceeds BIOPARSER_MAX_UPLOAD_BYTES (default 20 MiB) |
 | 415 | content type is not `application/pdf` |
 | 503 | artifact storage, the database, or the parse queue is unavailable |
 

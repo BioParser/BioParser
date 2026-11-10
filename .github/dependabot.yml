@@ -66,6 +66,8 @@ updates:
       - dependency-name: "node"
         update-types:
           - "version-update:semver-major"
+      # This image is the uv release CI pins by hand. Bump both manually.
+      - dependency-name: "ghcr.io/astral-sh/uv"
     groups:
       base-images:
         patterns:
