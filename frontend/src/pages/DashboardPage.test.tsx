@@ -132,13 +132,13 @@ describe("Dashboard", () => {
   it("reads filters from the URL, sends them to the API, and resets paging when changed", async () => {
     const router = mount("/?status=queued&parser=mineru&page=2");
     await screen.findByRole("link", { name: "first.pdf" });
-    expect(listCalls()[0][0]).toBe("/api/jobs?detail=full&status=queued&parser=mineru");
+    expect(listCalls()[0][0]).toBe("/api/jobs?status=queued&parser=mineru");
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "failed" } });
     await screen.findByRole("link", { name: "first.pdf" });
     expect(router.state.location.search).toBe("?status=failed&parser=mineru");
     fireEvent.change(screen.getByLabelText("Parser"), { target: { value: "default" } });
     await screen.findByRole("link", { name: "first.pdf" });
-    expect(listCalls().at(-1)?.[0]).toBe("/api/jobs?detail=full&status=failed&parser=default");
+    expect(listCalls().at(-1)?.[0]).toBe("/api/jobs?status=failed&parser=default");
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "" } });
     expect(router.state.location.search).toBe("?parser=default");
   });
@@ -168,6 +168,7 @@ describe("Dashboard", () => {
     jobs = [];
     mount();
     await screen.findByText(/There are no jobs yet/);
+    expect(listCalls()[0][0]).toBe("/api/jobs");
     expect(screen.getAllByRole("link", { name: "Start a job" }).at(-1)?.getAttribute("href")).toBe(
       "/jobs/new",
     );
@@ -203,7 +204,13 @@ describe("Dashboard", () => {
     await within(panel).findAllByText("Up");
     if (check === "config") {
       expect(within(panel).getByRole("alert").textContent).toBe("Configuration error");
-      expect(within(panel).getAllByText("Up")).toHaveLength(4);
+      expect(within(panel).getAllByText("Up")).toHaveLength(1);
+      expect(within(panel).getByText("API").parentElement?.textContent).toContain("Up");
+      for (const name of ["Redis", "Postgres", "Artifact storage"]) {
+        const service = within(panel).getByText(name).parentElement;
+        expect(service?.querySelector("dd")?.textContent).toBe("Unknown");
+        expect(service?.querySelector("dd")?.className).toBe("service-unknown");
+      }
     } else {
       const name = { redis: "Redis", postgres: "Postgres", storage: "Artifact storage" }[check];
       expect(within(panel).getByText(name ?? "").parentElement?.textContent).toContain("Down");
@@ -255,7 +262,7 @@ describe("dashboard refresh", () => {
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "done" } });
     await tick();
     expect(listCalls()).toHaveLength(1);
-    expect(listCalls()[0][0]).toBe("/api/jobs?detail=full&status=done");
+    expect(listCalls()[0][0]).toBe("/api/jobs?status=done");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByRole("link", { name: "first.pdf" })).toBeDefined();
   });
@@ -289,7 +296,7 @@ describe("dashboard refresh", () => {
     expect(screen.getByRole("link", { name: "first.pdf" })).toBeDefined();
   });
 
-  it("polls the entire list, keeps page and filters, and stops after all jobs finish", async () => {
+  it("polls the entire list, keeps page and filters, and slows down after all jobs finish", async () => {
     jobs = Array.from({ length: 11 }, (_, i) => job(`job-${i}`, i === 0 ? "parsing" : "done"));
     const router = mount("/?parser=mineru&page=2");
     await tick();
@@ -303,26 +310,56 @@ describe("dashboard refresh", () => {
     await tick(15000);
     expect(listCalls()).toHaveLength(count);
     expect(fetchMock.mock.calls.filter(([url]) => url === "/ready").length).toBeGreaterThan(count);
+    await tick(15000);
+    expect(listCalls()).toHaveLength(count + 1);
+    expect(router.state.location.search).toBe("?parser=mineru&page=2");
   });
 
-  it("pauses both polls in a hidden tab and resumes when visible", async () => {
-    jobs = [job("running", "extracting")];
-    mount();
-    await tick();
-    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
-    act(() => {
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
-    const count = fetchMock.mock.calls.length;
-    await tick(15000);
-    expect(fetchMock.mock.calls).toHaveLength(count);
-    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
-    act(() => {
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
-    await tick(5000);
-    expect(fetchMock.mock.calls.length).toBeGreaterThan(count);
-  });
+  it.each(["empty", "done", "failed"] as const)(
+    "discovers a new job from an %s list and resumes fast polling",
+    async (initial) => {
+      jobs = initial === "empty" ? [] : [job("old", initial)];
+      mount();
+      await tick();
+      expect(listCalls()).toHaveLength(1);
+      jobs = [job("new", "parsing"), ...jobs];
+      await tick(15000);
+      expect(listCalls()).toHaveLength(1);
+      expect(screen.queryByRole("link", { name: "new.pdf" })).toBeNull();
+      await tick(15000);
+      expect(listCalls()).toHaveLength(2);
+      expect(screen.getByRole("link", { name: "new.pdf" })).toBeDefined();
+      await tick(5000);
+      expect(listCalls()).toHaveLength(3);
+    },
+  );
+
+  it.each(["extracting", "done"] as const)(
+    "pauses both polls in a hidden tab and resumes when visible with %s jobs",
+    async (status) => {
+      jobs = [job("one", status)];
+      mount();
+      await tick();
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+      act(() => {
+        window.dispatchEvent(new Event("visibilitychange"));
+      });
+      const count = fetchMock.mock.calls.length;
+      const jobCount = listCalls().length;
+      const readinessCount = fetchMock.mock.calls.filter(([url]) => url === "/ready").length;
+      await tick(60000);
+      expect(fetchMock.mock.calls).toHaveLength(count);
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+      act(() => {
+        window.dispatchEvent(new Event("visibilitychange"));
+      });
+      await tick(status === "done" ? 30000 : 5000);
+      expect(listCalls().length).toBeGreaterThan(jobCount);
+      expect(fetchMock.mock.calls.filter(([url]) => url === "/ready").length).toBeGreaterThan(
+        readinessCount,
+      );
+    },
+  );
 
   it("keeps existing rows on a 503 and retries until the list recovers", async () => {
     jobs = [job("running", "parsing")];

@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { ApiError, getReadiness, type JobList, type JobStatus, listJobs } from "../api/client";
 import { shouldRetry } from "../api/queryClient";
 
 const INTERVAL = 5000;
+const IDLE_INTERVAL = 30000;
 const PAGE_SIZE = 10;
 const STATUSES: JobStatus[] = ["queued", "parsing", "parsed", "extracting", "done", "failed"];
 const LABELS: Record<JobStatus, string> = {
@@ -15,16 +15,6 @@ const LABELS: Record<JobStatus, string> = {
   done: "Done",
   failed: "Failed",
 };
-
-function useVisible() {
-  const [visible, setVisible] = useState(document.visibilityState !== "hidden");
-  useEffect(() => {
-    const update = () => setVisible(document.visibilityState !== "hidden");
-    document.addEventListener("visibilitychange", update);
-    return () => document.removeEventListener("visibilitychange", update);
-  }, []);
-  return visible;
-}
 
 function Progress({ job }: { job: JobList[number] }) {
   const parseCompleted =
@@ -53,7 +43,6 @@ export function DashboardPage() {
   const invalidStatus = status !== "" && !STATUSES.includes(status as JobStatus);
   const parser = params.get("parser") ?? "";
   const requestedPage = Number(params.get("page") ?? 1);
-  const visible = useVisible();
   const jobs = useQuery({
     queryKey: ["jobs", status, parser],
     queryFn: ({ signal }) => listJobs(status, parser, signal),
@@ -61,11 +50,11 @@ export function DashboardPage() {
     retry: false,
     refetchOnWindowFocus: false,
     refetchInterval: (query) => {
-      if (!visible || invalidStatus) return false;
+      if (invalidStatus) return false;
       if (query.state.error) return shouldRetry(0, query.state.error) ? INTERVAL : false;
       return query.state.data?.some((job) => job.status !== "done" && job.status !== "failed")
         ? INTERVAL
-        : false;
+        : IDLE_INTERVAL;
     },
   });
   const readiness = useQuery({
@@ -73,7 +62,7 @@ export function DashboardPage() {
     queryFn: ({ signal }) => getReadiness(signal),
     retry: false,
     refetchOnWindowFocus: false,
-    refetchInterval: visible ? INTERVAL : false,
+    refetchInterval: INTERVAL,
   });
   const items = jobs.data ?? [];
   const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
@@ -99,6 +88,7 @@ export function DashboardPage() {
   }
   const unavailable = readiness.data?.unavailable ?? [];
   const unknown = readiness.isError || !readiness.data;
+  const configurationError = unavailable.includes("config");
   const grafanaUrl = import.meta.env.VITE_GRAFANA_URL;
   const errorMessage =
     jobs.error instanceof ApiError && jobs.error.code === "job_state_unreadable"
@@ -126,9 +116,7 @@ export function DashboardPage() {
               Status
               <select value={status} onChange={(event) => filter("status", event.target.value)}>
                 <option value="">All statuses</option>
-                {!STATUSES.includes(status as JobStatus) && status && (
-                  <option value={status}>{status}</option>
-                )}
+                {invalidStatus && <option value={status}>{status}</option>}
                 {STATUSES.map((value) => (
                   <option key={value} value={value}>
                     {LABELS[value]}
@@ -255,7 +243,7 @@ export function DashboardPage() {
                     : readiness.data
                       ? "Up"
                       : "Unknown"
-                  : unknown
+                  : unknown || configurationError
                     ? "Unknown"
                     : unavailable.includes(key)
                       ? "Down"
@@ -268,7 +256,7 @@ export function DashboardPage() {
               );
             })}
           </dl>
-          {!unknown && unavailable.includes("config") && <p role="alert">Configuration error</p>}
+          {!unknown && configurationError && <p role="alert">Configuration error</p>}
           {grafanaUrl && (
             <a href={grafanaUrl} target="_blank" rel="noreferrer">
               Open Grafana ↗
