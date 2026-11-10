@@ -174,3 +174,22 @@ input {
 .job-file-error {
   color: #d33;
 }
+
+.job-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 2rem;
+  padding-left: 1.5rem;
+}
+
+.job-progress [aria-current="step"] {
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+
+.job-failure {
+  padding: 0.5rem 1rem;
+  border-left: 4px solid #d33;
+  background: #d332;
+}
