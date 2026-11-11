@@ -10,8 +10,8 @@ Rules that keep old results valid:
 - A code keeps its meaning. A change to the measurement or the stored unit is a new
   code and a new identifier.
 - A retired code is marked ``deprecated``. It still converts. Only a code that is
-  absent from the list is ``trait_unknown``. An observation with no code is kept,
-  and the row has no name and no identifier.
+  absent from the list is treated as no code. An observation with no code, or one the
+  list cannot apply, is kept as printed. The row has no name and no identifier.
 """
 
 import json

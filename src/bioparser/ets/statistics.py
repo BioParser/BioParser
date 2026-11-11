@@ -70,6 +70,13 @@ def read_statistics(
     named = dispersion_kind if observation.dispersion is not None else None
     phrase = _phrase(stored_phrase, central, named)
     dispersion = _dispersion_value(observation, dispersion, dispersion_kind, trait_factor, warnings)
+    # With no trait factor the numbers stay in the printed unit. With a factor, a bound is
+    # always converted, so only the unconverted case needs a warning.
+    if trait_factor is None:
+        if minimum is not None:
+            warnings.append(NotConverted(field="measurementValue_min"))
+        if maximum is not None:
+            warnings.append(NotConverted(field="measurementValue_max"))
     return MeasurementStatistics(
         dispersion=dispersion,
         measurement_value_min=_scale_bound(observation.measurementValueMin, minimum, trait_factor),
@@ -109,6 +116,8 @@ def _dispersion_value(
     warnings: list[Notice],
 ) -> float | None:
     number_stored = observation.dispersion is not None and parsed is not None
+    if number_stored and factor is None:
+        warnings.append(NotConverted(field="dispersion"))
     if number_stored and kind is None:
         if factor is not None and factor != 1:
             warnings.append(NotConverted())

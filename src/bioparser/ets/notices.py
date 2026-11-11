@@ -49,6 +49,7 @@ NumericField = Literal[
     "decimalLongitude",
     "decimalLatitude",
     "elevation",
+    "traitValue",
 ]
 DateField = Literal["measurementDeterminedDate", "eventDate"]
 
@@ -74,16 +75,17 @@ class NotInVocabulary(BaseModel):
         "aggregateMeasure",
         "countryCode",
         "statisticalMethod",
+        "traitValue",
     ]
 
 
 class NotConverted(BaseModel):
-    """A dispersion number stayed in the printed unit."""
+    """A dispersion, minimum, or maximum stayed in the printed unit. Read it with verbatimTraitUnit."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["not_converted"] = "not_converted"
-    field: Literal["dispersion"] = "dispersion"
+    field: Literal["dispersion", "measurementValue_min", "measurementValue_max"] = "dispersion"
 
 
 class Unspecified(BaseModel):
@@ -110,15 +112,6 @@ class NotApplicable(BaseModel):
     ]
 
 
-class UnitNotExpected(BaseModel):
-    """A count or a categorical trait was printed with a real unit, so the trait may be wrong."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["unit_not_expected"] = "unit_not_expected"
-    field: Literal["traitUnit"] = "traitUnit"
-
-
 class UnmappedTrait(BaseModel):
     """No trait code was stored, so the list did not name this measurement."""
 
@@ -126,6 +119,30 @@ class UnmappedTrait(BaseModel):
 
     kind: Literal["unmapped"] = "unmapped"
     field: Literal["traitName"] = "traitName"
+
+
+class BoundsReversed(BaseModel):
+    """The minimum is greater than the maximum, so neither is published."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["bounds_reversed"] = "bounds_reversed"
+    field: Literal["measurementValue_min,measurementValue_max"] = (
+        "measurementValue_min,measurementValue_max"
+    )
+
+
+class UnitRefused(BaseModel):
+    """The trait list could not convert the printed unit, so the value stays as printed.
+
+    ``unit_unknown`` is a unit no numeric trait accepts. ``unit_not_for_trait`` is a known
+    unit that this trait does not accept.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["unit_unknown", "unit_not_for_trait"]
+    field: Literal["traitUnit"] = "traitUnit"
 
 
 class DeprecatedTrait(BaseModel):
@@ -172,8 +189,9 @@ Notice = (
     | NotConverted
     | Unspecified
     | NotApplicable
-    | UnitNotExpected
     | UnmappedTrait
+    | UnitRefused
+    | BoundsReversed
     | DeprecatedTrait
     | Approximate
 )

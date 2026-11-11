@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 from bioparser.ets.dates import parse_date
 from bioparser.ets.notices import (
+    BoundsReversed,
     DateField,
     NotACalendarDay,
     NotADate,
@@ -46,14 +47,6 @@ NotApplicableField = Literal[
     "measurementValue_max",
     "centralKind",
     "dispersionKind",
-]
-DropReason = Literal[
-    "trait_unknown",
-    "unit_not_for_trait",
-    "unit_unknown",
-    "value_not_numeric",
-    "level_unknown",
-    "bounds_reversed",
 ]
 # Free-text columns. The value is the ETS name. taxonClass is written as class.
 _CITED: dict[str, TextField] = {
@@ -117,27 +110,22 @@ class _Fields(BaseModel):
 
 @dataclass(frozen=True)
 class _PrintedTraitValue:
-    """A measurement with no trait code. The value is the printed one, unconverted."""
+    """A measurement the list did not standardize. The value is the printed one, unconverted.
+
+    ``warning`` says why: no trait code, or what the list refused.
+    """
 
     value: str
+    warning: Notice
 
 
-class Kept(_Fields):
-    """The observation can become a row. The value is present."""
+class Assessment(_Fields):
+    """One observation judged, ready to become one row. Problems are in ``warnings``."""
 
     trait_name: str | None
     trait_id: str | None
     trait_value: str
     trait_unit: str | None
-
-
-class Dropped(_Fields):
-    """The observation cannot become a row."""
-
-    drop: DropReason
-
-
-Assessment = Kept | Dropped
 
 
 def assess(observation: Observation) -> Assessment:
@@ -169,7 +157,7 @@ def assess(observation: Observation) -> Assessment:
         if categorical:
             warnings.extend(_numbers_that_do_not_apply(observation))
     elif isinstance(parsed, _PrintedTraitValue):
-        warnings.append(UnmappedTrait())
+        warnings.append(parsed.warning)
     statistics = read_statistics(
         observation,
         trait_factor=parsed.factor if isinstance(parsed, ResolvedTraitValue) else None,
@@ -208,6 +196,11 @@ def assess(observation: Observation) -> Assessment:
     dispersion = 0.0 if categorical else statistics.dispersion
     value_min = None if categorical else statistics.measurement_value_min
     value_max = None if categorical else statistics.measurement_value_max
+    # A minimum above the maximum cannot both be right, so neither is published.
+    if _bounds_reversed(value_min, value_max):
+        warnings.append(BoundsReversed())
+        value_min = None
+        value_max = None
     shared = _Fields(
         warnings=tuple(warnings),
         scientific_name=scientific_name,
@@ -230,19 +223,15 @@ def assess(observation: Observation) -> Assessment:
         country_code=country_code,
         cited=cited,
     )
-    if not isinstance(parsed, ResolvedTraitValue | _PrintedTraitValue):
-        return Dropped(drop=parsed, **shared.model_dump())
-    if _bounds_reversed(value_min, value_max):
-        return Dropped(drop="bounds_reversed", **shared.model_dump())
     if isinstance(parsed, _PrintedTraitValue):
-        return Kept(
+        return Assessment(
             trait_name=None,
             trait_id=None,
             trait_value=parsed.value,
             trait_unit=None,
             **shared.model_dump(),
         )
-    return Kept(
+    return Assessment(
         trait_name=parsed.trait_name,
         trait_id=parsed.trait_id,
         trait_value=parsed.value,
@@ -277,20 +266,24 @@ def _numbers_that_do_not_apply(observation: Observation) -> list[Notice]:
 
 def _parse_trait_value(
     observation: Observation, *, aggregate: bool
-) -> ResolvedTraitValue | DropReason | _PrintedTraitValue:
+) -> ResolvedTraitValue | _PrintedTraitValue:
+    """The resolved value, or the printed value with the reason the list could not standardize it."""
     value = (
         observation.traitValue.value
         if observation.traitValue is not None
         else observation.verbatimTraitValue.text
     )
     if observation.traitCode is None:
-        return _PrintedTraitValue(value)
+        return _PrintedTraitValue(value, UnmappedTrait())
     unit = (
         observation.traitUnit.value
         if observation.traitUnit is not None
         else observation.verbatimTraitUnit.text
     )
-    return resolve_trait_value(observation.traitCode.value, value, unit, aggregate=aggregate)
+    resolved = resolve_trait_value(observation.traitCode.value, value, unit, aggregate=aggregate)
+    if isinstance(resolved, ResolvedTraitValue):
+        return resolved
+    return _PrintedTraitValue(value, resolved)
 
 
 def _cited(value: CitationOrCorrection | None) -> str | None:

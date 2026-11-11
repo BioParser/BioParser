@@ -5,10 +5,10 @@ from pydantic import ValidationError
 
 from bioparser.ets import trait_values
 from bioparser.ets.adapter import to_ets
-from bioparser.ets.assess import Dropped, Kept, assess
+from bioparser.ets.assess import Assessment, assess
 from bioparser.ets.dates import parse_date
 from bioparser.ets.models import EtsRow
-from bioparser.ets.notices import NotNumeric
+from bioparser.ets.notices import NotNumeric, format_warning
 from bioparser.extract.models import (
     Citation,
     Correction,
@@ -80,7 +80,6 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     result = to_ets(artifact, references=_DOCUMENT_ID)
 
     assert artifact.model_dump() == before
-    assert result.drops == []
     assert len(result.rows) == 1
     assert result.rows[0].source_index == 0
     row = result.rows[0].row
@@ -294,11 +293,10 @@ def test_an_empty_observation_list_returns_no_rows() -> None:
     result = to_ets(_artifact(), references=_DOCUMENT_ID)
 
     assert result.rows == []
-    assert result.drops == []
     assert result.trait_list_version == mammal_traits().version
 
 
-def test_a_unit_that_does_not_belong_to_the_trait_drops_that_row() -> None:
+def test_a_unit_that_does_not_belong_to_the_trait_keeps_the_printed_row() -> None:
     bad = _observation(verbatimTraitUnit=_cited("mm", start=25))
     good = _observation()
     before = bad.model_dump()
@@ -307,15 +305,18 @@ def test_a_unit_that_does_not_belong_to_the_trait_drops_that_row() -> None:
     result = to_ets(_artifact(bad, good), references=_DOCUMENT_ID)
 
     assert bad.model_dump() == before
-    assert isinstance(verdict, Dropped)
-    assert verdict.drop == "unit_not_for_trait"
-    assert [(drop.source_index, drop.reason) for drop in result.drops] == [
-        (0, "unit_not_for_trait")
-    ]
-    assert result.rows[0].source_index == 1
-    assert result.rows[0].row.verbatimTraitUnit == "kg"
-    assert result.rows[0].row.traitValue == "12500"
-    assert result.rows[0].row.measurementID == "1"
+    assert isinstance(verdict, Assessment)
+    kept = result.rows[0].row
+    assert kept.verbatimTraitUnit == "mm"
+    assert kept.traitValue == "12.5"
+    assert kept.traitUnit is None
+    assert kept.traitID is None
+    assert kept.traitName is None
+    assert kept.warnings == "unit_not_for_trait:traitUnit"
+    assert result.rows[1].source_index == 1
+    assert result.rows[1].row.verbatimTraitUnit == "kg"
+    assert result.rows[1].row.traitValue == "12500"
+    assert result.rows[1].row.measurementID == "2"
 
 
 def test_an_observation_without_a_trait_code_keeps_the_printed_measurement() -> None:
@@ -327,10 +328,9 @@ def test_an_observation_without_a_trait_code_keeps_the_printed_measurement() -> 
     verdict = assess(observation)
     result = to_ets(_artifact(observation), references=_DOCUMENT_ID)
 
-    assert isinstance(verdict, Kept)
+    assert isinstance(verdict, Assessment)
     assert verdict.trait_name is None
     assert verdict.trait_id is None
-    assert result.drops == []
     row = result.rows[0].row
     assert row.traitID is None
     assert row.traitName is None
@@ -342,13 +342,15 @@ def test_an_observation_without_a_trait_code_keeps_the_printed_measurement() -> 
     assert row.warnings == "unmapped:traitName"
 
 
-def test_an_unknown_trait_drops_the_row() -> None:
+def test_an_unknown_trait_keeps_the_printed_row_with_a_warning() -> None:
     observation = _observation(traitCode=_read("wing_length", "wing", start=10))
 
     verdict = assess(observation)
 
-    assert isinstance(verdict, Dropped)
-    assert verdict.drop == "trait_unknown"
+    assert isinstance(verdict, Assessment)
+    assert verdict.trait_id is None
+    assert verdict.trait_value == "12.5"
+    assert [format_warning(w) for w in verdict.warnings] == ["unmapped:traitName"]
 
 
 def test_a_citation_without_a_range_is_rejected() -> None:
@@ -381,18 +383,20 @@ def test_the_row_schema_rejects_a_sex_abbreviation_and_an_exponent() -> None:
         _row(traitValue="1.5e2")
 
 
-def test_an_unknown_unit_is_a_drop_reason_without_changing_the_observation() -> None:
+def test_an_unknown_unit_is_a_warning_without_changing_the_observation() -> None:
     observation = _observation(verbatimTraitUnit=_cited("grams", start=25))
     before = observation.model_dump()
 
     verdict = assess(observation)
 
     assert observation.model_dump() == before
-    assert isinstance(verdict, Dropped)
-    assert verdict.drop == "unit_unknown"
+    assert isinstance(verdict, Assessment)
+    assert verdict.trait_name is None
+    assert verdict.trait_unit is None
+    assert [format_warning(w) for w in verdict.warnings] == ["unit_unknown:traitUnit"]
 
 
-def test_a_negative_age_is_parsed_and_reversed_bounds_drop_the_row() -> None:
+def test_a_negative_age_is_parsed_and_reversed_bounds_are_not_published() -> None:
     observation = _observation(
         age=_cited("-1", start=60),
         measurementValueMin=_cited("4", start=40),
@@ -402,17 +406,18 @@ def test_a_negative_age_is_parsed_and_reversed_bounds_drop_the_row() -> None:
     verdict = assess(observation)
     result = to_ets(_artifact(observation, _observation()), references=_DOCUMENT_ID)
 
-    assert isinstance(verdict, Dropped)
-    assert verdict.drop == "bounds_reversed"
     assert verdict.age == -1
-    assert verdict.measurement_value_min == 4000
-    assert verdict.measurement_value_max == 2000
+    assert verdict.measurement_value_min is None
+    assert verdict.measurement_value_max is None
+    assert "bounds_reversed:measurementValue_min,measurementValue_max" in [
+        format_warning(w) for w in verdict.warnings
+    ]
     assert not any(
         isinstance(warning, NotNumeric) and warning.field == "age" for warning in verdict.warnings
     )
-    assert result.drops[0].source_index == 0
-    assert result.rows[0].source_index == 1
-    assert result.rows[0].row.verbatimTraitUnit == "kg"
+    assert len(result.rows) == 2
+    assert result.rows[1].source_index == 1
+    assert result.rows[1].row.verbatimTraitUnit == "kg"
 
 
 def test_a_long_number_does_not_fail_the_other_rows() -> None:
@@ -423,9 +428,9 @@ def test_a_long_number_does_not_fail_the_other_rows() -> None:
 
     assert result.rows[0].row.month is None
     assert "not_numeric:month" in result.rows[0].row.warnings
-    assert [(drop.source_index, drop.reason) for drop in result.drops] == [(1, "value_not_numeric")]
-    assert result.rows[1].source_index == 2
-    assert result.rows[1].row.traitValue == "12500"
+    assert result.rows[1].row.traitValue == "8" * 40
+    assert result.rows[1].row.warnings == "not_numeric:traitValue"
+    assert result.rows[2].row.traitValue == "12500"
 
 
 def test_an_impossible_day_is_cleared_and_a_leap_day_is_kept() -> None:
@@ -544,6 +549,25 @@ def test_a_dispersion_without_a_kind_stays_unconverted() -> None:
     assert row.warnings == "not_converted:dispersion"
 
 
+def test_numbers_of_a_row_with_no_trait_factor_stay_printed_and_warn() -> None:
+    observation = _observation(
+        traitCode=None,
+        dispersion=_cited("0.2", start=70),
+        dispersionKind=_read("standardDeviation", "SD", start=75),
+        measurementValueMin=_cited("10", start=40),
+        measurementValueMax=_cited("15", start=50),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert (row.traitValue, row.traitUnit, row.verbatimTraitUnit) == ("12.5", None, "kg")
+    assert (row.dispersion, row.measurementValue_min, row.measurementValue_max) == (0.2, 10, 15)
+    assert row.warnings == (
+        "unmapped:traitName | not_converted:dispersion"
+        " | not_converted:measurementValue_min | not_converted:measurementValue_max"
+    )
+
+
 def test_a_dispersion_kind_without_a_number_is_zero() -> None:
     observation = _observation(
         centralKind=_read("mean", "mean", start=60),
@@ -644,8 +668,10 @@ def test_a_count_trait_is_kept_without_conversion() -> None:
 def test_a_count_must_be_a_positive_whole_number() -> None:
     verdict = assess(_trait_observation("litter_size", "3.5", "-"))
 
-    assert isinstance(verdict, Dropped)
-    assert verdict.drop == "value_not_numeric"
+    assert isinstance(verdict, Assessment)
+    assert verdict.trait_value == "3.5"
+    assert verdict.trait_id is None
+    assert [format_warning(w) for w in verdict.warnings] == ["not_numeric:traitValue"]
 
 
 def test_a_categorical_level_is_kept_with_no_unit() -> None:
@@ -657,11 +683,13 @@ def test_a_categorical_level_is_kept_with_no_unit() -> None:
     assert row.traitName == "Activity cycle"
 
 
-def test_a_level_off_the_list_drops_the_row() -> None:
+def test_a_level_off_the_list_keeps_the_printed_value_with_a_warning() -> None:
     verdict = assess(_trait_observation("activity_cycle", "sometimes", "NA"))
 
-    assert isinstance(verdict, Dropped)
-    assert verdict.drop == "level_unknown"
+    assert isinstance(verdict, Assessment)
+    assert verdict.trait_id is None
+    assert verdict.trait_value == "sometimes"
+    assert [format_warning(w) for w in verdict.warnings] == ["not_in_vocabulary:traitValue"]
 
 
 def test_two_length_traits_that_share_a_unit_keep_their_own_identifiers() -> None:
@@ -689,11 +717,11 @@ def test_time_density_and_energy_units_convert_to_the_stored_unit() -> None:
 def test_a_unit_known_elsewhere_but_not_for_this_trait_is_not_for_the_trait() -> None:
     verdict = assess(_trait_observation("gestation_length", "2", "kHz"))
 
-    assert isinstance(verdict, Dropped)
-    assert verdict.drop == "unit_not_for_trait"
+    assert isinstance(verdict, Assessment)
+    assert [format_warning(w) for w in verdict.warnings] == ["unit_not_for_trait:traitUnit"]
     unknown = assess(_trait_observation("gestation_length", "2", "furlongs"))
-    assert isinstance(unknown, Dropped)
-    assert unknown.drop == "unit_unknown"
+    assert isinstance(unknown, Assessment)
+    assert [format_warning(w) for w in unknown.warnings] == ["unit_unknown:traitUnit"]
 
 
 def test_a_count_with_its_own_unit_keeps_that_unit() -> None:
@@ -714,8 +742,8 @@ def test_a_count_printed_as_a_mean_may_be_a_decimal_but_a_bare_count_may_not() -
 
     assert _only_row(mean).traitValue == "3.5"
     verdict = assess(bare)
-    assert isinstance(verdict, Dropped)
-    assert verdict.drop == "value_not_numeric"
+    assert isinstance(verdict, Assessment)
+    assert [format_warning(w) for w in verdict.warnings] == ["not_numeric:traitValue"]
 
 
 def test_a_conventional_conversion_is_a_warning() -> None:
@@ -726,16 +754,20 @@ def test_a_conventional_conversion_is_a_warning() -> None:
     assert exact.warnings == ""
 
 
-def test_a_real_unit_next_to_a_count_or_a_level_is_a_warning() -> None:
+def test_a_real_unit_next_to_a_count_or_a_level_is_not_standardized() -> None:
     count = _only_row(_trait_observation("litter_size", "4", "g"))
     level = _only_row(_trait_observation("activity_cycle", "nocturnal", "mm"))
     own_unit = _only_row(_trait_observation("litter_size", "4", "young"))
     other_count_unit = _only_row(_trait_observation("litter_size", "4", "individuals"))
 
-    assert count.warnings == "unit_not_expected:traitUnit"
-    assert level.warnings == "unit_not_expected:traitUnit"
+    for row in (count, level, other_count_unit):
+        assert row.warnings == "unit_not_for_trait:traitUnit"
+        assert row.traitID is None
+        assert row.traitName is None
+        assert row.traitUnit is None
+    assert (count.traitValue, level.traitValue) == ("4", "nocturnal")
     assert own_unit.warnings == ""
-    assert other_count_unit.warnings == "unit_not_expected:traitUnit"
+    assert own_unit.traitID is not None
 
 
 def test_a_level_with_a_dispersion_or_a_range_is_a_warning_for_each() -> None:
@@ -784,7 +816,7 @@ def test_a_level_does_not_publish_a_dispersion_or_a_range() -> None:
 
     verdict = assess(observation)
 
-    assert isinstance(verdict, Kept)
+    assert isinstance(verdict, Assessment)
     assert (verdict.dispersion, verdict.measurement_value_min, verdict.measurement_value_max) == (
         0,
         None,

@@ -109,8 +109,8 @@ class EtsRow(BaseModel):
 
     @model_validator(mode="after")
     def _trait_value_matches_its_kind(self) -> Self:
-        # A trait with a unit is a number. A trait without one is a categorical level, and
-        # assess has already matched it to the trait's levels.
+        # A trait with a unit is a number. A trait without one is a categorical level or a
+        # printed value the list did not standardize, so any text is allowed.
         if self.traitUnit is not None and canonical_decimal(self.traitValue) != self.traitValue:
             raise ValueError("traitValue is not a positive decimal in canonical form")
         return self

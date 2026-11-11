@@ -5,17 +5,17 @@ from decimal import Decimal
 from functools import cache
 from typing import Literal
 
-from bioparser.ets.notices import Approximate, DeprecatedTrait, Notice, UnitNotExpected
+from bioparser.ets.notices import (
+    Approximate,
+    DeprecatedTrait,
+    Notice,
+    NotInVocabulary,
+    NotNumeric,
+    UnitRefused,
+    UnmappedTrait,
+)
 from bioparser.ets.numbers import canonical_decimal, parse_count
 from bioparser.traits.table import CategoricalTrait, CountTrait, NumericTrait, mammal_traits
-
-TraitProblem = Literal[
-    "trait_unknown",
-    "unit_unknown",
-    "unit_not_for_trait",
-    "value_not_numeric",
-    "level_unknown",
-]
 
 
 @dataclass(frozen=True)
@@ -37,8 +37,12 @@ class ResolvedTraitValue:
 
 def resolve_trait_value(
     trait_code: str, value: str, unit: str, *, aggregate: bool = False
-) -> ResolvedTraitValue | TraitProblem:
-    """The trait value as the list stores it, with its name and id, or why it cannot be resolved.
+) -> ResolvedTraitValue | Notice:
+    """The trait value as the list stores it, with its name and id, or the notice for why not.
+
+    The notice is ``UnmappedTrait`` for a code that is not on the list, ``NotInVocabulary`` for
+    a level that is not one of the trait's levels, ``UnitRefused`` for a unit the trait does not
+    accept, and ``NotNumeric`` for a value that is not a number.
 
     ``trait_code`` is the internal code from the artifact's ``traitCode``, such as ``body_mass``.
     ``aggregate`` is True when the paper prints a mean or a median, which lets a count be a
@@ -46,28 +50,28 @@ def resolve_trait_value(
     """
     entry = mammal_traits().get(trait_code)
     if entry is None:
-        return "trait_unknown"
+        return UnmappedTrait()
     warnings: list[Notice] = []
     if entry.status == "deprecated":
         warnings.append(DeprecatedTrait())
     if isinstance(entry, NumericTrait):
         return _convert_numeric(entry, value, unit, warnings)
     # A count and a level are not converted. A measurement unit that is not this entry's own
-    # unit suggests the observation names the wrong trait. The entry's own unit does not.
+    # unit is evidence the code is wrong, so the claim does not hold. The entry's own unit does.
     own_unit = entry.stored_unit if isinstance(entry, CountTrait) else None
     if unit in _known_units() and unit != own_unit:
-        warnings.append(UnitNotExpected())
+        return UnitRefused(kind="unit_not_for_trait")
     if isinstance(entry, CategoricalTrait):
         level = entry.level_for(value)
         if level is None:
-            return "level_unknown"
+            return NotInVocabulary(field="traitValue")
         return ResolvedTraitValue(
             level, None, Decimal(1), entry.name, entry.trait_id, "categorical", tuple(warnings)
         )
     count = parse_count(value)
     rendered = str(count) if count is not None else canonical_decimal(value) if aggregate else None
     if rendered is None:
-        return "value_not_numeric"
+        return NotNumeric(field="traitValue")
     return ResolvedTraitValue(
         rendered,
         entry.stored_unit,
@@ -81,16 +85,16 @@ def resolve_trait_value(
 
 def _convert_numeric(
     entry: NumericTrait, value: str, unit: str, warnings: list[Notice]
-) -> ResolvedTraitValue | TraitProblem:
+) -> ResolvedTraitValue | Notice:
     factor = entry.factor_for(unit)
     if factor is None:
-        return "unit_not_for_trait" if unit in _known_units() else "unit_unknown"
+        return UnitRefused(kind="unit_not_for_trait" if unit in _known_units() else "unit_unknown")
     rendered = canonical_decimal(value)
     if rendered is None:
-        return "value_not_numeric"
+        return NotNumeric(field="traitValue")
     canonical = canonical_decimal(format(Decimal(rendered) * factor, "f"))
     if canonical is None:
-        return "value_not_numeric"
+        return NotNumeric(field="traitValue")
     if unit in entry.approximate_units:
         warnings.append(Approximate())
     return ResolvedTraitValue(

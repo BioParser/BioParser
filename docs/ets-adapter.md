@@ -8,8 +8,9 @@ The ETS adapter turns an extraction artifact ([extraction-artifact.md](extractio
 
 - The adapter reads an artifact and returns rows. It does not modify the artifact and does not write ETS columns back into it.
 - It does not call the model, and it does not open the parser artifact.
-- One observation is at most one row. An observation the adapter cannot turn into a valid row is dropped.
+- One observation is one row. The adapter never drops an observation. What it cannot standardize stays as printed, with a warning.
 - A new ETS version changes the adapter's mapping. It does not change the stored artifact.
+- The result is one row per observation. Each row has its source index, the observation's position in the artifact. `measurementID` is that position plus one. The result also names the `trait_list_version` that was used.
 
 ## Name mapping
 
@@ -30,8 +31,6 @@ The adapter needs two sources. One is not chosen yet.
 - **Taxonomy backbone** for `scientificName` and `taxonID`. The source is chosen later.
 - **Trait thesaurus** for `traitName`, `traitID`, the stored unit, and the allowed levels. ETS does not define the trait list, so the mammal trait list is the thesaurus. See [Trait thesaurus](#trait-thesaurus).
 
-An extractor may store `traitValue` and `traitUnit` when the printed token is not itself the value, such as `kg` for a printed `kilograms`. Both are what the paper printed. The adapter converts that pair. The unit check is not written into the artifact.
-
 ## How a row is derived
 
 ### Name and taxon
@@ -50,13 +49,26 @@ The adapter resolves the value and the unit each on its own, then converts once.
 2. The unit is `traitUnit` when stored, otherwise the printed `verbatimTraitUnit`. A stored unit is a cleaned reading of the printed unit, such as `kg` for `kilograms`.
 3. The pair is converted with the trait's entry in the thesaurus to the trait's stored unit. This changes nothing when the printed unit is already the stored unit.
 
-The adapter is what converts. An extractor does not store a converted pair, such as `12500` and `g` for a printed `12.5 kg`.
+The adapter is what converts. An extractor does not store a converted pair, such as `12500` and `g` for a printed `12.5 kg`. The unit check is not written into the artifact.
 
-An observation with no `traitCode` keeps its row. `traitName` and `traitID` stay empty, `traitUnit` stays empty, and `traitValue` is the printed value, unconverted. The warning is `unmapped:traitName`. A code that is not on the list still drops the row with `trait_unknown`. For a numeric trait, an unknown unit drops the row with `unit_unknown`, and a unit that is not valid for that trait drops it with `unit_not_for_trait`. A value that is not a positive decimal drops the row with `value_not_numeric`. A count is a positive whole number and is not converted. A count the paper prints as a mean or a median, such as a litter size of 3.5, may be a decimal. The observation says so with `centralKind` or `aggregateMeasure`. A categorical trait must match one of its levels, ignoring case, or the row drops with `level_unknown`. The printed unit of a count or a categorical trait is not checked, because papers print `unitless`, `-`, or `NA` there. It stays in `verbatimTraitUnit`, and `traitUnit` is the count's own unit, such as `young` or `teats`, and empty for a categorical trait. A measurement unit that is not that unit warns `unit_not_expected`. The count's own unit does not. A categorical row still gets the ETS defaults of `1` for `individualCount` and `0` for `dispersion`. For a categorical trait the `0` carries no meaning, because there is no mean to disperse. A stored dispersion, minimum, maximum, central choice, or dispersion choice on a categorical observation is warned about and not published, so `dispersion` is `0`, the minimum and the maximum are empty, and `statisticalMethod` is empty.
+What happens next depends on the observation's `traitCode`.
+
+**A code the list accepts.** The entry's kind decides:
+
+- **Numeric.** The value is a positive decimal and the unit is one the entry accepts. `traitValue` and `traitUnit` are the converted value and the stored unit.
+- **Count.** The value is a positive whole number and is not converted. A count the paper prints as a mean or a median, such as a litter size of 3.5, may be a decimal. The observation says so with `centralKind` or `aggregateMeasure`. `traitUnit` is the count's own unit, such as `young` or `teats`. The printed unit is not checked, because papers print `unitless`, `-`, or `NA` there. It stays in `verbatimTraitUnit`. A real measurement unit other than the count's own, such as `g`, is evidence the code is wrong, so the row is not standardized and warns `unit_not_for_trait:traitUnit`.
+- **Categorical.** The value must match one of the entry's levels, ignoring case. `traitUnit` is empty. A real measurement unit, such as `mm`, is not standardized and warns `unit_not_for_trait:traitUnit`. A level has no mean to disperse, so the row still gets the ETS defaults of `1` for `individualCount` and `0` for `dispersion`, and that `0` carries no meaning. A stored dispersion, minimum, maximum, central choice, or dispersion choice is warned about with `not_applicable` and not published. `dispersion` is `0`, the minimum and the maximum are empty, and `statisticalMethod` is empty.
+
+**No standardized value.** A code is a claim that the measurement is one defined trait. The claim does not hold when the observation has no code, the code is not on the list, the unit is not known or not valid for that trait, a level is not on the entry's list, or the value is not a number the trait accepts. The row is kept anyway:
+
+- `traitName`, `traitID`, and `traitUnit` are empty.
+- `traitValue` is the printed value, unconverted. The printed unit stays in `verbatimTraitUnit`.
+- The range and the dispersion are not converted either. See [Range and dispersion](#range-and-dispersion).
+- The warning says why. See [Warnings](#warnings).
 
 ### Range and dispersion
 
-The minimum, the maximum, and the dispersion share the trait's unit. ETS gives the minimum and the maximum no unit of their own, and it does not convert `dispersion`. A stored minimum or maximum is converted with the same factor as the trait value. An empty side stays empty.
+The minimum, the maximum, and the dispersion share the trait's unit. ETS gives the minimum and the maximum no unit of their own, and it does not convert `dispersion`, so this is the adapter's rule. ETS has no verbatim column for these three. A `not_converted` warning is how a reader knows one is not in the trait's unit.
 
 | Stored choice | ETS column | Conversion |
 |---|---|---|
@@ -64,22 +76,35 @@ The minimum, the maximum, and the dispersion share the trait's unit. ETS gives t
 | `dispersionKind` `variance` | `dispersion` | Square of that factor |
 | A stored minimum or maximum | `measurementValue_min`, `measurementValue_max` | Same factor as the trait value |
 
-`centralKind` has no column and no conversion. It only feeds the `statisticalMethod` phrase.
+An empty side stays empty.
 
-`statisticalMethod` stays one free-text phrase. A stored phrase is copied. When no phrase is stored, the adapter writes one from `centralKind` and, when a dispersion number was stored, from `dispersionKind`. The minimum and the maximum are their own columns, so they are not part of the phrase. `mean` and `standardDeviation` become `mean and standard deviation`.
+**When the number is not converted.** The number stays in the printed unit and warns `not_converted:<field>`:
 
+- The row has no trait factor, because it has no code or the list refused it. All three numbers stay printed.
+- A dispersion number has no usable kind, either because the choice is absent or because it is not recognized.
+
+A trait factor of 1 means the number is already in grams or millimetres, so it is kept and does not warn.
+
+**Reading rule.** A row with a `not_converted` warning for a number has that number in the printed unit. Read it with `verbatimTraitUnit`. A number with no such warning is in the stored unit.
+
+**Statistical method.** `centralKind` has no column and no conversion. It only feeds `statisticalMethod`, which stays one free-text phrase.
+
+- A stored phrase is copied.
+- With no stored phrase, the adapter writes one from `centralKind` and, when a dispersion number was stored, from `dispersionKind`. `mean` and `standardDeviation` become `mean and standard deviation`. The minimum and the maximum are their own columns, so they are not part of the phrase.
 - An unrecognized `centralKind` warns `not_in_vocabulary:statisticalMethod`. A stored phrase is still copied.
-- A dispersion number with no usable kind stays in the printed unit and warns `not_converted:dispersion`. An absent choice and an unrecognized choice both do this. A factor of 1 means the number is already in grams or millimetres, so it is kept and there is no warning.
-- A dispersion kind with no number warns `unspecified:dispersion` and `dispersion` takes the default (see [Defaults](#defaults-and-assigned-columns)). The generated phrase does not name that dispersion.
+
+**Other cases.**
+
+- A dispersion kind with no number warns `unspecified:dispersion`, and `dispersion` takes the default (see [Defaults](#defaults-and-assigned-columns)). The generated phrase does not name that dispersion.
 - No dispersion number and no kind leaves `dispersion` at 0, with no warning. A single specimen stores none of these choices.
-- A minimum greater than the maximum, after conversion, drops the row with `bounds_reversed`.
+- A minimum greater than the maximum, after conversion, is not published. Both stay empty and the row warns `bounds_reversed:measurementValue_min,measurementValue_max`.
 
 ### Citation and interpretation columns
 
-- A free-text column that accepts a citation or a correction uses the interpretation value when the extractor stored a correction, and the printed citation otherwise. The narrow citation of a correction is not used for the column. It stays in the artifact for tracing and for UI highlighting, where a precise range is better than a whole passage.
-- A column that accepts a citation or an interpretation (`individualCount`, `measurementValueMin`, dates, coordinates, and the like) is parsed or matched by the adapter. A citation is parsed from its text. An interpretation uses its `value`, and its passage is only the grounding. The adapter parses a number into the numeric ETS column. The artifact does not store the parsed number.
-- `sex` and `aggregateMeasure` are matched against the ETS values. A value that does not match adds a warning and leaves the column empty. A `countryCode` that is not two uppercase letters does the same. A `basisOfRecord` that does not match adds a warning and becomes `literatureData`.
-- A date is written as `YYYY-MM-DD`. A year-first number or a written month is converted. A numeric day and month is converted when one number is greater than 12, so that number is the day. When both are 12 or less, the date is left empty.
+- **Free text.** A column that accepts a citation or a correction uses the interpretation value when the extractor stored a correction, and the printed citation otherwise. The narrow citation of a correction is not used for the column. It stays in the artifact for tracing and for UI highlighting, where a precise range is better than a whole passage.
+- **Numbers and dates.** A column that accepts a citation or an interpretation (`individualCount`, `measurementValueMin`, dates, coordinates, and the like) is parsed or matched by the adapter. A citation is parsed from its text. An interpretation uses its `value`, and its passage is only the grounding. The artifact does not store the parsed number.
+- **Closed values.** `sex` and `aggregateMeasure` are matched against the ETS values. A value that does not match warns and leaves the column empty. So does a `countryCode` that is not two uppercase letters. A `basisOfRecord` that does not match warns and becomes `literatureData`.
+- **Dates.** A date is written as `YYYY-MM-DD`. A year-first number or a written month is converted. A numeric day and month is converted when one number is greater than 12, so that number is the day. When both are 12 or less, the date is left empty.
 
 ### Defaults and assigned columns
 
@@ -91,19 +116,43 @@ The minimum, the maximum, and the dispersion share the trait's unit. ETS gives t
 - `occurrenceID` is copied when the observation stored one.
 - `traitName` and `traitID` come from the thesaurus entry for the artifact's `traitCode`. When the observation has no code, both stay empty and the row warns `unmapped:traitName`.
 
-## Warnings and drops
+## Warnings
 
-A warning means the row was built with something missing or doubtful. A drop means no row was built.
+A warning means the row was built with something missing or doubtful. No observation is dropped. The `warnings` column is one string. Each warning is written `kind:field` and the warnings are joined with ` | `, such as `unmapped:traitName | not_converted:dispersion`. The `field` is the ETS column the warning is about.
 
-Trait warnings:
+### Trait mapping warnings
 
-- `not_applicable:dispersion`, `not_applicable:measurementValue_min`, `not_applicable:measurementValue_max`, `not_applicable:centralKind`, and `not_applicable:dispersionKind`: a categorical observation stores a spread, a range, or a mean. A level has none of these, so the trait may be wrong.
-- `unit_not_expected:traitUnit`: a count or a categorical trait was printed with a real unit such as `g` or `mm`. The trait may be wrong.
-- `unmapped:traitName`: the observation has no trait code. The printed name, value, and unit stay, and the value is not converted.
-- `deprecated_trait:traitName`: the code is deprecated. It still converts.
-- `approximate:traitValue`: the value used a conventional factor, a month or a year.
+These describe how the trait list treated the measurement. The Standardized column says whether the row still has its `traitName`, `traitID`, and converted `traitValue`. When it is **no**, `traitName`, `traitID`, and `traitUnit` are empty, and `traitValue` is the printed value, unconverted.
 
-A dropped observation must not disappear silently. The adapter returns, with the rows, a list of drops. Each has the source index of the observation in the artifact and a reason: `trait_unknown`, `unit_unknown`, `unit_not_for_trait`, `value_not_numeric`, `level_unknown`, or `bounds_reversed`. The result also names the `trait_list_version` that was used. It also keeps each row's source index, so a row can be traced back to its observation. The index is not derived from `measurementID`, which counts only kept rows.
+| Warning | Standardized | Meaning |
+|---|---|---|
+| `unmapped:traitName` | no | The observation has no trait code, or the code is not on the list. |
+| `not_in_vocabulary:traitValue` | no | A categorical value is not one of the trait's levels. |
+| `not_numeric:traitValue` | no | The value is not a number the trait accepts, such as `3.5` for a count. |
+| `unit_unknown:traitUnit` | no | The printed unit is not known for any numeric trait. |
+| `unit_not_for_trait:traitUnit` | no | The printed unit is a real measurement unit that the trait does not accept, such as `kHz` for a gestation length, or `g` for a count or a categorical trait. A numeric value cannot be converted, and for a count or a level the unit is evidence the code is wrong. |
+| `deprecated_trait:traitName` | yes | The code is deprecated. It still converts. |
+| `approximate:traitValue` | yes | The value used a conventional factor, a month or a year. |
+
+### Range and dispersion warnings
+
+| Warning | Meaning |
+|---|---|
+| `not_converted:dispersion`, `not_converted:measurementValue_min`, `not_converted:measurementValue_max` | The number stayed in the printed unit. Read it with `verbatimTraitUnit`. See [Range and dispersion](#range-and-dispersion) for when this happens. |
+| `unspecified:dispersion` | A dispersion kind was stored with no number. `dispersion` takes the default. |
+| `bounds_reversed:measurementValue_min,measurementValue_max` | The minimum is greater than the maximum after conversion. Both stay empty. |
+| `not_applicable:dispersion`, `not_applicable:measurementValue_min`, `not_applicable:measurementValue_max`, `not_applicable:centralKind`, `not_applicable:dispersionKind` | A categorical observation stored a spread, a range, or a mean. A level has none of these, so the trait may be wrong. The value is not published. |
+
+### Other column warnings
+
+| Warning | Meaning |
+|---|---|
+| `not_numeric:<field>` | The printed number is not the ETS numeric type, or is out of range. The column stays empty. The field is `individualCount`, `age`, `measurementValue_min`, `measurementValue_max`, `dispersion`, `year`, `month`, `day`, `decimalLongitude`, `decimalLatitude`, or `elevation`. |
+| `not_in_vocabulary:<field>` | A stored token is outside the list for that column. The column stays empty, except `basisOfRecord`, which becomes `literatureData`, and `statisticalMethod`, where a stored phrase is still copied. The field is `sex`, `basisOfRecord`, `aggregateMeasure`, `countryCode`, or `statisticalMethod`. |
+| `not_a_date:eventDate`, `not_a_date:measurementDeterminedDate` | The printed date is not a calendar day. The column stays empty. |
+| `not_a_date:year,month,day` | Year, month, and day together are not one calendar day. The day is cleared. |
+
+A taxon lookup that finds no hit or more than one will add a warning when a taxonomy source exists. None is run now.
 
 ## Trait thesaurus
 
@@ -124,10 +173,11 @@ Each entry has:
 Rules that keep stored results valid:
 
 - A code keeps its meaning. A change to the measurement or the stored unit is a new code with a new identifier.
-- A retired code is marked `deprecated`, with an optional `replaced_by`. It still converts. Only a code that is absent from the list is `trait_unknown`.
+- A retired code is marked `deprecated`, with an optional `replaced_by`. It still converts. Only a code that is absent from the list is treated as no code.
 - A name or an identifier may change. An artifact stores only the code, so the next run uses the new value.
 - The list has a `version` in the form `YYYY.MM.REVISION`: the year and month of the release, then a revision that starts at 0 and counts further releases in that month. Every change to the file, including a new trait or a deprecation, bumps it. The adapter result reports it.
-- Tests enforce this. `data/traits/releases/` holds a frozen copy of every released version, outside the installed package. After an edit, bump `version` and run `uv run python -m bioparser.traits.release`. The tests fail if the list changes without a new release. They also fail if a code is removed or changes kind, stored unit or a printed unit factor, loses a level or an approximate unit, or becomes active again after a deprecation.
+- `data/traits/releases/` holds a frozen copy of every released version, outside the installed package. After an edit, bump `version` and run `uv run python -m bioparser.traits.release`.
+- Tests enforce these rules. They fail if the list changes without a new release. They also fail if a code is removed or changes kind, stored unit or a printed unit factor, loses a level or an approximate unit, or becomes active again after a deprecation.
 
 The model is not asked to emit a `traitID`. The extractor keeps its closed set of trait codes.
 
