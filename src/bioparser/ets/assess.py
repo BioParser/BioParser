@@ -1,7 +1,6 @@
 """Judge one stored observation. The observation is left unchanged."""
 
 import re
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
@@ -87,7 +86,6 @@ class _Fields(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     warnings: tuple[Notice, ...]
-    scientific_name: str
     sex: Sex | None
     age: float | None
     aggregate_measure: bool | None
@@ -108,23 +106,12 @@ class _Fields(BaseModel):
     cited: dict[TextField, str | None]
 
 
-@dataclass(frozen=True)
-class _PrintedTraitValue:
-    """A measurement the list did not standardize. The value is the printed one, unconverted.
-
-    ``warning`` says why: no trait code, or what the list refused.
-    """
-
-    value: str
-    warning: Notice
-
-
 class Assessment(_Fields):
     """One observation judged, ready to become one row. Problems are in ``warnings``."""
 
     trait_name: str | None
     trait_id: str | None
-    trait_value: str
+    trait_value: str | None
     trait_unit: str | None
 
 
@@ -134,12 +121,6 @@ def assess(observation: Observation) -> Assessment:
 
     # Free-text columns. A correction contributes its interpretation. A citation contributes its text.
     cited = {ets_name: _cited(getattr(observation, name)) for name, ets_name in _CITED.items()}
-    scientific_name = (
-        observation.scientificName.value
-        if observation.scientificName is not None
-        else observation.verbatimScientificName.text
-    )
-
     # Closed tokens. A missing or unmatched basis becomes literatureData.
     sex = _sex(observation.sex, warnings)
     aggregate_measure = _aggregate(observation.aggregateMeasure, warnings)
@@ -156,8 +137,8 @@ def assess(observation: Observation) -> Assessment:
         warnings.extend(parsed.warnings)
         if categorical:
             warnings.extend(_numbers_that_do_not_apply(observation))
-    elif isinstance(parsed, _PrintedTraitValue):
-        warnings.append(parsed.warning)
+    else:
+        warnings.append(parsed)
     statistics = read_statistics(
         observation,
         trait_factor=parsed.factor if isinstance(parsed, ResolvedTraitValue) else None,
@@ -203,7 +184,6 @@ def assess(observation: Observation) -> Assessment:
         value_max = None
     shared = _Fields(
         warnings=tuple(warnings),
-        scientific_name=scientific_name,
         sex=sex,
         age=age,
         aggregate_measure=aggregate_measure,
@@ -223,11 +203,11 @@ def assess(observation: Observation) -> Assessment:
         country_code=country_code,
         cited=cited,
     )
-    if isinstance(parsed, _PrintedTraitValue):
+    if not isinstance(parsed, ResolvedTraitValue):
         return Assessment(
             trait_name=None,
             trait_id=None,
-            trait_value=parsed.value,
+            trait_value=None,
             trait_unit=None,
             **shared.model_dump(),
         )
@@ -264,26 +244,22 @@ def _numbers_that_do_not_apply(observation: Observation) -> list[Notice]:
     return [NotApplicable(field=field) for value, field in stored if value is not None]
 
 
-def _parse_trait_value(
-    observation: Observation, *, aggregate: bool
-) -> ResolvedTraitValue | _PrintedTraitValue:
-    """The resolved value, or the printed value with the reason the list could not standardize it."""
+def _parse_trait_value(observation: Observation, *, aggregate: bool) -> ResolvedTraitValue | Notice:
+    """The resolved value, or the notice for why the list could not standardize it."""
     value = (
         observation.traitValue.value
         if observation.traitValue is not None
         else observation.verbatimTraitValue.text
     )
     if observation.traitCode is None:
-        return _PrintedTraitValue(value, UnmappedTrait())
+        return UnmappedTrait()
     unit = (
         observation.traitUnit.value
         if observation.traitUnit is not None
         else observation.verbatimTraitUnit.text
     )
     resolved = resolve_trait_value(observation.traitCode.value, value, unit, aggregate=aggregate)
-    if isinstance(resolved, ResolvedTraitValue):
-        return resolved
-    return _PrintedTraitValue(value, resolved)
+    return resolved
 
 
 def _cited(value: CitationOrCorrection | None) -> str | None:

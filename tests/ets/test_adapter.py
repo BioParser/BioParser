@@ -57,7 +57,6 @@ def _row(**changes: object) -> EtsRow:
     values: dict[str, object] = {
         "traitID": "VT:0001259",
         "traitName": "Body mass",
-        "scientificName": "Mus musculus",
         "verbatimScientificName": "Mus musculus",
         "verbatimTraitValue": "12.5",
         "verbatimTraitUnit": "g",
@@ -86,7 +85,7 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     dumped = row.model_dump()
     assert dumped["traitValue"] == "12500"
     assert dumped["traitUnit"] == "g"
-    assert dumped["scientificName"] == "M. musculus"
+    assert dumped["scientificName"] is None
     assert dumped["verbatimScientificName"] == "M. musculus"
     assert dumped["taxonID"] is None
     assert dumped["traitName"] == "Body mass"
@@ -105,13 +104,25 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     assert set(dumped) == aliases
 
 
-def test_a_stored_name_replaces_the_verbatim_citation() -> None:
+def test_a_stored_name_is_not_a_resolved_name() -> None:
     observation = _observation(scientificName=_read("Mus musculus", "M. musculus", start=0))
 
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
-    assert row.scientificName == "Mus musculus"
+    assert row.scientificName is None
+    assert row.taxonID is None
     assert row.verbatimScientificName == "M. musculus"
+
+
+def test_a_scientific_name_and_a_taxon_id_are_filled_together() -> None:
+    row = to_ets(_artifact(_observation()), references=_DOCUMENT_ID).rows[0].row
+    data = row.model_dump(by_alias=True)
+
+    with pytest.raises(ValidationError, match="filled together"):
+        EtsRow.model_validate({**data, "scientificName": "Mus musculus"})
+    with pytest.raises(ValidationError, match="filled together"):
+        EtsRow.model_validate({**data, "taxonID": "NCBI:10090"})
+    EtsRow.model_validate({**data, "scientificName": "Mus musculus", "taxonID": "NCBI:10090"})
 
 
 def test_each_stored_trait_part_is_used_on_its_own() -> None:
@@ -308,7 +319,8 @@ def test_a_unit_that_does_not_belong_to_the_trait_keeps_the_printed_row() -> Non
     assert isinstance(verdict, Assessment)
     kept = result.rows[0].row
     assert kept.verbatimTraitUnit == "mm"
-    assert kept.traitValue == "12.5"
+    assert kept.verbatimTraitValue == "12.5"
+    assert kept.traitValue is None
     assert kept.traitUnit is None
     assert kept.traitID is None
     assert kept.traitName is None
@@ -334,7 +346,7 @@ def test_an_observation_without_a_trait_code_keeps_the_printed_measurement() -> 
     row = result.rows[0].row
     assert row.traitID is None
     assert row.traitName is None
-    assert row.traitValue == "12.5"
+    assert row.traitValue is None
     assert row.traitUnit is None
     assert row.verbatimTraitValue == "12.5"
     assert row.verbatimTraitUnit == "kg"
@@ -349,7 +361,7 @@ def test_an_unknown_trait_keeps_the_printed_row_with_a_warning() -> None:
 
     assert isinstance(verdict, Assessment)
     assert verdict.trait_id is None
-    assert verdict.trait_value == "12.5"
+    assert verdict.trait_value is None
     assert [format_warning(w) for w in verdict.warnings] == ["unmapped:traitName"]
 
 
@@ -381,6 +393,16 @@ def test_the_row_schema_rejects_a_sex_abbreviation_and_an_exponent() -> None:
         _row(sex="M")
     with pytest.raises(ValidationError):
         _row(traitValue="1.5e2")
+
+
+def test_the_thesaurus_columns_are_filled_together() -> None:
+    _row(traitID=None, traitName=None, traitValue=None, traitUnit=None)
+    _row(traitUnit=None, traitValue="nocturnal")
+
+    with pytest.raises(ValidationError, match="filled together"):
+        _row(traitValue=None)
+    with pytest.raises(ValidationError, match="trait unit"):
+        _row(traitUnit="g", traitValue=None, traitID=None, traitName=None)
 
 
 def test_an_unknown_unit_is_a_warning_without_changing_the_observation() -> None:
@@ -428,7 +450,8 @@ def test_a_long_number_does_not_fail_the_other_rows() -> None:
 
     assert result.rows[0].row.month is None
     assert "not_numeric:month" in result.rows[0].row.warnings
-    assert result.rows[1].row.traitValue == "8" * 40
+    assert result.rows[1].row.traitValue is None
+    assert result.rows[1].row.verbatimTraitValue == "8" * 40
     assert result.rows[1].row.warnings == "not_numeric:traitValue"
     assert result.rows[2].row.traitValue == "12500"
 
@@ -560,7 +583,12 @@ def test_numbers_of_a_row_with_no_trait_factor_stay_printed_and_warn() -> None:
 
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
-    assert (row.traitValue, row.traitUnit, row.verbatimTraitUnit) == ("12.5", None, "kg")
+    assert (row.traitValue, row.traitUnit, row.verbatimTraitValue, row.verbatimTraitUnit) == (
+        None,
+        None,
+        "12.5",
+        "kg",
+    )
     assert (row.dispersion, row.measurementValue_min, row.measurementValue_max) == (0.2, 10, 15)
     assert row.warnings == (
         "unmapped:traitName | not_converted:dispersion"
@@ -669,7 +697,7 @@ def test_a_count_must_be_a_positive_whole_number() -> None:
     verdict = assess(_trait_observation("litter_size", "3.5", "-"))
 
     assert isinstance(verdict, Assessment)
-    assert verdict.trait_value == "3.5"
+    assert verdict.trait_value is None
     assert verdict.trait_id is None
     assert [format_warning(w) for w in verdict.warnings] == ["not_numeric:traitValue"]
 
@@ -688,7 +716,7 @@ def test_a_level_off_the_list_keeps_the_printed_value_with_a_warning() -> None:
 
     assert isinstance(verdict, Assessment)
     assert verdict.trait_id is None
-    assert verdict.trait_value == "sometimes"
+    assert verdict.trait_value is None
     assert [format_warning(w) for w in verdict.warnings] == ["not_in_vocabulary:traitValue"]
 
 
@@ -765,7 +793,8 @@ def test_a_real_unit_next_to_a_count_or_a_level_is_not_standardized() -> None:
         assert row.traitID is None
         assert row.traitName is None
         assert row.traitUnit is None
-    assert (count.traitValue, level.traitValue) == ("4", "nocturnal")
+    assert (count.traitValue, level.traitValue) == (None, None)
+    assert (count.verbatimTraitValue, level.verbatimTraitValue) == ("4", "nocturnal")
     assert own_unit.warnings == ""
     assert own_unit.traitID is not None
 
@@ -878,7 +907,8 @@ def test_yes_on_a_three_way_trait_is_not_standardized() -> None:
     row = _only_row(_trait_observation("hibernation_torpor", "Yes", "NA"))
 
     assert row.traitID is None
-    assert row.traitValue == "Yes"
+    assert row.traitValue is None
+    assert row.verbatimTraitValue == "Yes"
     assert row.warnings == "not_in_vocabulary:traitValue"
 
 

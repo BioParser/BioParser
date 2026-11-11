@@ -108,7 +108,7 @@ class Observation(BaseModel):
     constrain it, and the adapter decides what a value means.
 
     ``traitCode`` is optional. Without it the measurement is still stored, and the
-    adapter keeps the row without a standardized name, identifier, or unit.
+    adapter keeps the row without a standardized name, identifier, value, or unit.
 
     Every other column a paper can state is optional. An extractor leaves it null.
     """

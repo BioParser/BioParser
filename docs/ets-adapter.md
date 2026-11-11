@@ -22,7 +22,7 @@ The artifact uses its own camelCase names. The adapter maps them to ETS column n
 | `measurementValueMin` | `measurementValue_min` |
 | `measurementValueMax` | `measurementValue_max` |
 
-`traitCode` is not an ETS column. When the observation has one, the adapter uses it to look up `traitName`, `traitID`, and the standard unit. When it has none, those columns stay empty.
+`traitCode` is not an ETS column. When the list applies the code, the adapter fills `traitName`, `traitID`, `traitValue`, and the standard unit. When it does not, those columns stay empty.
 
 ## Sources
 
@@ -37,9 +37,9 @@ The adapter needs two sources. One is not chosen yet.
 
 `verbatimScientificName` stays the printed span, including forms such as `M. musculus`. `scientificName`, when stored, is another name a taxonomy lookup can try.
 
-One confident hit becomes the ETS `scientificName` and `taxonID`. No hit, or more than one, leaves `taxonID` empty and adds a warning. The observation is not rewritten.
+One confident hit fills the ETS `scientificName` and `taxonID` together. No hit, or more than one, leaves both empty and adds a warning. The observation is not rewritten.
 
-Until a taxonomy source exists, ETS `scientificName` is the stored `scientificName` when the observation has one, and otherwise the verbatim citation. `taxonID` stays empty. No warning is added for the missing lookup, because none is run.
+Until a taxonomy source exists, `scientificName` and `taxonID` stay empty and the printed name is in `verbatimScientificName`. No warning is added for the missing lookup, because none is run.
 
 ### Trait value and unit
 
@@ -61,14 +61,14 @@ What happens next depends on the observation's `traitCode`.
 
 **No standardized value.** A code is a claim that the measurement is one defined trait. The claim does not hold when the observation has no code, the code is not on the list, the unit is not known or not valid for that trait, a level is not on the entry's list, or the value is not a number the trait accepts. The row is kept anyway:
 
-- `traitName`, `traitID`, and `traitUnit` are empty.
-- `traitValue` is the printed value, unconverted. The printed unit stays in `verbatimTraitUnit`.
+- `traitName`, `traitID`, `traitValue`, and `traitUnit` are empty.
+- The printed value and unit stay in `verbatimTraitValue` and `verbatimTraitUnit`.
 - The range and the dispersion are not converted either. See [Range and dispersion](#range-and-dispersion).
 - The warning says why. See [Warnings](#warnings).
 
 ### Spellings
 
-A paper prints `Kg`, `mm.`, `km²`, `individuals ha-1`, or `Nocturnal-Crepuscular`. The list names each unit and level once, and the adapter matches them with a key that ignores the spelling. The row keeps the printed text in `verbatimTraitUnit` and `verbatimTraitValue`, and the list's own spelling in `traitUnit` and `traitValue`.
+A paper prints `Kg`, `mm.`, `km²`, `individuals ha-1`, or `Nocturnal-Crepuscular`. The list names each unit and level once, and the adapter matches them with a key that ignores the spelling. The row keeps the printed text in `verbatimTraitUnit` and `verbatimTraitValue`. `traitUnit` and `traitValue` get the list's own spelling only when the list standardizes the row.
 
 - **Units.** The key ignores case, spaces, a trailing period, `²` and `^` exponents, and a per-unit written with a negative exponent (`ha-1` is `/ha`). A plural or a spelled-out name also meets the list's unit: `grams` is `g`, `weeks` is `week`, `animals` and `ind` are `individuals`. The shared alias table is in [`normalize.py`](../src/bioparser/traits/normalize.py), so an entry lists each unit once.
 - **Levels.** The key ignores case and the separators between words, so `non migratory` and `non-migratory` are one level.
@@ -122,7 +122,7 @@ A trait factor of 1 means the number is already in grams or millimetres, so it i
 - `references` comes from the job's document.
 - `warnings` collects what the adapter found while building the row.
 - `occurrenceID` is copied when the observation stored one.
-- `traitName` and `traitID` come from the thesaurus entry for the artifact's `traitCode`. When the observation has no code, both stay empty and the row warns `unmapped:traitName`.
+- `traitName`, `traitID`, `traitValue`, and `traitUnit` come from the thesaurus entry for the artifact's `traitCode`. When the list does not apply the code, they stay empty and the row warns. The printed text stays in the verbatim columns.
 
 ## Warnings
 
@@ -130,7 +130,7 @@ A warning means the row was built with something missing or doubtful. No observa
 
 ### Trait mapping warnings
 
-These describe how the trait list treated the measurement. The Standardized column says whether the row still has its `traitName`, `traitID`, and converted `traitValue`. When it is **no**, `traitName`, `traitID`, and `traitUnit` are empty, and `traitValue` is the printed value, unconverted.
+These describe how the trait list treated the measurement. The Standardized column says whether the row still has its `traitName`, `traitID`, and `traitValue`. When it is **no**, `traitName`, `traitID`, `traitValue`, and `traitUnit` are empty.
 
 | Warning | Standardized | Meaning |
 |---|---|---|

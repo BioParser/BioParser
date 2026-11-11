@@ -149,7 +149,7 @@ In the table below, the ETS term is the column the adapter fills from the field.
 | `traitCode` | interpreted | | - | The internal trait code, a free string such as `body_mass`. When present, the adapter looks it up in the trait thesaurus. When absent, the row keeps the printed measurement and warns `unmapped:traitName`. When the list cannot apply the code, the row also keeps the printed measurement, with a warning such as `not_in_vocabulary:traitValue`. |
 | `verbatimTraitName` | printed + correction | | `verbatimTraitName` | |
 | `verbatimScientificName` | printed | yes | `verbatimScientificName` | The printed name, such as `M. musculus`. |
-| `scientificName` | interpreted | | `scientificName` | Paired with `verbatimScientificName`. A name read from the printed citation, such as `Mus musculus`. |
+| `scientificName` | interpreted | | - | Paired with `verbatimScientificName`. A name read from the printed citation, such as `Mus musculus`. A taxonomy lookup can try it. |
 | `verbatimTraitValue` | printed | yes | `verbatimTraitValue` | |
 | `traitValue` | interpreted | | `traitValue` | Paired with `verbatimTraitValue`. A cleaned reading of the printed number, in the unit the paper printed. |
 | `verbatimTraitUnit` | printed | yes | `verbatimTraitUnit` | |

@@ -59,7 +59,6 @@ def _row(
             "traitID": verdict.trait_id,
             "traitName": verdict.trait_name,
             "verbatimTraitName": verdict.cited["verbatimTraitName"],
-            "scientificName": verdict.scientific_name,
             "verbatimScientificName": verdict.cited["verbatimScientificName"],
             "traitValue": verdict.trait_value,
             "verbatimTraitValue": verdict.cited["verbatimTraitValue"],

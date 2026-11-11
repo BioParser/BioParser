@@ -30,20 +30,20 @@ class EtsRow(BaseModel):
         serialize_by_alias=True,
     )
 
-    # Filled from the trait list when the observation has a code. Empty when it does not.
+    # Filled together with traitValue when the list standardizes the row. Otherwise empty.
     traitID: str | None = Field(default=None, min_length=1)
     traitName: str | None = Field(default=None, min_length=1)
     verbatimTraitName: str | None = None
 
-    # Accepted name. taxonID is the optional taxonomy identifier.
-    scientificName: str = Field(min_length=1)
+    # Filled together with taxonID when a taxonomy lookup resolves the name. Otherwise empty.
+    scientificName: str | None = Field(default=None, min_length=1)
     verbatimScientificName: str = Field(min_length=1)
-    taxonID: str | None = None
+    taxonID: str | None = Field(default=None, min_length=1)
 
-    # Standardized value beside the printed one.
-    traitValue: str = Field(min_length=1)
+    # The thesaurus value beside the printed one. Empty when the list did not standardize.
+    traitValue: str | None = Field(default=None, min_length=1)
     verbatimTraitValue: str = Field(min_length=1)
-    # None for a categorical trait, which has no unit. The printed unit stays in verbatimTraitUnit.
+    # The thesaurus unit. Empty for a level, and empty when the list did not standardize.
     traitUnit: str | None = Field(default=None, min_length=1)
     verbatimTraitUnit: str = Field(min_length=1)
 
@@ -108,11 +108,23 @@ class EtsRow(BaseModel):
     occurrenceRemarks: str | None = None
 
     @model_validator(mode="after")
-    def _trait_value_matches_its_kind(self) -> Self:
-        # A trait with a unit is a number. A trait without one is a categorical level or a
-        # printed value the list did not standardize, so any text is allowed.
-        if self.traitUnit is not None and canonical_decimal(self.traitValue) != self.traitValue:
-            raise ValueError("traitValue is not a positive decimal in canonical form")
+    def _taxon_fields_are_one_resolution(self) -> Self:
+        if (self.scientificName is None) != (self.taxonID is None):
+            raise ValueError("scientificName and taxonID are filled together")
+        return self
+
+    @model_validator(mode="after")
+    def _trait_fields_are_one_standardization(self) -> Self:
+        # The thesaurus columns are one claim. The name, the identifier, and the value are
+        # filled together, or all empty. A unit is that claim's stored unit, so it needs the
+        # value, and the value is then a number. A level has a value and no unit.
+        named = (self.traitID, self.traitName, self.traitValue)
+        filled = [field is not None for field in named]
+        if any(filled) and not all(filled):
+            raise ValueError("traitID, traitName, and traitValue are filled together")
+        value = self.traitValue
+        if self.traitUnit is not None and (value is None or canonical_decimal(value) != value):
+            raise ValueError("traitValue is not a positive decimal in the trait unit")
         return self
 
     @field_validator("measurementID")
