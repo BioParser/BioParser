@@ -384,7 +384,7 @@ def test_the_row_schema_rejects_a_sex_abbreviation_and_an_exponent() -> None:
 
 
 def test_an_unknown_unit_is_a_warning_without_changing_the_observation() -> None:
-    observation = _observation(verbatimTraitUnit=_cited("grams", start=25))
+    observation = _observation(verbatimTraitUnit=_cited("stone", start=25))
     before = observation.model_dump()
 
     verdict = assess(observation)
@@ -831,8 +831,55 @@ def test_a_mean_group_size_may_be_a_decimal() -> None:
     row = _only_row(_trait_observation("population_group_size", "4.2", "individuals"))
     social = _only_row(_trait_observation("social_group_size", "4.5", "individuals"))
 
-    assert (row.traitValue, row.traitUnit) == ("4.2", "animals")
-    assert (social.traitValue, social.traitUnit) == ("4.5", "animals")
+    assert (row.traitValue, row.traitUnit) == ("4.2", "individuals")
+    assert (social.traitValue, social.traitUnit) == ("4.5", "individuals")
+
+
+@pytest.mark.parametrize(
+    ("code", "value", "unit", "converted", "stored"),
+    [
+        ("body_mass", "12.5", "Kg", "12500", "g"),
+        ("body_mass", "850", "mg", "0.85", "g"),
+        ("body_mass", "2", "grams", "2", "g"),
+        ("head_body_length", "4", "cm.", "40", "mm"),
+        ("individual_home_range_size", "2", "km²", "2", "km2"),
+        ("population_density", "3", "individuals ha-1", "300", "individuals/km2"),
+        ("population_density", "3", "ind/ha", "300", "individuals/km2"),
+        ("basal_oxygen_consumption", "5", "mL O2/h", "5", "mlO2/h"),
+        ("gestation_length", "2", "weeks", "14", "day"),
+        ("gestation_length", "60", "Days", "60", "day"),
+    ],
+)
+def test_a_unit_matches_in_any_common_spelling(
+    code: str, value: str, unit: str, converted: str, stored: str
+) -> None:
+    row = _only_row(_trait_observation(code, value, unit))
+
+    assert (row.traitValue, row.traitUnit) == (converted, stored)
+    assert row.verbatimTraitUnit == unit
+    assert "unit" not in row.warnings
+
+
+@pytest.mark.parametrize("printed", ["Yes", "Y", "true", "1"])
+def test_a_yes_or_no_trait_takes_the_common_printed_forms(printed: str) -> None:
+    row = _only_row(_trait_observation("migratory_status", printed, "NA"))
+
+    assert row.traitValue == "yes"
+    assert row.traitName == "Migratory status"
+
+
+def test_no_is_matched_and_a_level_ignores_its_separators() -> None:
+    assert _only_row(_trait_observation("domestication_status", "No", "NA")).traitValue == "no"
+    cycle = _only_row(_trait_observation("activity_cycle", "Nocturnal-Crepuscular", "NA"))
+    assert cycle.traitValue == "nocturnal/crepuscular"
+
+
+def test_yes_on_a_three_way_trait_is_not_standardized() -> None:
+    row = _only_row(_trait_observation("hibernation_torpor", "Yes", "NA"))
+
+    assert row.traitID is None
+    assert row.traitValue == "Yes"
+    assert row.warnings == "not_in_vocabulary:traitValue"
 
 
 def test_a_deprecated_trait_still_converts_with_a_warning(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -41,16 +41,16 @@ def compatibility_problems(old: TraitTable, new: TraitTable) -> list[str]:
         if before.kind == "numeric" and after.kind == "numeric":
             if after.stored_unit != before.stored_unit:
                 problems.append(f"{before.code} changed its stored unit")
-            for unit, factor in before.printed_units.items():
-                if after.printed_units.get(unit) != factor:
+            for unit in before.printed_units:
+                if after.factor_for(unit) != before.factor_for(unit):
                     problems.append(f"{before.code} changed the factor for {unit}")
-            if not set(before.approximate_units) <= set(after.approximate_units):
+            if not all(after.is_approximate(unit) for unit in before.approximate_units):
                 problems.append(f"{before.code} dropped an approximate unit")
         elif before.kind == "count" and after.kind == "count":
             if after.stored_unit != before.stored_unit:
                 problems.append(f"{before.code} changed its stored unit")
         elif before.kind == "categorical" and after.kind == "categorical":
-            if not set(before.levels) <= set(after.levels):
+            if any(after.level_for(level) is None for level in before.levels):
                 problems.append(f"{before.code} lost a level")
     return problems
 

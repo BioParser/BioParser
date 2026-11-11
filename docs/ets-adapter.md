@@ -55,9 +55,9 @@ What happens next depends on the observation's `traitCode`.
 
 **A code the list accepts.** The entry's kind decides:
 
-- **Numeric.** The value is a positive decimal and the unit is one the entry accepts. `traitValue` and `traitUnit` are the converted value and the stored unit.
+- **Numeric.** The value is a positive decimal and the unit is one the entry accepts, in any common spelling (see [Spellings](#spellings)). `traitValue` and `traitUnit` are the converted value and the stored unit.
 - **Count.** The value is a positive whole number and is not converted. A count the paper prints as a mean or a median, such as a litter size of 3.5, may be a decimal. The observation says so with `centralKind` or `aggregateMeasure`. `traitUnit` is the count's own unit, such as `young` or `teats`. The printed unit is not checked, because papers print `unitless`, `-`, or `NA` there. It stays in `verbatimTraitUnit`. A real measurement unit other than the count's own, such as `g`, is evidence the code is wrong, so the row is not standardized and warns `unit_not_for_trait:traitUnit`.
-- **Categorical.** The value must match one of the entry's levels, ignoring case. `traitUnit` is empty. A real measurement unit, such as `mm`, is not standardized and warns `unit_not_for_trait:traitUnit`. A level has no mean to disperse, so the row still gets the ETS defaults of `1` for `individualCount` and `0` for `dispersion`, and that `0` carries no meaning. A stored dispersion, minimum, maximum, central choice, or dispersion choice is warned about with `not_applicable` and not published. `dispersion` is `0`, the minimum and the maximum are empty, and `statisticalMethod` is empty.
+- **Categorical.** The value must match one of the entry's levels (see [Spellings](#spellings)). `traitUnit` is empty. A real measurement unit, such as `mm`, is not standardized and warns `unit_not_for_trait:traitUnit`. A level has no mean to disperse, so the row still gets the ETS defaults of `1` for `individualCount` and `0` for `dispersion`, and that `0` carries no meaning. A stored dispersion, minimum, maximum, central choice, or dispersion choice is warned about with `not_applicable` and not published. `dispersion` is `0`, the minimum and the maximum are empty, and `statisticalMethod` is empty.
 
 **No standardized value.** A code is a claim that the measurement is one defined trait. The claim does not hold when the observation has no code, the code is not on the list, the unit is not known or not valid for that trait, a level is not on the entry's list, or the value is not a number the trait accepts. The row is kept anyway:
 
@@ -65,6 +65,14 @@ What happens next depends on the observation's `traitCode`.
 - `traitValue` is the printed value, unconverted. The printed unit stays in `verbatimTraitUnit`.
 - The range and the dispersion are not converted either. See [Range and dispersion](#range-and-dispersion).
 - The warning says why. See [Warnings](#warnings).
+
+### Spellings
+
+A paper prints `Kg`, `mm.`, `km²`, `individuals ha-1`, or `Nocturnal-Crepuscular`. The list names each unit and level once, and the adapter matches them with a key that ignores the spelling. The row keeps the printed text in `verbatimTraitUnit` and `verbatimTraitValue`, and the list's own spelling in `traitUnit` and `traitValue`.
+
+- **Units.** The key ignores case, spaces, a trailing period, `²` and `^` exponents, and a per-unit written with a negative exponent (`ha-1` is `/ha`). A plural or a spelled-out name also meets the list's unit: `grams` is `g`, `weeks` is `week`, `animals` and `ind` are `individuals`. The shared alias table is in [`normalize.py`](../src/bioparser/traits/normalize.py), so an entry lists each unit once.
+- **Levels.** The key ignores case and the separators between words, so `non migratory` and `non-migratory` are one level.
+- **Yes and no.** `Y`, `true`, and `1` stand for the level `yes`, and `N`, `false`, and `0` for `no`. They only match a trait that has that level. `Yes` for a trait with the levels hibernation, torpor, and neither matches nothing, so it is not standardized.
 
 ### Range and dispersion
 
@@ -163,15 +171,16 @@ Each entry has:
 - a `code`, the internal key the model emits and an artifact stores. It is not an ETS column.
 - a preferred `name`, which is `traitName`.
 - a `trait_id`, which is `traitID`. It is a Vertebrate Trait Ontology term when one matches the definition, such as `VT:0001259` for body mass. Otherwise it is an opaque `BPT:` identifier published with this list. The prefix-to-IRI mapping is in the file. A `BPT:` identifier has no IRI yet, so it does not resolve to a web page.
-- a one-sentence `definition` that says which measurement the code means. Head-body length and total length are separate codes, even though both are stored in millimetres.
+- a one-sentence `definition` that says which measurement the code means. Head-body length and total length are separate codes, even though both are stored in millimetres. A definition is also what an extractor reads to choose between close codes, so it names the points of a measurement.
 - a `domain`: morphology, reproduction, life_history, life_habit, population, physiology, or acoustics. A domain is a label for selecting a subset. The adapter ignores it.
 - a value `kind`:
-  - **numeric**: the printed units it accepts, each with its factor into the stored unit. Mass is stored in grams, length in millimetres, and age in days. A month is 30.4375 days and a year is 365.25 days, so those conversions are approximate.
-  - **count**: a number of things. The entry names what is counted, such as young or teats. It is not converted.
+  - **numeric**: the printed units it accepts, each with its factor into the stored unit. Mass is stored in grams, length in millimetres, and age in days. A unit is listed once. The adapter matches its other spellings (see [Spellings](#spellings)). A month is 30.4375 days and a year is 365.25 days, so those conversions are approximate.
+  - **count**: a number of things. The entry names what is counted, such as young or teats. It is not converted. A group of animals is stored as `individuals`.
   - **categorical**: a closed set of levels and no unit.
 
 Rules that keep stored results valid:
 
+- A code names a measurement. The sex and the life stage of the animal are the `sex` and `lifeStage` columns of the row, so there is one `body_mass` and not a body mass for each stage or sex. A code names a sex or a stage only when the measurement itself needs it, such as the age at which a female first gives birth.
 - A code keeps its meaning. A change to the measurement or the stored unit is a new code with a new identifier.
 - A retired code is marked `deprecated`, with an optional `replaced_by`. It still converts. Only a code that is absent from the list is treated as no code.
 - A name or an identifier may change. An artifact stores only the code, so the next run uses the new value.

@@ -248,6 +248,50 @@ def test_a_replacement_must_name_a_code_on_the_list() -> None:
         _load(data)
 
 
+def test_sex_and_life_stage_are_columns_not_codes() -> None:
+    table = mammal_traits()
+
+    for code in ("neonate_body_mass", "weaning_body_mass", "age_at_sexual_maturity_female"):
+        assert table.get(code) is None
+    assert table.get("body_mass") is not None
+    assert table.get("age_at_sexual_maturity") is not None
+
+
+def test_a_count_of_animals_is_stored_as_individuals() -> None:
+    for code in ("social_group_size", "population_group_size"):
+        entry = mammal_traits().get(code)
+        assert isinstance(entry, NumericTrait)
+        assert entry.stored_unit == "individuals"
+        assert entry.factor_for("animals") == 1
+
+
+def test_spellings_of_one_unit_cannot_both_be_printed_units() -> None:
+    data = _table()
+    mass = next(trait for trait in data["traits"] if trait["code"] == "body_mass")
+    mass["printed_units"]["grams"] = "1"
+
+    with pytest.raises(ValidationError, match="same unit"):
+        _load(data)
+
+
+def test_levels_that_differ_only_in_separators_are_not_distinct() -> None:
+    data = _table()
+    categorical = next(trait for trait in data["traits"] if trait["kind"] == "categorical")
+    categorical["levels"] = ["non-migratory", "non migratory"]
+
+    with pytest.raises(ValidationError, match="distinct"):
+        _load(data)
+
+
+def test_a_respelled_unit_is_not_a_compatibility_problem() -> None:
+    data = _table()
+    mass = next(trait for trait in data["traits"] if trait["code"] == "gestation_length")
+    mass["printed_units"] = {"d": "1", "wk": "7", "mo": "30.4375", "yr": "365.25"}
+    mass["approximate_units"] = ["mo", "yr"]
+
+    assert compatibility_problems(mammal_traits(), _load(data)) == []
+
+
 def test_the_json_schema_describes_every_kind() -> None:
     schema = json.dumps(json_schema())
 

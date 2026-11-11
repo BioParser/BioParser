@@ -24,6 +24,8 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
+from bioparser.traits.normalize import level_keys, normalize_level, normalize_unit
+
 _CODE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 _TRAIT_ID = re.compile(r"^[A-Za-z]+:\d{7}$")
 
@@ -86,17 +88,31 @@ class NumericTrait(_Entry):
         return value
 
     @model_validator(mode="after")
-    def _stored_unit_is_accepted_as_is(self) -> Self:
-        if Decimal(self.printed_units.get(self.stored_unit, "0")) != 1:
+    def _units_are_distinct_and_consistent(self) -> Self:
+        keys = [normalize_unit(unit) for unit in self.printed_units]
+        if len(set(keys)) != len(keys):
+            raise ValueError("printed units are spellings of the same unit")
+        if self.factor_for(self.stored_unit) != 1:
             raise ValueError("stored_unit must be a printed unit with factor 1")
-        if not set(self.approximate_units) <= set(self.printed_units):
+        if not {normalize_unit(unit) for unit in self.approximate_units} <= set(keys):
             raise ValueError("approximate_units must be printed units")
         return self
 
     def factor_for(self, unit: str) -> Decimal | None:
-        """The multiplier from a printed unit into the stored unit, or None."""
-        factor = self.printed_units.get(unit)
-        return None if factor is None else Decimal(factor)
+        """The multiplier from a printed unit into the stored unit, or None.
+
+        The unit may be spelled any common way, such as ``Kg`` or ``kilograms``.
+        """
+        wanted = normalize_unit(unit)
+        for printed, factor in self.printed_units.items():
+            if normalize_unit(printed) == wanted:
+                return Decimal(factor)
+        return None
+
+    def is_approximate(self, unit: str) -> bool:
+        """True when the factor for this printed unit is a convention."""
+        wanted = normalize_unit(unit)
+        return any(normalize_unit(approximate) == wanted for approximate in self.approximate_units)
 
 
 class CountTrait(_Entry):
@@ -119,15 +135,21 @@ class CategoricalTrait(_Entry):
     @field_validator("levels")
     @classmethod
     def _levels_are_distinct(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        folded = [level.casefold() for level in value]
-        if len(value) < 2 or len(set(folded)) != len(folded) or "" in folded:
+        keys = [normalize_level(level) for level in value]
+        if len(value) < 2 or len(set(keys)) != len(keys) or "" in keys:
             raise ValueError("levels are two or more distinct non-empty strings")
         return value
 
     def level_for(self, text: str) -> str | None:
-        """The allowed level that matches the text, ignoring case."""
-        folded = text.casefold().strip()
-        return next((level for level in self.levels if level.casefold() == folded), None)
+        """The allowed level that matches the text, ignoring case and separators.
+
+        A common form such as ``Y`` or ``1`` matches the level ``yes``, when the trait has one.
+        """
+        for key in level_keys(text):
+            for level in self.levels:
+                if normalize_level(level) == key:
+                    return level
+        return None
 
 
 Trait = Annotated[NumericTrait | CountTrait | CategoricalTrait, Field(discriminator="kind")]

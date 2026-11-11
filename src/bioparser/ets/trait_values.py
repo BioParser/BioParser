@@ -15,6 +15,7 @@ from bioparser.ets.notices import (
     UnmappedTrait,
 )
 from bioparser.ets.numbers import canonical_decimal, parse_count
+from bioparser.traits.normalize import normalize_unit
 from bioparser.traits.table import CategoricalTrait, CountTrait, NumericTrait, mammal_traits
 
 
@@ -58,8 +59,8 @@ def resolve_trait_value(
         return _convert_numeric(entry, value, unit, warnings)
     # A count and a level are not converted. A measurement unit that is not this entry's own
     # unit is evidence the code is wrong, so the claim does not hold. The entry's own unit does.
-    own_unit = entry.stored_unit if isinstance(entry, CountTrait) else None
-    if unit in _known_units() and unit != own_unit:
+    own_unit = normalize_unit(entry.stored_unit) if isinstance(entry, CountTrait) else None
+    if _is_known_unit(unit) and normalize_unit(unit) != own_unit:
         return UnitRefused(kind="unit_not_for_trait")
     if isinstance(entry, CategoricalTrait):
         level = entry.level_for(value)
@@ -88,14 +89,14 @@ def _convert_numeric(
 ) -> ResolvedTraitValue | Notice:
     factor = entry.factor_for(unit)
     if factor is None:
-        return UnitRefused(kind="unit_not_for_trait" if unit in _known_units() else "unit_unknown")
+        return UnitRefused(kind="unit_not_for_trait" if _is_known_unit(unit) else "unit_unknown")
     rendered = canonical_decimal(value)
     if rendered is None:
         return NotNumeric(field="traitValue")
     canonical = canonical_decimal(format(Decimal(rendered) * factor, "f"))
     if canonical is None:
         return NotNumeric(field="traitValue")
-    if unit in entry.approximate_units:
+    if entry.is_approximate(unit):
         warnings.append(Approximate())
     return ResolvedTraitValue(
         canonical,
@@ -110,13 +111,17 @@ def _convert_numeric(
 
 @cache
 def _known_units() -> frozenset[str]:
-    """Every printed unit any numeric trait accepts."""
+    """Every printed unit any numeric trait accepts, as a spelling-insensitive key."""
     return frozenset(
-        unit
+        normalize_unit(unit)
         for entry in mammal_traits().traits
         if isinstance(entry, NumericTrait)
         for unit in entry.printed_units
     )
+
+
+def _is_known_unit(unit: str) -> bool:
+    return normalize_unit(unit) in _known_units()
 
 
 def scale_measure(text: str, factor: Decimal, *, squared: bool) -> float:

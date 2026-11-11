@@ -7,7 +7,7 @@
   "domains": [
     {
       "name": "morphology",
-      "definition": "Body, limb, ear and skull measurements of an adult or a specimen."
+      "definition": "Body, limb, ear and skull measurements."
     },
     {
       "name": "reproduction",
@@ -44,6 +44,7 @@
       "kind": "numeric",
       "stored_unit": "g",
       "printed_units": {
+        "mg": "0.001",
         "g": "1",
         "kg": "1000"
       }
@@ -217,32 +218,7 @@
       "kind": "numeric",
       "stored_unit": "g",
       "printed_units": {
-        "g": "1",
-        "kg": "1000"
-      }
-    },
-    {
-      "code": "neonate_body_mass",
-      "name": "Neonate body mass",
-      "trait_id": "BPT:0000010",
-      "definition": "Body mass of a newborn animal at or shortly after birth.",
-      "domain": "reproduction",
-      "kind": "numeric",
-      "stored_unit": "g",
-      "printed_units": {
-        "g": "1",
-        "kg": "1000"
-      }
-    },
-    {
-      "code": "weaning_body_mass",
-      "name": "Weaning body mass",
-      "trait_id": "BPT:0000011",
-      "definition": "Body mass of a young animal at weaning.",
-      "domain": "reproduction",
-      "kind": "numeric",
-      "stored_unit": "g",
-      "printed_units": {
+        "mg": "0.001",
         "g": "1",
         "kg": "1000"
       }
@@ -250,7 +226,7 @@
     {
       "code": "greatest_skull_length",
       "name": "Greatest skull length",
-      "trait_id": "BPT:0000012",
+      "trait_id": "BPT:0000010",
       "definition": "Greatest length of the skull from the front of the incisors to the most posterior point of the skull, including the incisors.",
       "domain": "morphology",
       "kind": "numeric",
@@ -263,7 +239,7 @@
     {
       "code": "greatest_skull_length_excluding_incisors",
       "name": "Greatest skull length excluding incisors",
-      "trait_id": "BPT:0000013",
+      "trait_id": "BPT:0000011",
       "definition": "Greatest length of the skull from the front of the premaxillae, not counting the incisors, to the most posterior point of the skull.",
       "kind": "numeric",
       "domain": "morphology",
@@ -276,7 +252,7 @@
     {
       "code": "skull_length",
       "name": "Skull length",
-      "trait_id": "BPT:0000014",
+      "trait_id": "BPT:0000012",
       "definition": "Length of the skull, reported without stating the measurement points or whether the incisors are included.",
       "kind": "numeric",
       "domain": "morphology",
@@ -289,7 +265,7 @@
     {
       "code": "condylobasal_length",
       "name": "Condylobasal length",
-      "trait_id": "BPT:0000015",
+      "trait_id": "BPT:0000013",
       "definition": "Length of the skull from the front of the premaxillae to the back of the occipital condyles.",
       "domain": "morphology",
       "kind": "numeric",
@@ -302,7 +278,7 @@
     {
       "code": "condyloincisive_length",
       "name": "Condylo-incisive length",
-      "trait_id": "BPT:0000016",
+      "trait_id": "BPT:0000014",
       "definition": "Length of the skull from the front of the upper incisors to the back of the occipital condyles.",
       "domain": "morphology",
       "kind": "numeric",
@@ -315,7 +291,7 @@
     {
       "code": "condylocanine_length",
       "name": "Condylocanine length",
-      "trait_id": "BPT:0000017",
+      "trait_id": "BPT:0000015",
       "definition": "Length of the skull from the front of the upper canines to the back of the occipital condyles.",
       "domain": "morphology",
       "kind": "numeric",
@@ -328,7 +304,7 @@
     {
       "code": "occipitonasal_length",
       "name": "Occipitonasal length",
-      "trait_id": "BPT:0000018",
+      "trait_id": "BPT:0000016",
       "definition": "Length of the skull from the front of the nasals to the back of the occiput.",
       "domain": "morphology",
       "kind": "numeric",
@@ -341,7 +317,7 @@
     {
       "code": "basal_length",
       "name": "Basal length",
-      "trait_id": "BPT:0000019",
+      "trait_id": "BPT:0000017",
       "definition": "Length of the skull along the base from the front of the premaxillae to the front of the foramen magnum.",
       "domain": "morphology",
       "kind": "numeric",
@@ -354,7 +330,7 @@
     {
       "code": "basal_length_unspecified",
       "name": "Basal length, unspecified",
-      "trait_id": "BPT:0000020",
+      "trait_id": "BPT:0000018",
       "definition": "Length of the skull called basal length, where the paper does not say which points were used.",
       "domain": "morphology",
       "kind": "numeric",
@@ -367,7 +343,7 @@
     {
       "code": "zygomatic_breadth",
       "name": "Zygomatic breadth",
-      "trait_id": "BPT:0000021",
+      "trait_id": "BPT:0000019",
       "definition": "Greatest width of the skull across the zygomatic arches.",
       "domain": "morphology",
       "kind": "numeric",
@@ -380,7 +356,7 @@
     {
       "code": "braincase_breadth",
       "name": "Braincase breadth",
-      "trait_id": "BPT:0000022",
+      "trait_id": "BPT:0000020",
       "definition": "Greatest width of the braincase, not including the mastoid or zygomatic structures.",
       "domain": "morphology",
       "kind": "numeric",
@@ -393,7 +369,7 @@
     {
       "code": "braincase_height",
       "name": "Braincase height",
-      "trait_id": "BPT:0000023",
+      "trait_id": "BPT:0000021",
       "definition": "Height of the braincase from the base of the skull to its highest point.",
       "domain": "morphology",
       "kind": "numeric",
@@ -406,7 +382,7 @@
     {
       "code": "mastoid_breadth",
       "name": "Mastoid breadth",
-      "trait_id": "BPT:0000024",
+      "trait_id": "BPT:0000022",
       "definition": "Greatest width of the skull across the mastoid processes.",
       "domain": "morphology",
       "kind": "numeric",
@@ -419,7 +395,7 @@
     {
       "code": "interorbital_breadth",
       "name": "Interorbital breadth",
-      "trait_id": "BPT:0000025",
+      "trait_id": "BPT:0000023",
       "definition": "Least width of the skull between the orbits.",
       "domain": "morphology",
       "kind": "numeric",
@@ -432,7 +408,7 @@
     {
       "code": "postorbital_constriction",
       "name": "Postorbital constriction",
-      "trait_id": "BPT:0000026",
+      "trait_id": "BPT:0000024",
       "definition": "Least width of the skull behind the orbits.",
       "domain": "morphology",
       "kind": "numeric",
@@ -445,7 +421,7 @@
     {
       "code": "palatal_length",
       "name": "Palatal length",
-      "trait_id": "BPT:0000027",
+      "trait_id": "BPT:0000025",
       "definition": "Length of the palate from the front of the premaxillae to the back of the hard palate.",
       "domain": "morphology",
       "kind": "numeric",
@@ -458,7 +434,7 @@
     {
       "code": "palatal_length_unspecified",
       "name": "Palatal length, unspecified",
-      "trait_id": "BPT:0000028",
+      "trait_id": "BPT:0000026",
       "definition": "Length of the palate, where the paper does not say whether the measurement starts at the premaxillae or at the incisors.",
       "domain": "morphology",
       "kind": "numeric",
@@ -471,7 +447,7 @@
     {
       "code": "postpalatal_length",
       "name": "Postpalatal length",
-      "trait_id": "BPT:0000029",
+      "trait_id": "BPT:0000027",
       "definition": "Length from the back of the hard palate to the front of the foramen magnum.",
       "domain": "morphology",
       "kind": "numeric",
@@ -484,7 +460,7 @@
     {
       "code": "nasal_length",
       "name": "Nasal length",
-      "trait_id": "BPT:0000030",
+      "trait_id": "BPT:0000028",
       "definition": "Greatest length of the nasal bones.",
       "domain": "morphology",
       "kind": "numeric",
@@ -497,7 +473,7 @@
     {
       "code": "rostral_length",
       "name": "Rostral length",
-      "trait_id": "BPT:0000031",
+      "trait_id": "BPT:0000029",
       "definition": "Length of the rostrum from the front of the nasals to the front of the orbits.",
       "domain": "morphology",
       "kind": "numeric",
@@ -510,7 +486,7 @@
     {
       "code": "rostral_breadth",
       "name": "Rostral breadth",
-      "trait_id": "BPT:0000032",
+      "trait_id": "BPT:0000030",
       "definition": "Least width of the rostrum across the maxillae, in front of the orbits.",
       "domain": "morphology",
       "kind": "numeric",
@@ -523,7 +499,7 @@
     {
       "code": "maxillary_toothrow_length",
       "name": "Maxillary toothrow length",
-      "trait_id": "BPT:0000033",
+      "trait_id": "BPT:0000031",
       "definition": "Length of the upper tooth row from the front of the canine to the back of the last molar.",
       "domain": "morphology",
       "kind": "numeric",
@@ -536,7 +512,7 @@
     {
       "code": "mandibular_toothrow_length",
       "name": "Mandibular toothrow length",
-      "trait_id": "BPT:0000034",
+      "trait_id": "BPT:0000032",
       "definition": "Length of the lower tooth row from the front of the canine to the back of the last molar.",
       "domain": "morphology",
       "kind": "numeric",
@@ -549,7 +525,7 @@
     {
       "code": "mandible_length",
       "name": "Mandible length",
-      "trait_id": "BPT:0000035",
+      "trait_id": "BPT:0000033",
       "definition": "Length of the lower jaw from the front of the incisors to the back of the condyle.",
       "domain": "morphology",
       "kind": "numeric",
@@ -562,7 +538,7 @@
     {
       "code": "coronoid_process_height",
       "name": "Coronoid process height",
-      "trait_id": "BPT:0000036",
+      "trait_id": "BPT:0000034",
       "definition": "Height of the coronoid process of the mandible from its base to its tip.",
       "domain": "morphology",
       "kind": "numeric",
@@ -575,7 +551,7 @@
     {
       "code": "upper_diastema_length",
       "name": "Upper diastema length",
-      "trait_id": "BPT:0000037",
+      "trait_id": "BPT:0000035",
       "definition": "Length of the upper diastema, the gap between the upper incisors and the upper cheek teeth.",
       "domain": "morphology",
       "kind": "numeric",
@@ -588,7 +564,7 @@
     {
       "code": "lower_diastema_length",
       "name": "Lower diastema length",
-      "trait_id": "BPT:0000038",
+      "trait_id": "BPT:0000036",
       "definition": "Length of the lower diastema, the gap between the lower incisors and the lower cheek teeth.",
       "kind": "numeric",
       "domain": "morphology",
@@ -601,7 +577,7 @@
     {
       "code": "maxillary_breadth",
       "name": "Maxillary breadth",
-      "trait_id": "BPT:0000039",
+      "trait_id": "BPT:0000037",
       "definition": "Width of the skull across the maxillae, at the outer edges of the cheek teeth.",
       "domain": "morphology",
       "kind": "numeric",
@@ -614,7 +590,7 @@
     {
       "code": "upper_molar_breadth_m2_m2",
       "name": "Width across upper second molars",
-      "trait_id": "BPT:0000040",
+      "trait_id": "BPT:0000038",
       "definition": "Greatest width across the outer edges of the upper second molars.",
       "domain": "morphology",
       "kind": "numeric",
@@ -627,7 +603,7 @@
     {
       "code": "zygomatic_plate_breadth",
       "name": "Zygomatic plate breadth",
-      "trait_id": "BPT:0000041",
+      "trait_id": "BPT:0000039",
       "definition": "Width of the zygomatic plate at its narrowest point.",
       "domain": "morphology",
       "kind": "numeric",
@@ -640,7 +616,7 @@
     {
       "code": "canine_breadth",
       "name": "Width across upper canines",
-      "trait_id": "BPT:0000042",
+      "trait_id": "BPT:0000040",
       "definition": "Greatest width across the outer edges of the upper canines.",
       "domain": "morphology",
       "kind": "numeric",
@@ -653,7 +629,7 @@
     {
       "code": "postpalatal_depth",
       "name": "Postpalatal depth",
-      "trait_id": "BPT:0000043",
+      "trait_id": "BPT:0000041",
       "definition": "Depth of the skull behind the hard palate, from the underside of the skull to the top of the braincase.",
       "domain": "morphology",
       "kind": "numeric",
@@ -666,7 +642,7 @@
     {
       "code": "auditory_bulla_length",
       "name": "Auditory bulla length",
-      "trait_id": "BPT:0000044",
+      "trait_id": "BPT:0000042",
       "definition": "Greatest length of the auditory bulla.",
       "domain": "morphology",
       "kind": "numeric",
@@ -679,7 +655,7 @@
     {
       "code": "litter_size",
       "name": "Litter size",
-      "trait_id": "BPT:0000045",
+      "trait_id": "BPT:0000043",
       "definition": "Number of young born in one litter.",
       "domain": "reproduction",
       "kind": "count",
@@ -688,7 +664,7 @@
     {
       "code": "litters_per_year",
       "name": "Litters per year",
-      "trait_id": "BPT:0000046",
+      "trait_id": "BPT:0000044",
       "definition": "Number of litters one female produces in a year.",
       "domain": "reproduction",
       "kind": "numeric",
@@ -700,168 +676,102 @@
     {
       "code": "gestation_length",
       "name": "Gestation length",
-      "trait_id": "BPT:0000047",
+      "trait_id": "BPT:0000045",
       "definition": "Time from conception to birth.",
       "domain": "reproduction",
       "kind": "numeric",
       "stored_unit": "day",
       "printed_units": {
         "day": "1",
-        "days": "1",
+        "week": "7",
         "month": "30.4375",
-        "months": "30.4375",
-        "year": "365.25",
-        "years": "365.25"
+        "year": "365.25"
       },
       "approximate_units": [
         "month",
-        "months",
-        "year",
-        "years"
+        "year"
       ]
     },
     {
       "code": "weaning_age",
       "name": "Weaning age",
-      "trait_id": "BPT:0000048",
+      "trait_id": "BPT:0000046",
       "definition": "Age at which a young animal stops nursing.",
       "domain": "reproduction",
       "kind": "numeric",
       "stored_unit": "day",
       "printed_units": {
         "day": "1",
-        "days": "1",
+        "week": "7",
         "month": "30.4375",
-        "months": "30.4375",
-        "year": "365.25",
-        "years": "365.25"
+        "year": "365.25"
       },
       "approximate_units": [
         "month",
-        "months",
-        "year",
-        "years"
+        "year"
       ]
     },
     {
       "code": "interbirth_interval",
       "name": "Interbirth interval",
-      "trait_id": "BPT:0000049",
+      "trait_id": "BPT:0000047",
       "definition": "Time between two successive births of the same female.",
       "domain": "reproduction",
       "kind": "numeric",
       "stored_unit": "day",
       "printed_units": {
         "day": "1",
-        "days": "1",
+        "week": "7",
         "month": "30.4375",
-        "months": "30.4375",
-        "year": "365.25",
-        "years": "365.25"
+        "year": "365.25"
       },
       "approximate_units": [
         "month",
-        "months",
-        "year",
-        "years"
+        "year"
       ]
     },
     {
       "code": "age_at_first_reproduction_female",
       "name": "Age at first reproduction, female",
-      "trait_id": "BPT:0000050",
+      "trait_id": "BPT:0000048",
       "definition": "Age at which a female first gives birth.",
       "domain": "reproduction",
       "kind": "numeric",
       "stored_unit": "day",
       "printed_units": {
         "day": "1",
-        "days": "1",
+        "week": "7",
         "month": "30.4375",
-        "months": "30.4375",
-        "year": "365.25",
-        "years": "365.25"
+        "year": "365.25"
       },
       "approximate_units": [
         "month",
-        "months",
-        "year",
-        "years"
-      ]
-    },
-    {
-      "code": "age_at_sexual_maturity_female",
-      "name": "Age at sexual maturity, female",
-      "trait_id": "BPT:0000051",
-      "definition": "Age at which a female first becomes able to reproduce.",
-      "domain": "reproduction",
-      "kind": "numeric",
-      "stored_unit": "day",
-      "printed_units": {
-        "day": "1",
-        "days": "1",
-        "month": "30.4375",
-        "months": "30.4375",
-        "year": "365.25",
-        "years": "365.25"
-      },
-      "approximate_units": [
-        "month",
-        "months",
-        "year",
-        "years"
-      ]
-    },
-    {
-      "code": "age_at_sexual_maturity_male",
-      "name": "Age at sexual maturity, male",
-      "trait_id": "BPT:0000052",
-      "definition": "Age at which a male first becomes able to reproduce.",
-      "domain": "reproduction",
-      "kind": "numeric",
-      "stored_unit": "day",
-      "printed_units": {
-        "day": "1",
-        "days": "1",
-        "month": "30.4375",
-        "months": "30.4375",
-        "year": "365.25",
-        "years": "365.25"
-      },
-      "approximate_units": [
-        "month",
-        "months",
-        "year",
-        "years"
+        "year"
       ]
     },
     {
       "code": "maximum_longevity",
       "name": "Maximum longevity",
-      "trait_id": "BPT:0000053",
+      "trait_id": "BPT:0000049",
       "definition": "Greatest recorded age of an individual of the species.",
       "domain": "life_history",
       "kind": "numeric",
       "stored_unit": "day",
       "printed_units": {
         "day": "1",
-        "days": "1",
+        "week": "7",
         "month": "30.4375",
-        "months": "30.4375",
-        "year": "365.25",
-        "years": "365.25"
+        "year": "365.25"
       },
       "approximate_units": [
         "month",
-        "months",
-        "year",
-        "years"
+        "year"
       ]
     },
     {
       "code": "activity_cycle",
       "name": "Activity cycle",
-      "trait_id": "BPT:0000054",
+      "trait_id": "BPT:0000050",
       "definition": "Time of day when the animal is mainly active.",
       "domain": "life_habit",
       "kind": "categorical",
@@ -877,7 +787,7 @@
     {
       "code": "hibernation_torpor",
       "name": "Hibernation or torpor",
-      "trait_id": "BPT:0000055",
+      "trait_id": "BPT:0000051",
       "definition": "Whether the animal hibernates, uses torpor, or does neither.",
       "domain": "life_habit",
       "kind": "categorical",
@@ -890,44 +800,43 @@
     {
       "code": "migratory_status",
       "name": "Migratory status",
-      "trait_id": "BPT:0000056",
+      "trait_id": "BPT:0000052",
       "definition": "Whether the animal migrates seasonally.",
       "domain": "life_habit",
       "kind": "categorical",
       "levels": [
-        "migratory",
-        "non-migratory"
+        "yes",
+        "no"
       ]
     },
     {
       "code": "domestication_status",
       "name": "Domestication status",
-      "trait_id": "BPT:0000057",
-      "definition": "Whether the animal is domestic or wild.",
+      "trait_id": "BPT:0000053",
+      "definition": "Whether the animal is a domesticated form, as opposed to a wild one.",
       "domain": "life_habit",
       "kind": "categorical",
       "levels": [
-        "domestic",
-        "wild"
+        "yes",
+        "no"
       ]
     },
     {
       "code": "social_group_size",
       "name": "Social group size",
-      "trait_id": "BPT:0000058",
+      "trait_id": "BPT:0000054",
       "definition": "Number of individuals in one cohesive social group.",
       "domain": "life_habit",
       "kind": "numeric",
-      "stored_unit": "animals",
+      "stored_unit": "individuals",
       "printed_units": {
-        "animals": "1",
         "individuals": "1"
       }
     },
     {
       "code": "individual_home_range_size",
       "name": "Individual home range size",
-      "trait_id": "BPT:0000059",
+      "trait_id": "BPT:0000055",
       "definition": "Area one individual uses during normal activity.",
       "domain": "population",
       "kind": "numeric",
@@ -941,7 +850,7 @@
     {
       "code": "group_home_range_size",
       "name": "Group home range size",
-      "trait_id": "BPT:0000060",
+      "trait_id": "BPT:0000056",
       "definition": "Area one social group uses during normal activity.",
       "domain": "population",
       "kind": "numeric",
@@ -955,22 +864,20 @@
     {
       "code": "population_density",
       "name": "Population density",
-      "trait_id": "BPT:0000061",
+      "trait_id": "BPT:0000057",
       "definition": "Number of individuals per unit area.",
       "domain": "population",
       "kind": "numeric",
       "stored_unit": "individuals/km2",
       "printed_units": {
         "individuals/km2": "1",
-        "individuals km-2": "1",
-        "individuals/ha": "100",
-        "individuals ha-1": "100"
+        "individuals/ha": "100"
       }
     },
     {
       "code": "basal_metabolic_rate",
       "name": "Basal metabolic rate",
-      "trait_id": "BPT:0000062",
+      "trait_id": "BPT:0000058",
       "definition": "Energy used per hour by a whole animal while resting, post-absorptive, and in its thermoneutral zone.",
       "domain": "physiology",
       "kind": "numeric",
@@ -984,21 +891,19 @@
     {
       "code": "basal_oxygen_consumption",
       "name": "Basal oxygen consumption",
-      "trait_id": "BPT:0000063",
+      "trait_id": "BPT:0000059",
       "definition": "Volume of oxygen used per hour by a whole animal while resting, post-absorptive, and in its thermoneutral zone.",
       "domain": "physiology",
       "kind": "numeric",
       "stored_unit": "mlO2/h",
       "printed_units": {
-        "mlO2/h": "1",
-        "ml O2/h": "1",
-        "mL O2/h": "1"
+        "mlO2/h": "1"
       }
     },
     {
       "code": "call_peak_frequency",
       "name": "Call peak frequency",
-      "trait_id": "BPT:0000064",
+      "trait_id": "BPT:0000060",
       "definition": "Frequency with the most energy in a call.",
       "domain": "acoustics",
       "kind": "numeric",
@@ -1011,7 +916,7 @@
     {
       "code": "call_start_frequency",
       "name": "Call start frequency",
-      "trait_id": "BPT:0000065",
+      "trait_id": "BPT:0000061",
       "definition": "Frequency at the start of a call.",
       "domain": "acoustics",
       "kind": "numeric",
@@ -1024,7 +929,7 @@
     {
       "code": "call_end_frequency",
       "name": "Call end frequency",
-      "trait_id": "BPT:0000066",
+      "trait_id": "BPT:0000062",
       "definition": "Frequency at the end of a call.",
       "domain": "acoustics",
       "kind": "numeric",
@@ -1037,7 +942,7 @@
     {
       "code": "call_duration",
       "name": "Call duration",
-      "trait_id": "BPT:0000067",
+      "trait_id": "BPT:0000063",
       "definition": "Time from the start to the end of a call.",
       "domain": "acoustics",
       "kind": "numeric",
@@ -1050,126 +955,84 @@
     {
       "code": "age_at_sexual_maturity",
       "name": "Age at sexual maturity",
-      "trait_id": "BPT:0000068",
-      "definition": "Age at which an animal first becomes able to reproduce, when the paper does not give it by sex.",
+      "trait_id": "BPT:0000064",
+      "definition": "Age at which an animal first becomes able to reproduce.",
       "domain": "reproduction",
       "kind": "numeric",
       "stored_unit": "day",
       "printed_units": {
         "day": "1",
-        "days": "1",
+        "week": "7",
         "month": "30.4375",
-        "months": "30.4375",
-        "year": "365.25",
-        "years": "365.25"
+        "year": "365.25"
       },
       "approximate_units": [
         "month",
-        "months",
-        "year",
-        "years"
+        "year"
       ]
     },
     {
       "code": "generation_length",
       "name": "Generation length",
-      "trait_id": "BPT:0000069",
+      "trait_id": "BPT:0000065",
       "definition": "Average age of the parents of the current cohort of the species.",
       "domain": "life_history",
       "kind": "numeric",
       "stored_unit": "day",
       "printed_units": {
         "day": "1",
-        "days": "1",
+        "week": "7",
         "month": "30.4375",
-        "months": "30.4375",
-        "year": "365.25",
-        "years": "365.25"
+        "year": "365.25"
       },
       "approximate_units": [
         "month",
-        "months",
-        "year",
-        "years"
+        "year"
       ]
     },
     {
       "code": "age_at_eye_opening",
       "name": "Age at eye opening",
-      "trait_id": "BPT:0000070",
+      "trait_id": "BPT:0000066",
       "definition": "Age at which a young animal first opens its eyes.",
       "domain": "reproduction",
       "kind": "numeric",
       "stored_unit": "day",
       "printed_units": {
         "day": "1",
-        "days": "1",
+        "week": "7",
         "month": "30.4375",
-        "months": "30.4375",
-        "year": "365.25",
-        "years": "365.25"
+        "year": "365.25"
       },
       "approximate_units": [
         "month",
-        "months",
-        "year",
-        "years"
+        "year"
       ]
     },
     {
       "code": "dispersal_age",
       "name": "Dispersal age",
-      "trait_id": "BPT:0000071",
+      "trait_id": "BPT:0000067",
       "definition": "Age at which a young animal leaves its birth site to disperse.",
       "domain": "life_history",
       "kind": "numeric",
       "stored_unit": "day",
       "printed_units": {
         "day": "1",
-        "days": "1",
+        "week": "7",
         "month": "30.4375",
-        "months": "30.4375",
-        "year": "365.25",
-        "years": "365.25"
+        "year": "365.25"
       },
       "approximate_units": [
         "month",
-        "months",
-        "year",
-        "years"
+        "year"
       ]
-    },
-    {
-      "code": "neonate_head_body_length",
-      "name": "Neonate head-body length",
-      "trait_id": "BPT:0000072",
-      "definition": "Head-body length of a newborn animal at or shortly after birth.",
-      "domain": "reproduction",
-      "kind": "numeric",
-      "stored_unit": "mm",
-      "printed_units": {
-        "mm": "1",
-        "cm": "10"
-      }
-    },
-    {
-      "code": "weaning_head_body_length",
-      "name": "Weaning head-body length",
-      "trait_id": "BPT:0000073",
-      "definition": "Head-body length of a young animal at weaning.",
-      "domain": "reproduction",
-      "kind": "numeric",
-      "stored_unit": "mm",
-      "printed_units": {
-        "mm": "1",
-        "cm": "10"
-      }
     },
     {
       "code": "teat_number",
       "name": "Teat number",
-      "trait_id": "BPT:0000074",
-      "definition": "Number of teats of an adult female.",
+      "trait_id": "BPT:0000068",
+      "definition": "Number of teats.",
       "domain": "reproduction",
       "kind": "count",
       "stored_unit": "teats"
@@ -1177,7 +1040,7 @@
     {
       "code": "dispersal_distance",
       "name": "Dispersal distance",
-      "trait_id": "BPT:0000075",
+      "trait_id": "BPT:0000069",
       "definition": "Distance from the birth site to the site where the animal settles after dispersing.",
       "domain": "life_history",
       "kind": "numeric",
@@ -1190,7 +1053,7 @@
     {
       "code": "fossoriality",
       "name": "Fossoriality",
-      "trait_id": "BPT:0000076",
+      "trait_id": "BPT:0000070",
       "definition": "Whether the animal lives mainly underground.",
       "domain": "life_habit",
       "kind": "categorical",
@@ -1202,7 +1065,7 @@
     {
       "code": "foraging_stratum",
       "name": "Foraging stratum",
-      "trait_id": "BPT:0000077",
+      "trait_id": "BPT:0000071",
       "definition": "Vertical level where the animal mainly forages: on the ground, in trees (arboreal), in flight (aerial), or in water (aquatic).",
       "domain": "life_habit",
       "kind": "categorical",
@@ -1216,7 +1079,7 @@
     {
       "code": "terrestriality",
       "name": "Terrestriality",
-      "trait_id": "BPT:0000078",
+      "trait_id": "BPT:0000072",
       "definition": "Whether the animal lives on the ground or above the ground, in trees, on cliffs or in the air.",
       "domain": "life_habit",
       "kind": "categorical",
@@ -1228,7 +1091,7 @@
     {
       "code": "island_endemicity",
       "name": "Island endemicity",
-      "trait_id": "BPT:0000079",
+      "trait_id": "BPT:0000073",
       "definition": "Whether the species is found only on islands.",
       "domain": "life_habit",
       "kind": "categorical",
@@ -1240,7 +1103,7 @@
     {
       "code": "habitat_breadth",
       "name": "Habitat breadth",
-      "trait_id": "BPT:0000080",
+      "trait_id": "BPT:0000074",
       "definition": "Number of habitat layers the species uses, out of above ground, aquatic, fossorial, and ground.",
       "domain": "life_habit",
       "kind": "count",
@@ -1249,13 +1112,12 @@
     {
       "code": "population_group_size",
       "name": "Population group size",
-      "trait_id": "BPT:0000081",
+      "trait_id": "BPT:0000075",
       "definition": "Number of individuals that spend most of a 24-hour cycle together, whether or not they form a lasting social group.",
       "domain": "life_habit",
       "kind": "numeric",
-      "stored_unit": "animals",
+      "stored_unit": "individuals",
       "printed_units": {
-        "animals": "1",
         "individuals": "1"
       }
     }
