@@ -3,6 +3,7 @@ import hashlib
 import os
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -11,9 +12,12 @@ import pytest
 from conftest import TEST_API_KEY
 from httpx2 import ASGITransport
 from redis.asyncio import Redis
+from sqlalchemy import text
 from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from bioparser.api.app import app
+from bioparser.db import documents as document_queries
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
 from bioparser.db.engine import sync_database_url
@@ -193,6 +197,7 @@ async def test_redis_backed_submission_and_polling(
             "document_checksum": document_checksum,
         }
         assert poll.json() == response_fields | {"status": "queued", "has_parse_result": False}
+        assert datetime.fromisoformat(poll.json()["created_at"]) == queued.created_at
 
         # Drain the real Redis-backed Dramatiq queue to verify the serialized
         # message contract, rather than inspecting an in-memory fake.
@@ -289,3 +294,78 @@ async def test_same_pdf_can_be_submitted_twice(
     recorder = _Recorder()
     await asyncio.to_thread(parse_queue.consume, recorder, until_empty=True)
     assert {message.job_id for message in recorder.received} == set(job_ids)
+
+
+class _QueueMustNotBeUsed:
+    async def submit(self, message: ParseJobMessage) -> None:
+        raise AssertionError(f"job {message.job_id} was enqueued after the insert failed")
+
+
+@pytest.fixture
+async def postgres_api(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> AsyncGenerator[FileSystemArtifactStorage]:
+    """A throwaway Postgres database and filesystem storage, with no queue."""
+    raw = os.environ.get("BIOPARSER_TEST_DATABASE_URL")
+    if not raw:
+        pytest.skip("BIOPARSER_TEST_DATABASE_URL is not set")
+    unique_id = uuid.uuid4().hex
+    admin_url = (
+        make_url(sync_database_url(raw))
+        .set(database="postgres")
+        .render_as_string(hide_password=False)
+    )
+    name = f"api_{unique_id}"
+    _create_database(admin_url, name)
+    bare = (
+        make_url(raw)
+        .set(database=name)
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
+    try:
+        upgrade(bare)
+        await database.open(bare)
+        artifact_storage = FileSystemArtifactStorage(tmp_path / "artifacts")
+        monkeypatch.setattr(app.state, "parse_queue", _QueueMustNotBeUsed(), raising=False)
+        monkeypatch.setattr(app.state, "artifact_storage", artifact_storage, raising=False)
+        yield artifact_storage
+    finally:
+        await database.aclose()
+        _drop_database(admin_url, name)
+
+
+async def test_a_failed_job_insert_rolls_back_the_new_document(
+    postgres_api: FileSystemArtifactStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The new document row shares the job insert's transaction.
+
+    The job insert fails on the connection the route passed in. A document insert
+    that had committed on its own would still be there afterwards.
+    """
+
+    async def fail_create(connection: AsyncConnection, state: JobState) -> JobState:
+        await connection.execute(text("SELECT 1/0"))
+        return state
+
+    monkeypatch.setattr(job_queries, "create", fail_create)
+    checksum = hashlib.sha256(MINIMAL_PDF).hexdigest()
+
+    async with httpx2.AsyncClient(
+        transport=ASGITransport(app),
+        base_url="http://test",
+        headers={"X-API-Key": TEST_API_KEY},
+    ) as client:
+        response = await client.post(
+            "/api/extractions",
+            files={"file": ("paper.pdf", MINIMAL_PDF, "application/pdf")},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "database_unavailable"
+    assert await postgres_api.retrieve(f"pdf/{checksum}") == MINIMAL_PDF
+    async with database.transaction() as connection:
+        assert await document_queries.get(connection, checksum) is None
+        assert await job_queries.list_jobs(connection) == []
