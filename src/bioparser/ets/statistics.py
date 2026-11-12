@@ -3,7 +3,8 @@
 The observation stores the central value and the dispersion as closed choices.
 The dispersion choice selects the factor. When no phrase is stored, the choices
 also supply ``statisticalMethod``. The minimum and the maximum use the same
-factor as the trait value. The observation is left unchanged.
+factor as the trait value. When one of the three cannot be converted, none is. The
+observation is left unchanged.
 """
 
 from dataclasses import dataclass
@@ -69,20 +70,37 @@ def read_statistics(
     # A missing dispersion parses as 0, so the stored field decides whether the phrase names it.
     named = dispersion_kind if observation.dispersion is not None else None
     phrase = _phrase(stored_phrase, central, named)
-    dispersion = _dispersion_value(observation, dispersion, dispersion_kind, trait_factor, warnings)
-    # With no trait factor the numbers stay in the printed unit. With a factor, a bound is
-    # always converted, so only the unconverted case needs a warning.
-    if trait_factor is None:
+    number_stored = observation.dispersion is not None and dispersion is not None
+    factor = _shared_factor(trait_factor, dispersion_stored=number_stored, kind=dispersion_kind)
+    dispersion = _dispersion_value(observation, dispersion, dispersion_kind, factor, warnings)
+    # Without a factor the numbers stay in the printed unit. A stored number then needs a warning.
+    if factor is None:
         if minimum is not None:
             warnings.append(NotConverted(field="measurementValue_min"))
         if maximum is not None:
             warnings.append(NotConverted(field="measurementValue_max"))
     return MeasurementStatistics(
         dispersion=dispersion,
-        measurement_value_min=_scale_bound(observation.measurementValueMin, minimum, trait_factor),
-        measurement_value_max=_scale_bound(observation.measurementValueMax, maximum, trait_factor),
+        measurement_value_min=_scale_bound(observation.measurementValueMin, minimum, factor),
+        measurement_value_max=_scale_bound(observation.measurementValueMax, maximum, factor),
         phrase=phrase,
     )
+
+
+def _shared_factor(
+    trait_factor: Decimal | None, *, dispersion_stored: bool, kind: DispersionKind | None
+) -> Decimal | None:
+    """The factor for all three numbers, or ``None`` so that none of them is converted.
+
+    A dispersion number with no usable kind cannot be converted, because a variance scales by
+    the square of the factor. The minimum and the maximum then stay printed too, so a row never
+    mixes units among the three. A factor of 1 changes nothing, so it is always shared.
+    """
+    if trait_factor is None or trait_factor == 1:
+        return trait_factor
+    if dispersion_stored and kind is None:
+        return None
+    return trait_factor
 
 
 def _phrase(
@@ -118,10 +136,6 @@ def _dispersion_value(
     number_stored = observation.dispersion is not None and parsed is not None
     if number_stored and factor is None:
         warnings.append(NotConverted(field="dispersion"))
-    if number_stored and kind is None:
-        if factor is not None and factor != 1:
-            warnings.append(NotConverted())
-        return parsed
     if observation.dispersionKind is not None and observation.dispersion is None:
         warnings.append(Unspecified())
         return parsed

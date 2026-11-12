@@ -89,7 +89,7 @@ An empty side stays empty.
 **When the number is not converted.** The number stays in the printed unit and warns `not_converted:<field>`:
 
 - The row has no trait factor, because it has no code or the list refused it. All three numbers stay printed.
-- A dispersion number has no usable kind, either because the choice is absent or because it is not recognized.
+- A dispersion number has no usable kind, either because the choice is absent or because it is not recognized. A variance scales by the square of the factor, so the kind is needed. The minimum and the maximum then stay printed too, so the three numbers are always in one unit.
 
 A trait factor of 1 means the number is already in grams or millimetres, so it is kept and does not warn.
 
@@ -146,7 +146,7 @@ These describe how the trait list treated the measurement. The Standardized colu
 
 | Warning | Meaning |
 |---|---|
-| `not_converted:dispersion`, `not_converted:measurementValue_min`, `not_converted:measurementValue_max` | The number stayed in the printed unit. Read it with `verbatimTraitUnit`. See [Range and dispersion](#range-and-dispersion) for when this happens. |
+| `not_converted:dispersion`, `not_converted:measurementValue_min`, `not_converted:measurementValue_max` | The number stayed in the printed unit. Read it with `verbatimTraitUnit`. The three numbers are converted together or not at all. See [Range and dispersion](#range-and-dispersion) for when this happens. |
 | `unspecified:dispersion` | A dispersion kind was stored with no number. `dispersion` takes the default. |
 | `bounds_reversed:measurementValue_min,measurementValue_max` | The minimum is greater than the maximum after conversion. Both stay empty. |
 | `not_applicable:dispersion`, `not_applicable:measurementValue_min`, `not_applicable:measurementValue_max`, `not_applicable:centralKind`, `not_applicable:dispersionKind` | A categorical observation stored a spread, a range, or a mean. A level has none of these, so the trait may be wrong. The value is not published. |

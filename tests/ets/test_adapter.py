@@ -572,6 +572,28 @@ def test_a_dispersion_without_a_kind_stays_unconverted() -> None:
     assert row.warnings == "not_converted:dispersion"
 
 
+def test_a_row_never_mixes_units_among_the_range_and_the_dispersion() -> None:
+    kinds = {
+        "no kind": {},
+        "standard deviation": {"dispersionKind": _read("standardDeviation", "SD", start=75)},
+        "variance": {"dispersionKind": _read("variance", "variance", start=75)},
+    }
+    for changes in kinds.values():
+        observation = _observation(
+            dispersion=_cited("0.2", start=70),
+            measurementValueMin=_cited("10", start=40),
+            measurementValueMax=_cited("15", start=50),
+            **changes,
+        )
+
+        row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+        converted = row.measurementValue_min == 10000
+        assert (row.measurementValue_max == 15000) is converted
+        assert (row.dispersion != 0.2) is converted
+        assert ("not_converted" in row.warnings) is not converted
+
+
 def test_numbers_of_a_row_with_no_trait_factor_stay_printed_and_warn() -> None:
     observation = _observation(
         traitCode=None,
@@ -647,11 +669,12 @@ def test_an_unknown_statistic_kind_is_ignored() -> None:
 
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
-    assert row.dispersion == 0.2
-    assert row.measurementValue_min == 10000
-    assert row.measurementValue_max == 14000
+    assert (row.dispersion, row.measurementValue_min, row.measurementValue_max) == (0.2, 10, 14)
     assert row.statisticalMethod is None
-    assert row.warnings == "not_in_vocabulary:statisticalMethod | not_converted:dispersion"
+    assert row.warnings == (
+        "not_in_vocabulary:statisticalMethod | not_converted:dispersion"
+        " | not_converted:measurementValue_min | not_converted:measurementValue_max"
+    )
 
 
 def test_an_unknown_central_kind_warns_when_a_dispersion_phrase_is_written() -> None:
@@ -922,3 +945,89 @@ def test_a_deprecated_trait_still_converts_with_a_warning(monkeypatch: pytest.Mo
 
     assert row.traitValue == "12500"
     assert row.warnings == "deprecated_trait:traitName"
+
+
+# The data columns of the client's ETS exports, from the fine-tuning repo's ETS_COLUMNS. The
+# exports have two more. ``author`` is ETS dataset metadata, not a column of a data row, and
+# ``associatedReferences`` is not an ETS term, so the row has neither.
+_CLIENT_COLUMNS = (
+    "references",
+    "verbatimScientificName",
+    "taxonRank",
+    "verbatimTraitName",
+    "verbatimTraitUnit",
+    "individualCount",
+    "measurementValue_min",
+    "measurementValue_max",
+    "dispersion",
+    "statisticalMethod",
+    "verbatimTraitValue",
+    "sex",
+    "lifeStage",
+    "measurementMethod",
+    "measurementRemarks",
+    "measurementAccuracy",
+    "measurementDeterminedBy",
+    "verbatimLocality",
+)
+
+_RANGE = {
+    "dispersion": _cited("0.2", start=70),
+    "dispersionKind": _read("standardDeviation", "SD", start=75),
+    "measurementValueMin": _cited("10", start=40),
+    "measurementValueMax": _cited("15", start=50),
+}
+_CONTRACT_CASES = {
+    "no code": {"traitCode": None},
+    "code the list refuses": {"verbatimTraitUnit": _cited("kHz", start=25)},
+    "code the list applies": {},
+}
+
+
+@pytest.mark.parametrize("changes", _CONTRACT_CASES.values(), ids=_CONTRACT_CASES.keys())
+def test_every_row_has_the_client_columns_filled_from_the_printed_text(
+    changes: dict[str, object],
+) -> None:
+    observation = _observation(**_RANGE, **changes)
+
+    dumped = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row.model_dump()
+
+    assert set(_CLIENT_COLUMNS) <= set(dumped)
+    for column in ("references", "verbatimScientificName", "verbatimTraitValue"):
+        assert dumped[column]
+    assert dumped["verbatimTraitValue"] == "12.5"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [_CONTRACT_CASES["no code"], _CONTRACT_CASES["code the list refuses"]],
+    ids=["no code", "code the list refuses"],
+)
+def test_a_row_the_list_did_not_standardize_has_printed_numbers_in_order(
+    changes: dict[str, object],
+) -> None:
+    observation = _observation(**_RANGE, **changes)
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert (row.traitValue, row.traitUnit) == (None, None)
+    assert row.measurementValue_min is not None
+    assert row.measurementValue_max is not None
+    assert row.measurementValue_min <= float(row.verbatimTraitValue) <= row.measurementValue_max
+    assert (row.dispersion, row.measurementValue_min, row.measurementValue_max) == (0.2, 10, 15)
+
+
+def test_a_standardized_row_has_its_value_and_range_in_one_unit() -> None:
+    observation = _observation(**_RANGE)
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.traitValue is not None
+    assert row.measurementValue_min is not None
+    assert row.measurementValue_max is not None
+    assert row.measurementValue_min <= float(row.traitValue) <= row.measurementValue_max
+    assert (row.dispersion, row.measurementValue_min, row.measurementValue_max) == (
+        200,
+        10000,
+        15000,
+    )
