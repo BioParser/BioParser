@@ -86,7 +86,7 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     assert dumped["taxonID"] is None
     assert dumped["traitName"] is None
     assert dumped["traitID"] is None
-    assert dumped["basisOfRecord"] == "literatureData"
+    assert dumped["basisOfRecord"] is None
     assert dumped["references"] == _DOCUMENT_ID
     assert dumped["measurementID"] == "1"
     assert dumped["occurrenceID"] is None
@@ -181,7 +181,7 @@ def test_a_vocabulary_miss_leaves_the_column_empty() -> None:
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
     assert row.sex is None
-    assert row.basisOfRecord == "literatureData"
+    assert row.basisOfRecord is None
     assert row.aggregateMeasure is None
     assert "not_in_vocabulary:sex" in row.warnings
     assert "not_in_vocabulary:basisOfRecord" in row.warnings
@@ -206,7 +206,7 @@ def test_a_paper_can_state_occurrence_place_and_time() -> None:
     assert row.eventDate == "1963-03-08"
     assert row.measurementDeterminedDate == "1963-03-08"
     assert row.month is None
-    assert "not_numeric:month" in row.warnings
+    assert "out_of_range:month" in row.warnings
 
 
 def test_a_numeric_date_is_kept_when_one_number_cannot_be_a_month() -> None:
@@ -413,7 +413,7 @@ def test_a_long_number_does_not_fail_the_other_rows() -> None:
     assert result.rows[2].source_index == 2
 
 
-def test_an_impossible_day_is_cleared_and_a_leap_day_is_kept() -> None:
+def test_an_impossible_day_stays_and_a_leap_day_is_kept() -> None:
     impossible = _observation(
         year=_cited("2021", start=80),
         month=_cited("2", start=90),
@@ -428,7 +428,7 @@ def test_an_impossible_day_is_cleared_and_a_leap_day_is_kept() -> None:
     bad = to_ets(_artifact(impossible), references=_DOCUMENT_ID).rows[0].row
     good = to_ets(_artifact(leap), references=_DOCUMENT_ID).rows[0].row
 
-    assert (bad.year, bad.month, bad.day) == (2021, 2, None)
+    assert (bad.year, bad.month, bad.day) == (2021, 2, 31)
     assert "not_a_date:year,month,day" in bad.warnings
     assert (good.year, good.month, good.day) == (2020, 2, 29)
     assert good.warnings == ""

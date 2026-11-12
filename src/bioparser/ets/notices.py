@@ -53,6 +53,15 @@ NumericField = Literal[
 DateField = Literal["measurementDeterminedDate", "eventDate"]
 
 
+class OutOfRange(BaseModel):
+    """A printed number outside the range of its column. The column stays empty."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["out_of_range"] = "out_of_range"
+    field: Literal["year", "month", "day", "decimalLongitude", "decimalLatitude"]
+
+
 class NotNumeric(BaseModel):
     """A printed number that is not the ETS numeric type."""
 
@@ -105,7 +114,7 @@ class NotACalendarDay(BaseModel):
     field: Literal["year,month,day"] = "year,month,day"
 
 
-Notice = NotNumeric | NotInVocabulary | NotADate | NotACalendarDay | BoundsReversed
+Notice = NotNumeric | OutOfRange | NotInVocabulary | NotADate | NotACalendarDay | BoundsReversed
 
 
 def format_warning(notice: Notice) -> str:

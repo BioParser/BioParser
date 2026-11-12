@@ -63,7 +63,7 @@ class EtsRow(BaseModel):
     morphotype: str | None = None
 
     # Where the measurement came from.
-    basisOfRecord: BasisOfRecord
+    basisOfRecord: BasisOfRecord | None = None
     basisOfRecordDescription: str | None = None
 
     # How the value was measured.
