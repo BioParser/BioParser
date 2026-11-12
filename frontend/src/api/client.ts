@@ -13,6 +13,8 @@ export type JobStatusResponse =
 export type DocumentMetadataResponse = Schemas["DocumentMetadataResponse"];
 export type CreateJobRequest = Schemas["CreateJobRequest"];
 export type UploadLimitsResponse = Schemas["UploadLimitsResponse"];
+export type ParserArtifact = Schemas["ParserArtifact"];
+export type ExtractionArtifact = Schemas["ExtractionArtifact"];
 
 export class ApiError extends Error {
   readonly status: number;
@@ -108,4 +110,17 @@ export function startDocumentJob(
     body: JSON.stringify(request),
     signal,
   });
+}
+
+// The parser artifact, from the job's `parsed` state on. 409 until then.
+export function getParserArtifact(jobId: string, signal?: AbortSignal): Promise<ParserArtifact> {
+  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/artifacts/parser`, { signal });
+}
+
+// The extraction artifact of a `done` job. 409 until then.
+export function getExtractionArtifact(
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<ExtractionArtifact> {
+  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/artifacts/extraction`, { signal });
 }

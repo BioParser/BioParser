@@ -174,3 +174,89 @@ input {
 .job-file-error {
   color: #d33;
 }
+
+
+/* The job page: the evidence view sits beside the results, or below them on a narrow screen. */
+.job-detail {
+  display: grid;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (min-width: 60rem) {
+  .job-detail-with-evidence {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.evidence-panel {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #8884;
+  border-radius: 0.5rem;
+}
+
+.evidence-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.evidence-header h2 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.evidence-legend {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+}
+
+.evidence-legend dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.evidence-block {
+  margin: 1rem 0 0;
+}
+
+.evidence-block figcaption {
+  font-size: 0.875rem;
+}
+
+/* Parsed text can hold long words or URLs, which wrap instead of widening the page. */
+.evidence-quote {
+  margin: 0.25rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border-left: 4px solid #8888;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* The value and the unit differ by line style and weight as well as by color. */
+mark.evidence-value,
+mark.evidence-unit {
+  color: inherit;
+  text-underline-offset: 0.2em;
+}
+
+mark.evidence-value {
+  background: #fc04;
+  font-weight: 600;
+  text-decoration: underline solid 2px;
+}
+
+mark.evidence-unit {
+  background: #4af3;
+  text-decoration: underline dashed 1px;
+}
+
+.evidence-error {
+  padding: 0.5rem 0.75rem;
+  border-left: 4px solid #d33;
+  background: #d332;
+}
