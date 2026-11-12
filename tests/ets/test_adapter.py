@@ -573,6 +573,43 @@ def test_an_empty_maximum_stays_empty() -> None:
     assert row.warnings == "not_converted:measurementValue_min"
 
 
+def test_a_level_is_standardized_when_it_has_no_spread() -> None:
+    observation = _observation(
+        traitCode=_read("activity_cycle", "activity", start=10),
+        verbatimTraitValue=_cited("nocturnal", start=20),
+        verbatimTraitUnit=None,
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+
+    assert row.traitName == "Activity cycle"
+    assert row.traitID == "BPT:0000050"
+    assert row.traitValue == "nocturnal"
+    assert row.traitUnit is None
+    assert row.warnings == ""
+
+
+def test_a_level_with_a_spread_stays_the_printed_row() -> None:
+    observation = _observation(
+        traitCode=_read("activity_cycle", "activity", start=10),
+        verbatimTraitValue=_cited("nocturnal", start=20),
+        verbatimTraitUnit=None,
+        dispersion=_read("0.4", "0.4", start=70),
+        measurementValueMin=_read("1", "1", start=80),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+
+    assert row.traitName is None
+    assert row.traitID is None
+    assert row.traitValue is None
+    assert row.traitUnit is None
+    assert row.verbatimTraitValue == "nocturnal"
+    assert row.dispersion == 0.4
+    assert row.measurementValue_min == 1
+    assert row.warnings == "not_applicable:dispersion | not_applicable:measurementValue_min"
+
+
 def test_an_empty_document_id_is_rejected() -> None:
     with pytest.raises(ValueError, match="references is empty"):
         to_ets(_artifact(_observation()), references="")

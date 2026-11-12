@@ -107,7 +107,11 @@ class NotConverted(BaseModel):
 
 
 class NotApplicable(BaseModel):
-    """A stored number does not apply to this kind of trait, such as a dispersion of a level."""
+    """A level stored a spread or a range, so the code was not applied.
+
+    The printed number stays. ``traitName``, ``traitID``, ``traitValue``, and ``traitUnit``
+    stay empty.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

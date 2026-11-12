@@ -125,17 +125,21 @@ def assess(observation: Observation) -> Assessment:
         warnings.append(BoundsReversed())
 
     parsed = _parse_trait_value(observation, aggregate=aggregate_measure is True)
-    if isinstance(parsed, ResolvedTraitValue):
+    # A level has no spread and no range. A stored one means the code does not apply,
+    # so the printed row stays and the four standardized columns stay empty.
+    if isinstance(parsed, ResolvedTraitValue) and _level_has_a_spread(parsed, observation):
+        _warn_numbers_that_block_a_level(observation, warnings)
+        trait_name = None
+        trait_id = None
+        trait_value = None
+        trait_unit = None
+    elif isinstance(parsed, ResolvedTraitValue):
         warnings.extend(parsed.warnings)
         trait_name = parsed.trait_name
         trait_id = parsed.trait_id
         trait_value = parsed.value
         trait_unit = parsed.unit
-        if parsed.kind == "categorical":
-            dispersion, value_min, value_max = _drop_numbers_that_do_not_apply(
-                observation, warnings
-            )
-        elif parsed.factor != 1:
+        if parsed.factor != 1:
             _warn_left_in_the_printed_unit(dispersion, value_min, value_max, warnings)
     else:
         warnings.append(parsed)
@@ -217,17 +221,26 @@ def _parse_trait_value(observation: Observation, *, aggregate: bool) -> Resolved
     return resolve_trait_value(observation.traitCode.value, value, unit, aggregate=aggregate)
 
 
-def _drop_numbers_that_do_not_apply(
-    observation: Observation, warnings: list[Notice]
-) -> tuple[None, None, None]:
-    """A level has no spread and no range. A stored one stays off the row."""
+def _level_has_a_spread(parsed: ResolvedTraitValue, observation: Observation) -> bool:
+    """A categorical code stored a dispersion, a minimum, or a maximum."""
+    return parsed.kind == "categorical" and any(
+        value is not None
+        for value in (
+            observation.dispersion,
+            observation.measurementValueMin,
+            observation.measurementValueMax,
+        )
+    )
+
+
+def _warn_numbers_that_block_a_level(observation: Observation, warnings: list[Notice]) -> None:
+    """The stored spread is why this level was not standardized."""
     if observation.dispersion is not None:
         warnings.append(NotApplicable(field="dispersion"))
     if observation.measurementValueMin is not None:
         warnings.append(NotApplicable(field="measurementValue_min"))
     if observation.measurementValueMax is not None:
         warnings.append(NotApplicable(field="measurementValue_max"))
-    return None, None, None
 
 
 def _warn_left_in_the_printed_unit(

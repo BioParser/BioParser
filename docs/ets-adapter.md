@@ -57,7 +57,7 @@ The printed value and the printed unit are copied as they are.
 
 ### Range and dispersion
 
-The minimum, the maximum, and the dispersion are the numbers the paper printed, read with `verbatimTraitUnit`. ETS gives them no unit of their own. An empty one stays empty. They are not converted when `traitValue` moves to the stored unit. Each stored number then warns `not_converted`. A level has no spread and no range, so a stored one is left empty and warns `not_applicable`.
+The minimum, the maximum, and the dispersion are the numbers the paper printed, read with `verbatimTraitUnit`. ETS gives them no unit of their own. An empty one stays empty. They are not converted when `traitValue` moves to the stored unit. Each stored number then warns `not_converted`. A level has no spread and no range. A stored one means the code does not apply, so the four standardized columns stay empty, the printed numbers stay, and each stored number warns `not_applicable`.
 
 A minimum greater than the maximum is kept as printed, and the row warns `bounds_reversed:measurementValue_min,measurementValue_max`.
 
