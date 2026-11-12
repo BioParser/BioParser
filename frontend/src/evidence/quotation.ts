@@ -1,6 +1,6 @@
 import type { components } from "../api/schema";
 
-type Schemas = components["schemas"]; 
+type Schemas = components["schemas"];
 export type ParserArtifact = Schemas["ParserArtifact"];
 export type Observation = Schemas["Observation"];
 export type BoundingBox = Schemas["BoundingBox"];
@@ -11,10 +11,10 @@ export interface TextBlock {
   blockId: string;
   pageNumber: number;
   text: string;
-  bbox: BoundingBox | null; 
+  bbox: BoundingBox | null;
 }
 
-export type Mark = "value" | "unit"; 
+export type Mark = "value" | "unit";
 
 // A run of block text, marked when it is the value or the unit.
 export interface Segment {

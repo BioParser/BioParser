@@ -162,7 +162,7 @@ describe("apiFetch and the API key", () => {
     });
   });
 
-    describe("job artifacts", () => {
+  describe("job artifacts", () => {
     it("gets the parser artifact of the job", async () => {
       const fetchMock = stubFetch(Response.json({ pages: [] }));
       await expect(getParserArtifact("job/1")).resolves.toEqual({ pages: [] });

@@ -175,7 +175,6 @@ input {
   color: #d33;
 }
 
-
 /* The job page: the evidence view sits beside the results, or below them on a narrow screen. */
 .job-detail {
   display: grid;
