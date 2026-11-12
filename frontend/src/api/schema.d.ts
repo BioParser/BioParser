@@ -519,11 +519,8 @@ export interface components {
             age?: number | null;
             /** Morphotype */
             morphotype?: string | null;
-            /**
-             * Basisofrecord
-             * @enum {string}
-             */
-            basisOfRecord: "LivingSpecimen" | "PreservedSpecimen" | "FossilSpecimen" | "literatureData" | "traitDatabase" | "expertKnowledge";
+            /** Basisofrecord */
+            basisOfRecord?: ("LivingSpecimen" | "PreservedSpecimen" | "FossilSpecimen" | "literatureData" | "traitDatabase" | "expertKnowledge") | null;
             /** Basisofrecorddescription */
             basisOfRecordDescription?: string | null;
             /** Measurementmethod */
@@ -643,11 +640,8 @@ export interface components {
             age?: number | null;
             /** Morphotype */
             morphotype?: string | null;
-            /**
-             * Basisofrecord
-             * @enum {string}
-             */
-            basisOfRecord: "LivingSpecimen" | "PreservedSpecimen" | "FossilSpecimen" | "literatureData" | "traitDatabase" | "expertKnowledge";
+            /** Basisofrecord */
+            basisOfRecord?: ("LivingSpecimen" | "PreservedSpecimen" | "FossilSpecimen" | "literatureData" | "traitDatabase" | "expertKnowledge") | null;
             /** Basisofrecorddescription */
             basisOfRecordDescription?: string | null;
             /** Measurementmethod */

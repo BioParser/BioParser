@@ -2651,14 +2651,21 @@
             "title": "Morphotype"
           },
           "basisOfRecord": {
-            "type": "string",
-            "enum": [
-              "LivingSpecimen",
-              "PreservedSpecimen",
-              "FossilSpecimen",
-              "literatureData",
-              "traitDatabase",
-              "expertKnowledge"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "LivingSpecimen",
+                  "PreservedSpecimen",
+                  "FossilSpecimen",
+                  "literatureData",
+                  "traitDatabase",
+                  "expertKnowledge"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "title": "Basisofrecord"
           },
@@ -3025,7 +3032,6 @@
           "verbatimTraitName",
           "verbatimScientificName",
           "verbatimTraitValue",
-          "basisOfRecord",
           "measurementID",
           "warnings",
           "references"
@@ -3256,14 +3262,21 @@
             "title": "Morphotype"
           },
           "basisOfRecord": {
-            "type": "string",
-            "enum": [
-              "LivingSpecimen",
-              "PreservedSpecimen",
-              "FossilSpecimen",
-              "literatureData",
-              "traitDatabase",
-              "expertKnowledge"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "LivingSpecimen",
+                  "PreservedSpecimen",
+                  "FossilSpecimen",
+                  "literatureData",
+                  "traitDatabase",
+                  "expertKnowledge"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "title": "Basisofrecord"
           },
@@ -3635,7 +3648,6 @@
           "verbatimTraitName",
           "verbatimScientificName",
           "verbatimTraitValue",
-          "basisOfRecord",
           "measurementID",
           "warnings",
           "references",
