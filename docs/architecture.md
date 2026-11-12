@@ -65,7 +65,7 @@ start after that exit and do not migrate themselves.
 
 FastAPI owns the public HTTP contract:
 
-- `POST /api/extractions` for PDF submission
+- `POST /api/extractions` stores a PDF, inserts its document and a job in one transaction, and queues that job
 - `GET /api/jobs/{job_id}` for job status and results
 - `/health` for process liveness
 - `/ready` a readiness endpoint for Redis and artifact storage availability
@@ -140,7 +140,7 @@ sequenceDiagram
     Client->>API: POST /api/extractions (PDF)
     API->>API: Validate and calculate checksum
     API->>Store: Store PDF artifact
-    API->>Postgres: Create job state
+    API->>Postgres: Insert document and job
     API->>Redis: Enqueue job id
     API-->>Client: 202 Accepted + job_id
 
