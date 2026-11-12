@@ -50,10 +50,12 @@ spec:
             - containerPort: 6379
               protocol: TCP
           resources:
-                requests:
-                  memory: "768Mi"
-                limits:
-                  memory: "768Mi"
+            requests:
+              memory: "768Mi"
+              cpu: "500m"
+            limits:
+              memory: "768Mi"
+              cpu: "50m"
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
