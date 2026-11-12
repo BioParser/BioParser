@@ -8,8 +8,9 @@ Status: **draft** — document and job management routes (`POST /api/documents`,
 `GET /api/documents`, `GET /api/documents/{checksum}`, `GET /api/documents/{checksum}/file`,
 `POST /api/extractions`, `POST /api/documents/{checksum}/jobs`, `GET /api/documents/{checksum}/jobs`, `GET /api/jobs`,
 `GET /api/jobs/{job_id}`, `GET /api/jobs/{job_id}/artifacts/parser`,
-`GET /api/jobs/{job_id}/artifacts/extraction`, `GET /health`, `GET /ready`)
-are implemented, along with upload validation and a configurable size limit. A done job's
+`GET /api/jobs/{job_id}/artifacts/extraction`, `POST /extract`, `GET /health`, `GET /ready`)
+are implemented, along with upload validation and a configurable size limit. `POST /extract` is a dev route: it runs a queued job's pipeline
+(the same parser and extractor) in one request, without the queue and the workers. A done job's
 status response is the ETS rows for that paper.
 
 **Current API scope:**
@@ -23,6 +24,9 @@ status response is the ETS rows for that paper.
 - **Uploaded PDFs are persisted in artifact storage.** Their paths are derived
   from the content SHA-256, so two submissions of the same PDF create separate
   jobs that reuse one immutable PDF artifact.
+- **`POST /extract` is a temporary dev route** that skips the queue and the workers.
+  It runs the same parser and extractor as a queued job, in a child process, and returns
+  the extraction artifact inline. Nothing is stored.
 - **A done job returns ETS rows.** `GET /api/jobs/{job_id}` loads the stored extraction
   artifact and maps it. Other statuses do not. `?detail=full` adds the stored record,
   and for a done job also each row's observation index.
@@ -41,7 +45,8 @@ The API container accepts a born-digital PDF, creates a job, and lets the client
 for its status. `POST /api/documents` stores the PDF. `POST /api/documents/{checksum}/jobs`
 creates the Postgres job row and enqueues parsing without parsing in the request process.
 `POST /api/extractions` does both.
-The separate parser worker advances the stored state. A done job's poll returns the ETS
+The separate parser worker advances the stored state. `POST /extract` runs the same upload through the same
+pipeline in one request, for manual testing outside the job lifecycle. A done job's poll returns the ETS
 rows for that paper.
 
 ---
@@ -222,16 +227,6 @@ Serve raw bytes of a stored PDF document.
   - `Cache-Control: private, max-age=31536000, immutable`
 
 **Failure:** Same 401, 404, 422, and 503 statuses as `GET /api/documents/{checksum}`. `500` if the stored payload is corrupted.
-
-
-### `POST /api/extractions`
-
-Submit a PDF and queue a job with the default parser and extractor. The request does not parse or extract. The response is the queued job, `202`, with `job_id` and `status` only.
-
-- **Request:** `multipart/form-data` with a single `file` part. The checks are the document upload checks.
-- **Success:** `202` `{"job_id", "status": "queued"}`. Submitting the same PDF again reuses the stored artifact and creates another job. This route does not insert a document row. A name stored earlier by `POST /api/documents` is on `GET /api/jobs/{job_id}?detail=full`.
-
-**Failure:** The upload failures of `POST /api/documents` (`400`, `413`, `415`, `503`), and `503` `queue_unavailable` when the job cannot be enqueued. A failed insert stores no job.
 
 
 ### `POST /api/documents/{checksum}/jobs`
@@ -536,8 +531,10 @@ Holds the FastAPI app, its startup/shutdown lifecycle, and the route handlers.
 **Lifespan:** on startup, first calls `setup_logging(settings.log_level)` (see
 [Logging](#logging)). When configured, the lifecycle opens the async Postgres pool
 (`bioparser.db.engine`, asyncpg), a Redis-backed `DramatiqJobSubmitter`, and a
-`FileSystemArtifactStorage`. On shutdown, the Postgres pool is closed. Migrations
-stay on the sync psycopg driver.
+`FileSystemArtifactStorage`. For `POST /extract` it creates a `ProcessPoolExecutor` and an
+`asyncio.Semaphore`, both sized `config.extract_concurrency`. On shutdown, the pool stops
+taking work (a running child is not waited for), and network clients and the Postgres
+pool are closed. Migrations stay on the sync psycopg driver.
 
 - `POST /api/extractions` — runs `_validated_upload()` (the [`uploads.py`](#uploadspy) helpers,
   in order: `validate_content_length`, `require_file`, `validate_content_type`,
@@ -556,16 +553,22 @@ stay on the sync psycopg driver.
 - `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`
   when it has no such ref, then return the stored bytes via async storage (disk I/O runs
   on a thread inside the storage implementation).
+- `POST /extract` — runs the same `_validated_upload()` as `POST /api/extractions`, takes a
+  slot (`_start_pipeline()`), and runs [`run_pipeline()`](#bioparserpipeline) in the process
+  pool. A `PipelineError` becomes a `502 HTTPException`. If a child died (for example out
+  of memory), the broken pool is replaced and the request gets `502`. Not wired to the job store.
 - `GET /health` — returns `HealthResponse(status="ok")` directly, no dependencies.
 - `GET /ready` — checks Redis, Postgres, and the artifact directory.
 
 Errors use `fastapi.HTTPException` directly — raised from the `uploads.py` helpers for
-upload validation, and inline in `job_status` for a missing job or a bad artifact. A `413` handler maps oversize errors to
+upload validation, inline in `job_status` for a missing job or a bad artifact, inline in `extract` for the 502,
+and inline in `_start_pipeline` for the 503. A `413` handler maps oversize errors to
 Starlette's plain-text `Content Too Large` body.
 
 ### `uploads.py`
 
-Stateless helpers that validate an upload. Each raises `fastapi.HTTPException` with a `{"code", "message"}`
+Stateless helpers that validate an upload, shared by `POST /api/extractions` and
+`POST /extract`. Each raises `fastapi.HTTPException` with a `{"code", "message"}`
 object as its `detail` on failure, and returns normally on success.
 
 - `require_file(file) -> UploadFile` — raises `400 missing_file` when no `file`
@@ -638,8 +641,15 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `max_upload_bytes` | `DEFAULT_MAX_UPLOAD_BYTES` (20 MiB) | upload ceiling used by `uploads.py` and the body-limit middleware |
+| `mineru_base_url` | `http://mineru:8000` | MinerU base URL for `POST /extract` when the job parser is `mineru` |
+| `mineru_timeout_seconds` | `600.0` | how long the API waits for MinerU to parse one PDF, time queued behind other parses included (its `wait_timeout`, at most 3600); the task is cancelled then |
+| `mineru_tier` | `basic` | MinerU parse tier (`basic`, `standard`, `advanced`); the GPU stack sets `standard`, see [parser.md](parser.md) |
+| `extract_concurrency` | `2` | number of `POST /extract` processes, and of slots for them |
+| `extract_queue_timeout_seconds` | `5.0` | how long `POST /extract` waits for a semaphore slot before returning `503` |
 | `dependency_check_timeout_seconds` | `1.0` | timeout for each readiness dependency check |
 | `artifact_storage_path` | required | filesystem artifact root |
+| `extraction_char_budget` | `8000` | character (not token) budget passed to vLLM extraction |
+| `extraction_max_tokens` | `1024` | max generation tokens passed to vLLM extraction |
 | `redis_url` | required | Redis URL for the parse queue |
 | `redis_timeout_seconds` | `5.0` | Redis connect and operation timeout |
 | `database_url` | required | `postgresql` URL (`PostgresDsn`) for job state; `/ready` TCP-connects to it |
@@ -675,13 +685,16 @@ stderr as one line of JSON:
   tokens), `http_version` and `status_code` instead of `msg`. `--no-access-log` is
   respected.
 - `log_context(**fields)` adds fields to every record logged inside it, from any
-  logger. Access lines do not carry it.
+  logger. `run_pipeline()` uses it for `checksum` (the upload's sha256), so the
+  MinerU, vLLM and stage records of one run share it. Access lines do not carry it.
 
 What is logged:
 
 | Logger | Message | Level | Fields |
 |---|---|---|---|
-| `bioparser.services.mineru.client` | `mineru-api request completed` / `mineru-api request failed` | INFO / WARNING | `status_code`, `bytes_read`, `latency_ms`, then `error` on failure. The parser worker sends these. |
+| `bioparser.api.app` | `vllm model discovered` / `vllm model discovery failed` | INFO / WARNING | `vllm_base_url` (credentials, query and fragment removed), then `model`, or `error` and `cause` |
+| `bioparser.pipeline` | `pipeline stage completed` / `pipeline stage failed` | INFO / ERROR | `stage` (`parse`, `extract`), `outcome` (`ok` or `error`), `duration_ms`, then results (`pages`; `observations`), or `error`, `cause` and the traceback |
+| `bioparser.services.mineru.client` | `mineru-api request completed` / `mineru-api request failed` | INFO / WARNING | `status_code`, `bytes_read`, `latency_ms`, then `error` on failure |
 | `bioparser.services.vllm.vllm` | `vllm completion finished` / `vllm request failed` | INFO if `finish_reason` is `stop`, else WARNING | `model`, `latency_ms`, `finish_reason`, `prompt_tokens`, `completion_tokens`, or `latency_ms` and `error` |
 
 Never logged: PDF bytes, prompt text, generated text, quotations, the vLLM API
@@ -766,5 +779,8 @@ curl -s -F file=@sample.pdf localhost:8080/api/documents
 # -> 413  Content Too Large
 ```
 
-A done job's ETS body needs a stored extraction artifact. The minimal PDF above stays
+`POST /extract` is not part of the walkthrough above: it needs a reachable MinerU
+service (`config.mineru_base_url`) and vLLM service, and expects a real (non-trivial)
+PDF rather than the minimal `sample.pdf` fixture, since MinerU has to actually parse
+it. A done job's ETS body needs a stored extraction artifact. The minimal PDF above stays
 `queued` until a worker parses and extracts it.

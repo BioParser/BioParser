@@ -433,9 +433,7 @@ def test_a_negative_age_is_parsed_and_reversed_bounds_are_kept() -> None:
     assert result.rows[0].source_index == 0
     assert result.rows[0].measurementValue_min == 4
     assert result.rows[0].measurementValue_max == 2
-    assert (
-        "bounds_reversed:measurementValue_min,measurementValue_max" in result.rows[0].warnings
-    )
+    assert "bounds_reversed:measurementValue_min,measurementValue_max" in result.rows[0].warnings
     assert result.rows[1].source_index == 1
 
 
