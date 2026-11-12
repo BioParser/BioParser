@@ -67,12 +67,12 @@ A minimum greater than the maximum is kept as printed, and the row warns `bounds
 
 - A free-text column that accepts a citation or a correction uses the interpretation value when the extractor stored a correction, and the printed citation otherwise. The narrow citation of a correction is not used for the column. It stays in the artifact for tracing and for UI highlighting, where a precise range is better than a whole passage.
 - A column that accepts a citation or an interpretation (`individualCount`, `measurementValueMin`, dates, coordinates, and the like) is parsed or matched by the adapter. A citation is parsed from its text. An interpretation uses its `value`, and its passage is only the grounding. The adapter parses a number into the numeric ETS column. The artifact does not store the parsed number.
-- `sex` and `aggregateMeasure` are matched against the ETS values. A value that does not match adds a warning and leaves the column empty. A `countryCode` that is not two uppercase letters does the same. A `basisOfRecord` that does not match adds a warning and becomes `literatureData`.
-- A date is written as `YYYY-MM-DD`. A year-first number or a written month is converted. A numeric day and month is converted when one number is greater than 12, so that number is the day. When both are 12 or less, the date is left empty.
+- `sex`, `aggregateMeasure`, and `basisOfRecord` are matched against the ETS values. A value that does not match adds a warning and leaves the column empty. A `countryCode` that is not two uppercase letters does the same.
+- A date is written as `YYYY-MM-DD`. A year-first number or a written month is converted. A numeric day and month is converted when one number is greater than 12, so that number is the day. When both are 12 or less, the date is left empty. Year, month, and day that do not form a calendar day stay as printed and warn `not_a_date:year,month,day`. A number outside its column's range, such as month 13 or a longitude past 180, stays empty and warns `out_of_range`. Text that is not a number warns `not_numeric`.
 
 ### Defaults and assigned columns
 
-- `basisOfRecord` is `literatureData` when the observation did not record one. `aggregateMeasure` stays empty.
+- A missing `basisOfRecord` stays empty. ETS does not default it. `aggregateMeasure` stays empty.
 - A missing `individualCount` is empty. A missing `dispersion` is empty. A measured dispersion of zero is stored as `0`. The minimum and the maximum have no default either.
 - `measurementID` is assigned when the rows are built.
 - `references` comes from the job's document.

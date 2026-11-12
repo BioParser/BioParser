@@ -16,6 +16,7 @@ from bioparser.ets.notices import (
     NotInVocabulary,
     NotNumeric,
     NumericField,
+    OutOfRange,
     TextField,
 )
 from bioparser.ets.numbers import parse_count, parse_decimal, parse_integer, parse_signed_decimal
@@ -76,7 +77,7 @@ class Assessment(BaseModel):
     sex: Sex | None
     age: float | None
     aggregate_measure: bool | None
-    basis_of_record: BasisOfRecord
+    basis_of_record: BasisOfRecord | None
     individual_count: int | None
     dispersion: float | None
     measurement_value_min: float | None
@@ -105,7 +106,7 @@ def assess(observation: Observation) -> Assessment:
     trait_value = None
     trait_unit = None
 
-    # Closed tokens. A missing or unmatched basis becomes literatureData.
+    # Closed tokens. A missing basis stays empty. A token outside the set stays empty.
     sex = _parse_sex(observation.sex, warnings)
     aggregate_measure = _parse_aggregate(observation.aggregateMeasure, warnings)
     basis_of_record = _parse_basis(observation.basisOfRecord, warnings)
@@ -128,13 +129,12 @@ def assess(observation: Observation) -> Assessment:
             datetime(year, month, day)
         except ValueError:
             warnings.append(NotACalendarDay())
-            day = None
     event_date = _parse_date(observation.eventDate, "eventDate", warnings)
     measurement_determined_date = _parse_date(
         observation.measurementDeterminedDate, "measurementDeterminedDate", warnings
     )
 
-    # Coordinates outside the valid range stay empty.
+    # A coordinate outside the valid range stays empty.
     decimal_longitude = _parse_coordinate(
         observation.decimalLongitude, "decimalLongitude", warnings, low=-180, high=180
     )
@@ -187,13 +187,13 @@ def _parse_sex(value: CitationOrInterpretation | None, warnings: list[Notice]) -
     return matched
 
 
-def _parse_basis(value: Interpretation | None, warnings: list[Notice]) -> BasisOfRecord:
+def _parse_basis(value: Interpretation | None, warnings: list[Notice]) -> BasisOfRecord | None:
     if value is None:
-        return "literatureData"
+        return None
     matched = match_basis(value.value)
     if matched is None:
         warnings.append(NotInVocabulary(field="basisOfRecord"))
-        return "literatureData"
+        return None
     return matched
 
 
@@ -264,7 +264,7 @@ def _parse_decimal(
 
 def _parse_integer(
     value: CitationOrInterpretation | None,
-    field: NumericField,
+    field: Literal["year", "month", "day"],
     warnings: list[Notice],
     *,
     low: int,
@@ -273,8 +273,11 @@ def _parse_integer(
     if value is None:
         return None
     parsed = parse_integer(stored_text(value))
-    if parsed is None or not low <= parsed <= high:
+    if parsed is None:
         warnings.append(NotNumeric(field=field))
+        return None
+    if not low <= parsed <= high:
+        warnings.append(OutOfRange(field=field))
         return None
     return parsed
 
@@ -293,7 +296,7 @@ def _parse_date(
 
 def _parse_coordinate(
     value: CitationOrInterpretation | None,
-    field: NumericField,
+    field: Literal["decimalLongitude", "decimalLatitude"],
     warnings: list[Notice],
     *,
     low: float,
@@ -303,7 +306,7 @@ def _parse_coordinate(
     if parsed is None:
         return None
     if not low <= parsed <= high:
-        warnings.append(NotNumeric(field=field))
+        warnings.append(OutOfRange(field=field))
         return None
     return parsed
 
