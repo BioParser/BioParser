@@ -133,6 +133,8 @@ def test_each_field_is_located_on_its_own() -> None:
     paper = _paper(sentence)
 
     located = _locate(paper, quotation=sentence, unit="mm")
+    assert located is not None
+    assert located.verbatimTraitUnit is not None
 
     assert _slice(paper, located.verbatimScientificName) == "Mus musculus"
     assert _slice(paper, located.verbatimTraitValue) == "12.5"
