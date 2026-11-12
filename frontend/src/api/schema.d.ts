@@ -406,6 +406,8 @@ export interface components {
              * @constant
              */
             status: "done";
+            /** Trait List Version */
+            trait_list_version: string;
             /** Rows */
             rows: components["schemas"]["EtsSourceRow"][];
         };
@@ -424,6 +426,8 @@ export interface components {
              * @constant
              */
             status: "done";
+            /** Trait List Version */
+            trait_list_version: string;
             /** Rows */
             rows: components["schemas"]["EtsRow"][];
         };

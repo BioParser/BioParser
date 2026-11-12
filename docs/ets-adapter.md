@@ -8,7 +8,7 @@ The ETS adapter turns an extraction artifact ([extraction-artifact.md](extractio
 
 - The adapter reads an artifact and returns rows. It does not modify the artifact and does not write ETS columns back into it.
 - It does not call the model, and it does not open the parser artifact.
-- Each observation becomes one ETS row.
+- Each observation becomes one ETS row. The result names the `trait_list_version` that filled `traitName` and `traitID`.
 - A new ETS version changes the adapter's mapping. It does not change the stored artifact.
 
 ## Deviations from ETS

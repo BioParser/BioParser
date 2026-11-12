@@ -14,6 +14,7 @@ from bioparser.extract.models import (
     Observation,
     TextRange,
 )
+from bioparser.traits.table import mammal_traits
 
 _DOCUMENT_ID = "abc123"
 
@@ -73,6 +74,7 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     result = to_ets(artifact, references=_DOCUMENT_ID)
 
     assert artifact.model_dump() == before
+    assert result.trait_list_version == mammal_traits().version
     assert len(result.rows) == 1
     assert result.rows[0].source_index == 0
     row = result.rows[0]

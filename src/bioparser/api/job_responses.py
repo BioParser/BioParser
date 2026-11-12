@@ -117,6 +117,7 @@ def _done_body(
     if detail == "full":
         return DoneJobFullResponse(
             status="done",
+            trait_list_version=result.trait_list_version,
             rows=result.rows,
             **fields,
         )
@@ -128,6 +129,7 @@ def _done_body(
         raise _InvalidArtifact(str(exc)) from exc
     return DoneJobResponse(
         status="done",
+        trait_list_version=result.trait_list_version,
         rows=rows,
         **fields,
     )
