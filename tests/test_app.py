@@ -475,7 +475,10 @@ def test_a_done_job_returns_its_ets_rows(
         EtsRow.model_validate(row.model_dump(exclude={"source_index"})) for row in expected.rows
     ]
     assert response.json()["rows"][0]["verbatimTraitName"] == "M. musculus"
-    assert response.json()["rows"][0]["traitName"] is None
+    assert response.json()["rows"][0]["traitName"] == "Body mass"
+    assert response.json()["rows"][0]["traitID"] == "VT:0001259"
+    assert response.json()["rows"][0]["traitValue"] == "12.5"
+    assert response.json()["rows"][0]["traitUnit"] == "g"
     assert "source_index" not in response.json()["rows"][0]
     assert "drops" not in response.json()
     assert "artifact.retrieve" in events

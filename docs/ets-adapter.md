@@ -26,14 +26,14 @@ The artifact uses its own camelCase names. The adapter maps them to ETS column n
 | `measurementValueMin` | `measurementValue_min` |
 | `measurementValueMax` | `measurementValue_max` |
 
-`traitCode` is not an ETS column. It is the extractor's code for the measurement, and a later trait list uses it to fill `traitName`, `traitID`, `traitValue`, and `traitUnit`. Until that list exists, those four stay empty.
+`traitCode` is not an ETS column. It is the extractor's code for the measurement. The mammal trait list uses it to fill `traitName`, `traitID`, `traitValue`, and `traitUnit`. A code the list cannot apply leaves those four empty.
 
 ## Sources
 
-The adapter needs two sources. Neither is chosen yet.
+The adapter needs two sources. The taxonomy backbone is not chosen yet.
 
 - **Taxonomy backbone** for `scientificName` and `taxonID`. The source is chosen later.
-- **Trait list** for `traitName`, `traitID`, `traitValue`, and `traitUnit`. ETS does not define the trait list, so it is chosen later. The artifact does not check `traitCode` against a list.
+- **Trait list** for `traitName`, `traitID`, `traitValue`, and `traitUnit`. The list is `src/bioparser/traits/mammal_traits.json`. The artifact does not check `traitCode` against it. The adapter does.
 
 An extractor may store `traitValue` and `traitUnit` as its own reading of the printed number and unit, such as `kg` for a printed `kilograms`. The trait list uses that reading, and falls back to the printed text when there is none. It converts the pair into the trait's unit and writes the ETS columns.
 
@@ -53,11 +53,11 @@ The printed value and the printed unit are copied as they are.
 
 1. `verbatimTraitValue` is the printed number.
 2. `verbatimTraitUnit` is the printed unit, such as `kg`. It is optional, and a measurement printed without a unit leaves it empty.
-3. `traitValue` and `traitUnit` stay empty. A later trait list fills them when it standardizes the measurement.
+3. When the list can apply the code, `traitName` and `traitID` come from the list, and `traitValue` and `traitUnit` are the value in the stored unit. A level has a value and no unit. When the list cannot apply the code, those four stay empty and the row warns why: `unmapped:traitName`, `not_in_vocabulary:traitValue`, `not_numeric:traitValue`, `unit_unknown:traitUnit`, or `unit_not_for_trait:traitUnit`.
 
 ### Range and dispersion
 
-The minimum, the maximum, and the dispersion are the numbers the paper printed, read with `verbatimTraitUnit`. ETS gives them no unit of their own. An empty one stays empty.
+The minimum, the maximum, and the dispersion are the numbers the paper printed, read with `verbatimTraitUnit`. ETS gives them no unit of their own. An empty one stays empty. They are not converted when `traitValue` moves to the stored unit. Each stored number then warns `not_converted`. A level has no spread and no range, so a stored one is left empty and warns `not_applicable`.
 
 A minimum greater than the maximum is kept as printed, and the row warns `bounds_reversed:measurementValue_min,measurementValue_max`.
 
@@ -81,7 +81,7 @@ A minimum greater than the maximum is kept as printed, and the row warns `bounds
 - `warnings` collects what the adapter found while building the row.
 - `occurrenceID` is the printed token, or a value read from a wider phrase, when the observation stored one.
 - `taxonRank` stays empty. A taxonomy lookup fills it with `taxonID`. A printed kingdom, phylum, class, order, family, or genus is copied, and a later lookup fills one of those columns only when the observation left it empty.
-- `traitName`, `traitID`, `traitValue`, and `traitUnit` stay empty until the trait list exists.
+- `traitName`, `traitID`, and `traitValue` are filled together when the list applies the code, and empty together when it does not.
 
 ## Warnings
 
@@ -93,4 +93,3 @@ Each row keeps the source index of its observation in the artifact, so a row can
 
 - Which of `verbatimScientificName` and `scientificName` the taxonomy lookup tries first.
 - The taxonomy source.
-- The trait list.

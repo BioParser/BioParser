@@ -48,6 +48,7 @@ NumericField = Literal[
     "decimalLongitude",
     "decimalLatitude",
     "elevation",
+    "traitValue",
 ]
 DateField = Literal["measurementDeterminedDate", "eventDate"]
 
@@ -89,7 +90,69 @@ class NotInVocabulary(BaseModel):
         "basisOfRecord",
         "aggregateMeasure",
         "countryCode",
+        "traitValue",
     ]
+
+
+class NotConverted(BaseModel):
+    """A dispersion, minimum, or maximum stayed in the printed unit.
+
+    Read it with ``verbatimTraitUnit``. The trait value may already be in the stored unit.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["not_converted"] = "not_converted"
+    field: Literal["dispersion", "measurementValue_min", "measurementValue_max"]
+
+
+class NotApplicable(BaseModel):
+    """A stored number does not apply to this kind of trait, such as a dispersion of a level."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["not_applicable"] = "not_applicable"
+    field: Literal["dispersion", "measurementValue_min", "measurementValue_max"]
+
+
+class UnmappedTrait(BaseModel):
+    """No usable trait code was stored, so the list did not name this measurement."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["unmapped"] = "unmapped"
+    field: Literal["traitName"] = "traitName"
+
+
+class UnitRefused(BaseModel):
+    """The trait list could not convert the printed unit, so the value stays as printed.
+
+    ``unit_unknown`` is a unit no numeric trait accepts. ``unit_not_for_trait`` is a known
+    unit that this trait does not accept.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["unit_unknown", "unit_not_for_trait"]
+    field: Literal["traitUnit"] = "traitUnit"
+
+
+class DeprecatedTrait(BaseModel):
+    """The trait code is deprecated. It still converts."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["deprecated_trait"] = "deprecated_trait"
+    field: Literal["traitName"] = "traitName"
+
+
+class Approximate(BaseModel):
+    """The value was converted with a conventional factor, such as 365.25 days per year."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["approximate"] = "approximate"
+    field: Literal["traitValue"] = "traitValue"
 
 
 class BoundsReversed(BaseModel):
@@ -121,7 +184,20 @@ class NotACalendarDay(BaseModel):
     field: Literal["year,month,day"] = "year,month,day"
 
 
-Notice = NotNumeric | OutOfRange | NotInVocabulary | NotADate | NotACalendarDay | BoundsReversed
+Notice = (
+    NotNumeric
+    | OutOfRange
+    | NotInVocabulary
+    | NotADate
+    | NotACalendarDay
+    | NotConverted
+    | NotApplicable
+    | UnmappedTrait
+    | UnitRefused
+    | BoundsReversed
+    | DeprecatedTrait
+    | Approximate
+)
 
 
 def format_warning(notice: Notice) -> str:

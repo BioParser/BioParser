@@ -56,6 +56,8 @@ def _row(
 ) -> EtsSourceRow:
     return EtsSourceRow.model_validate(
         {
+            "traitID": verdict.trait_id,
+            "traitName": verdict.trait_name,
             "verbatimTraitName": verdict.cited["verbatimTraitName"],
             "scientificName": verdict.scientific_name,
             "verbatimScientificName": verdict.cited["verbatimScientificName"],
