@@ -358,7 +358,7 @@ def test_a_measurement_without_a_code_is_a_row() -> None:
     assert row.traitID is None
     assert row.traitValue is None
     assert row.traitUnit is None
-    assert "unmapped:traitName" in row.warnings
+    assert row.warnings == ""
 
 
 def test_an_unknown_trait_is_still_a_row() -> None:
@@ -370,7 +370,7 @@ def test_an_unknown_trait_is_still_a_row() -> None:
     assert isinstance(verdict, Assessment)
     assert result.rows[0].verbatimTraitName == "body mass"
     assert result.rows[0].traitID is None
-    assert "unmapped:traitName" in result.rows[0].warnings
+    assert result.rows[0].warnings == "not_on_list:traitName"
 
 
 def test_a_citation_without_a_range_is_rejected() -> None:
@@ -526,9 +526,7 @@ def test_a_range_and_a_dispersion_stay_printed() -> None:
     assert row.measurementValue_min == 10
     assert row.measurementValue_max == 14
     assert row.statisticalMethod == "mean ± SD, range"
-    assert "not_converted:dispersion" in row.warnings
-    assert "not_converted:measurementValue_min" in row.warnings
-    assert "not_converted:measurementValue_max" in row.warnings
+    assert row.warnings == ""
 
 
 def test_a_missing_method_stays_empty() -> None:
@@ -538,7 +536,7 @@ def test_a_missing_method_stays_empty() -> None:
 
     assert row.dispersion == 0.2
     assert row.statisticalMethod is None
-    assert row.warnings == "not_converted:dispersion"
+    assert row.warnings == ""
 
 
 def test_a_missing_count_and_dispersion_stay_empty() -> None:
@@ -558,7 +556,7 @@ def test_a_minimum_stays_printed() -> None:
 
     assert row.measurementValue_min == 1.5
     assert row.measurementValue_max is None
-    assert row.warnings == "not_converted:measurementValue_min"
+    assert row.warnings == ""
 
 
 def test_an_empty_maximum_stays_empty() -> None:
@@ -570,7 +568,7 @@ def test_an_empty_maximum_stays_empty() -> None:
     assert row.measurementValue_max is None
     assert row.statisticalMethod is None
     assert row.dispersion is None
-    assert row.warnings == "not_converted:measurementValue_min"
+    assert row.warnings == ""
 
 
 def test_a_level_is_standardized_when_it_has_no_spread() -> None:
@@ -607,7 +605,7 @@ def test_a_level_with_a_spread_stays_the_printed_row() -> None:
     assert row.verbatimTraitValue == "nocturnal"
     assert row.dispersion == 0.4
     assert row.measurementValue_min == 1
-    assert row.warnings == "not_applicable:dispersion | not_applicable:measurementValue_min"
+    assert row.warnings == "level_has_spread:traitName"
 
 
 def test_an_empty_document_id_is_rejected() -> None:

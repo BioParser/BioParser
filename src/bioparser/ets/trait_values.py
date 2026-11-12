@@ -11,8 +11,8 @@ from bioparser.ets.notices import (
     Notice,
     NotInVocabulary,
     NotNumeric,
+    NotOnList,
     UnitRefused,
-    UnmappedTrait,
 )
 from bioparser.ets.numbers import canonical_decimal, parse_count
 from bioparser.traits.normalize import normalize_unit
@@ -41,7 +41,7 @@ def resolve_trait_value(
 ) -> ResolvedTraitValue | Notice:
     """The trait value as the list stores it, with its name and id, or the notice for why not.
 
-    The notice is ``UnmappedTrait`` for a code that is not on the list, ``NotInVocabulary`` for
+    The notice is ``NotOnList`` for a code that is not on the list, ``NotInVocabulary`` for
     a level that is not one of the trait's levels, ``UnitRefused`` for a unit the trait does not
     accept, and ``NotNumeric`` for a value that is not a number.
 
@@ -51,7 +51,7 @@ def resolve_trait_value(
     """
     entry = mammal_traits().get(trait_code)
     if entry is None:
-        return UnmappedTrait()
+        return NotOnList()
     warnings: list[Notice] = []
     if entry.status == "deprecated":
         warnings.append(DeprecatedTrait())

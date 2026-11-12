@@ -53,11 +53,11 @@ The printed value and the printed unit are copied as they are.
 
 1. `verbatimTraitValue` is the printed number.
 2. `verbatimTraitUnit` is the printed unit, such as `kg`. It is optional, and a measurement printed without a unit leaves it empty.
-3. When the list can apply the code, `traitName` and `traitID` come from the list, and `traitValue` and `traitUnit` are the value in the stored unit. A level has a value and no unit. When the list cannot apply the code, those four stay empty and the row warns why: `unmapped:traitName`, `not_in_vocabulary:traitValue`, `not_numeric:traitValue`, `unit_unknown:traitUnit`, or `unit_not_for_trait:traitUnit`.
+3. When the list can apply the code, `traitName` and `traitID` come from the list, and `traitValue` and `traitUnit` are the value in the stored unit. A level has a value and no unit. A row with no code leaves those four empty and does not warn. A code the list does not contain warns `not_on_list:traitName`. A code the list cannot apply warns why: `not_in_vocabulary:traitValue`, `not_numeric:traitValue`, `unit_unknown:traitUnit`, `unit_not_for_trait:traitUnit`, or `level_has_spread:traitName`.
 
 ### Range and dispersion
 
-The minimum, the maximum, and the dispersion are the numbers the paper printed, read with `verbatimTraitUnit`. ETS gives them no unit of their own. An empty one stays empty. They are not converted when `traitValue` moves to the stored unit. Each stored number then warns `not_converted`. A level has no spread and no range. A stored one means the code does not apply, so the four standardized columns stay empty, the printed numbers stay, and each stored number warns `not_applicable`.
+The minimum, the maximum, and the dispersion are the numbers the paper printed, read with `verbatimTraitUnit`. ETS gives them no unit of their own. An empty one stays empty. They stay in the printed unit when `traitValue` moves to the stored unit, and that carries no warning. A level has no spread and no range. A stored one means the code does not apply, so the four standardized columns stay empty, the printed numbers stay, and the row warns `level_has_spread:traitName`.
 
 A minimum greater than the maximum is kept as printed, and the row warns `bounds_reversed:measurementValue_min,measurementValue_max`.
 

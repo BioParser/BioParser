@@ -10,17 +10,15 @@ from bioparser.ets.dates import parse_date
 from bioparser.ets.notices import (
     BoundsReversed,
     DateField,
+    LevelHasSpread,
     NotACalendarDay,
     NotADate,
-    NotApplicable,
-    NotConverted,
     Notice,
     NotInVocabulary,
     NotNumeric,
     NumericField,
     OutOfRange,
     TextField,
-    UnmappedTrait,
 )
 from bioparser.ets.numbers import parse_decimal, parse_integer, parse_signed_decimal
 from bioparser.ets.trait_values import ResolvedTraitValue, resolve_trait_value
@@ -128,7 +126,7 @@ def assess(observation: Observation) -> Assessment:
     # A level has no spread and no range. A stored one means the code does not apply,
     # so the printed row stays and the four standardized columns stay empty.
     if isinstance(parsed, ResolvedTraitValue) and _level_has_a_spread(parsed, observation):
-        _warn_numbers_that_block_a_level(observation, warnings)
+        warnings.append(LevelHasSpread())
         trait_name = None
         trait_id = None
         trait_value = None
@@ -139,10 +137,9 @@ def assess(observation: Observation) -> Assessment:
         trait_id = parsed.trait_id
         trait_value = parsed.value
         trait_unit = parsed.unit
-        if parsed.factor != 1:
-            _warn_left_in_the_printed_unit(dispersion, value_min, value_max, warnings)
     else:
-        warnings.append(parsed)
+        if parsed is not None:
+            warnings.append(parsed)
         trait_name = None
         trait_id = None
         trait_value = None
@@ -204,10 +201,12 @@ def assess(observation: Observation) -> Assessment:
     )
 
 
-def _parse_trait_value(observation: Observation, *, aggregate: bool) -> ResolvedTraitValue | Notice:
-    """The resolved value, or the notice for why the list could not standardize it."""
+def _parse_trait_value(
+    observation: Observation, *, aggregate: bool
+) -> ResolvedTraitValue | Notice | None:
+    """The resolved value, the notice for a failed code, or nothing when no code was stored."""
     if observation.traitCode is None:
-        return UnmappedTrait()
+        return None
     if observation.traitValue is not None:
         value = observation.traitValue.value
     else:
@@ -231,31 +230,6 @@ def _level_has_a_spread(parsed: ResolvedTraitValue, observation: Observation) ->
             observation.measurementValueMax,
         )
     )
-
-
-def _warn_numbers_that_block_a_level(observation: Observation, warnings: list[Notice]) -> None:
-    """The stored spread is why this level was not standardized."""
-    if observation.dispersion is not None:
-        warnings.append(NotApplicable(field="dispersion"))
-    if observation.measurementValueMin is not None:
-        warnings.append(NotApplicable(field="measurementValue_min"))
-    if observation.measurementValueMax is not None:
-        warnings.append(NotApplicable(field="measurementValue_max"))
-
-
-def _warn_left_in_the_printed_unit(
-    dispersion: float | None,
-    value_min: float | None,
-    value_max: float | None,
-    warnings: list[Notice],
-) -> None:
-    """The trait value moved to the stored unit. These three numbers did not."""
-    if dispersion is not None:
-        warnings.append(NotConverted(field="dispersion"))
-    if value_min is not None:
-        warnings.append(NotConverted(field="measurementValue_min"))
-    if value_max is not None:
-        warnings.append(NotConverted(field="measurementValue_max"))
 
 
 def _cited(value: CitationOrCorrection | None) -> str | None:

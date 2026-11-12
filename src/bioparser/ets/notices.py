@@ -94,37 +94,24 @@ class NotInVocabulary(BaseModel):
     ]
 
 
-class NotConverted(BaseModel):
-    """A dispersion, minimum, or maximum stayed in the printed unit.
+class LevelHasSpread(BaseModel):
+    """A level also stored a dispersion, a minimum, or a maximum.
 
-    Read it with ``verbatimTraitUnit``. The trait value may already be in the stored unit.
+    The four standardized columns stay empty. The printed numbers stay.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    kind: Literal["not_converted"] = "not_converted"
-    field: Literal["dispersion", "measurementValue_min", "measurementValue_max"]
+    kind: Literal["level_has_spread"] = "level_has_spread"
+    field: Literal["traitName"] = "traitName"
 
 
-class NotApplicable(BaseModel):
-    """A level stored a spread or a range, so the code was not applied.
-
-    The printed number stays. ``traitName``, ``traitID``, ``traitValue``, and ``traitUnit``
-    stay empty.
-    """
+class NotOnList(BaseModel):
+    """A trait code was stored and the list has no entry for it."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    kind: Literal["not_applicable"] = "not_applicable"
-    field: Literal["dispersion", "measurementValue_min", "measurementValue_max"]
-
-
-class UnmappedTrait(BaseModel):
-    """No usable trait code was stored, so the list did not name this measurement."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["unmapped"] = "unmapped"
+    kind: Literal["not_on_list"] = "not_on_list"
     field: Literal["traitName"] = "traitName"
 
 
@@ -194,9 +181,8 @@ Notice = (
     | NotInVocabulary
     | NotADate
     | NotACalendarDay
-    | NotConverted
-    | NotApplicable
-    | UnmappedTrait
+    | LevelHasSpread
+    | NotOnList
     | UnitRefused
     | BoundsReversed
     | DeprecatedTrait
