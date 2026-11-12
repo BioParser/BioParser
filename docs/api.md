@@ -552,10 +552,12 @@ pool are closed. Migrations stay on the sync psycopg driver.
 
 - `POST /api/extractions` — runs `_validated_upload()` (the [`uploads.py`](#uploadspy) helpers,
   in order: `validate_content_length`, `require_file`, `validate_content_type`,
-  `read_upload`, `validate_pdf_content`), persists the content-addressed PDF,
-  creates a `JobState` in Postgres, commits it, then enqueues a `ParseJobMessage`,
-  and returns `202`. The enqueue is outside the database transaction. A failed
-  enqueue marks that row `failed` in a later transaction.
+  `read_upload`, `validate_pdf_content`), persists the content-addressed PDF, then
+  inserts the document row and the job in one Postgres transaction. A checksum that
+  already has a document keeps that row. The 202 body is `AcceptedJobResponse`
+  (`job_id` and `status`). `POST /api/documents/{checksum}/jobs` returns the same
+  body. The enqueue of a `ParseJobMessage` is outside that transaction. A failed
+  enqueue marks that job `failed` in a later transaction.
   Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it is still
   being received. A missing or understated `Content-Length` is still capped while
   reading the file in chunks.
@@ -602,8 +604,9 @@ Pydantic models shared by the routes above, used both for response validation an
 for the OpenAPI docs' `responses=` examples:
 
 - `JobStatusResponse` — discriminated union for queued, running, successful, and
-  failed job states, returned by `GET /api/jobs/{job_id}`. `POST /api/extractions`
-  returns `QueuedJobResponse`.
+  failed job states, returned by `GET /api/jobs/{job_id}`.
+- `AcceptedJobResponse` — `{job_id, status: "queued"}`, returned by
+  `POST /api/extractions` and `POST /api/documents/{checksum}/jobs`.
 - `HealthResponse` — `{status: Literal["ok"]}`, returned by `GET /health`.
 
 ### `errors.py`
