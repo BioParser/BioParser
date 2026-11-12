@@ -73,26 +73,18 @@ class NotInVocabulary(BaseModel):
         "basisOfRecord",
         "aggregateMeasure",
         "countryCode",
-        "statisticalMethod",
     ]
 
 
-class NotConverted(BaseModel):
-    """A dispersion number stayed in the printed unit."""
+class BoundsReversed(BaseModel):
+    """The printed minimum is greater than the printed maximum. Both are kept."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    kind: Literal["not_converted"] = "not_converted"
-    field: Literal["dispersion"] = "dispersion"
-
-
-class Unspecified(BaseModel):
-    """A dispersion choice was stored and there is no number. The column is then 0."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["unspecified"] = "unspecified"
-    field: Literal["dispersion"] = "dispersion"
+    kind: Literal["bounds_reversed"] = "bounds_reversed"
+    field: Literal["measurementValue_min,measurementValue_max"] = (
+        "measurementValue_min,measurementValue_max"
+    )
 
 
 class NotADate(BaseModel):
@@ -113,7 +105,7 @@ class NotACalendarDay(BaseModel):
     field: Literal["year,month,day"] = "year,month,day"
 
 
-Notice = NotNumeric | NotInVocabulary | NotADate | NotACalendarDay | NotConverted | Unspecified
+Notice = NotNumeric | NotInVocabulary | NotADate | NotACalendarDay | BoundsReversed
 
 
 def format_warning(notice: Notice) -> str:

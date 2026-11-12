@@ -89,22 +89,21 @@ class Observation(BaseModel):
     correction that keeps the narrow citation beside an interpretation. A citation
     or interpretation has no verbatim sibling. Its check can reject the printed
     text, so it is a citation or an interpretation of one passage. The passage
-    fails that check, so it is not a usable column value. ``basisOfRecord``,
-    ``aggregateMeasure``, ``centralKind``, and ``dispersionKind``
-    are interpretations only. A paper does not print those tokens. The adapter
-    uses ``centralKind`` and ``dispersionKind`` to write ``statisticalMethod``
-    when no phrase was stored, and ``dispersionKind`` to convert the dispersion.
-    The minimum and the maximum use the same factor as the trait value. One
-    unit covers the measurement.
+    fails that check, so it is not a usable column value. ``basisOfRecord`` and
+    ``aggregateMeasure`` are interpretations only. A paper does not print those tokens.
+
+    The minimum, the maximum, and the dispersion are the numbers the paper
+    printed, read with ``verbatimTraitUnit``. ``statisticalMethod`` is the
+    phrase the paper printed, or empty.
 
     ``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations
-    beside a required verbatim citation. The interpretation is omitted when the
-    printed token is already the value. ``traitValue`` and ``traitUnit`` are
-    that printed number and unit, cleaned up, not a converted pair.
-    ``scientificName`` is another name a later taxonomy lookup can try.
+    beside a verbatim citation. The interpretation is omitted when the printed
+    token is already the value. They stay empty until a taxonomy lookup or a
+    trait list standardizes them. ``scientificName`` is another name a later
+    taxonomy lookup can try.
 
     The artifact does not enforce a closed set of values. An interpretation's
-    ``value`` is any non-empty string, including ``trait``. An extractor may
+    ``value`` is any non-empty string, including ``traitCode``. An extractor may
     constrain it, and the adapter decides what a value means.
 
     Every other column a paper can state is optional. An extractor leaves it null.
@@ -112,8 +111,8 @@ class Observation(BaseModel):
 
     model_config = _CONFIG
 
-    trait: Interpretation
-    verbatimTraitName: CitationOrCorrection | None = None
+    traitCode: Interpretation | None = None
+    verbatimTraitName: CitationOrCorrection
 
     scientificName: Interpretation | None = None
     verbatimScientificName: Citation
@@ -122,7 +121,7 @@ class Observation(BaseModel):
     verbatimTraitValue: Citation
 
     traitUnit: Interpretation | None = None
-    verbatimTraitUnit: Citation
+    verbatimTraitUnit: Citation | None = None
 
     taxonRank: CitationOrCorrection | None = None
     kingdom: CitationOrCorrection | None = None
@@ -148,8 +147,6 @@ class Observation(BaseModel):
 
     aggregateMeasure: Interpretation | None = None
     statisticalMethod: CitationOrCorrection | None = None
-    centralKind: Interpretation | None = None
-    dispersionKind: Interpretation | None = None
     individualCount: CitationOrInterpretation | None = None
     dispersion: CitationOrInterpretation | None = None
     measurementValueMin: CitationOrInterpretation | None = None
