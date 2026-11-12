@@ -1,0 +1,35 @@
+# THIS IS AN EXAMPLE CONFIGMAP. Copy it and name the copy `bioparser-configmap.yaml`
+# BIOPARSER_REDIS_URL and BIOPARSER_DATABASE_URL need to be set
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bioparser-config
+  # add your namespace here
+  namespace:
+data:
+  # MinerU settings
+  MINERU_API_CONCURRENCY: "1"
+  BIOPARSER_MINERU_BASE_URL: "http://mineru:8000"
+  BIOPARSER_MINERU_TIMEOUT_SECONDS: "600"
+  BIOPARSER_PARSE_TIME_LIMIT_SECONDS: "1800"
+
+  # VLLM settings
+  BIOPARSER_VLLM_BASE_URL: "http://vllm:8000/v1"
+
+  # Queues and storage paths
+  BIOPARSER_ARTIFACT_STORAGE_PATH: "/data"
+  BIOPARSER_PARSE_QUEUE_NAME: "parse"
+  BIOPARSER_EXTRACT_QUEUE_NAME: "extract"
+
+  # API settings
+  BIOPARSER_AUTH_DISABLED: "false"
+
+  # Database and Redis connections
+  BIOPARSER_REDIS_URL:
+  BIOPARSER_DATABASE_URL:
+  POSTGRES_USER: "bioparser"
+  POSTGRES_DB: "bioparser"
+
+  # Resource limits
+  REDIS_MAXMEMORY: "512mb"
