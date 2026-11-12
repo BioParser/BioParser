@@ -8,10 +8,10 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any, Literal, NamedTuple
+from typing import Annotated, Any, Literal, NamedTuple
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -48,6 +48,8 @@ from bioparser.storage import (
     StorageError,
     StoragePayloadError,
 )
+from bioparser.traits.table import mammal_traits
+from bioparser.traits.traitlist import selected_traits, traitlist_rows
 
 from . import config
 from .auth import ApiKeyMiddleware, require_api_key
@@ -68,6 +70,7 @@ from .errors import (
     QUEUE_UNAVAILABLE,
     STORAGE_UNAVAILABLE,
     UNAUTHORIZED,
+    UNKNOWN_TRAIT_QUERY,
     UNSUPPORTED_CONTENT_TYPE,
     error_response,
     http_error,
@@ -92,6 +95,8 @@ from .schema import (
     JobStatusResponse,
     ReadinessResponse,
     ReadinessUnavailableResponse,
+    TraitListEts,
+    TraitListFull,
     UploadLimitsResponse,
 )
 from .ui import add_ui_routes
@@ -800,6 +805,45 @@ async def job_extraction_artifact(request: Request, job_id: str) -> Response:
     """The extraction artifact of a `done` job."""
     job = await _read_job(request, _parse_job_id(job_id))
     return await _stored_artifact(request, job, job.extract_result_ref, "extraction")
+
+
+@app.get(
+    "/api/traits",
+    dependencies=[Depends(require_api_key)],
+    responses={
+        400: error_response(UNKNOWN_TRAIT_QUERY),
+        401: error_response(UNAUTHORIZED),
+    },
+)
+def trait_list(
+    detail: Literal["ets", "full"] = "ets",
+    domain: Annotated[list[str] | None, Query()] = None,
+    code: Annotated[list[str] | None, Query()] = None,
+    include_deprecated: bool = False,
+) -> TraitListEts | TraitListFull:
+    """The mammal trait list. ETS Traitlist rows by default, or the full entries."""
+    table = mammal_traits()
+    domains = tuple(domain or ())
+    codes = tuple(code or ())
+    try:
+        traits = selected_traits(
+            table, domains=domains, codes=codes, include_deprecated=include_deprecated
+        )
+    except ValueError as exc:
+        raise http_error(400, UNKNOWN_TRAIT_QUERY) from exc
+    if detail == "full":
+        return TraitListFull(
+            version=table.version,
+            id_prefixes=table.id_prefixes,
+            domains=table.domains,
+            traits=traits,
+        )
+    return TraitListEts(
+        version=table.version,
+        traits=traitlist_rows(
+            table, domains=domains, codes=codes, include_deprecated=include_deprecated
+        ),
+    )
 
 
 @app.get("/health")

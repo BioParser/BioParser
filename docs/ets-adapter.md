@@ -89,6 +89,8 @@ A warning means the row was built with something missing or doubtful.
 
 Each row keeps the source index of its observation in the artifact, so a row can be traced back.
 
+`GET /api/traits` returns this list. The default body is an ETS Traitlist. `detail=full` returns the entries. `domain` and `code` may be repeated. The pages are built from the checkout releases by `uv run python pages/build_traits.py --out DIR`.
+
 ## Open decisions
 
 - Which of `verbatimScientificName` and `scientificName` the taxonomy lookup tries first.
