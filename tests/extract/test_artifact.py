@@ -65,6 +65,7 @@ def test_a_mismatched_unit_is_stored_as_printed() -> None:
 def test_the_trait_is_any_non_empty_string() -> None:
     observation = _observation(traitCode=_trait("wing_length"))
 
+    assert observation.traitCode is not None
     assert observation.traitCode.value == "wing_length"
 
 
