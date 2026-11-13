@@ -70,10 +70,6 @@ Published ports bind to `127.0.0.1` only. Ports, environment variables, log quer
 
 The manifest files can be found [here](manifests/). For more info on running BioParser on an OKD-cluster see [here](manifests/README.md).
 
-## Running on an OKD-cluster (kubernetes)
-
-The manifest files can be found [here](manifests/). For more info on running BioParser on an OKD-cluster see [here](manifests/README.md).
-
 ## Local development (uv)
 
 Prerequisites: [uv](https://docs.astral.sh/uv/). The project pins Python 3.13; `uv sync` downloads it if missing.
