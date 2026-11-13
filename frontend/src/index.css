@@ -259,3 +259,50 @@ mark.evidence-unit {
   border-left: 4px solid #d33;
   background: #d332;
 }
+
+/* A PDF page at the panel's width. The canvas keeps the page's proportions, and the outline
+   is placed in percentages of it. */
+.pdf-page {
+  margin: 1rem 0 0;
+}
+
+.pdf-page figcaption {
+  font-size: 0.875rem;
+}
+
+.pdf-page-frame {
+  position: relative;
+  border: 1px solid #8884;
+  background: #fff;
+}
+
+.pdf-page-frame canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Before the first draw the canvas has no page size yet, so it keeps a page-like shape. */
+.pdf-page-frame[data-state="drawing"] canvas {
+  aspect-ratio: 1 / 1.3;
+}
+
+/* A thick line shows the block by shape, not only by color. It is drawn outside the box:
+   the parser's box fits the text closely, and a border inside it would cover the letters. */
+.pdf-outline {
+  position: absolute;
+  outline: 3px solid #d70;
+  outline-offset: 2px;
+  background: #fc02;
+  pointer-events: none;
+}
+
+.evidence-subheading {
+  margin: 1.25rem 0 0;
+  font-size: 1rem;
+}
+
+.evidence-note {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+}

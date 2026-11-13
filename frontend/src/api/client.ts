@@ -58,7 +58,7 @@ async function toApiError(response: Response): Promise<ApiError> {
 
 // The one place the UI calls the API. A network failure rejects with fetch's own TypeError,
 // and an aborted request (init.signal) with a DOMException named AbortError.
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function apiRequest(path: string, init?: RequestInit): Promise<Response> {
   // Read the key on every call, so a key entered or forgotten since the last call is used.
   const headers = new Headers(init?.headers);
   const apiKey = getApiKey();
@@ -74,11 +74,16 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   if (!response.ok) {
     throw await toApiError(response);
   }
+  return response;
+}
+
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await apiRequest(path, init);
   return (await response.json()) as T;
 }
 
-export function getJob(jobId: string): Promise<JobStatusResponse> {
-  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+export function getJob(jobId: string, signal?: AbortSignal): Promise<JobStatusResponse> {
+  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}`, { signal });
 }
 
 // The largest PDF the API accepts (BIOPARSER_MAX_UPLOAD_BYTES), so the browser checks
@@ -123,4 +128,15 @@ export function getExtractionArtifact(
   signal?: AbortSignal,
 ): Promise<ExtractionArtifact> {
   return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/artifacts/extraction`, { signal });
+}
+
+// The stored PDF, as bytes: the route needs X-API-Key, so it cannot be a plain link.
+export async function getDocumentFile(
+  checksum: string,
+  signal?: AbortSignal,
+): Promise<ArrayBuffer> {
+  const response = await apiRequest(`/api/documents/${encodeURIComponent(checksum)}/file`, {
+    signal,
+  });
+  return response.arrayBuffer();
 }

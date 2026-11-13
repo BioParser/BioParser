@@ -12,14 +12,27 @@ afterEach(cleanup);
 // jsdom has no layout, so it does not implement scrollIntoView.
 const scrollIntoView = vi.fn<Element["scrollIntoView"]>();
 
+// pdf.js needs a real browser. Its pages are tested in PdfPage.test.tsx; here the PDF opens
+// and its pages wait for a width that jsdom never reports.
+const openPdf = vi.hoisted(() => vi.fn());
+vi.mock("./pdfjs", () => ({ openPdf }));
+
+class NoResizeObserver {
+  observe() {}
+  disconnect() {}
+}
+
 beforeEach(() => {
   stubArtifacts();
   Element.prototype.scrollIntoView = scrollIntoView;
+  openPdf.mockResolvedValue({ getPage: vi.fn() });
+  vi.stubGlobal("ResizeObserver", NoResizeObserver);
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   scrollIntoView.mockReset();
+  openPdf.mockReset();
   delete (Element.prototype as Partial<Element>).scrollIntoView;
 });
 
@@ -88,13 +101,25 @@ function error(status: number, code: string): Response {
   return Response.json({ detail: { code, message: code } }, { status });
 }
 
+// The API for job-1: its two artifacts, the job itself, and its PDF.
 function stubArtifacts(
   parser: () => Response = () => Response.json(PARSER),
   extraction: () => Response = () => Response.json(EXTRACTION),
+  file: () => Response = () => new Response(new Uint8Array([37, 80, 68, 70])),
 ): Mock<typeof fetch> {
-  const fetchMock = vi.fn<typeof fetch>(async (input) =>
-    String(input).endsWith("/parser") ? parser() : extraction(),
-  );
+  const fetchMock = vi.fn<typeof fetch>(async (input) => {
+    const path = String(input);
+    if (path.endsWith("/parser")) {
+      return parser();
+    }
+    if (path.endsWith("/extraction")) {
+      return extraction();
+    }
+    if (path.endsWith("/file")) {
+      return file();
+    }
+    return Response.json({ job_id: "job-1", status: "done", document_checksum: "abc" });
+  });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
@@ -242,13 +267,34 @@ describe("EvidenceView", () => {
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
-  it("reuses the artifacts for another observation of the job", async () => {
+  it("reuses the artifacts and the PDF for another observation of the job", async () => {
     const fetchMock = stubArtifacts();
     const { rerender } = renderView(0);
     await screen.findByRole("blockquote");
+    await screen.findByText(/^Page 1/);
     rerender(1);
     await screen.findAllByText(/page 2/);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await screen.findByText(/^Page 2/);
+    expect(fetchMock.mock.calls.map(([input]) => String(input)).sort()).toEqual([
+      "/api/documents/abc/file",
+      "/api/jobs/job-1",
+      "/api/jobs/job-1/artifacts/extraction",
+      "/api/jobs/job-1/artifacts/parser",
+    ]);
+    expect(openPdf).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the page of the block under the quotation", async () => {
+    renderView(0);
+    await screen.findByRole("blockquote");
+    expect(await screen.findByRole("img", { name: "Page 1 of the PDF" })).toBeDefined();
+  });
+
+  it("keeps the quotation when the PDF is missing", async () => {
+    stubArtifacts(undefined, undefined, () => error(404, "document_not_found"));
+    renderView(0);
+    expect((await screen.findByRole("alert")).textContent).toBe("The PDF of this job is missing.");
+    expect(screen.getByRole("blockquote").textContent).toBe("Mus musculus weighed 12.5 kg");
   });
 });
 
