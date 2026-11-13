@@ -1,0 +1,594 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>BioParser Pitch</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<style>
+/* Layout: an editorial product page on millimetre paper. Left-aligned serif headlines, one graphic per idea, a full-bleed closing band. */
+:root {
+  --paper: #f4f7f5;
+  --card: #ffffff;
+  --ink: #0f1d19;
+  --ink-2: #4c5f58;
+  --rule: #d9e2de;
+  --spruce: #0d6b5c;
+  --spruce-ink: #ffffff;
+  --spruce-soft: #e0f0ea;
+  --hl-bg: #f6e17a;
+  --hl-fg: #1b1a0e;
+  --glass: rgba(244, 247, 245, 0.82);
+  --grid: rgba(13, 107, 92, 0.06);
+  --grid-strong: rgba(13, 107, 92, 0.11);
+  --scan: rgba(13, 107, 92, 0.10);
+  --ring: rgba(13, 107, 92, 0.35);
+  --band-bg: #0c3a33;
+  --band-fg: #eef6f2;
+  --band-muted: #a9c7bd;
+  --band-grid: rgba(238, 246, 242, 0.07);
+  --shadow: 0 1px 2px rgba(15, 29, 25, 0.06), 0 18px 40px -18px rgba(15, 29, 25, 0.28);
+  --display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+  --sans: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --text-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0b1412; --card: #111d1a; --ink: #e6efeb; --ink-2: #94a8a1; --rule: #22332e;
+    --spruce: #52d3b2; --spruce-ink: #05201a; --spruce-soft: #12342c;
+    --hl-bg: #e5c84b; --hl-fg: #17150a; --glass: rgba(11, 20, 18, 0.8);
+    --grid: rgba(82, 211, 178, 0.05); --grid-strong: rgba(82, 211, 178, 0.10);
+    --scan: rgba(82, 211, 178, 0.10); --ring: rgba(82, 211, 178, 0.35);
+    --band-bg: #10302a; --band-fg: #e6efeb; --band-muted: #9dbdb3; --band-grid: rgba(230, 239, 235, 0.06);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 22px 48px -20px rgba(0, 0, 0, 0.75);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0b1412; --card: #111d1a; --ink: #e6efeb; --ink-2: #94a8a1; --rule: #22332e;
+  --spruce: #52d3b2; --spruce-ink: #05201a; --spruce-soft: #12342c;
+  --hl-bg: #e5c84b; --hl-fg: #17150a; --glass: rgba(11, 20, 18, 0.8);
+  --grid: rgba(82, 211, 178, 0.05); --grid-strong: rgba(82, 211, 178, 0.10);
+  --scan: rgba(82, 211, 178, 0.10); --ring: rgba(82, 211, 178, 0.35);
+  --band-bg: #10302a; --band-fg: #e6efeb; --band-muted: #9dbdb3; --band-grid: rgba(230, 239, 235, 0.06);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 22px 48px -20px rgba(0, 0, 0, 0.75);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 400 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1160px; margin-inline: auto; padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
+section[id] { scroll-margin-top: 76px; }
+a { color: inherit; }
+a:focus-visible { outline: 2px solid var(--spruce); outline-offset: 3px; border-radius: 8px; }
+h1, h2 { font-family: var(--display); font-weight: 400; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(2.9rem, 1.7rem + 4.2vw, 4.6rem); line-height: 0.98; letter-spacing: -0.015em; }
+h2 { font-size: clamp(2.2rem, 1.5rem + 2.6vw, 3.5rem); line-height: 1.02; letter-spacing: -0.01em; }
+h1 em, h2 em { font-style: italic; color: var(--spruce); }
+h3 { font: 600 18px/1.3 var(--sans); margin: 0; letter-spacing: -0.005em; }
+.eyebrow { font: 500 12px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--spruce); margin: 0 0 16px; }
+.body { color: var(--ink-2); font-size: 1.06rem; max-width: 36em; margin: 0; }
+.mm {
+  background-image:
+    linear-gradient(var(--grid-strong) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-strong) 1px, transparent 1px),
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 50px 50px, 50px 50px, 10px 10px, 10px 10px;
+}
+
+/* header */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; background: var(--glass); -webkit-backdrop-filter: saturate(1.4) blur(12px); backdrop-filter: saturate(1.4) blur(12px); border-bottom: 1px solid var(--rule); }
+.top-inner { display: flex; align-items: center; gap: 24px; height: 60px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; font: 600 17px/1 var(--sans); text-decoration: none; letter-spacing: -0.01em; }
+.mark { width: 28px; height: 28px; flex: none; }
+.mark-bg { fill: var(--spruce); }
+.mark-fg { fill: none; stroke: var(--spruce-ink); stroke-width: 2; stroke-linecap: round; }
+.nav { display: flex; gap: 26px; margin-left: auto; }
+.nav a { color: var(--ink-2); text-decoration: none; font-size: 14.5px; }
+.nav a:hover { color: var(--ink); }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 13px 20px; border-radius: 999px; font: 500 15px/1 var(--sans); text-decoration: none; transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
+.btn-primary { background: var(--spruce); color: var(--spruce-ink); box-shadow: 0 8px 20px -10px var(--spruce); }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 12px 26px -10px var(--spruce); }
+.btn-ghost { background: var(--card); color: var(--ink); border: 1px solid var(--rule); }
+.btn-ghost:hover { border-color: var(--ink-2); }
+.btn-small { padding: 9px 14px; font-size: 14px; }
+@media (max-width: 720px) { .nav { display: none; } .top .btn-small { margin-left: auto; } }
+
+/* hero */
+.hero { position: relative; overflow: hidden; }
+.hero-bg { position: absolute; inset: 0; pointer-events: none; -webkit-mask-image: radial-gradient(ellipse 75% 85% at 72% 38%, #000 25%, transparent 72%); mask-image: radial-gradient(ellipse 75% 85% at 72% 38%, #000 25%, transparent 72%); }
+.hero-grid { position: relative; display: grid; grid-template-columns: minmax(0, 1.02fr) minmax(0, 1fr); gap: 56px; align-items: center; padding-block: 76px 60px; }
+.hero-copy { display: flex; flex-direction: column; gap: 22px; align-items: flex-start; min-width: 0; }
+.status { display: inline-flex; align-items: center; gap: 9px; font: 500 12px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); background: var(--card); border: 1px solid var(--rule); border-radius: 999px; padding: 7px 12px 7px 10px; }
+.pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--spruce); animation: pulse 2.4s ease-out infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 var(--ring); } 70%, 100% { box-shadow: 0 0 0 9px transparent; } }
+.lede { font-size: 1.16rem; color: var(--ink-2); max-width: 33em; margin: 0; }
+.ctas { display: flex; flex-wrap: wrap; gap: 12px; }
+.proof { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px 22px; font-size: 14px; color: var(--ink-2); }
+.proof li { display: inline-flex; align-items: center; gap: 8px; }
+.proof svg { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--spruce); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 920px) { .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 44px; padding-block: 52px 44px; } }
+
+/* hero product shot */
+.shot { margin: 0; min-width: 0; }
+.paper { position: relative; overflow: hidden; background: var(--card); border: 1px solid var(--rule); border-radius: 16px; padding: 18px 24px 66px; box-shadow: var(--shadow); }
+.paper::after { content: ""; position: absolute; left: 0; right: 0; top: -30%; height: 30%; background: linear-gradient(180deg, transparent, var(--scan) 50%, transparent); animation: scan 6s ease-in-out infinite; pointer-events: none; }
+@keyframes scan { 0% { transform: translateY(0); } 60%, 100% { transform: translateY(440%); } }
+.paper-top { display: flex; justify-content: space-between; font: 500 11px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); padding-bottom: 12px; border-bottom: 1px solid var(--rule); margin-bottom: 14px; }
+.paper-h { font: 600 16px/1.3 var(--text-serif); margin: 0 0 8px; }
+.paper-p { font: 400 16.5px/1.75 var(--text-serif); margin: 0; }
+.hl { background: var(--hl-bg); color: var(--hl-fg); padding: 1px 3px; border-radius: 4px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.badge { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--spruce); color: var(--spruce-ink); font: 600 10.5px/1 var(--mono); vertical-align: 2px; }
+.hl .badge { margin-left: 5px; }
+.skeleton { display: flex; flex-direction: column; gap: 9px; margin-top: 16px; }
+.skeleton span { display: block; height: 9px; border-radius: 99px; background: var(--rule); }
+.skeleton span:nth-child(2) { width: 93%; }
+.skeleton span:nth-child(3) { width: 70%; }
+.records { position: relative; margin: -46px 0 0 14%; background: var(--card); border: 1px solid var(--rule); border-radius: 16px; padding: 14px 18px 4px; box-shadow: var(--shadow); }
+.rec-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px; padding-bottom: 10px; }
+.taxon { font: italic 400 17px/1.2 var(--text-serif); }
+.verified { display: inline-flex; align-items: center; gap: 6px; font: 500 11.5px/1 var(--mono); color: var(--spruce); background: var(--spruce-soft); border-radius: 999px; padding: 6px 10px; }
+.verified svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.rec-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto 40px; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--rule); }
+.rec-row .trait { font-size: 15px; }
+.rec-row .val { font: 500 15px/1.2 var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+.rec-row .val small { display: block; font: 400 11px/1.3 var(--mono); color: var(--ink-2); margin-top: 3px; }
+.rec-row .src { font: 400 12px/1 var(--mono); color: var(--ink-2); text-align: right; }
+.shot figcaption { margin-top: 14px; padding-left: 14%; font-size: 12.5px; color: var(--ink-2); }
+@media (max-width: 560px) {
+  .paper { padding: 16px 18px 62px; }
+  .records { margin-left: 5%; padding-inline: 14px; }
+  .shot figcaption { padding-left: 5%; }
+}
+
+.built { position: relative; border-top: 1px solid var(--rule); }
+.built-inner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 28px; padding-block: 22px; }
+.built-inner .eyebrow { margin: 0; color: var(--ink-2); }
+.who { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 15.5px; }
+.who li { display: inline-flex; align-items: center; gap: 10px; }
+.who li::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--spruce); flex: none; }
+
+/* sections */
+.sec { padding-block: 104px; }
+.sec.alt { background: var(--card); border-block: 1px solid var(--rule); }
+.sec-head { display: flex; flex-direction: column; max-width: 46rem; margin-bottom: 56px; }
+.sec-head .body { margin-top: 18px; }
+@media (max-width: 720px) { .sec { padding-block: 72px; } .sec-head { margin-bottom: 40px; } }
+
+.tile { width: 48px; height: 48px; flex: none; border-radius: 14px; display: grid; place-items: center; background: var(--spruce-soft); color: var(--spruce); }
+.tile svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+/* problem */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 64px; align-items: start; }
+.split .body { margin-top: 22px; }
+.mark-h { background: linear-gradient(transparent 72%, var(--hl-bg) 72%, var(--hl-bg) 94%, transparent 94%); -webkit-box-decoration-break: clone; box-decoration-break: clone; padding: 0 2px; }
+.pains { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pains li { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 18px; padding: 22px 0; border-top: 1px solid var(--rule); }
+.pains li:last-child { border-bottom: 1px solid var(--rule); }
+.pains p { margin: 6px 0 0; color: var(--ink-2); font-size: 15.5px; }
+@media (max-width: 860px) { .split { grid-template-columns: minmax(0, 1fr); gap: 40px; } }
+
+/* steps */
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
+.steps li { position: relative; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; min-width: 0; }
+.steps .tile { width: 56px; height: 56px; border-radius: 16px; background: var(--paper); border: 1px solid var(--rule); position: relative; z-index: 1; }
+.steps li:not(:last-child)::after { content: ""; position: absolute; top: 28px; left: 68px; right: -12px; height: 1px; background: linear-gradient(90deg, var(--spruce), var(--rule)); }
+.step-n { font: 500 12px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); margin-top: 8px; }
+.steps p { margin: 0; color: var(--ink-2); font-size: 15.5px; }
+.soon { display: inline-block; margin-top: 4px; font: 500 11.5px/1 var(--mono); color: var(--ink-2); border: 1px dashed var(--ink-2); border-radius: 999px; padding: 6px 10px; }
+@media (max-width: 960px) {
+  .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 44px 28px; }
+  .steps li:not(:last-child)::after { display: none; }
+}
+@media (max-width: 560px) { .steps { grid-template-columns: minmax(0, 1fr); } }
+
+/* pillars */
+.pillars { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.pillar { background: var(--card); border: 1px solid var(--rule); border-radius: 20px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+.art { aspect-ratio: 2 / 1; max-width: 100%; background-color: var(--paper); border-bottom: 1px solid var(--rule); }
+.art svg { display: block; width: 100%; height: 100%; }
+.pillar-text { padding: 22px 24px 26px; display: flex; flex-direction: column; gap: 8px; }
+.pillar p { margin: 0; color: var(--ink-2); font-size: 15.5px; }
+@media (max-width: 900px) { .pillars { grid-template-columns: minmax(0, 1fr); } .art { aspect-ratio: 5 / 2; } }
+.i-bar { fill: var(--rule); }
+.i-hl { fill: var(--hl-bg); }
+.i-card { fill: var(--card); stroke: var(--ink); stroke-width: 1.5; stroke-linejoin: round; }
+.i-pill { fill: var(--card); stroke: var(--spruce); stroke-width: 1.5; }
+.i-acc { fill: none; stroke: var(--spruce); stroke-width: 1.6; stroke-linecap: round; }
+.i-acc-fill { fill: var(--spruce); }
+.i-soft { fill: var(--spruce-soft); stroke: var(--spruce); stroke-width: 1.5; }
+.i-base { fill: var(--spruce-soft); }
+.i-slot { fill: var(--card); stroke: var(--rule); stroke-width: 1.5; }
+.i-line { fill: none; stroke: var(--ink-2); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.i-dash { fill: none; stroke: var(--spruce); stroke-width: 1.5; stroke-dasharray: 5 5; }
+.i-t { font: 500 13px var(--mono); fill: var(--ink); }
+.i-ts { font: 400 10.5px var(--mono); fill: var(--ink-2); letter-spacing: 0.06em; }
+.i-tl { font: 500 12px var(--sans); fill: var(--ink); }
+.i-tm { font: 500 12px var(--sans); fill: var(--ink-2); }
+
+/* traits */
+.traits-grid { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 64px; align-items: center; }
+.traits-copy .body { margin-top: 22px; }
+.trait-list { margin: 30px 0 0; display: flex; flex-direction: column; }
+.trait-list div { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; padding: 14px 0; border-top: 1px solid var(--rule); }
+.trait-list div:last-child { border-bottom: 1px solid var(--rule); }
+.trait-list dt { font: 600 17px/1.3 var(--sans); }
+.trait-list dd { margin: 0; font: 400 13.5px/1.3 var(--mono); color: var(--ink-2); }
+.trait-list dd b { color: var(--spruce); font-weight: 500; }
+.next-line { margin: 18px 0 0; font-size: 15px; color: var(--ink-2); }
+.plate { margin: 0; background-color: var(--paper); border: 1px solid var(--rule); border-radius: 20px; padding: 22px 22px 18px; min-width: 0; }
+.plate svg { display: block; width: 100%; height: auto; }
+.plate figcaption { font-size: 13px; color: var(--ink-2); margin-top: 8px; }
+.plate figcaption span { font: 500 11.5px var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--spruce); margin-right: 8px; }
+.sil { fill: var(--ink); }
+.sil-in { fill: var(--card); opacity: 0.3; }
+.eye { fill: var(--card); }
+.whisker { fill: none; stroke: var(--ink-2); stroke-width: 1.2; stroke-linecap: round; }
+.tail { fill: none; stroke: var(--ink); stroke-width: 6; stroke-linecap: round; }
+.ground { stroke: var(--rule); stroke-width: 1.5; }
+.dim { fill: none; stroke: var(--spruce); stroke-width: 1.6; }
+.ext { fill: none; stroke: var(--spruce); stroke-width: 1; stroke-dasharray: 3 4; }
+.callout { fill: var(--card); stroke: var(--spruce); stroke-width: 2; }
+.mk-acc { fill: var(--spruce); }
+.dl { font: 400 17px var(--sans); fill: var(--ink-2); }
+.dv { font: 500 19px var(--mono); fill: var(--ink); }
+@media (max-width: 920px) { .traits-grid { grid-template-columns: minmax(0, 1fr); gap: 40px; } }
+
+/* roadmap */
+.road { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 32px; padding-top: 52px; }
+.stage { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.track { position: relative; height: 10px; border-radius: 999px; }
+.done .track { background: var(--spruce); }
+.now .track { background: repeating-linear-gradient(-45deg, var(--spruce) 0 6px, var(--spruce-soft) 6px 12px); }
+.next .track { border: 1.5px dashed var(--ink-2); }
+.here { position: absolute; left: 32%; bottom: -3px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; }
+.here span { font: 500 11px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; background: var(--ink); color: var(--paper); padding: 7px 10px; border-radius: 999px; white-space: nowrap; }
+.here i { display: block; width: 2px; height: 12px; background: var(--ink); }
+.here b { display: block; width: 16px; height: 16px; border-radius: 50%; background: var(--paper); border: 3px solid var(--ink); }
+.stage-label { font: 500 12px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; margin: 0; color: var(--spruce); }
+.next .stage-label { color: var(--ink-2); }
+.stage ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.stage li { position: relative; padding-left: 28px; font-size: 15.5px; line-height: 1.45; }
+.stage li::before { content: ""; position: absolute; left: 0; top: 3px; width: 16px; height: 16px; border-radius: 50%; box-sizing: border-box; }
+.done li::before { background: var(--spruce); }
+.done li::after { content: ""; position: absolute; left: 4px; top: 8px; width: 6px; height: 3px; border-left: 2px solid var(--spruce-ink); border-bottom: 2px solid var(--spruce-ink); transform: rotate(-45deg); }
+.now li::before { border: 2px solid var(--spruce); background: linear-gradient(90deg, var(--spruce) 50%, transparent 50%); }
+.next li::before { border: 1.5px solid var(--ink-2); }
+.next li { color: var(--ink-2); }
+@media (max-width: 860px) {
+  .road { grid-template-columns: minmax(0, 1fr); padding-top: 0; }
+  .stage + .stage { margin-top: 44px; }
+  .road .now { margin-top: 88px; }
+}
+
+/* closing band */
+.band { position: relative; overflow: hidden; background: var(--band-bg); color: var(--band-fg); }
+.band-grid { position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(var(--band-grid) 1px, transparent 1px), linear-gradient(90deg, var(--band-grid) 1px, transparent 1px); background-size: 40px 40px; -webkit-mask-image: radial-gradient(ellipse 60% 90% at 88% 50%, #000, transparent 72%); mask-image: radial-gradient(ellipse 60% 90% at 88% 50%, #000, transparent 72%); }
+.band-inner { position: relative; padding-block: 104px; display: flex; flex-direction: column; gap: 22px; align-items: flex-start; }
+.band h2 { font-size: clamp(2.5rem, 1.6rem + 3.4vw, 4.4rem); }
+.band h2 em { color: var(--hl-bg); }
+.band p { color: var(--band-muted); max-width: 36em; margin: 0; font-size: 1.08rem; }
+.btn-band { background: var(--band-fg); color: var(--band-bg); }
+.btn-band:hover { transform: translateY(-1px); }
+.band a:focus-visible { outline-color: var(--band-fg); }
+.foot-inner { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding-block: 28px; font-size: 13.5px; color: var(--ink-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .pulse { animation: none; }
+  .paper::after { display: none; }
+  .btn { transition: none; }
+}
+</style>
+
+<header class="top">
+  <div class="wrap top-inner">
+    <a class="brand" href="#top">
+      <svg class="mark" viewBox="0 0 28 28" aria-hidden="true"><rect class="mark-bg" width="28" height="28" rx="8"/><path class="mark-fg" d="M8.5 9v10M19.5 9v10M8.5 14h11"/></svg>
+      <span>BioParser</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#trust">Why trust it</a>
+      <a href="#roadmap">Roadmap</a>
+    </nav>
+    <a class="btn btn-ghost btn-small" href="https://github.com/BioParser/BioParser">GitHub <span aria-hidden="true">↗</span></a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="hero-bg mm" aria-hidden="true"></div>
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <span class="status"><span class="pulse" aria-hidden="true"></span>In active development</span>
+        <h1>Mammal trait data, <em>traced to the sentence.</em></h1>
+        <p class="lede">BioParser reads scientific papers and pulls out measurements such as body mass and body length as structured data. Every value links back to the sentence it came from, and the whole system runs on your own hardware.</p>
+        <div class="ctas">
+          <a class="btn btn-primary" href="#how">See how it works <span aria-hidden="true">→</span></a>
+          <a class="btn btn-ghost" href="https://github.com/BioParser/BioParser">Follow on GitHub <span aria-hidden="true">↗</span></a>
+        </div>
+        <ul class="proof">
+          <li><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="4.5" rx="1.2"/><rect x="2.5" y="9" width="11" height="4.5" rx="1.2"/><path d="M5 4.75h.01M5 11.25h.01"/></svg>Runs on your own servers</li>
+          <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5 9.5 6.5"/><path d="M7.5 4.5 8.6 3.4a2.8 2.8 0 0 1 4 4l-1.1 1.1"/><path d="M8.5 11.5 7.4 12.6a2.8 2.8 0 0 1-4-4l1.1-1.1"/></svg>Every value linked to its source</li>
+          <li><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="5" width="13" height="6" rx="1.2"/><path d="M4.5 5v2.5M7 5v1.8M9.5 5v2.5M12 5v1.8"/></svg>Units converted for you</li>
+        </ul>
+      </div>
+
+      <figure class="shot">
+        <div class="paper">
+          <div class="paper-top"><span>Results</span><span>p. 4</span></div>
+          <p class="paper-h">3.2&nbsp;&nbsp;Body size</p>
+          <p class="paper-p">Wood mice (<i>Apodemus sylvaticus</i>) were live-trapped at four woodland sites between September and November. Adults had <mark class="hl">a mean body mass of 21.4&nbsp;g<b class="badge">1</b></mark>, <mark class="hl">a body length of 8.9&nbsp;cm<b class="badge">2</b></mark> and <mark class="hl">a tail length of 82&nbsp;mm<b class="badge">3</b></mark>.</p>
+          <div class="skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
+        <div class="records">
+          <div class="rec-head">
+            <span class="taxon">Apodemus sylvaticus</span>
+            <span class="verified"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.5 3 3 6-6.5"/></svg>3 of 3 values match the text</span>
+          </div>
+          <div class="rec-row"><b class="badge">1</b><span class="trait">Body mass</span><span class="val">21.4 g</span><span class="src">p. 4</span></div>
+          <div class="rec-row"><b class="badge">2</b><span class="trait">Body length</span><span class="val">89 mm<small>from 8.9 cm</small></span><span class="src">p. 4</span></div>
+          <div class="rec-row"><b class="badge">3</b><span class="trait">Tail length</span><span class="val">82 mm</span><span class="src">p. 4</span></div>
+        </div>
+        <figcaption>Illustrative example. The paragraph and values are made up to show the output.</figcaption>
+      </figure>
+    </div>
+
+    <div class="built">
+      <div class="wrap built-inner">
+        <p class="eyebrow">Built for</p>
+        <ul class="who"><li>Research groups</li><li>Trait database curators</li><li>Ecological modellers</li></ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec alt" id="problem">
+    <div class="wrap split">
+      <div>
+        <p class="eyebrow">The problem</p>
+        <h2>Decades of measurements are <span class="mark-h">locked in prose.</span></h2>
+        <p class="body">Trait databases feed ecological research, from population models to conservation planning. Much of the data behind them exists only as sentences in published papers.</p>
+      </div>
+      <ul class="pains">
+        <li>
+          <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></span>
+          <div><h3>Slow to collect</h3><p>Someone reads each paper and copies values into a spreadsheet, one at a time.</p></div>
+        </li>
+        <li>
+          <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M10.2 12.3a1.9 1.9 0 1 1 2.6 1.8c-.5.2-.8.6-.8 1.1"/><path d="M12 17.6v.01"/></svg></span>
+          <div><h3>Hard to audit</h3><p>Later, nobody can tell which sentence a number came from, or whether its unit was converted.</p></div>
+        </li>
+        <li>
+          <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 4.6 3 17.5a2 2 0 0 0 1.7 3h14.6a2 2 0 0 0 1.7-3L13.7 4.6a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4M12 17v.01"/></svg></span>
+          <div><h3>Risky to automate</h3><p>General AI tools can invent numbers, and many send your documents to an outside service.</p></div>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="sec" id="how">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">How it works</p>
+        <h2>From PDF to dataset in four steps.</h2>
+      </div>
+      <ol class="steps">
+        <li>
+          <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 17v-6M9.5 13.5 12 11l2.5 2.5"/></svg></span>
+          <span class="step-n">Step 1</span>
+          <h3>Upload</h3>
+          <p>Send a PDF to BioParser. You get a job number right away and can check its progress at any time.</p>
+        </li>
+        <li>
+          <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><rect x="8" y="11" width="8" height="2.5" rx="1"/><rect x="8" y="15.5" width="5" height="2.5" rx="1"/></svg></span>
+          <span class="step-n">Step 2</span>
+          <h3>Read</h3>
+          <p>The paper is split into text blocks, each tagged with its page and position. A layout-aware engine handles multi-column articles.</p>
+        </li>
+        <li>
+          <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/><path d="M8 10.5h5"/></svg></span>
+          <span class="step-n">Step 3</span>
+          <h3>Extract</h3>
+          <p>A language model on your own GPU finds the measurements. Each one must quote the block it came from, or it is rejected.</p>
+        </li>
+        <li>
+          <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M9.5 9.5v10"/><path d="m12.5 14.5 1.8 1.8 3.2-3.6"/></svg></span>
+          <span class="step-n">Step 4</span>
+          <h3>Deliver</h3>
+          <p>Values are converted to grams and millimetres and mapped to the Ecological Trait-data Standard, ready to load into your database.</p>
+          <span class="soon">Standard mapping in development</span>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="sec alt" id="trust">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">Why trust it</p>
+        <h2>Built so every number <em>can be checked.</em></h2>
+      </div>
+      <div class="pillars">
+        <article class="pillar">
+          <div class="art mm">
+            <svg viewBox="0 0 260 130" role="img" aria-label="A highlighted line of text linked to the value 21.4 g, found on page 4, block 12">
+              <rect class="i-bar" x="26" y="30" width="112" height="8" rx="4"/>
+              <rect class="i-bar" x="26" y="46" width="96" height="8" rx="4"/>
+              <rect class="i-hl" x="26" y="62" width="104" height="8" rx="4"/>
+              <rect class="i-bar" x="26" y="78" width="108" height="8" rx="4"/>
+              <rect class="i-bar" x="26" y="94" width="66" height="8" rx="4"/>
+              <line class="i-acc" x1="134" y1="66" x2="164" y2="66"/>
+              <circle class="i-acc-fill" cx="134" cy="66" r="3.5"/>
+              <rect class="i-pill" x="166" y="50" width="72" height="32" rx="16"/>
+              <text class="i-t" x="202" y="71" text-anchor="middle">21.4 g</text>
+              <text class="i-ts" x="202" y="100" text-anchor="middle">P. 4 · BLOCK 12</text>
+            </svg>
+          </div>
+          <div class="pillar-text">
+            <h3>Evidence on every value</h3>
+            <p>Each value keeps its page, its text block and the exact words it came from. Reviewers can open the source and confirm it.</p>
+          </div>
+        </article>
+        <article class="pillar">
+          <div class="art mm">
+            <svg viewBox="0 0 260 130" role="img" aria-label="Papers, the model and results all sit inside one boundary labelled your network">
+              <rect class="i-dash" x="18" y="12" width="224" height="106" rx="18"/>
+              <text class="i-ts" x="34" y="32">YOUR NETWORK</text>
+              <path class="i-card" d="M50 50h18l10 10v30H50z"/>
+              <path class="i-line" d="M68 50v10h10"/>
+              <path class="i-line" d="M122 48v6M130 48v6M138 48v6M122 84v6M130 84v6M138 84v6M110 60h6M110 69h6M110 78h6M144 60h6M144 69h6M144 78h6"/>
+              <rect class="i-soft" x="116" y="54" width="28" height="30" rx="5"/>
+              <rect class="i-acc-fill" x="123" y="62" width="14" height="14" rx="2"/>
+              <path class="i-card" d="M184 56v26c0 3.3 7.2 6 16 6s16-2.7 16-6V56"/>
+              <ellipse class="i-card" cx="200" cy="56" rx="16" ry="6"/>
+              <path class="i-line" d="M184 69c0 3.3 7.2 6 16 6s16-2.7 16-6"/>
+              <path class="i-acc" d="M82 70h24M154 70h24"/>
+              <text class="i-ts" x="64" y="108" text-anchor="middle">PAPERS</text>
+              <text class="i-ts" x="130" y="108" text-anchor="middle">MODEL</text>
+              <text class="i-ts" x="200" y="108" text-anchor="middle">RESULTS</text>
+            </svg>
+          </div>
+          <div class="pillar-text">
+            <h3>Your papers stay with you</h3>
+            <p>Papers, models and results stay on your own servers. BioParser uses no outside AI service, so nothing leaves your network.</p>
+          </div>
+        </article>
+        <article class="pillar">
+          <div class="art mm">
+            <svg viewBox="0 0 260 130" role="img" aria-label="Three parts, reader, model and output, with a new model being swapped into the middle slot">
+              <defs><marker id="pc-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path class="i-acc-fill" d="M0 0 10 5 0 10z"/></marker></defs>
+              <rect class="i-base" x="10" y="66" width="240" height="52" rx="14"/>
+              <rect class="i-slot" x="18" y="74" width="70" height="36" rx="9"/>
+              <text class="i-tl" x="53" y="96" text-anchor="middle">Reader</text>
+              <rect class="i-dash" x="95" y="74" width="70" height="36" rx="9"/>
+              <text class="i-tm" x="130" y="96" text-anchor="middle">Model</text>
+              <rect class="i-slot" x="172" y="74" width="70" height="36" rx="9"/>
+              <text class="i-tl" x="207" y="96" text-anchor="middle">Output</text>
+              <rect class="i-pill" x="128" y="12" width="88" height="34" rx="9"/>
+              <text class="i-tl" x="172" y="33" text-anchor="middle">New model</text>
+              <path class="i-acc" d="M150 48C148 58 140 61 134 68" marker-end="url(#pc-arrow)"/>
+            </svg>
+          </div>
+          <div class="pillar-text">
+            <h3>Ready to grow</h3>
+            <p>Reading, extraction and output are separate parts. New traits, standards and research areas can be added without changing how you submit papers.</p>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="traits">
+    <div class="wrap traits-grid">
+      <div class="traits-copy">
+        <p class="eyebrow">What it measures today</p>
+        <h2>Three core traits, in units that line up.</h2>
+        <p class="body">BioParser starts with three basic body measurements. Papers report them in different units, so every value is stored in grams or millimetres and results from different studies compare directly.</p>
+        <dl class="trait-list">
+          <div><dt>Body mass</dt><dd>g or kg <b>→</b> grams</dd></div>
+          <div><dt>Body length</dt><dd>mm, cm or m <b>→</b> millimetres</dd></div>
+          <div><dt>Tail length</dt><dd>mm, cm or m <b>→</b> millimetres</dd></div>
+        </dl>
+        <p class="next-line">Coming later: more traits, and new areas such as diet.</p>
+      </div>
+      <figure class="plate mm">
+        <svg viewBox="0 0 760 336" role="img" aria-label="Side view of a wood mouse marked with body length 89 millimetres, tail length 82 millimetres and body mass 21.4 grams">
+          <defs><marker id="pl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-acc" d="M0 0 10 5 0 10z"/></marker></defs>
+          <line class="ground" x1="110" y1="247" x2="730" y2="247"/>
+          <path class="tail" d="M452 202C520 214 600 252 708 238"/>
+          <rect class="sil" x="392" y="208" width="24" height="34" rx="11"/>
+          <ellipse class="sil" cx="410" cy="241" rx="28" ry="6"/>
+          <rect class="sil" x="262" y="204" width="15" height="34" rx="7.5"/>
+          <ellipse class="sil" cx="272" cy="240" rx="16" ry="5.5"/>
+          <ellipse class="sil" cx="352" cy="180" rx="112" ry="58"/>
+          <path class="sil" d="M150 178C156 152 192 130 236 128C262 127 284 140 292 162L292 200L236 206C204 208 168 196 150 178Z"/>
+          <ellipse class="sil" cx="266" cy="120" rx="17" ry="22" transform="rotate(-15 266 120)"/>
+          <ellipse class="sil-in" cx="267" cy="123" rx="9" ry="13" transform="rotate(-15 267 123)"/>
+          <circle class="eye" cx="212" cy="152" r="5.5"/>
+          <path class="whisker" d="M168 180L120 168M168 182L116 184M168 184L124 198"/>
+
+          <path class="ext" d="M150 84V166M458 84V158"/>
+          <path class="dim" d="M150 62V82M458 62V82"/>
+          <line class="dim" x1="153" y1="72" x2="455" y2="72" marker-start="url(#pl-arrow)" marker-end="url(#pl-arrow)"/>
+          <text x="304" y="52" text-anchor="middle"><tspan class="dl">Body length</tspan><tspan class="dv" dx="10">89 mm</tspan></text>
+
+          <path class="ext" d="M458 214V280M708 246V280"/>
+          <path class="dim" d="M458 282V302M708 282V302"/>
+          <line class="dim" x1="461" y1="292" x2="705" y2="292" marker-start="url(#pl-arrow)" marker-end="url(#pl-arrow)"/>
+          <text x="583" y="326" text-anchor="middle"><tspan class="dl">Tail length</tspan><tspan class="dv" dx="10">82 mm</tspan></text>
+
+          <path class="dim" d="M348 182L300 268"/>
+          <circle class="callout" cx="352" cy="176" r="6"/>
+          <text x="300" y="296" text-anchor="middle"><tspan class="dl">Body mass</tspan><tspan class="dv" dx="10">21.4 g</tspan></text>
+        </svg>
+        <figcaption><span>Fig. 1</span>Wood mouse, <i>Apodemus sylvaticus</i>, with the values from the example above.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="sec alt" id="roadmap">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">Where we are</p>
+        <h2>The core works today. <em>The complete pipeline is next.</em></h2>
+        <p class="body">BioParser is in active development. This is what runs now, what the team is finishing, and what follows.</p>
+      </div>
+      <div class="road">
+        <div class="stage done">
+          <div class="track"></div>
+          <p class="stage-label">Working today</p>
+          <ul>
+            <li>Reads PDFs with two parsing engines, keeping the page and position of every block</li>
+            <li>Parses papers as background jobs, with automatic retries</li>
+            <li>Serves a language model on your own GPU</li>
+            <li>Gathers the logs of every service into one dashboard</li>
+          </ul>
+        </div>
+        <div class="stage now">
+          <div class="track"><div class="here"><span>We are here</span><i></i><b></b></div></div>
+          <p class="stage-label">In progress</p>
+          <ul>
+            <li>One service from upload to result</li>
+            <li>Trait extraction as a background job</li>
+            <li>Encrypted access with sign-in</li>
+            <li>Ready-made containers for each part</li>
+          </ul>
+        </div>
+        <div class="stage next">
+          <div class="track"></div>
+          <p class="stage-label">Next</p>
+          <ul>
+            <li>Output in the Ecological Trait-data Standard</li>
+            <li>Deployment on OpenShift clusters</li>
+            <li>Storage that grows with your archive</li>
+            <li>More traits and research areas, such as diet</li>
+            <li>Scanned papers and tables</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="band-grid" aria-hidden="true"></div>
+    <div class="wrap band-inner">
+      <h2>Bring the literature. <em>Keep the evidence.</em></h2>
+      <p>BioParser is developed in the open. Follow progress, read the design documents and talk to the team on GitHub.</p>
+      <a class="btn btn-band" href="https://github.com/BioParser/BioParser">Open BioParser on GitHub <span aria-hidden="true">↗</span></a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot-inner">
+    <span>BioParser · 2026</span>
+    <span>The paper excerpt and values on this page are illustrative.</span>
+  </div>
+</footer>
+
+</body></html>

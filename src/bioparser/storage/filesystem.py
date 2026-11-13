@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import logging
 import os
 import re
 import uuid
@@ -8,10 +10,16 @@ from pathlib import Path
 
 from pydantic import Field, ValidationError
 
+from bioparser.artifact_paths import (
+    ArtifactPathError,
+    ArtifactPathTraversalError,
+    validate_artifact_path,
+)
+from bioparser.hashing import sha256_bytes
 from bioparser.storage.errors import (
     ArtifactAlreadyExistsError,
     ArtifactNotFoundError,
-    InvalidArtifactIdError,
+    InvalidArtifactPathError,
     StorageConfigurationError,
     StorageError,
     StoragePathTraversalError,
@@ -22,8 +30,7 @@ from bioparser.storage.models import (
     StoredArtifact,
 )
 
-_ARTIFACT_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
-_MAX_ARTIFACT_ID_LENGTH = 128
+LOGGER = logging.getLogger(__name__)
 
 
 class FileBlobMetadata(ArtifactMetadata):
@@ -42,11 +49,11 @@ class FileSystemArtifactStorage:
     """Local filesystem implementation of the ArtifactStorage interface.
 
     Stores artifacts within a configurable root directory using a blob-pointer layout:
-      - Payload content: `{artifact_id}.{blob_id}.data`
-      - Metadata JSON:   `{artifact_id}.meta.json`
+      - Payload content: `{artifact_path}.{blob_id}.data`
+      - Metadata JSON:   `{artifact_path}.meta.json`
 
     Payloads are written as immutable blobs first, then the metadata JSON file is
-    atomically linked (on create) or replaced (on overwrite) as the single commit point.
+    atomically linked as the single commit point. If the artifact already exists, an error is raised.
     All operations validate that generated paths remain strictly within the storage root.
     """
 
@@ -55,89 +62,91 @@ class FileSystemArtifactStorage:
         if create_root:
             self.root_path.mkdir(parents=True, exist_ok=True)
         elif not self.root_path.is_dir():
-            raise StorageConfigurationError(
-                f"Configured storage root directory does not exist: {self.root_path}"
-            )
+            raise StorageConfigurationError("Configured storage root directory does not exist")
 
-    def _validate_artifact_id(self, artifact_id: str) -> None:
-        if not isinstance(artifact_id, str) or not artifact_id.strip():
-            raise InvalidArtifactIdError("Artifact ID cannot be empty or whitespace")
-        if len(artifact_id) > _MAX_ARTIFACT_ID_LENGTH:
-            raise InvalidArtifactIdError(
-                f"Artifact ID exceeds maximum length of {_MAX_ARTIFACT_ID_LENGTH} characters: {artifact_id}"
-            )
-        if artifact_id in (".", ".."):
-            raise StoragePathTraversalError("Artifact ID cannot be '.' or '..'")
-        if not _ARTIFACT_ID_PATTERN.fullmatch(artifact_id):
-            raise InvalidArtifactIdError(
-                f"Artifact ID '{artifact_id}' contains invalid characters. "
-                "Only alphanumeric characters, '.', '_', and '-' are allowed."
-            )
+    def _validate_artifact_path(self, artifact_path: str) -> None:
+        try:
+            validate_artifact_path(artifact_path)
+        except ArtifactPathTraversalError as exc:
+            LOGGER.warning("Path traversal attempt blocked")
+            raise StoragePathTraversalError(str(exc)) from exc
+        except ArtifactPathError as exc:
+            raise InvalidArtifactPathError(str(exc)) from exc
 
-    def _get_metadata_path(self, artifact_id: str) -> Path:
-        self._validate_artifact_id(artifact_id)
-        metadata_path = (self.root_path / f"{artifact_id}.meta.json").resolve()
+    def _get_metadata_path(self, artifact_path: str) -> Path:
+        self._validate_artifact_path(artifact_path)
+        metadata_path = (self.root_path / f"{artifact_path}.meta.json").resolve()
         if not metadata_path.is_relative_to(self.root_path) or metadata_path == self.root_path:
             raise StoragePathTraversalError(
-                f"Generated artifact path escapes storage root: {artifact_id}"
+                f"Generated artifact path escapes storage root: {artifact_path}"
             )
         return metadata_path
 
-    def _get_blob_data_path(self, artifact_id: str, blob_id: str) -> Path:
-        self._validate_artifact_id(artifact_id)
-        if not _ARTIFACT_ID_PATTERN.fullmatch(blob_id):
-            raise StoragePathTraversalError(f"Invalid blob ID: {blob_id}")
-        content_path = (self.root_path / f"{artifact_id}.{blob_id}.data").resolve()
+    def _get_blob_data_path(self, artifact_path: str, blob_id: str) -> Path:
+        self._validate_artifact_path(artifact_path)
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", blob_id):
+            raise StoragePathTraversalError(f"Invalid blob ID in metadata for {artifact_path}")
+        content_path = (self.root_path / f"{artifact_path}.{blob_id}.data").resolve()
         if not content_path.is_relative_to(self.root_path) or content_path == self.root_path:
             raise StoragePathTraversalError(
-                f"Generated artifact path escapes storage root: {artifact_id}"
+                f"Generated artifact path escapes storage root: {artifact_path}"
             )
         return content_path
 
-    def _read_file_blob_metadata(self, artifact_id: str) -> FileBlobMetadata:
-        metadata_path = self._get_metadata_path(artifact_id)
+    def _read_file_blob_metadata(self, artifact_path: str) -> FileBlobMetadata:
+        metadata_path = self._get_metadata_path(artifact_path)
         if not metadata_path.is_file():
-            raise ArtifactNotFoundError(f"Artifact metadata not found: {artifact_id}")
+            raise ArtifactNotFoundError(f"Artifact metadata not found: {artifact_path}")
 
+        # Errors name the cause's type, not its text: OSError text holds absolute
+        # paths and pydantic text holds parts of the file. The cause stays on the
+        # chain (`from exc`), where the log formatter redacts its text.
         try:
             raw_json = metadata_path.read_text(encoding="utf-8")
             return FileBlobMetadata.model_validate_json(raw_json)
         except (ValidationError, ValueError) as exc:
+            LOGGER.error(
+                "Corrupted metadata for artifact %s: %s", artifact_path, type(exc).__name__
+            )
             raise StoragePayloadError(
-                f"Corrupted metadata for artifact {artifact_id}: {exc}"
+                f"Corrupted metadata for artifact {artifact_path}: {type(exc).__name__}"
             ) from exc
         except OSError as exc:
-            raise StorageError(f"Failed to read metadata for {artifact_id}: {exc}") from exc
+            LOGGER.exception("Filesystem OSError reading metadata for %s", artifact_path)
+            raise StorageError(
+                f"Failed to read metadata for {artifact_path}: {type(exc).__name__}"
+            ) from exc
 
-    def _read_content(self, artifact_id: str, meta: FileBlobMetadata) -> bytes:
-        data_path = self._get_blob_data_path(artifact_id, meta.blob_id)
+    def _read_content(self, artifact_path: str, meta: FileBlobMetadata) -> bytes:
+        data_path = self._get_blob_data_path(artifact_path, meta.blob_id)
         if not data_path.is_file():
-            raise ArtifactNotFoundError(f"Artifact content not found: {artifact_id}")
+            raise ArtifactNotFoundError(f"Artifact content not found: {artifact_path}")
 
         try:
             content = data_path.read_bytes()
         except OSError as exc:
-            raise StorageError(f"Failed to read artifact {artifact_id}: {exc}") from exc
+            raise StorageError(
+                f"Failed to read artifact {artifact_path}: {type(exc).__name__}"
+            ) from exc
 
         if meta.size_bytes is not None and len(content) != meta.size_bytes:
             raise StoragePayloadError(
-                f"Artifact {artifact_id} content size ({len(content)}) does not match "
+                f"Artifact {artifact_path} content size ({len(content)}) does not match "
                 f"metadata size_bytes ({meta.size_bytes})"
             )
 
         return content
 
-    def store(
+    def _store(
         self,
         content: bytes,
         metadata: ArtifactMetadata,
-        *,
-        overwrite: bool = False,
     ) -> str:
-        aid = metadata.artifact_id
-        metadata_path = self._get_metadata_path(aid)
+        aid = metadata.artifact_path
 
-        if not overwrite and self.exists(aid):
+        metadata_path = self._get_metadata_path(aid)
+        if metadata_path.is_file():
+            LOGGER.debug("Artifact already exists: %s", aid)
             raise ArtifactAlreadyExistsError(f"Artifact already exists: {aid}")
 
         if metadata.size_bytes is None:
@@ -148,6 +157,15 @@ class FileSystemArtifactStorage:
                 f"content length ({len(content)})"
             )
 
+        checksum = sha256_bytes(content)
+        if metadata.checksum is None:
+            metadata = metadata.model_copy(update={"checksum": checksum})
+        elif metadata.checksum != checksum:
+            raise StoragePayloadError(
+                f"Metadata checksum ({metadata.checksum}) does not match "
+                f"content checksum ({checksum})"
+            )
+
         blob_id = uuid.uuid4().hex
         blob_meta = FileBlobMetadata(
             **metadata.model_dump(),
@@ -155,33 +173,37 @@ class FileSystemArtifactStorage:
         )
 
         blob_data_path = self._get_blob_data_path(aid, blob_id)
-        tmp_meta_path = self.root_path / f".tmp_{aid}_{blob_id}.meta.json"
+
+        tmp_meta_path = metadata_path.parent / f".tmp_{blob_id}.meta.json"
 
         blob_written = False
         tmp_meta_written = False
         committed = False
 
         try:
+            # Ensure parent directories exist for both metadata and data
+            metadata_path.parent.mkdir(parents=True, exist_ok=True)
+            blob_data_path.parent.mkdir(parents=True, exist_ok=True)
+
             blob_data_path.write_bytes(content)
             blob_written = True
 
             tmp_meta_path.write_text(blob_meta.model_dump_json(indent=2), encoding="utf-8")
             tmp_meta_written = True
 
-            if not overwrite:
-                try:
-                    os.link(tmp_meta_path, metadata_path)
-                    committed = True
-                except FileExistsError as exc:
-                    raise ArtifactAlreadyExistsError(f"Artifact already exists: {aid}") from exc
-            else:
-                os.replace(tmp_meta_path, metadata_path)
+            try:
+                os.link(tmp_meta_path, metadata_path)
                 committed = True
+                LOGGER.debug("Successfully stored artifact: %s", aid)
+            except FileExistsError as exc:
+                LOGGER.debug("Artifact already exists (race collision): %s", aid)
+                raise ArtifactAlreadyExistsError(f"Artifact already exists: {aid}") from exc
 
-        except (ArtifactAlreadyExistsError, StoragePayloadError):
+        except (ArtifactAlreadyExistsError, StoragePayloadError, InvalidArtifactPathError):
             raise
         except OSError as exc:
-            raise StorageError(f"Failed to write artifact {aid}: {exc}") from exc
+            LOGGER.exception("Filesystem OSError writing artifact %s", aid)
+            raise StorageError(f"Failed to write artifact {aid}: {type(exc).__name__}") from exc
         finally:
             if tmp_meta_written:
                 with contextlib.suppress(OSError):
@@ -192,23 +214,40 @@ class FileSystemArtifactStorage:
 
         return aid
 
-    def retrieve(self, artifact_id: str) -> bytes:
-        record = self._read_file_blob_metadata(artifact_id)
-        return self._read_content(artifact_id, record)
+    def _retrieve(self, artifact_path: str) -> bytes:
+        record = self._read_file_blob_metadata(artifact_path)
+        return self._read_content(artifact_path, record)
 
-    def retrieve_metadata(self, artifact_id: str) -> ArtifactMetadata:
-        record = self._read_file_blob_metadata(artifact_id)
-        blob_path = self._get_blob_data_path(artifact_id, record.blob_id)
+    def _retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
+        record = self._read_file_blob_metadata(artifact_path)
+        blob_path = self._get_blob_data_path(artifact_path, record.blob_id)
         if not blob_path.is_file():
-            raise ArtifactNotFoundError(f"Artifact content not found: {artifact_id}")
+            raise ArtifactNotFoundError(f"Artifact content not found: {artifact_path}")
         return record.to_artifact_metadata()
 
-    def retrieve_artifact(self, artifact_id: str) -> StoredArtifact:
-        record = self._read_file_blob_metadata(artifact_id)
-        content = self._read_content(artifact_id, record)
+    def _retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
+        record = self._read_file_blob_metadata(artifact_path)
+        content = self._read_content(artifact_path, record)
         return StoredArtifact(content=content, metadata=record.to_artifact_metadata())
 
-    def exists(self, artifact_id: str) -> bool:
-        self._validate_artifact_id(artifact_id)
-        metadata_path = self._get_metadata_path(artifact_id)
+    def _exists(self, artifact_path: str) -> bool:
+        self._validate_artifact_path(artifact_path)
+        metadata_path = self._get_metadata_path(artifact_path)
         return metadata_path.is_file()
+
+    # Local file I/O has no async form, so it runs on a thread.
+
+    async def store(self, content: bytes, metadata: ArtifactMetadata) -> str:
+        return await asyncio.to_thread(self._store, content, metadata)
+
+    async def retrieve(self, artifact_path: str) -> bytes:
+        return await asyncio.to_thread(self._retrieve, artifact_path)
+
+    async def retrieve_metadata(self, artifact_path: str) -> ArtifactMetadata:
+        return await asyncio.to_thread(self._retrieve_metadata, artifact_path)
+
+    async def retrieve_artifact(self, artifact_path: str) -> StoredArtifact:
+        return await asyncio.to_thread(self._retrieve_artifact, artifact_path)
+
+    async def exists(self, artifact_path: str) -> bool:
+        return await asyncio.to_thread(self._exists, artifact_path)

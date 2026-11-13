@@ -1,22 +1,24 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from starlette.concurrency import run_in_threadpool
 
 from bioparser.parser import (
     DEFAULT_PARSER_NAME,
     PARSER_BACKENDS,
     ParserArtifact,
     ParserBackendUnavailableError,
+    ParserProcessError,
+    ParserTimeoutError,
     UnsupportedDocumentError,
-    get_parser,
+    parse_pdf_bytes,
 )
+from bioparser.parser.backend.factory import get_parser
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -43,20 +45,17 @@ def _normalize_backend(name: str | None, fallback: str) -> str:
     return chosen
 
 
-def _parse_pdf_bytes(pdf_bytes: bytes, backend: str) -> ParserArtifact:
-    with NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
-        tmp.write(pdf_bytes)
-        tmp.flush()
-        return get_parser(backend).parse(Path(tmp.name))
-
-
 async def _parse_or_http_error(pdf_bytes: bytes, backend: str) -> ParserArtifact:
     try:
-        return await run_in_threadpool(_parse_pdf_bytes, pdf_bytes, backend)
+        return await parse_pdf_bytes(get_parser(backend), pdf_bytes)
     except ParserBackendUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except UnsupportedDocumentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ParserTimeoutError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except ParserProcessError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 def _load_path(path: Path, backend: str) -> _Document:
@@ -64,7 +63,7 @@ def _load_path(path: Path, backend: str) -> _Document:
     if not pdf_path.is_file():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
     pdf_bytes = pdf_path.read_bytes()
-    artifact = get_parser(backend).parse(pdf_path)
+    artifact = asyncio.run(get_parser(backend).parse(pdf_path))
     return _Document(pdf_bytes=pdf_bytes, artifacts={backend: artifact})
 
 

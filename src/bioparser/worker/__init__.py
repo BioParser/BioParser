@@ -1,0 +1,5 @@
+"""Long-running job processes.
+
+The parse worker lives in `worker.parse`. The extractor lives in `worker.extract`.
+Claim and failure handling are shared in `worker.stage`. Each stage records its own result.
+"""

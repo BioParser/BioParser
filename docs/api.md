@@ -4,57 +4,71 @@ This document defines the public HTTP contract of the API container and the inte
 module layout that implements it. The system context for these endpoints is in
 [architecture.md](architecture.md).
 
-Status: **draft** — all five routes (`POST /api/extractions`, `GET /api/jobs/{job_id}`,
-`POST /extract`, `GET /health`, `GET /ready`) are implemented, along with upload validation and a
-configurable size limit. `POST /extract` runs the real MinerU → vLLM pipeline
-synchronously for manual testing; it is not wired to the job store. The larger
-infrastructure below (a worker that advances `/api/extractions` jobs, and wiring artifact
-storage to the API) is in progress.
+Status: **draft** — document and job management routes (`POST /api/documents`,
+`GET /api/documents`, `GET /api/documents/{checksum}`, `GET /api/documents/{checksum}/file`,
+`POST /api/documents/{checksum}/jobs`, `GET /api/documents/{checksum}/jobs`, `GET /api/jobs`,
+`POST /api/extractions`, `GET /api/jobs/{job_id}`, `GET /api/jobs/{job_id}/artifacts/parser`,
+`GET /api/jobs/{job_id}/artifacts/extraction`, `POST /extract`, `GET /health`, `GET /ready`)
+are implemented, along with upload validation and a configurable size limit. `POST /extract` is a dev route: it runs a queued job's pipeline
+(the same parser and extractor) in one request, without the queue and the workers.
 
-**Current API scope:** this is a deliberately reduced first pass, matching
-[architecture.md](architecture.md)'s core idea (accept a PDF, return
-immediately, poll for status) but not yet its full infrastructure. In
-particular:
+**Current API scope:**
 
-- **Job store** is an in-process Python dict, not Redis. Jobs do not
-  survive a restart and are not visible to any other process.
-- **No worker exists yet.** A job created via `POST /api/extractions` is created as
-  `queued` and nothing currently advances it to `running` or `succeeded`.
-- **`POST /extract` is a separate, synchronous test path**, not the worker above.
-  It runs the real MinerU → mapper → vLLM pipeline end-to-end and returns the
-  result inline, bounded by a concurrency semaphore, but it does not read or
-  write the job store, and `POST /api/extractions` never calls it.
-- **Artifact storage not yet wired to API routes.** While the `bioparser.storage`
-  library is implemented, uploaded PDF bytes in `POST /api/extractions` are not
-  yet persisted to storage.
+- **Job state is stored in Postgres.** The API and both workers share the typed,
+  versioned `JobState` model through `bioparser.db.jobs`. The `Job` class there
+  is the table, and Alembic diffs it when generating a revision. Redis is the queue.
+- **The parser worker is a separate process.** `POST /api/extractions` enqueues a
+  `ParseJobMessage`; `python -m bioparser.worker.parse` consumes it and advances
+  the job from `queued` through `parsing` to `parsed` or `failed`.
+- **Uploaded PDFs are persisted in artifact storage.** Their paths are derived
+  from the content SHA-256, so two submissions of the same PDF create separate
+  jobs that reuse one immutable PDF artifact.
+- **`POST /extract` is a temporary dev route** that skips the queue and the workers.
+  It runs the same parser and extractor as a queued job, in a child process, and returns
+  the extraction artifact inline. Nothing is stored.
 - **Readiness (`/ready`) is supported.** The readiness endpoint performs
   lightweight dependency checks only when corresponding environment variables are
   set (see *Readiness behaviour* below).
-- **No `/api/v1` prefix, no checksum-based idempotency, no global error envelope or exception handlers** 
-- routes still raise plain `fastapi.HTTPException` directly, with no registered `@app.exception_handler`. `POST /api/extractions`'s validation failures do pass a structured `{"code", "message"}` object as `detail` (see above), but that's local to this one route, not a repo-wide convention.
-
-These are the pieces `architecture.md` calls for that this API draft does
-not yet satisfy. They are the intended next steps, not omissions to be
-missed: wiring the API to the artifact storage library, a Redis-backed job
-store, a parser worker, and the `ports`/`adapters` split that lets tests
-swap in fakes. `POST /extract` already exercises the real MinerU/vLLM pipeline
-synchronously, but that's a manual-testing shortcut, not the queued worker
-described here. This note should be replaced or removed once those exist.
+- **No `/api/v1` prefix or global exception handlers.** Routes raise
+  `fastapi.HTTPException` directly and use structured `{"code", "message"}`
+  details for the queued-job API's documented failures.
 
 ---
 
 ## Scope
 
 The API container accepts a born-digital PDF, creates a job, and lets the client poll
-for the job's status. `POST /api/extractions` never parses in the request process — it only
-records that a job exists; nothing currently advances that job (see Current API scope
-above). Separately, `POST /extract` runs the same kind of upload through the real
-MinerU → vLLM pipeline synchronously, for manually testing the pipeline itself outside
-the job lifecycle.
+for its status. `POST /api/extractions` stores the PDF, creates the Postgres job row, and
+enqueues parsing without parsing in the request process. The separate parser worker
+advances the stored state. `POST /extract` runs the same upload through the same
+pipeline in one request, for manual testing outside the job lifecycle.
 
 ---
 
 ## HTTP contract
+
+### Authentication
+
+All endpoints require a shared API key, except the explicit public endpoints: `/health`, `/ready`, `/docs`, `/docs/oauth2-redirect`, `/openapi.json`, and `/redoc`.
+
+- **Header:** `X-API-Key: <key>`
+- **Configuration:**
+  - `BIOPARSER_API_KEY`: The expected secret key (stored as `SecretStr`). Must be at least 32 visible ASCII characters (without spaces). Generate with `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`. Required unless `BIOPARSER_AUTH_DISABLED=true`.
+  - `BIOPARSER_AUTH_DISABLED`: Boolean flag (`true`/`false`, default `false`). If `true`, authentication checks are bypassed and a warning is logged at startup. If `false` and `BIOPARSER_API_KEY` is not set or invalid, the API refuses to start.
+- **Validation:**
+  - Enforced before body parsing by a pure ASGI middleware (`ApiKeyMiddleware`). Unauthenticated requests are rejected with 401 before any upload body is buffered or written to disk.
+  - Constant-time comparison (`secrets.compare_digest`) is performed over UTF-8 bytes to safely reject non-ASCII header values without raising exceptions.
+- **Failure — `401 Unauthorized`:**
+  Missing or invalid keys return HTTP 401 with `WWW-Authenticate: ApiKey` and a standard error envelope:
+  ```json
+  {
+    "detail": {
+      "code": "unauthorized",
+      "message": "Invalid or missing API key"
+    }
+  }
+  ```
+- **OpenAPI / Swagger UI:** The security scheme `ApiKeyAuth` is registered on the OpenAPI document (`/openapi.json`), enabling interactive authentication via the "Authorize" button in Swagger UI (`/docs`).
 
 ### `POST /api/extractions`
 
@@ -67,9 +81,11 @@ Submit a PDF.
   magic bytes.
 - **Size limit:** the upload is read in 1 MiB chunks and rejected once it exceeds
   `config.MAX_UPLOAD_BYTES` (20 MiB by default — see [`config.py`](#configpy)).
-- No idempotency — submitting the same file twice creates two separate jobs. A
-  sha256 checksum is computed from the upload for `POST /extract`'s use, but
-  `POST /api/extractions` discards it without checking for an existing job.
+- Submitting the same file twice creates two separate jobs. The PDF artifact is
+  content-addressed by SHA-256 and reused by both jobs. The document row and the
+  job row are inserted in one transaction. A checksum that already has a document
+  keeps that row, including its display name. A new document stores the sanitized
+  upload filename and the upload size.
 
 The checks run in a fixed order: `Content-Length` header format and size →
 `file` part present → content type → body size while streaming → non-empty body →
@@ -79,10 +95,14 @@ The checks run in a fixed order: `Content-Length` header format and size →
 
 ```json
 {
-  "job_id": "b3f1c2a4-...",
+  "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
   "status": "queued"
 }
 ```
+
+The stored name is on the document and on a later job read. A failed insert stores
+no job. When the job insert fails, a document row from this request is rolled back
+with it.
 
 **Failure:**
 
@@ -92,8 +112,9 @@ The checks run in a fixed order: `Content-Length` header format and size →
 | 400 | the file body is empty |
 | 400 | the file body does not start with `%PDF-` |
 | 400 | the Content-Length header is not a valid non-negative integer |
-| 413 | the file exceeds `config.MAX_UPLOAD_BYTES` |
+| 413 | the file exceeds BIOPARSER_MAX_UPLOAD_BYTES (default 20 MiB) |
 | 415 | content type is not `application/pdf` |
+| 503 | artifact storage, the database, or the parse queue is unavailable |
 
 
 **Validation error body:**
@@ -121,6 +142,179 @@ The checks run in a fixed order: `Content-Length` header format and size →
 | `unsupported_content_type` | 415 | content type is not `application/pdf` |
 
 
+### `POST /api/documents`
+
+Upload and store a PDF document without queueing a job.
+
+- **Request:** `multipart/form-data` with a single `file` part.
+- **Accepted content type:** `application/pdf` only.
+- **Body checks:** Same validation pipeline as `POST /api/extractions` (Content-Length, present part, media type, size limit, non-empty, `%PDF-` magic).
+- Content-addressed by SHA-256. If the document already exists, the existing metadata is returned with `200 OK`. If newly stored, returns `201 Created`.
+
+**Success — `201 Created` (new) or `200 OK` (already stored):**
+
+```json
+{
+  "checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
+  "display_name": "paper.pdf",
+  "upload_time": "2026-10-26T12:00:00Z",
+  "size_bytes": 1048576
+}
+```
+
+**Failure:** Same 400, 413, 415, and 503 statuses and errors as `POST /api/extractions`.
+
+
+### `GET /api/documents`
+
+List all stored documents with metadata, ordered by `upload_time` descending.
+
+**Success — `200 OK`:**
+
+```json
+[
+  {
+    "checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
+    "display_name": "paper.pdf",
+    "upload_time": "2026-10-26T12:00:00Z",
+    "size_bytes": 1048576
+  }
+]
+```
+
+**Failure:** `401 Unauthorized`, `503 Database Unavailable` (`database_unavailable`).
+
+
+### `GET /api/documents/{checksum}`
+
+Retrieve metadata for a specific stored document.
+
+**Success — `200 OK`:**
+
+```json
+{
+  "checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
+  "display_name": "paper.pdf",
+  "upload_time": "2026-10-26T12:00:00Z",
+  "size_bytes": 1048576
+}
+```
+
+**Failure:**
+
+| Status | When |
+|--------|------|
+| 401 | Missing or invalid API key (`unauthorized`) |
+| 404 | No document with that checksum (`document_not_found`) |
+| 422 | `checksum` is not a 64-character lowercase SHA-256 hex digest (`invalid_checksum`) |
+| 503 | Database is unavailable (`database_unavailable`) |
+
+
+### `GET /api/documents/{checksum}/file`
+
+Serve raw bytes of a stored PDF document.
+
+**Success — `200 OK`:**
+- Content type: `application/pdf`
+- Headers:
+  - `Content-Disposition: inline; filename="<ascii_fallback>"; filename*=UTF-8''<encoded_name>`
+  - `Cache-Control: private, max-age=31536000, immutable`
+
+**Failure:** Same 401, 404, 422, and 503 statuses as `GET /api/documents/{checksum}`. `500` if the stored payload is corrupted.
+
+
+### `POST /api/documents/{checksum}/jobs`
+
+Dispatch a parsing and extraction job for an already-stored document with configurable backend parameters.
+
+- **Request Body (JSON, optional):**
+```json
+{
+  "parser": "default",
+  "extractor": "default"
+}
+```
+If omitted or `{}` is sent, parameters default to `parser: "default"` and `extractor: "default"`.
+
+**Success — `202 Accepted`:**
+
+```json
+{
+  "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
+  "status": "queued"
+}
+```
+
+**Failure:**
+
+| Status | When |
+|--------|------|
+| 401 | Missing or invalid API key (`unauthorized`) |
+| 404 | Document does not exist (`document_not_found`) |
+| 422 | `checksum` invalid, or unknown `parser`/`extractor` |
+| 500 | Stored job state is unreadable (`job_state_unreadable`) |
+| 503 | Storage, Redis, or queue is unavailable |
+
+
+### `GET /api/documents/{checksum}/jobs`
+
+List all jobs associated with a specific document.
+
+**Success — `200 OK`:**
+
+```json
+[
+  {
+    "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
+    "status": "queued",
+    "created_at": "2026-10-30T10:15:30Z",
+    "display_name": "paper.pdf",
+    "parser": "default",
+    "extractor": "default",
+    "document_checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
+    "has_parse_result": false
+  }
+]
+```
+
+**Failure:** Same 401, 404, 422, 500, and 503 statuses as `POST /api/documents/{checksum}/jobs`.
+
+
+### `GET /api/jobs`
+
+List jobs across all documents, with optional query filters.
+
+- **Query parameters:**
+  - `status` (optional): Filter by job status (`queued`, `parsing`, `parsed`, `extracting`, `done`, `failed`).
+  - `parser` (optional): Filter by parser backend (e.g. `default`, `mineru`).
+
+**Success — `200 OK`:**
+
+```json
+[
+  {
+    "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
+    "status": "queued",
+    "created_at": "2026-10-30T10:15:30Z",
+    "display_name": "paper.pdf",
+    "parser": "default",
+    "extractor": "default",
+    "document_checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
+    "has_parse_result": false
+  }
+]
+```
+
+**Failure:**
+
+| Status | When |
+|--------|------|
+| 401 | Missing or invalid API key (`unauthorized`) |
+| 422 | Invalid `status` query value |
+| 500 | Stored job state is unreadable (`job_state_unreadable`) |
+| 503 | Database is unavailable (`database_unavailable`) |
+
+
 ### `GET /api/jobs/{job_id}`
 
 Poll a job.
@@ -129,20 +323,38 @@ Poll a job.
 
 ```json
 {
-  "job_id": "b3f1c2a4-...",
-  "status": "queued"
+  "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
+  "status": "queued",
+  "created_at": "2026-10-30T10:15:30Z",
+  "display_name": null,
+  "parser": "default",
+  "extractor": "default",
+  "document_checksum": "18c1d82f9a9c9be88b6ee58f7486e5672f73a4e885f163001c2a66a0f983bc1a",
+  "has_parse_result": false
 }
 ```
 
-- `status` is `"queued"` for every job right now — nothing exists yet to move it to
-  `"running"`, `"succeeded"`, or `"failed"`. Those states are reserved for when a
-  worker is added.
+- `status` is one of `"queued"`, `"parsing"`, `"parsed"`, `"extracting"`,
+  `"done"`, or `"failed"`. Failed responses include a safe error code.
+- `created_at`, `display_name`, `parser`, `extractor`, and `document_checksum`
+  are returned for every status. `display_name` is `null` when the job has no
+  corresponding document metadata.
+- `has_parse_result` is `true` once the parser artifact has been recorded. It may
+  remain `true` when extraction later fails.
+- The response holds no storage paths. When a job is `done`, #179 adds its ETS response
+  here. The UI reads the internal artifacts from the
+  [job artifact routes](#get-apijobsjob_idartifactsparser-and-artifactsextraction).
 
 **Failure:**
 
 | Status | When |
 |--------|------|
 | 404 | no job with that id |
+| 422 | `job_id` is not a version 4 UUID |
+| 500 | stored job state is unreadable |
+| 503 | the database is unavailable |
+
+The route reads only the job state. It never reads an artifact.
 
 **Error body:**
 
@@ -155,44 +367,79 @@ Poll a job.
 }
 ```
 
+### `GET /api/jobs/{job_id}/artifacts/parser` and `/artifacts/extraction`
+
+Internal routes for the BioParser UI (OpenAPI tag `internal`): a PDF viewer needs the
+bounding boxes of the parser artifact, and an evidence view needs the extraction artifact.
+API clients use `GET /api/jobs/{job_id}` instead. The body is the artifact exactly as the
+worker stored it (`application/json`). Its shape follows its `schema_version` and can
+change.
+
+| Route | Available when the job is |
+|-------|---------------------------|
+| `.../artifacts/parser` | `parsed`, `extracting`, `done`, or `failed` after its parse |
+| `.../artifacts/extraction` | `done` |
+
+- The route loads the stored bytes through async storage and does not parse them: the worker
+  validated them before it recorded the ref, and a parser artifact can be several MB.
+- `Cache-Control: private, max-age=31536000, immutable`. A job's artifact never changes:
+  storage cannot replace an artifact, and the job keeps the same ref.
+- The PDF itself is not served here. A viewer gets it from the document file route that
+  #197 adds.
+
+**Failure:**
+
+| Status | When |
+|--------|------|
+| 404 | no job with that id (`job_not_found`) |
+| 409 | the job has no such artifact (`artifact_not_available`); its status tells whether it can still come |
+| 422 | `job_id` is not a version 4 UUID (`invalid_job_id`) |
+| 500 | stored job state is unreadable, or the stored artifact is missing or invalid |
+| 503 | Redis or artifact storage is unavailable |
+
 ### `POST /extract`
 
-Runs the full parse-and-extract pipeline synchronously, for manual testing of the
-pipeline outside the job lifecycle. Does not read or write the job store.
+Dev route: a queued job's pipeline in one request, without the queue and the workers.
+Does not read or write the job store or artifact storage. It will be removed with #179.
 
 - **Request:** identical to `POST /api/extractions` — `multipart/form-data` with a single
   `file` part, subject to the same `Content-Length`, content-type, size, and
   `%PDF-` checks described above.
-- Runs, in order: MinerU parse (`bioparser.services.mineru.MinerUClient`) →
-  `artifact_from_middle_json` mapping → vLLM extraction
-  (`bioparser.services.vllm.VLLMService`) — see [`pipeline.py`](#pipelinepy).
-- **Concurrency:** bounded by `config.extract_concurrency` (default 2) via an
-  `asyncio.Semaphore` created at startup. A request that can't acquire a slot
-  within `config.extract_queue_timeout_seconds` (default 5s) gets `503` with a
-  `Retry-After: 30` header instead of queuing indefinitely.
+- Runs [`bioparser.pipeline.run_pipeline()`](#bioparserpipeline): the parser that
+  `POST /api/extractions` records on a job (`DEFAULT_PARSER_NAME`), then the job's extractor
+  (`DEFAULT_EXTRACTOR_NAME`), built by the same factories and with the same settings as in
+  the workers. The response is the extraction artifact that the extractor worker stores,
+  after the same check (`bioparser.extract.checks.checked_artifact`). Its format:
+  [extraction-artifact.md](extraction-artifact.md).
+- **Event loop:** the run happens in a child process (a `ProcessPoolExecutor` with
+  `config.extract_concurrency` processes). The API's event loop does not parse the PDF or
+  validate a parser artifact, so other routes keep answering during a run.
+- **Concurrency:** one slot per process. A request that can't get a slot within
+  `config.extract_queue_timeout_seconds` (default 5s) gets `503` with a
+  `Retry-After: 30` header instead of queuing. The run frees its slot when it ends, not
+  when the request ends: a client that goes away cannot stop a running child.
 
 **Success — `200 OK`:**
 
 ```json
 {
-  "checksum": "...",
-  "pages": 12,
-  "blocks_sent": 340,
-  "prompt_characters": 7421,
-  "truncated": false,
-  "ungrounded_observations": 0,
-  "unit_mismatched_observations": 0,
+  "schema_version": "1",
+  "extractor": "default",
+  "extractor_version": "1",
   "observations": [...]
 }
 ```
+
+An observation is in the response only when the extractor located its fields in the
+parser artifact; an observation whose quotation the paper does not contain is dropped.
 
 **Failure:**
 
 | Status | When |
 |--------|------|
 | 400 / 415 | same upload validation failures as `POST /api/extractions` |
-| 502 | MinerU parsing failed, the parser output could not be mapped, or vLLM extraction failed, was truncated, or didn't match the schema — see [`pipeline.py`](#pipelinepy) |
-| 503 | the extraction semaphore is saturated and the queue timeout elapsed |
+| 502 | a pipeline step failed; `detail` names it: `Parsing failed`, `Parsing timed out`, `The PDF could not be parsed`, `Extraction did not match the schema`, `Extraction failed its checks`, `Extraction truncated`, `Extraction request rejected`, `Extraction backend unavailable`, or `Pipeline process died` |
+| 503 | every pipeline process is busy and the queue timeout elapsed |
 
 `502` and `503` bodies use FastAPI's default `{"detail": "<message>"}` shape (a
 plain string), not `POST /api/extractions`'s `{"code", "message"}` object.
@@ -210,11 +457,24 @@ dependencies are touched.
 }
 ```
 
+### `GET /ui`
+
+The web UI, built from `frontend/` (see the README). Set `BIOPARSER_UI_DIST_PATH` to the
+built files (`frontend/dist`); the API image sets it. Without it, every `/ui` path is `404`.
+
+- `/ui` redirects to `/ui/`.
+- A path under `/ui/` that names a built file returns that file. Files under `assets/` are
+  cached for a year (`immutable`): their names hold a content hash.
+- Any other path returns `index.html` (`Cache-Control: no-cache`), so a deep link such as
+  `/ui/jobs/{job_id}` loads the app. A missing file under `assets/` is `404`.
+- Not in the OpenAPI schema.
+- No API key: the UI is static files with no data, and a browser cannot send `X-API-Key` when it opens a page. The UI sends the key on its own API calls (#253). `ApiKeyMiddleware` lets `/ui` and every path under `/ui/` through.
+
+
 ### `GET /ready`
 
-Readiness. Performs optional, bounded dependency checks and returns `200 {"status": "ready"}`
-when the process can accept work. Behaviour is opt-in via environment variables so the
-default developer experience remains simple.
+Readiness. Checks Redis, Postgres, and the artifact directory, each with a bounded
+timeout, and returns `200 {"status": "ready"}` when all three succeed.
 
 **Success — `200 OK`:**
 
@@ -237,19 +497,23 @@ default developer experience remains simple.
 
 Readiness behaviour:
 
-- If `BIOPARSER_REDIS_URL` is set, the endpoint parses the Redis URL and attempts a TCP
-  connection to the host/port from that URL with a per-check timeout controlled by
-  `BIOPARSER_DEPENDENCY_CHECK_TIMEOUT_SECONDS` (seconds, default `1.0`). On failure the
-  endpoint returns `503`; FastAPI places the readiness payload under `detail`, e.g.
+- The endpoint parses the Redis URL and attempts a TCP connection to the host and port
+  from that URL. The per-check timeout is `BIOPARSER_DEPENDENCY_CHECK_TIMEOUT_SECONDS`
+  (seconds, default `1.0`). On failure the endpoint returns `503`; FastAPI places the
+  readiness payload under `detail`, e.g.
   `{"detail": {"status": "not ready", "unavailable": ["redis"]}}`.
-- If `BIOPARSER_ARTIFACT_STORAGE_PATH` is set, the endpoint attempts to create and remove
-  a temporary file in that directory to confirm writability. On failure `503` is returned
-  with `"storage"` in the `unavailable` list.
-- If neither environment variable is set the endpoint returns `200`.
+- It does the same kind of TCP connect against the Postgres URL (default port 5432),
+  with the same timeout. On failure `503` is returned with `"postgres"` in the
+  `unavailable` list. The response does not include the URL or its password.
+- It attempts to create and remove a temporary file in the artifact directory to confirm
+  writability. On failure `503` is returned with `"storage"` in the `unavailable` list.
+- Invalid configuration, including an empty required setting, returns `503` with
+  `"config"` in the `unavailable` list. The API also refuses to start when these
+  settings are missing.
 
-Checks are intentionally minimal: they use a raw TCP connect for Redis and a local
-file operation for storage so that checks are fast, require no credentials, and do not
-expose secrets in error messages.
+Checks are intentionally minimal: they use a raw TCP connect for Redis and Postgres and a
+local file operation for storage so that checks are fast, require no credentials, and do
+not expose secrets in error messages.
 
 ---
 
@@ -258,54 +522,60 @@ expose secrets in error messages.
 ```
 src/bioparser/api/
   __init__.py       # main() -> starts the app
-  app.py            # FastAPI app, lifespan startup, all five routes
+  app.py            # FastAPI app, lifespan startup, all seven routes
+  auth.py           # API key authentication dependency (X-API-Key)
   config.py         # process configuration read from the environment
   errors.py         # named ErrorDetail constants, codes, and OpenAPI helpers
-  jobs.py           # in-process dict job store (Redis models in bioparser.jobstate)
   middleware.py     # body size limit middleware
-  pipeline.py       # run_pipeline(): MinerU -> mapper -> vLLM, used by POST /extract
   schema.py         # pydantic response/error models used across routes
   uploads.py        # upload-validation helpers shared by POST /api/extractions and POST /extract
 ```
 
-No `ports/`, `adapters/`, or `ets/` folders yet inside `api/` itself. Routes live
+No `ports/` or `adapters/` folders exist inside `api/` itself. Routes live
 directly in `app.py`; upload validation is in `uploads.py`; response/error models
-are in `schema.py`. `pipeline.py` (used only by `POST /extract`) reaches outside
-this package into `bioparser.services.mineru`, `bioparser.services.vllm`,
-`bioparser.parser`, and `bioparser.extract` — those are documented in
-[architecture.md](architecture.md), not here.
+are in `schema.py`. `POST /extract` calls `bioparser.pipeline`, which is outside this package
+so that a child process can import it without building the FastAPI app.
 
 ### `app.py`
 
-Holds the FastAPI app, its startup/shutdown lifecycle, and all five route handlers.
+Holds the FastAPI app, its startup/shutdown lifecycle, and all seven route handlers.
 
-**Lifespan:** on startup, builds a `MinerUClient` (`bioparser.services.mineru`) and
-a `VLLMService` (`bioparser.services.vllm`) from `config.get_api_settings()`, and
-probes the vLLM model id once (best-effort — failures are swallowed; there is no
-logger yet). It also creates an `asyncio.Semaphore` sized `config.extract_concurrency`
-on `app.state.extract_sem`, used only by `POST /extract`. On shutdown, both clients
-are closed.
+**Lifespan:** on startup, first calls `setup_logging(settings.log_level)` (see
+[Logging](#logging)), then builds a `VLLMService` (`bioparser.services.vllm`) from
+`config.get_api_settings()` and probes the vLLM model id once. The probe is best-effort: a failure logs one WARNING
+and startup continues. When configured, the lifecycle also opens
+the async Postgres pool (`bioparser.db.engine`, asyncpg), a Redis-backed `DramatiqJobSubmitter`, and a
+`FileSystemArtifactStorage`. For `POST /extract` it creates a `ProcessPoolExecutor` and an
+`asyncio.Semaphore`, both sized `config.extract_concurrency`. On shutdown, the pool stops
+taking work (a running child is not waited for), and network clients and the Postgres
+pool are closed. Migrations stay on the sync psycopg driver.
 
 - `POST /api/extractions` — runs `_validated_upload()` (the [`uploads.py`](#uploadspy) helpers,
   in order: `validate_content_length`, `require_file`, `validate_content_type`,
-  `read_upload`, `validate_pdf_content`), then calls `jobs.create_job()` and returns
-  `202`. `_validated_upload()` also computes a sha256 checksum of the body, but
-  `POST /api/extractions` discards both the checksum and the bytes — nothing is persisted.
+  `read_upload`, `validate_pdf_content`), persists the content-addressed PDF, then
+  inserts the document row and the job in one Postgres transaction. A checksum that
+  already has a document keeps that row. The 202 body is `AcceptedJobResponse`
+  (`job_id` and `status`). `POST /api/documents/{checksum}/jobs` returns the same
+  body. The enqueue of a `ParseJobMessage` is outside that transaction. A failed
+  enqueue marks that job `failed` in a later transaction.
   Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it is still
   being received. A missing or understated `Content-Length` is still capped while
   reading the file in chunks.
-- `GET /api/jobs/{job_id}` — calls `jobs.get_job(job_id)`, returns it or raises a 404
-  `HTTPException`.
-- `POST /extract` — runs the same `_validated_upload()` as `POST /api/extractions`, then, inside
-  an `_extract_slot()` (the concurrency semaphore), calls
-  [`pipeline.run_pipeline()`](#pipelinepy) and returns its result as-is. A
-  `PipelineError` is re-raised as a `502 HTTPException`. Not wired to the job store.
+- `GET /api/jobs/{job_id}` — reads the typed state and the document display name
+  from Postgres and maps them to the public status response. No artifact is read.
+- `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`
+  when it has no such ref, then return the stored bytes via async storage (disk I/O runs
+  on a thread inside the storage implementation).
+- `POST /extract` — runs the same `_validated_upload()` as `POST /api/extractions`, takes a
+  slot (`_start_pipeline()`), and runs [`run_pipeline()`](#bioparserpipeline) in the process
+  pool. A `PipelineError` becomes a `502 HTTPException`. If a child died (for example out
+  of memory), the broken pool is replaced and the request gets `502`. Not wired to the job store.
 - `GET /health` — returns `HealthResponse(status="ok")` directly, no dependencies.
-- `GET /ready` — optional dependency checks controlled by environment variables.
+- `GET /ready` — checks Redis, Postgres, and the artifact directory.
 
 Errors use `fastapi.HTTPException` directly — raised from the `uploads.py` helpers for
 upload validation, inline in `job_status` for the 404, inline in `extract` for the 502,
-and inline in `_extract_slot` for the 503. A `413` handler maps oversize errors to
+and inline in `_start_pipeline` for the 503. A `413` handler maps oversize errors to
 Starlette's plain-text `Content Too Large` body.
 
 ### `uploads.py`
@@ -333,43 +603,42 @@ object as its `detail` on failure, and returns normally on success.
 Pydantic models shared by the routes above, used both for response validation and
 for the OpenAPI docs' `responses=` examples:
 
-- `JobStatusResponse` — `{job_id: str, status: Literal["queued"]}`, returned by
-  `POST /api/extractions` and `GET /api/jobs/{job_id}`.
+- `JobStatusResponse` — discriminated union for queued, running, successful, and
+  failed job states, returned by `GET /api/jobs/{job_id}`.
+- `AcceptedJobResponse` — `{job_id, status: "queued"}`, returned by
+  `POST /api/extractions` and `POST /api/documents/{checksum}/jobs`.
 - `HealthResponse` — `{status: Literal["ok"]}`, returned by `GET /health`.
 
 ### `errors.py`
 
 Error types and the named `ErrorDetail` instances used across `uploads.py` and `app.py`.
 
-- `ErrorCode` — the fixed set of error codes from the `POST /api/extractions` table above,
-  plus `job_not_found`.
-- `ErrorDetail` — `{code: ErrorCode, message: str}`, the shape every `uploads.py`
-  helper and the 404 handler raise as `HTTPException.detail`.
+- `ErrorCode` — the fixed set of validation, job-state, storage, database, and queue
+  error codes returned by the API.
+- `ErrorDetail` — `{code: ErrorCode, message: str}`, the shape used as
+  `HTTPException.detail` for typed API failures.
 - `ErrorResponse` — `{detail: ErrorDetail}`, used only in `responses=` schemas for
   OpenAPI documentation; it is never constructed at runtime.
-- `MISSING_FILE`, `EMPTY_FILE`, `INVALID_PDF`, `INVALID_CONTENT_LENGTH`,
-  `UNSUPPORTED_CONTENT_TYPE`, `JOB_NOT_FOUND` — one named `ErrorDetail` per cause,
-  the single source of truth for each error's `code`/`message` pair.
+- Named `ErrorDetail` constants provide one source of truth for each
+  validation, job-state, storage, database, and queue error's code and message.
 - `http_error(status_code, detail)` — builds the `HTTPException` raised at each
   failure site from one of the constants above.
 - `error_response(*details)` — builds the `responses=` OpenAPI entry (schema +
   named examples) for a route decorator from the same constants.
 
-### `pipeline.py`
+### `bioparser.pipeline`
 
-`run_pipeline()`, the function `POST /extract` calls: MinerU parse →
-`artifact_from_middle_json` mapping → vLLM extraction, all in one async call.
+`run_pipeline(pdf, options)`, which `POST /extract` runs in a child process: the parse
+worker's parser (`get_parser`), then the extractor worker's extractor (`get_extractor`),
+in one blocking call. `PipelineOptions` holds what a job takes from its record and its
+workers' settings: parser and extractor names, the parser time limit, the MinerU URL and
+tier, and the extraction budgets.
 
-- Raises `PipelineError` — wrapping the underlying `MinerUError`, the mapper's
-  `ValueError`, `VLLMTruncatedError`, `ExtractionFailedError`, or `VLLMError` — on
-  any stage failure; `app.py` turns that into the endpoint's `502`.
-- On success, returns a plain `dict` with `checksum`, `pages`, `blocks_sent`,
-  `prompt_characters`, `truncated`, `ungrounded_observations`,
-  `unit_mismatched_observations`, and `observations` (each observation's
-  `.payload()`).
-- The only module in `api/` that reaches into `bioparser.parser` and
-  `bioparser.extract`; the MinerU/vLLM clients themselves live in
-  `bioparser.services` and are only constructed in `app.py`'s lifespan.
+- Raises `PipelineError` with a safe message when a step fails; `app.py` turns that into
+  the endpoint's `502`.
+- On success, returns the `ExtractionArtifact` that the extractor worker would store, after
+  the worker's check (`checked_artifact`).
+- Builds its own `VLLMService` for each run, because each run has its own event loop.
 
 ### `config.py`
 
@@ -380,25 +649,76 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `max_upload_bytes` | `DEFAULT_MAX_UPLOAD_BYTES` (20 MiB) | upload ceiling used by `uploads.py` and the body-limit middleware |
-| `mineru_base_url` | `http://mineru:8000` | base URL for `MinerUClient` |
-| `mineru_timeout_seconds` | `600.0` | MinerU request timeout |
-| `mineru_connect_timeout_seconds` | `5.0` | MinerU connect timeout |
-| `extract_concurrency` | `2` | size of the `POST /extract` semaphore |
+| `mineru_base_url` | `http://mineru:8000` | MinerU base URL for `POST /extract` when the job parser is `mineru` |
+| `mineru_timeout_seconds` | `600.0` | how long the API waits for MinerU to parse one PDF, time queued behind other parses included (its `wait_timeout`, at most 3600); the task is cancelled then |
+| `mineru_tier` | `basic` | MinerU parse tier (`basic`, `standard`, `advanced`); the GPU stack sets `standard`, see [parser.md](parser.md) |
+| `extract_concurrency` | `2` | number of `POST /extract` processes, and of slots for them |
 | `extract_queue_timeout_seconds` | `5.0` | how long `POST /extract` waits for a semaphore slot before returning `503` |
+| `dependency_check_timeout_seconds` | `1.0` | timeout for each readiness dependency check |
+| `artifact_storage_path` | required | filesystem artifact root |
 | `extraction_char_budget` | `8000` | character (not token) budget passed to vLLM extraction |
 | `extraction_max_tokens` | `1024` | max generation tokens passed to vLLM extraction |
+| `redis_url` | required | Redis URL for the parse queue |
+| `redis_timeout_seconds` | `5.0` | Redis connect and operation timeout |
+| `database_url` | required | `postgresql` URL (`PostgresDsn`) for job state; `/ready` TCP-connects to it |
+| `parse_queue_name` | `parse` | Redis/Dramatiq queue name shared with the parser worker |
+| `api_key` | `None` | Shared API key (`BIOPARSER_API_KEY`). Required when `auth_disabled` is false. Redacted in logs and errors (`SecretStr`). |
+| `auth_disabled` | `False` | Disables authentication checks for local development (`BIOPARSER_AUTH_DISABLED`). Emits a warning at startup if true. |
+| `log_level` | `INFO` | level of the `bioparser` loggers (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`; case-insensitive); see [Logging](#logging) |
 
 `DEFAULT_MAX_UPLOAD_BYTES` is also exported as a module-level constant.
 
-### `jobs.py`
+### Logging
 
-A plain Python dict mapping `job_id -> JobRecord` (a `@dataclass` with `job_id` and
-`status`), plus two small functions:
+`bioparser/logging_config.py` configures the whole process's log output.
+`setup_logging()` puts one handler on the root logger that writes each record to
+stderr as one line of JSON:
 
-- `create_job() -> JobRecord` — generates a `job_id` via `uuid4()`, stores it as
-  `queued`, returns the record.
-- `get_job(job_id: str) -> JobRecord | None` — looks up the record, or `None` if
-  missing.
+```json
+{"timestamp": "2026-09-22T09:05:56.721+00:00", "level": "INFO", "logger": "bioparser.services.mineru.client", "msg": "mineru-api request completed", "status_code": 200, "bytes_read": 183422, "latency_ms": 4123.4, "checksum": "9f86d081884c7d65..."}
+```
+
+- Fields: `timestamp` (UTC), `level`, `logger`, `msg`, then any fields passed with
+  `extra=`, then `exc_type`/`exc_info` when an exception is logged. An `extra`
+  field never replaces one of the fixed keys; a `bytes` value is rendered as its
+  size (`"<21 bytes>"`), never its contents.
+- `BIOPARSER_LOG_LEVEL` sets the level of the `bioparser` loggers only.
+  Third-party loggers (httpx2, httpcore2, openai) stay at `WARNING` or stricter,
+  because httpx2 logs full URLs at `INFO`.
+- uvicorn's loggers keep the level from its `--log-level` and go through the same
+  handler, on stderr rather than stdout, from uvicorn's first line: `app.py` sets up
+  logging at import too. Only the supervisor process of `--reload` or `--workers`,
+  which never imports the app, keeps uvicorn's format. Access lines carry
+  `client_addr`, `method`, `path` (without the query string, where clients put
+  tokens), `http_version` and `status_code` instead of `msg`. `--no-access-log` is
+  respected.
+- `log_context(**fields)` adds fields to every record logged inside it, from any
+  logger. `run_pipeline()` uses it for `checksum` (the upload's sha256), so the
+  MinerU, vLLM and stage records of one run share it. Access lines do not carry it.
+
+What is logged:
+
+| Logger | Message | Level | Fields |
+|---|---|---|---|
+| `bioparser.api.app` | `vllm model discovered` / `vllm model discovery failed` | INFO / WARNING | `vllm_base_url` (credentials, query and fragment removed), then `model`, or `error` and `cause` |
+| `bioparser.pipeline` | `pipeline stage completed` / `pipeline stage failed` | INFO / ERROR | `stage` (`parse`, `extract`), `outcome` (`ok` or `error`), `duration_ms`, then results (`pages`; `observations`), or `error`, `cause` and the traceback |
+| `bioparser.services.mineru.client` | `mineru-api request completed` / `mineru-api request failed` | INFO / WARNING | `status_code`, `bytes_read`, `latency_ms`, then `error` on failure |
+| `bioparser.services.vllm.vllm` | `vllm completion finished` / `vllm request failed` | INFO if `finish_reason` is `stop`, else WARNING | `model`, `latency_ms`, `finish_reason`, `prompt_tokens`, `completion_tokens`, or `latency_ms` and `error` |
+
+Never logged: PDF bytes, prompt text, generated text, quotations, the vLLM API
+key, or credentials in configured URLs. Exceptions are named by type (`error`,
+`cause`). A logged traceback keeps every frame and exception type, but only
+exceptions defined in `bioparser` keep their message; any other message becomes
+`[message redacted]`, because it can quote its input (a vLLM 400 echoing the
+prompt) or a credential (a gateway quoting the rejected API key). So never put
+input data in a `bioparser` exception message. The pydantic models, including
+`ApiSettings`, also set `hide_input_in_errors=True`.
+
+Reading the logs locally:
+
+```
+docker compose logs --no-log-prefix bioparser | jq -R 'fromjson? // .'
+```
 
 ---
 
@@ -436,7 +756,9 @@ curl -s -F file=@sample.pdf localhost:8080/api/extractions
 # -> 202  {"job_id":"...","status":"queued"}
 
 curl -s localhost:8080/api/jobs/<job_id>
-# -> 200  {"job_id":"...","status":"queued"}
+# -> 200  {"job_id":"...","status":"queued","created_at":"...","display_name":"sample.pdf",
+#           "parser":"default",
+#           "extractor":"default","document_checksum":"...","has_parse_result":false}
 ```
 
 Each validation path responds with `{"detail": {"code": ..., "message": ...}}`:
