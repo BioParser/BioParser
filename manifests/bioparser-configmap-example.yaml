@@ -32,4 +32,4 @@ data:
   POSTGRES_DB: "bioparser"
 
   # Resource limits
-  REDIS_MAXMEMORY: "512mb"
+  REDIS_MAX_MEMORY: "512mb"
