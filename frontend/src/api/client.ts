@@ -6,7 +6,7 @@ type Schemas = components["schemas"];
 // The header the API reads the key from (API_KEY_HEADER in src/bioparser/api/auth.py).
 const API_KEY_HEADER = "X-API-Key";
 export type ErrorCode = Schemas["ErrorDetail"]["code"];
-export type QueuedJobResponse = Schemas["QueuedJobResponse"];
+export type AcceptedJobResponse = Schemas["AcceptedJobResponse"];
 // JobStatusResponse is a union in Python, not a model, so it has no entry in the schemas.
 export type JobStatusResponse =
   paths["/api/jobs/{job_id}"]["get"]["responses"][200]["content"]["application/json"];
@@ -15,6 +15,59 @@ export type CreateJobRequest = Schemas["CreateJobRequest"];
 export type UploadLimitsResponse = Schemas["UploadLimitsResponse"];
 export type ParserArtifact = Schemas["ParserArtifact"];
 export type ExtractionArtifact = Schemas["ExtractionArtifact"];
+export type JobList = paths["/api/jobs"]["get"]["responses"][200]["content"]["application/json"];
+export type JobStatus = JobList[number]["status"];
+
+export function listJobs(status: string, parser: string, signal?: AbortSignal): Promise<JobList> {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (parser) params.set("parser", parser);
+  const query = params.toString();
+  return apiFetch(`/api/jobs${query ? `?${query}` : ""}`, { signal });
+}
+
+export type Readiness = { unavailable: string[] };
+
+// /ready is public. Its 503 response is data, not a generic request error.
+export async function getReadiness(signal?: AbortSignal): Promise<Readiness> {
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
+  const timeout = setTimeout(
+    () => controller.abort(new DOMException("Readiness request timed out", "TimeoutError")),
+    10000,
+  );
+  try {
+    const response = await fetch("/ready", { signal: controller.signal });
+    const body: unknown = await response.json();
+    if (
+      response.ok &&
+      typeof body === "object" &&
+      body !== null &&
+      "status" in body &&
+      body.status === "ready"
+    ) {
+      return { unavailable: [] };
+    }
+    if (response.status === 503 && typeof body === "object" && body !== null && "detail" in body) {
+      const detail = body.detail;
+      if (
+        typeof detail === "object" &&
+        detail !== null &&
+        "unavailable" in detail &&
+        Array.isArray(detail.unavailable) &&
+        detail.unavailable.every((check) => typeof check === "string")
+      ) {
+        return { unavailable: detail.unavailable };
+      }
+    }
+    throw new Error("Readiness could not be read");
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
+  }
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -103,7 +156,7 @@ export function startDocumentJob(
   checksum: string,
   request: CreateJobRequest,
   signal?: AbortSignal,
-): Promise<QueuedJobResponse> {
+): Promise<AcceptedJobResponse> {
   return apiFetch(`/api/documents/${encodeURIComponent(checksum)}/jobs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
