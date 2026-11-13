@@ -52,6 +52,7 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --no-audit --no-fund
 
 COPY frontend/ ./
+ARG VITE_GRAFANA_URL
 RUN npm run build
 
 #-------------------------------------------

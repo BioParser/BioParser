@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { clearApiKey, getApiKey, getRemovedReason, setApiKey } from "./apiKey";
-import { ApiError, apiFetch, getJob, startDocumentJob, uploadDocument } from "./client";
+import {
+  ApiError,
+  apiFetch,
+  getJob,
+  getReadiness,
+  startDocumentJob,
+  uploadDocument,
+} from "./client";
 
 function stubFetch(response: Response): Mock<typeof fetch> {
   const fetchMock = vi.fn<typeof fetch>(async () => response);
@@ -21,10 +28,93 @@ function unauthorized(): Response {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   clearApiKey("forgotten");
   sessionStorage.clear();
   localStorage.clear();
+});
+
+describe("getReadiness", () => {
+  function pendingFetch() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(
+        (_url, options) =>
+          new Promise((_resolve, reject) => {
+            const signal = options?.signal;
+            if (signal?.aborted) reject(signal.reason);
+            else signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+          }),
+      ),
+    );
+  }
+
+  it("works without AbortSignal.any or AbortSignal.timeout", async () => {
+    // Keep AbortController available, but expose neither static signal helper.
+    vi.stubGlobal("AbortSignal", {});
+    stubFetch(Response.json({ status: "ready" }));
+    await expect(getReadiness(new AbortController().signal)).resolves.toEqual({ unavailable: [] });
+  });
+
+  it("aborts a pending request after ten seconds", async () => {
+    vi.useFakeTimers();
+    pendingFetch();
+    const result = expect(getReadiness()).rejects.toMatchObject({ name: "TimeoutError" });
+    const signal = vi.mocked(fetch).mock.calls[0]?.[1]?.signal;
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await result;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("cleans up the timer and listener after a network failure", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+    const error = new TypeError("Failed to fetch");
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(error));
+    await expect(getReadiness(controller.signal)).rejects.toBe(error);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
+  it.each([false, true])("forwards caller cancellation, already aborted: %s", async (already) => {
+    vi.useFakeTimers();
+    pendingFetch();
+    const controller = new AbortController();
+    if (already) controller.abort();
+    const result = expect(getReadiness(controller.signal)).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    if (!already) controller.abort();
+    await result;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([200, 503, 502])(
+    "cleans up the timer and listener after a %s response",
+    async (status) => {
+      vi.useFakeTimers();
+      const controller = new AbortController();
+      const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+      stubFetch(
+        Response.json(
+          status === 200 ? { status: "ready" } : { detail: { unavailable: ["redis"] } },
+          { status },
+        ),
+      );
+      if (status === 502) await expect(getReadiness(controller.signal)).rejects.toThrow();
+      else
+        await expect(getReadiness(controller.signal)).resolves.toEqual({
+          unavailable: status === 200 ? [] : ["redis"],
+        });
+      expect(vi.getTimerCount()).toBe(0);
+      expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
+    },
+  );
 });
 
 describe("apiFetch", () => {
