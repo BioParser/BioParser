@@ -26,7 +26,9 @@ data:
   BIOPARSER_AUTH_DISABLED: "false"
 
   # Database and Redis connections
+  # redis://:${REDIS_PASSWORD}@redis:6379/0
   BIOPARSER_REDIS_URL:
+  # postgresql://bioparser_app:${POSTGRES_APP_PASSWORD}@postgres:5432/bioparser
   BIOPARSER_DATABASE_URL:
   POSTGRES_USER: "bioparser"
   POSTGRES_DB: "bioparser"
