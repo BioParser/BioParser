@@ -1,0 +1,90 @@
+import logging
+from pathlib import Path
+
+from pydantic import AnyHttpUrl, AnyUrl, Field, PostgresDsn, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from bioparser.logging_config import parse_level
+from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
+
+# MinerU on CPU can take much longer than the queue's 10 minute default. A shorter limit
+# ends the parse as a timeout.
+DEFAULT_PARSE_TIME_LIMIT_SECONDS = 30 * 60
+# mineru-api waits at most an hour for one synchronous parse.
+MAX_PARSE_TIME_LIMIT_SECONDS = 60 * 60
+DEFAULT_PARSE_MAX_RETRIES = 3
+# Head start the MinerU client limit has over the queue limit, so the HTTP call
+# ends and is reported before the queue cancels the handler. Also covers fetching
+# the PDF and storing the artifact. Capped at half the limit for small limits.
+PARSE_TIME_LIMIT_MARGIN_S = 30.0
+# Probe port for GET /health.
+DEFAULT_LIVENESS_PORT = 8081
+
+
+class WorkerSettings(BaseSettings):
+    """Environment configuration for the parser worker.
+
+    One job runs at a time on the queue's consumer event loop. The handler uses async
+    I/O for Postgres and storage; blocking file and hash work runs on the loop's
+    single executor thread.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="BIOPARSER_",
+        extra="ignore",
+        hide_input_in_errors=True,
+    )
+
+    # Using the numeric level. BIOPARSER_LOG_LEVEL takes a name in any case or a number:
+    # see logging_config.parse_level().
+    log_level: int = logging.INFO
+
+    redis_url: AnyUrl
+    # The URL can hold the password. repr=False keeps it out of repr(settings).
+    database_url: PostgresDsn = Field(repr=False)
+    artifact_storage_path: Path
+    parse_queue_name: str = Field(min_length=1)
+    redis_timeout_seconds: float = Field(default=5.0, gt=0)
+    parse_time_limit_seconds: float = Field(
+        default=DEFAULT_PARSE_TIME_LIMIT_SECONDS, gt=0, le=MAX_PARSE_TIME_LIMIT_SECONDS
+    )
+    parse_max_retries: int = Field(default=DEFAULT_PARSE_MAX_RETRIES, ge=0)
+    liveness_port: int = Field(default=DEFAULT_LIVENESS_PORT, ge=1, le=65535)
+    mineru_base_url: AnyHttpUrl = AnyHttpUrl("http://mineru:8000")
+    mineru_tier: MinerUTier = DEFAULT_TIER
+    extract_queue_name: str = Field(min_length=1)
+
+    @property
+    def parse_max_claims(self) -> int:
+        """Parse-stage starts allowed, one more than the queue retry count.
+
+        The extra start lets a full set of ordinary retries finish. Starts where
+        the worker was killed share the same budget.
+        """
+        return self.parse_max_retries + 1
+
+    @property
+    def parser_timeout_seconds(self) -> float:
+        """Limit for a MinerU parse, slightly below the queue's time limit."""
+        limit_s = self.parse_time_limit_seconds
+        return limit_s - min(PARSE_TIME_LIMIT_MARGIN_S, limit_s / 2)
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def parse_log_level(cls, value: object) -> int:
+        return parse_level(value)
+
+    @field_validator("redis_url", mode="before")
+    @classmethod
+    def empty_redis_url_is_rejected(cls, value: object) -> object:
+        if value == "":
+            raise ValueError("BIOPARSER_REDIS_URL is set but empty")
+        return value
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def empty_database_url_is_rejected(cls, value: object) -> object:
+        if value == "":
+            raise ValueError("BIOPARSER_DATABASE_URL is set but empty")
+        return value

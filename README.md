@@ -1,5 +1,7 @@
 # BioParser
 
+**Pitch:** https://bioparser.github.io/BioParser/
+
 [![CI](https://github.com/BioParser/BioParser/actions/workflows/ci.yml/badge.svg)](https://github.com/BioParser/BioParser/actions/workflows/ci.yml)
 
 BioParser extracts mammal trait data (for example body length and weight) from born-digital scientific PDFs. Everything runs locally: a PDF parser (pdfplumber or MinerU) splits the article into traceable blocks, and a local LLM served by vLLM extracts observations with evidence.
@@ -8,7 +10,9 @@ BioParser extracts mammal trait data (for example body length and weight) from b
 
 ## Quick start (Docker Compose)
 
-Runs the full stack: API, MinerU, vLLM, and Redis.
+**NOTE:** Make sure to have at least 50GB of available storage space before running BioParser.
+
+Runs the full stack: API, the parser worker, the extractor worker, MinerU, vLLM, Redis, and central logs (Loki, Alloy, Grafana).
 
 Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and needs the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). A CPU stack is also available.
 
@@ -18,10 +22,14 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
    cp .env.example .env
 ```
 
+   Set `GRAFANA_ADMIN_PASSWORD` in `.env`; Compose does not start without it.
+   Set `BIOPARSER_API_KEY` in `.env`; the API does not start without it. Make a key with
+   `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`.
+
    This selects the GPU stack. For CPU, change the `COMPOSE_FILE` line in `.env` to:
 
 ```sh
-   COMPOSE_FILE=docker-compose.yml:docker-compose.cpu.yml
+   COMPOSE_FILE=docker-compose.yml:docker-compose.cpu.yml:docker-compose.logging.yml
 ```
 
 2. Build and start:
@@ -30,7 +38,7 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
    docker compose up --build
 ```
 
-   The first run is slow: MinerU models download during the image build, and vLLM downloads the model set in `VLLM_MODEL` (default `Qwen/Qwen3-0.6B`). The API starts only after `vllm`, `mineru`, and `redis` pass their health checks.
+   The first run is slow: the MinerU service downloads its models during its image build, and vLLM downloads the model set in `VLLM_MODEL` (default `Qwen/Qwen3-0.6B`). The extractor image does not download a model; it calls the vLLM service. The API starts only after `vllm`, `mineru`, and `redis` pass their health checks and `migrate` has created the `bioparser_app` login and the `jobs` table. `migrate` waits for `postgres`. The parser worker starts after `mineru` and Redis do. The extractor worker starts after `vllm` and Redis do. Set `POSTGRES_PASSWORD` and `POSTGRES_APP_PASSWORD` in `.env` before the first start. They must differ. The API and both workers use `POSTGRES_APP_PASSWORD` as `bioparser_app`. `migrate` uses `POSTGRES_PASSWORD` as the `bioparser` superuser and sets `POSTGRES_APP_PASSWORD` on the role. An existing `postgres-data` volume picks up `bioparser_app` on the next start. Removing that volume recreates the cluster.
 
 3. Check the API:
 
@@ -42,7 +50,8 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
 4. Run the pipeline on a sample paper (synchronous; can take minutes on CPU):
 
 ```sh
-   curl -F file=@tests/parser/fixtures/plos-biology-3000248.pdf localhost:8080/extract
+   curl -H "X-API-Key: <BIOPARSER_API_KEY from .env>" \
+     -F file=@tests/parser/fixtures/plos-biology-3000248.pdf localhost:8080/extract
 ```
 
 Stop with `Ctrl+C` or `docker compose down`.
@@ -50,10 +59,16 @@ Stop with `Ctrl+C` or `docker compose down`.
 | Service | Address on the host |
 |---|---|
 | API | `http://localhost:8080` (Swagger UI: `/docs`) |
+| Web UI | `http://localhost:8080/ui/` |
 | vLLM (OpenAI-compatible) | `http://localhost:8000/v1` |
-| MinerU, Redis | not published (internal network only) |
+| Grafana (logs of all services) | `http://localhost:3000` (user `admin`) |
+| MinerU, Redis, Postgres, Loki, Alloy, docker-api | not published (internal network only) |
 
-Published ports bind to `127.0.0.1` only. Ports, environment variables, and `test_prompt`: [docs/docker-compose.md](docs/docker-compose.md).
+Published ports bind to `127.0.0.1` only. Ports, environment variables, log queries, and `test_prompt`: [docs/docker-compose.md](docs/docker-compose.md).
+
+## Running on an OKD-cluster (kubernetes)
+
+The manifest files can be found [here](manifests/). For more info on running BioParser on an OKD-cluster see [here](manifests/README.md).
 
 ## Running on an OKD-cluster (kubernetes)
 
@@ -75,7 +90,40 @@ uv run bioparser
 
 Serves on `http://127.0.0.1:8080`. Job submission and polling work on their own; `POST /extract` also needs reachable MinerU and vLLM services.
 
-> The host API reads `.env` if it exists. `.env.example` sets `BIOPARSER_REDIS_URL=redis://redis:6379/0`, which only resolves inside Compose, so `/ready` returns `503`. Empty that line for host-only runs.
+> The host API reads `.env` if it exists. `BIOPARSER_REDIS_URL` and `BIOPARSER_DATABASE_URL` are required, and an empty value is rejected. `.env.example` sets Redis to `redis://redis:6379/0`, which only resolves inside Compose. A host run needs both URLs pointed at services the host can reach. Compose sets the API's database URL to the `bioparser_app` login. A host run of the API or a worker should use that login and `POSTGRES_APP_PASSWORD`. `bioparser-migrate` connects as `bioparser`, upgrades, and then sets `POSTGRES_APP_PASSWORD` on `bioparser_app`.
+> The API does not start without `BIOPARSER_API_KEY`. For local development only, set `BIOPARSER_AUTH_DISABLED=true` instead.
+
+### Run the UI
+
+Prerequisites: [Node.js](https://nodejs.org/), the version in `.nvmrc`. With [fnm](https://github.com/Schniz/fnm) or nvm, run `fnm use` (or `nvm use`) to switch to it.
+
+```sh
+cd frontend
+npm ci
+npm run dev
+```
+
+Open `http://localhost:5173/ui/`. The page reloads when you save a file. The dev server forwards `/api` and `/ready` to the API on `127.0.0.1:8080`, so run `uv run bioparser` in a second terminal.
+
+> The UI asks for the API key (`BIOPARSER_API_KEY`) when it first opens and sends it with every request. "Remember on this device" keeps the key after the tab is closed; the **API key** page forgets it. With `BIOPARSER_AUTH_DISABLED=true` the API accepts any key, so run it with a real key to check the key screen.
+
+The dashboard lists jobs in pages of ten, with status and parser filters in the URL. It refreshes unfinished jobs every five seconds and pauses polling in hidden tabs. The services panel checks `/ready` on the same interval.
+
+To show a Grafana link, set `VITE_GRAFANA_URL` in `frontend/.env.local` before building (see `frontend/.env.example`). For the API image, pass `--build-arg VITE_GRAFANA_URL=http://localhost:3000` to `docker build`. This is a build-time setting; without it, the link is hidden.
+
+After a change to the API, regenerate the UI's API types and commit both files. CI fails while they are out of date.
+
+```sh
+cd frontend
+npm run gen:api
+```
+
+The API image builds the UI, and the API serves it at `/ui`. To serve a local build without Compose:
+
+```sh
+(cd frontend && npm run build)
+BIOPARSER_UI_DIST_PATH=frontend/dist uv run bioparser
+```
 
 ### Parse a PDF
 
@@ -83,26 +131,7 @@ Serves on `http://127.0.0.1:8080`. Job submission and polling work on their own;
 uv run pdf-parse tests/parser/fixtures/plos-biology-3000248.pdf -o artifact.json
 ```
 
-Omit `-o` to print the artifact JSON to stdout.
-
-### View parser boxes on a PDF
-
-```sh
-uv run pdf-view tests/parser/fixtures/plos-biology-1002000.pdf
-```
-
-Then open `http://127.0.0.1:8765/` (loopback only; change with `--port`). Run `uv run pdf-view` with no file to upload a PDF in the browser.
-
-### Optional: MinerU backend
-
-Both scripts accept `--backend mineru`. It needs the MinerU CLI as a separate uv tool (not part of `uv sync`):
-
-```sh
-uv tool install --python 3.13 'mineru[pipeline]==3.4.5' --with six
-uv run pdf-parse tests/parser/fixtures/plos-biology-3000248.pdf --backend mineru -o artifact.json
-```
-
-Version pin, RAM needs, and uninstalling: [docs/parser.md](docs/parser.md).
+Omit `-o` to print the artifact JSON to stdout. This uses the default backend. For the PDF viewer (`pdf-view`), the MinerU backend, or building the worker image, see [docs/parser.md](docs/parser.md).
 
 ### Send a prompt to vLLM
 
@@ -122,10 +151,22 @@ Same commands as CI:
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy .
-uv run pytest -m "not integration"
+uv run pytest -m "not integration and not image"
+uv run pytest -m image
 ```
 
 Auto-fix: `uv run ruff check --fix` and `uv run ruff format`.
+
+For the UI, in `frontend/` (the same checks as CI's Frontend job):
+
+```sh
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+```
+
+Auto-fix lint and formatting: `npx biome check --write .`
 
 Integration tests need Redis at `BIOPARSER_TEST_REDIS_URL` (default `redis://localhost:6379/15`); without it they are skipped:
 
@@ -145,7 +186,7 @@ Run them on all files: `uv run pre-commit run --all-files`.
 
 - [Architecture](docs/architecture.md): target design, components, data contracts
 - [API](docs/api.md): HTTP contract, current scope, module layout
-- [Docker Compose](docs/docker-compose.md): services, environment variables, `test_prompt`
+- [Docker Compose](docs/docker-compose.md): services, environment variables, logs, `test_prompt`
 - [Local PDF parser](docs/parser.md): parser backends and the dev viewer
 - [Collaboration practices](docs/collaboration.md): branching, PRs, reviews
 - [Definition of Done](docs/dod.md)

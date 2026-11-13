@@ -22,13 +22,19 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
+          env:
+            - name: BIOPARSER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bioparser-secret
+                  key: BIOPARSER_API_KEY
           envFrom:
             - configMapRef:
                 name: bioparser-config
             - secretRef:
                 name: bioparser-secret
           volumeMounts:
-            - mountPath: /app/data/artifacts
+            - mountPath: /data
               name: artifact-storage
           resources:
             limits:

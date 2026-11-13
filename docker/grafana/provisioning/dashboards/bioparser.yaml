@@ -1,0 +1,14 @@
+# Grafana loads every .json dashboard in this folder at startup and checks for
+# changes every 30 s. Change the JSON here: edits made in the Grafana UI cannot
+# be saved
+apiVersion: 1
+
+providers:
+  - name: bioparser
+    folder: BioParser
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards

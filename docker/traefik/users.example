@@ -1,0 +1,11 @@
+# Basic Auth users for Traefik: one "<name>:<bcrypt hash>" line per user.
+# This example has no users. The repository never holds a real users file.
+#
+# 1. Make the real file. Git ignores docker/traefik/users.
+#      htpasswd -nbB <name> '<password>' > docker/traefik/users
+#    Without htpasswd on the host:
+#      docker run --rm httpd:2.4-alpine htpasswd -nbB <name> '<password>' > docker/traefik/users
+# 2. Let Traefik (uid 65534) read it:
+#      chmod 644 docker/traefik/users
+# 3. In .env, set:
+#      TRAEFIK_USERS_FILE=./docker/traefik/users

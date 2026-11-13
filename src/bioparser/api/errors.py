@@ -10,7 +10,17 @@ ErrorCode = Literal[
     "unsupported_content_type",
     "invalid_content_length",
     "job_not_found",
+    "invalid_job_id",
     "content_too_large",
+    "storage_unavailable",
+    "artifact_invalid",
+    "job_state_unreadable",
+    "database_unavailable",
+    "queue_unavailable",
+    "artifact_not_available",
+    "unauthorized",
+    "document_not_found",
+    "invalid_checksum",
 ]
 
 
@@ -35,15 +45,56 @@ UNSUPPORTED_CONTENT_TYPE = ErrorDetail(
     message="Only application/pdf uploads are accepted",
 )
 JOB_NOT_FOUND = ErrorDetail(code="job_not_found", message="Job not found")
-
+INVALID_JOB_ID = ErrorDetail(code="invalid_job_id", message="job_id must be a version 4 UUID")
 CONTENT_TOO_LARGE = ErrorDetail(
     code="content_too_large",
     message="Content Too Large",
 )
+UNAUTHORIZED = ErrorDetail(
+    code="unauthorized",
+    message="Invalid or missing API key",
+)
+DOCUMENT_NOT_FOUND = ErrorDetail(
+    code="document_not_found",
+    message="Document not found",
+)
+INVALID_CHECKSUM = ErrorDetail(
+    code="invalid_checksum",
+    message="checksum must be a 64-character lowercase SHA-256 hex digest",
+)
+
+STORAGE_UNAVAILABLE = ErrorDetail(
+    code="storage_unavailable",
+    message="Artifact storage is unavailable",
+)
+ARTIFACT_INVALID = ErrorDetail(
+    code="artifact_invalid",
+    message="Stored artifact is missing or invalid",
+)
+JOB_STATE_UNREADABLE = ErrorDetail(
+    code="job_state_unreadable",
+    message="Stored job state is unreadable",
+)
+
+DATABASE_UNAVAILABLE = ErrorDetail(
+    code="database_unavailable",
+    message="Database is unavailable",
+)
+
+QUEUE_UNAVAILABLE = ErrorDetail(code="queue_unavailable", message="Parse queue is unavailable")
+
+ARTIFACT_NOT_AVAILABLE = ErrorDetail(
+    code="artifact_not_available",
+    message="The job has no such artifact. GET /api/jobs/{job_id} shows the job status",
+)
 
 
-def http_error(status_code: int, detail: ErrorDetail) -> HTTPException:
-    return HTTPException(status_code=status_code, detail=detail.model_dump())
+def http_error(
+    status_code: int,
+    detail: ErrorDetail,
+    headers: dict[str, str] | None = None,
+) -> HTTPException:
+    return HTTPException(status_code=status_code, detail=detail.model_dump(), headers=headers)
 
 
 def error_response(*details: ErrorDetail) -> dict[str, object]:

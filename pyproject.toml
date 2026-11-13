@@ -13,28 +13,28 @@ authors = [
 ]
 requires-python = "==3.13.*"
 dependencies = [
-  "dramatiq[redis]>=2.2.1",
-  "fastapi>=0.141.1",
+  "asyncpg>=0.31",
   "httpx2>=2.12",
-  "openai>=3.8.0",
-  "pdfplumber>=0.11.10",
   "pydantic>=2.13.5",
   "pydantic-settings>=2.15.0",
-  "python-multipart>=0.0.32",
-  "redis>=8.1.0",
-  "uvicorn[standard]>=0.52.4",
+  "sqlalchemy[asyncio]>=2.1.6",
 ]
 
 [project.scripts]
 bioparser = "bioparser.api:main"
+bioparser-migrate = "bioparser.db.migrate:main"
 pdf-parse = "bioparser.scripts.pdfparse:main"
 pdf-view = "bioparser.scripts.pdfviewer.cli:main"
 test_prompt = "bioparser.scripts.test_prompt:main"
 
 [build-system]
-requires = ["uv_build>=0.12.3,<0.13.0"]
+requires = ["uv_build>=0.12.3,<0.14.0"]
 build-backend = "uv_build"
 
+# Image installs. `uv sync` installs every group (tool.uv.default-groups).
+# An image passes `--no-default-groups --group <name>`. `--only-group` is wrong
+# here: it omits the project and the shared dependencies above.
+# queue, pdf, and llm keep one pin for a library two images import.
 [dependency-groups]
 dev = [
   "mypy>=2.3.1",
@@ -42,6 +42,35 @@ dev = [
   "pytest>=9.1.1",
   "ruff>=0.16.5",
 ]
+queue = [
+  "dramatiq[redis]>=2.2.1",
+  "redis>=8.1.0",
+]
+pdf = ["pdfplumber>=0.11.10"]
+llm = ["openai>=3.8.0"]
+api = [
+  "fastapi>=0.141.1",
+  "python-multipart>=0.0.32",
+  "uvicorn[standard]>=0.52.4",
+  { include-group = "queue" },
+  { include-group = "pdf" },
+  { include-group = "llm" },
+]
+parser-worker = [
+  { include-group = "queue" },
+  { include-group = "pdf" },
+]
+extractor-worker = [
+  { include-group = "queue" },
+  { include-group = "llm" },
+]
+migrate = [
+  "alembic>=1.20.1",
+  "psycopg[binary]>=3.3.6",
+]
+
+[tool.uv]
+default-groups = "all"
 
 [tool.ruff]
 target-version = "py313"
@@ -49,8 +78,8 @@ src = ["src"]
 line-length = 100
 
 [tool.ruff.lint]
-# ANN requires annotations on functions.
-extend-select = ["ANN"]
+# ANN requires annotations. B is bugbear. UP rewrites syntax for Python 3.13.
+extend-select = ["ANN", "B", "UP"]
 ignore = [
   "ANN002", # *args
   "ANN003", # **kwargs
@@ -63,9 +92,12 @@ ignore = [
 [tool.mypy]
 python_version = "3.13"
 strict = true
-files = ["src"]
+files = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
-markers = ["integration: requires a real Redis instance (see BIOPARSER_TEST_REDIS_URL)"]
+markers = [
+  "integration: requires a real Redis or Postgres instance (see BIOPARSER_TEST_REDIS_URL and BIOPARSER_TEST_DATABASE_URL)",
+  "image: installs one image dependency group into a temporary environment",
+]

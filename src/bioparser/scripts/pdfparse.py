@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 
@@ -8,9 +9,11 @@ from bioparser.parser import (
     DEFAULT_PARSER_NAME,
     PARSER_BACKENDS,
     ParserBackendUnavailableError,
+    ParserProcessError,
+    ParserTimeoutError,
     UnsupportedDocumentError,
-    get_parser,
 )
+from bioparser.parser.backend.factory import get_parser
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,9 +40,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        artifact = get_parser(args.backend).parse(args.input)
-    except FileNotFoundError as exc:
-        print(str(exc), file=sys.stderr)
+        artifact = asyncio.run(get_parser(args.backend).parse(args.input))
+    except FileNotFoundError:
+        print(f"PDF not found: {args.input.expanduser().resolve()}", file=sys.stderr)
         return 1
     except UnsupportedDocumentError as exc:
         print(str(exc), file=sys.stderr)
@@ -47,6 +50,10 @@ def main(argv: list[str] | None = None) -> int:
     except ParserBackendUnavailableError as exc:
         print(str(exc), file=sys.stderr)
         return 3
+    except (ParserProcessError, ParserTimeoutError) as exc:
+        # The mineru backend is a service: BIOPARSER_MINERU_BASE_URL says where.
+        print(f"{exc} (backend {args.backend!r})", file=sys.stderr)
+        return 4
 
     payload = artifact.model_dump_json(indent=2) + "\n"
     if args.output is None:

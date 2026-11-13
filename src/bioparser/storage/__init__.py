@@ -3,7 +3,7 @@ from __future__ import annotations
 from bioparser.storage.errors import (
     ArtifactAlreadyExistsError,
     ArtifactNotFoundError,
-    InvalidArtifactIdError,
+    InvalidArtifactPathError,
     StorageConfigurationError,
     StorageError,
     StoragePathTraversalError,
@@ -26,7 +26,7 @@ __all__ = [
     "ArtifactStorage",
     "CreationInfo",
     "FileSystemArtifactStorage",
-    "InvalidArtifactIdError",
+    "InvalidArtifactPathError",
     "StorageConfigurationError",
     "StorageError",
     "StoragePathTraversalError",
