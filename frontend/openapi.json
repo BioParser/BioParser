@@ -2350,7 +2350,14 @@
       "Observation": {
         "properties": {
           "trait": {
-            "$ref": "#/components/schemas/Interpretation"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Interpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "verbatimTraitName": {
             "anyOf": [
@@ -3485,7 +3492,6 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "trait",
           "verbatimScientificName",
           "verbatimTraitValue",
           "verbatimTraitUnit"

@@ -463,7 +463,7 @@ export interface components {
          *     Every other column a paper can state is optional. An extractor leaves it null.
          */
         Observation: {
-            trait: components["schemas"]["Interpretation"];
+            trait?: components["schemas"]["Interpretation"] | null;
             /** Verbatimtraitname */
             verbatimTraitName?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             scientificName?: components["schemas"]["Interpretation"] | null;
