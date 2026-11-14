@@ -13,12 +13,11 @@ import traceback
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
 
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from stubs import (
     LOCATABLE_OBSERVATION,
     LOCATABLE_TEXT,
@@ -400,10 +399,16 @@ def test_every_record_of_a_run_carries_the_checksum(
 
 
 class _CutOffVLLM(StubVLLMService):
-    async def generate_json(
-        self, prompt: str, *, schema: dict[str, Any], system_prompt: str, max_tokens: int
-    ) -> str:
-        return '{"observations": [{"quotation": "canary-quote'  # stopped mid-string
+    async def generate_model(
+        self,
+        prompt: str,
+        response_model: type[BaseModel],
+        *,
+        system_prompt: str,
+        max_tokens: int | None = None,
+    ) -> BaseModel:
+        payload = '{"observations": [{"quotation": "' + "canary-quote"
+        return response_model.model_validate_json(payload)
 
 
 def test_a_failure_traceback_quotes_no_model_output(

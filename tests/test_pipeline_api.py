@@ -2,7 +2,6 @@ import asyncio
 import contextlib
 import dataclasses
 import importlib
-import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +12,7 @@ import pytest
 from conftest import TEST_API_KEY
 from fastapi.testclient import TestClient
 from httpx2 import ASGITransport
+from pydantic import BaseModel
 from stubs import (
     LOCATABLE_OBSERVATION,
     LOCATABLE_TEXT,
@@ -150,9 +150,14 @@ def test_an_artifact_the_extractor_worker_refuses_is_not_returned(
 
 
 class FreeTextUnitVLLM(StubVLLMService):
-    async def generate_json(
-        self, prompt: str, *, schema: dict[str, Any], system_prompt: str, max_tokens: int
-    ) -> str:
+    async def generate_model(
+        self,
+        prompt: str,
+        response_model: type[BaseModel],
+        *,
+        system_prompt: str,
+        max_tokens: int | None = None,
+    ) -> BaseModel:
         observation = {
             "taxon": "Mus musculus",
             "trait": "body_mass",
@@ -161,13 +166,18 @@ class FreeTextUnitVLLM(StubVLLMService):
             "evidence_block_id": "x",
             "quotation": "12.5 g",
         }
-        return json.dumps({"observations": [observation]})
+        return response_model.model_validate({"observations": [observation]})
 
 
 class UnreachableVLLM(StubVLLMService):
-    async def generate_json(
-        self, prompt: str, *, schema: dict[str, Any], system_prompt: str, max_tokens: int
-    ) -> str:
+    async def generate_model(
+        self,
+        prompt: str,
+        response_model: type[BaseModel],
+        *,
+        system_prompt: str,
+        max_tokens: int | None = None,
+    ) -> BaseModel:
         raise VLLMError("vLLM request failed: APIConnectionError")  # a separate, slow container
 
 

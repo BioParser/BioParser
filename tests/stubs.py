@@ -16,6 +16,7 @@ from typing import Any, NamedTuple
 from urllib.parse import unquote
 
 import httpx2
+from pydantic import BaseModel
 
 from bioparser.db import documents as document_queries
 from bioparser.db import engine as database
@@ -345,25 +346,23 @@ class StubVLLMService:
     async def ping(self) -> bool:
         return self.up
 
-    async def generate_json(
+    async def generate_model(
         self,
         prompt: str,
+        response_model: type[BaseModel],
         *,
-        schema: dict[str, Any],
         system_prompt: str,
-        max_tokens: int,
-    ) -> str:
+        max_tokens: int | None = None,
+    ) -> BaseModel:
         self.prompts.append(prompt)
         self.system_prompts.append(system_prompt)
 
         if self.observations is not None:
-            return json.dumps({"observations": self.observations})
-
-        match = re.search(r"\[([^\]]+)\]", prompt)
-        ident = match.group(1) if match else "unknown"
-
-        return json.dumps(
-            {
+            payload = {"observations": self.observations}
+        else:
+            match = re.search(r"\[([^\]]+)\]", prompt)
+            ident = match.group(1) if match else "unknown"
+            payload = {
                 "observations": [
                     {
                         "taxon": "Mus musculus",  # kotihiiri
@@ -375,7 +374,7 @@ class StubVLLMService:
                     }
                 ]
             }
-        )
+        return response_model.model_validate(payload)
 
     async def aclose(self) -> None:
         return None

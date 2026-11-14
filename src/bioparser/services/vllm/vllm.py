@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from collections.abc import Awaitable
-from typing import Any
 
 from openai import (
     NOT_GIVEN,
@@ -11,8 +10,11 @@ from openai import (
     NotFoundError,
     NotGiven,
     UnprocessableEntityError,
+    omit,
 )
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
+from openai.types.shared_params.response_format_json_schema import ResponseFormatJSONSchema
+from pydantic import BaseModel
 
 from bioparser.logging_config import stopwatch
 
@@ -26,6 +28,14 @@ def _request_timeout(timeout: float | None) -> float | NotGiven:
     if timeout is None:
         return NOT_GIVEN
     return timeout
+
+
+def _messages(prompt: str, system_prompt: str | None) -> list[ChatCompletionMessageParam]:
+    messages: list[ChatCompletionMessageParam] = []
+    if system_prompt is not None:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    return messages
 
 
 class VLLMError(RuntimeError):
@@ -107,7 +117,7 @@ class VLLMService:
         finish_reason = response.choices[0].finish_reason if response.choices else None
         usage = response.usage
         LOGGER.log(
-            # "length" means max_tokens cut the answer off; generate_json raises on it
+            # "length" means max_tokens cut the answer off; generate_model raises on it
             logging.INFO if finish_reason == "stop" else logging.WARNING,
             "vllm completion finished",
             extra={
@@ -122,6 +132,30 @@ class VLLMService:
             raise VLLMError("vLLM returned no choices")
         return response
 
+    async def _chat(
+        self,
+        prompt: str,
+        *,
+        system_prompt: str | None,
+        temperature: float,
+        max_tokens: int | None,
+        enable_thinking: bool,
+        timeout: float | None,
+        response_format: ResponseFormatJSONSchema | None = None,
+    ) -> tuple[ChatCompletion, int]:
+        """One chat completion. The int is the token ceiling this call sent."""
+        token_ceiling = self._token_ceiling(max_tokens)
+        request = self.client.chat.completions.create(
+            model=await self.get_model(),
+            messages=_messages(prompt, system_prompt),
+            temperature=temperature,
+            max_tokens=token_ceiling,
+            extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
+            timeout=_request_timeout(timeout),
+            response_format=omit if response_format is None else response_format,
+        )
+        return await self._logged(request), token_ceiling
+
     async def generate(
         self,
         prompt: str,
@@ -132,72 +166,48 @@ class VLLMService:
         enable_thinking: bool = False,
         timeout: float | None = None,
     ) -> str:
-        token_ceiling = self._token_ceiling(max_tokens)
-        messages: list[ChatCompletionMessageParam] = []
-
-        if system_prompt is not None:
-            messages.append(
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                }
-            )
-
-        messages.append(
-            {
-                "role": "user",
-                "content": prompt,
-            }
+        response, _token_ceiling = await self._chat(
+            prompt,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            enable_thinking=enable_thinking,
+            timeout=timeout,
         )
-
-        response = await self._logged(
-            self.client.chat.completions.create(
-                model=await self.get_model(),
-                messages=messages,
-                temperature=temperature,
-                max_tokens=token_ceiling,
-                extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
-                timeout=_request_timeout(timeout),
-            )
-        )
-
         content = response.choices[0].message.content
-
         if content is None:
             raise RuntimeError("vLLM returned an empty response")
-
         return content
 
-    async def generate_json(
+    async def generate_model[ModelT: BaseModel](
         self,
         prompt: str,
+        response_model: type[ModelT],
         *,
-        schema: dict[str, Any],
-        system_prompt: str,
+        system_prompt: str | None = None,
+        temperature: float = 0.0,
         max_tokens: int | None = None,
         enable_thinking: bool = False,
         timeout: float | None = None,
-    ) -> str:
-        token_ceiling = self._token_ceiling(max_tokens)
+    ) -> ModelT:
+        """Ask for JSON matching [response_model] and return that model."""
         requested_model = await self.get_model()
+        schema: ResponseFormatJSONSchema = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": response_model.__name__,
+                "schema": response_model.model_json_schema(),
+            },
+        }
         try:
-            response = await self._logged(
-                self.client.chat.completions.create(
-                    model=requested_model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt},
-                    ],
-                    temperature=0.0,
-                    max_tokens=token_ceiling,
-                    response_format={
-                        "type": "json_schema",
-                        "json_schema": {"name": "extraction", "schema": schema},
-                    },
-                    # Qwen3 emits <think> blocks unless this is off.
-                    extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
-                    timeout=_request_timeout(timeout),
-                )
+            response, token_ceiling = await self._chat(
+                prompt,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                enable_thinking=enable_thinking,
+                timeout=timeout,
+                response_format=schema,
             )
         except NotFoundError as exc:
             async with self._lock:
@@ -213,7 +223,6 @@ class VLLMService:
             raise VLLMError(f"vLLM request failed: {type(exc).__name__}") from exc
 
         choice = response.choices[0]
-
         if choice.finish_reason == "length":
             raise VLLMTruncatedError(
                 f"generation hit max_tokens={token_ceiling} "
@@ -224,4 +233,4 @@ class VLLMService:
         content = choice.message.content
         if content is None:
             raise VLLMError("vLLM returned an empty response")
-        return content
+        return response_model.model_validate_json(content)

@@ -84,14 +84,13 @@ async def extract_observations(
     if not prompt.text:
         return ModelResult(output=Extraction(), prompt=prompt)
 
-    raw = await vllm.generate_json(
-        prompt.text,
-        schema=Extraction.model_json_schema(),
-        system_prompt=SYSTEM_PROMPT,
-        max_tokens=max_tokens,
-    )
     try:
-        parsed = Extraction.model_validate_json(raw)
+        parsed = await vllm.generate_model(
+            prompt.text,
+            Extraction,
+            system_prompt=SYSTEM_PROMPT,
+            max_tokens=max_tokens,
+        )
     except ValidationError as exc:
         codes = sorted({error["type"] for error in exc.errors(include_input=False)})
         raise ExtractionFailedError(

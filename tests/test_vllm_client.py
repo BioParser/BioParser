@@ -7,6 +7,7 @@ from collections.abc import Callable
 
 import httpx2
 import pytest
+from pydantic import BaseModel
 from stubs import Handler
 
 from bioparser import logging_config
@@ -74,9 +75,13 @@ def make_service(
     return make
 
 
-async def _generate_json(service: VLLMService) -> str:
+class _Reply(BaseModel):
+    observations: list[object] = []
+
+
+async def _generate_model(service: VLLMService) -> _Reply:
     try:
-        return await service.generate_json(PROMPT, schema={}, system_prompt="sys", max_tokens=64)
+        return await service.generate_model(PROMPT, _Reply, system_prompt="sys", max_tokens=64)
     finally:
         await service.aclose()
 
@@ -96,7 +101,7 @@ async def test_a_completion_logs_latency_finish_reason_and_usage(
 ) -> None:
     service = make_service(lambda _request: httpx2.Response(200, json=_completion()))
 
-    await _generate_json(service)
+    await _generate_model(service)
 
     assert _completions(vllm_log) == [
         (
@@ -119,7 +124,7 @@ async def test_a_completion_cut_off_by_max_tokens_logs_a_warning(
     service = make_service(lambda _request: httpx2.Response(200, json=_completion("length")))
 
     with pytest.raises(VLLMTruncatedError):
-        await _generate_json(service)
+        await _generate_model(service)
 
     [(level, fields)] = _completions(vllm_log)
     assert (level, fields["finish_reason"]) == (logging.WARNING, "length")
@@ -133,7 +138,7 @@ async def test_a_completion_without_choices_is_a_vllm_error(
     service = make_service(lambda _request: httpx2.Response(200, json=body))
 
     with pytest.raises(VLLMError, match="no choices"):  # the pipeline maps it to 502
-        await _generate_json(service)
+        await _generate_model(service)
 
     [(level, fields)] = _completions(vllm_log)
     assert (level, fields["finish_reason"]) == (logging.WARNING, None)
@@ -149,7 +154,7 @@ async def test_a_rejected_request_is_not_an_outage(
     service = make_service(lambda _request: httpx2.Response(status, json={"error": "rejected"}))
 
     with pytest.raises(VLLMRequestRejectedError):
-        await _generate_json(service)
+        await _generate_model(service)
 
     [(level, fields)] = _completions(vllm_log)
     assert level == logging.WARNING
@@ -206,7 +211,7 @@ async def test_a_failed_request_logs_a_warning_with_the_error_type(
     service = make_service(handler)
 
     with pytest.raises(VLLMError):
-        await _generate_json(service)
+        await _generate_model(service)
 
     assert _completions(vllm_log) == [(logging.WARNING, {"latency_ms": 250.0, "error": error})]
 
@@ -234,7 +239,7 @@ async def test_neither_the_configured_api_key_nor_the_prompt_is_logged(
     vllm_transport(handler)
     service = VLLMService()  # no preset model: discovery sends the key too
     try:
-        await _generate_json(service)
+        await _generate_model(service)
     except VLLMError:
         pass  # the 401 case: only the logs matter here
 
@@ -300,25 +305,25 @@ async def test_a_404_clears_the_cached_model_and_rediscovers_it(
 
     try:
         with pytest.raises(VLLMError):
-            await service.generate_json(
+            await service.generate_model(
                 PROMPT,
-                schema={},
+                _Reply,
                 system_prompt="sys",
                 max_tokens=64,
             )
 
         assert service.model is None
 
-        result = await service.generate_json(
+        result = await service.generate_model(
             PROMPT,
-            schema={},
+            _Reply,
             system_prompt="sys",
             max_tokens=64,
         )
     finally:
         await service.aclose()
 
-    assert result == '{"observations": []}'
+    assert result == _Reply()
     assert model_discoveries == 2
     assert requested_models == ["old-model", "new-model"]
 
@@ -370,8 +375,8 @@ async def test_a_call_sends_its_own_thinking_flag(
     vllm_transport(_chat(bodies))
     service = VLLMService()
     try:
-        await service.generate_json(
-            PROMPT, schema={}, system_prompt="sys", max_tokens=64, enable_thinking=enabled
+        await service.generate_model(
+            PROMPT, _Reply, system_prompt="sys", max_tokens=64, enable_thinking=enabled
         )
         await service.generate("hello", max_tokens=64, enable_thinking=enabled)
     finally:
@@ -382,7 +387,7 @@ async def test_a_call_sends_its_own_thinking_flag(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("method", ["generate", "generate_json"])
+@pytest.mark.parametrize("method", ["generate", "generate_model"])
 async def test_an_omitted_token_ceiling_uses_the_client_setting(
     monkeypatch: pytest.MonkeyPatch,
     vllm_transport: Callable[[Handler], None],
@@ -396,7 +401,7 @@ async def test_an_omitted_token_ceiling_uses_the_client_setting(
         if method == "generate":
             await service.generate("hello")
         else:
-            await service.generate_json(PROMPT, schema={}, system_prompt="sys")
+            await service.generate_model(PROMPT, _Reply, system_prompt="sys")
     finally:
         await service.aclose()
 
@@ -414,7 +419,7 @@ async def test_a_caller_may_ask_for_fewer_tokens_than_the_ceiling(
     service = VLLMService()
     try:
         await service.generate("hello", max_tokens=64)
-        await service.generate_json(PROMPT, schema={}, system_prompt="sys", max_tokens=32)
+        await service.generate_model(PROMPT, _Reply, system_prompt="sys", max_tokens=32)
         await service.generate("hello", max_tokens=999)
     finally:
         await service.aclose()

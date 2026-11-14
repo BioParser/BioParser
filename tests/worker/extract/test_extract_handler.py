@@ -2,10 +2,11 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Iterator
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
 import pytest
+from pydantic import BaseModel
 from stubs import (
     MemoryStorage,
     StubJobs,
@@ -184,14 +185,14 @@ class _FailingVLLM(StubVLLMService):
         super().__init__()
         self._error = error
 
-    async def generate_json(
+    async def generate_model(
         self,
         prompt: str,
+        response_model: type[BaseModel],
         *,
-        schema: dict[str, Any],
         system_prompt: str,
-        max_tokens: int,
-    ) -> str:
+        max_tokens: int | None = None,
+    ) -> BaseModel:
         raise self._error
 
 
