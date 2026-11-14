@@ -37,7 +37,6 @@ class VLLMService:
         )
 
         self.model: str | None = None
-        self._configured_model = settings.vllm_model or None
         self._enable_thinking = settings.vllm_enable_thinking
         self._max_tokens = settings.max_tokens
         self._lock = asyncio.Lock()
@@ -57,23 +56,19 @@ class VLLMService:
         return True
 
     async def get_model(self) -> str:
-        """The id chat requests send. A configured id, or the first one the server lists."""
+        """Discover the served model id. The first id the server lists, cached for this process."""
         if self.model is not None:
             return self.model
 
         async with self._lock:
-            if self.model is not None:
-                return self.model
-            if self._configured_model is not None:
-                self.model = self._configured_model
-                return self.model
-            try:
-                response = await self.client.models.list(timeout=self._discovery_timeout)
-            except APIError as exc:
-                raise VLLMError(f"vLLM unreachable: {type(exc).__name__}") from exc
-            if not response.data:
-                raise VLLMError("vLLM exposes no models")
-            self.model = response.data[0].id
+            if self.model is None:
+                try:
+                    response = await self.client.models.list(timeout=self._discovery_timeout)
+                except APIError as exc:
+                    raise VLLMError(f"vLLM unreachable: {type(exc).__name__}") from exc
+                if not response.data:
+                    raise VLLMError("vLLM exposes no models")
+                self.model = response.data[0].id
             return self.model
 
     async def aclose(self) -> None:
@@ -183,10 +178,9 @@ class VLLMService:
                 )
             )
         except NotFoundError as exc:
-            if self._configured_model is None:
-                async with self._lock:
-                    if self.model == requested_model:
-                        self.model = None
+            async with self._lock:
+                if self.model == requested_model:
+                    self.model = None
             raise VLLMError(f"vLLM request failed: {type(exc).__name__}") from exc
         except (BadRequestError, UnprocessableEntityError) as exc:
             raise VLLMRequestRejectedError(

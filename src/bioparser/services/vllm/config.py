@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,8 +14,6 @@ class Settings(BaseSettings):
 
     vllm_base_url: str = "http://localhost:8000/v1"
     vllm_api_key: SecretStr = SecretStr("EMPTY")
-    # Empty discovers the first id the server lists. Not VLLM_MODEL, which is what the server loads.
-    vllm_model: str = ""
     # Qwen thinking on generate_json. Off matches today's extraction calls.
     vllm_enable_thinking: bool = False
 
@@ -34,13 +32,6 @@ class Settings(BaseSettings):
     # So if this is raised, --max-model-len should be changed in docker-compose.
     # Callers that pass their own max_tokens, including the API and the extractor, override this.
     max_tokens: int = Field(default=1024, ge=1)
-
-    @field_validator("vllm_model", mode="before")
-    @classmethod
-    def blank_model_is_unset(cls, value: object) -> object:
-        if isinstance(value, str):
-            return value.strip()
-        return value
 
 
 @lru_cache(maxsize=1)
