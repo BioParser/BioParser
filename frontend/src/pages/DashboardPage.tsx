@@ -19,7 +19,7 @@ const LABELS: Record<JobStatus, string> = {
 function Progress({ job }: { job: JobList[number] }) {
   const parseCompleted =
     ["parsed", "extracting"].includes(job.status) ||
-    (job.status === "failed" && (job.has_parse_result || job.error.code === "extraction_failed"));
+    (job.status === "failed" && job.error.code === "extraction_failed");
   const completed = job.status === "done" ? 3 : parseCompleted ? 1 : 0;
   const active = job.status === "parsing" ? 0 : job.status === "extracting" ? 1 : -1;
   return (

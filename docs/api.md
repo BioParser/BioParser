@@ -6,18 +6,19 @@ module layout that implements it. The system context for these endpoints is in
 
 Status: **draft** — document and job management routes (`POST /api/documents`,
 `GET /api/documents`, `GET /api/documents/{checksum}`, `GET /api/documents/{checksum}/file`,
-`POST /api/documents/{checksum}/jobs`, `GET /api/documents/{checksum}/jobs`, `GET /api/jobs`,
-`POST /api/extractions`, `GET /api/jobs/{job_id}`, `GET /api/jobs/{job_id}/artifacts/parser`,
+`POST /api/extractions`, `POST /api/documents/{checksum}/jobs`, `GET /api/documents/{checksum}/jobs`, `GET /api/jobs`,
+`GET /api/jobs/{job_id}`, `GET /api/jobs/{job_id}/artifacts/parser`,
 `GET /api/jobs/{job_id}/artifacts/extraction`, `POST /extract`, `GET /health`, `GET /ready`)
 are implemented, along with upload validation and a configurable size limit. `POST /extract` is a dev route: it runs a queued job's pipeline
-(the same parser and extractor) in one request, without the queue and the workers.
+(the same parser and extractor) in one request, without the queue and the workers. A done job's
+status response is the ETS rows for that paper.
 
 **Current API scope:**
 
 - **Job state is stored in Postgres.** The API and both workers share the typed,
   versioned `JobState` model through `bioparser.db.jobs`. The `Job` class there
   is the table, and Alembic diffs it when generating a revision. Redis is the queue.
-- **The parser worker is a separate process.** `POST /api/extractions` enqueues a
+- **The parser worker is a separate process.** `POST /api/documents/{checksum}/jobs` enqueues a
   `ParseJobMessage`; `python -m bioparser.worker.parse` consumes it and advances
   the job from `queued` through `parsing` to `parsed` or `failed`.
 - **Uploaded PDFs are persisted in artifact storage.** Their paths are derived
@@ -26,6 +27,9 @@ are implemented, along with upload validation and a configurable size limit. `PO
 - **`POST /extract` is a temporary dev route** that skips the queue and the workers.
   It runs the same parser and extractor as a queued job, in a child process, and returns
   the extraction artifact inline. Nothing is stored.
+- **A done job returns ETS rows.** `GET /api/jobs/{job_id}` loads the stored extraction
+  artifact and maps it. Other statuses do not. `?detail=full` adds the stored record,
+  and for a done job also each row's observation index.
 - **Readiness (`/ready`) is supported.** The readiness endpoint performs
   lightweight dependency checks only when corresponding environment variables are
   set (see *Readiness behaviour* below).
@@ -38,10 +42,12 @@ are implemented, along with upload validation and a configurable size limit. `PO
 ## Scope
 
 The API container accepts a born-digital PDF, creates a job, and lets the client poll
-for its status. `POST /api/extractions` stores the PDF, creates the Postgres job row, and
-enqueues parsing without parsing in the request process. The separate parser worker
-advances the stored state. `POST /extract` runs the same upload through the same
-pipeline in one request, for manual testing outside the job lifecycle.
+for its status. `POST /api/documents` stores the PDF. `POST /api/documents/{checksum}/jobs`
+creates the Postgres job row and enqueues parsing without parsing in the request process.
+`POST /api/extractions` does both.
+The separate parser worker advances the stored state. `POST /extract` runs the same upload through the same
+pipeline in one request, for manual testing outside the job lifecycle. A done job's poll returns the ETS
+rows for that paper.
 
 ---
 
@@ -148,7 +154,7 @@ Upload and store a PDF document without queueing a job.
 
 - **Request:** `multipart/form-data` with a single `file` part.
 - **Accepted content type:** `application/pdf` only.
-- **Body checks:** Same validation pipeline as `POST /api/extractions` (Content-Length, present part, media type, size limit, non-empty, `%PDF-` magic).
+- **Body checks:** Content-Length, a present `file` part, media type `application/pdf`, the size limit, a non-empty body, and the `%PDF-` magic. The first check to fail is the one reported.
 - Content-addressed by SHA-256. If the document already exists, the existing metadata is returned with `200 OK`. If newly stored, returns `201 Created`.
 
 **Success — `201 Created` (new) or `200 OK` (already stored):**
@@ -162,7 +168,7 @@ Upload and store a PDF document without queueing a job.
 }
 ```
 
-**Failure:** Same 400, 413, 415, and 503 statuses and errors as `POST /api/extractions`.
+**Failure:** `400` (`missing_file`, `empty_file`, `invalid_pdf`, `invalid_content_length`), `413` (`content_too_large`), `415` (`unsupported_content_type`), `503` (`storage_unavailable`, `database_unavailable`).
 
 
 ### `GET /api/documents`
@@ -258,7 +264,7 @@ If omitted or `{}` is sent, parameters default to `parser: "default"` and `extra
 
 ### `GET /api/documents/{checksum}/jobs`
 
-List all jobs associated with a specific document.
+List all jobs associated with a specific document. The default row is `job_id` and `status`. `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and `document_checksum`. A done job does not include its ETS rows here. Those are only on `GET /api/jobs/{job_id}`.
 
 **Success — `200 OK`:**
 
@@ -266,13 +272,7 @@ List all jobs associated with a specific document.
 [
   {
     "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
-    "status": "queued",
-    "created_at": "2026-10-30T10:15:30Z",
-    "display_name": "paper.pdf",
-    "parser": "default",
-    "extractor": "default",
-    "document_checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
-    "has_parse_result": false
+    "status": "queued"
   }
 ]
 ```
@@ -282,7 +282,7 @@ List all jobs associated with a specific document.
 
 ### `GET /api/jobs`
 
-List jobs across all documents, with optional query filters.
+List jobs across all documents, with optional query filters. The default row is `job_id` and `status`. `?detail=full` adds the stored record and still omits ETS rows.
 
 - **Query parameters:**
   - `status` (optional): Filter by job status (`queued`, `parsing`, `parsed`, `extracting`, `done`, `failed`).
@@ -294,13 +294,7 @@ List jobs across all documents, with optional query filters.
 [
   {
     "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
-    "status": "queued",
-    "created_at": "2026-10-30T10:15:30Z",
-    "display_name": "paper.pdf",
-    "parser": "default",
-    "extractor": "default",
-    "document_checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
-    "has_parse_result": false
+    "status": "queued"
   }
 ]
 ```
@@ -324,25 +318,18 @@ Poll a job.
 ```json
 {
   "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
-  "status": "queued",
-  "created_at": "2026-10-30T10:15:30Z",
-  "display_name": null,
-  "parser": "default",
-  "extractor": "default",
-  "document_checksum": "18c1d82f9a9c9be88b6ee58f7486e5672f73a4e885f163001c2a66a0f983bc1a",
-  "has_parse_result": false
+  "status": "queued"
 }
 ```
 
-- `status` is one of `"queued"`, `"parsing"`, `"parsed"`, `"extracting"`,
-  `"done"`, or `"failed"`. Failed responses include a safe error code.
-- `created_at`, `display_name`, `parser`, `extractor`, and `document_checksum`
-  are returned for every status. `display_name` is `null` when the job has no
-  corresponding document metadata.
-- `has_parse_result` is `true` once the parser artifact has been recorded. It may
-  remain `true` when extraction later fails.
-- The response holds no storage paths. When a job is `done`, #179 adds its ETS response
-  here. The UI reads the internal artifacts from the
+- `queued`, `parsing`, `parsed`, and `extracting` return `job_id` and `status`.
+- `failed` adds `error`, a safe error code.
+- `done` adds the ETS rows.
+- `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and
+  `document_checksum`. The status says whether a parser or extraction artifact exists.
+  A done job also adds `source_index` on each row. The index is the observation's
+  position in the extraction artifact. `references` on each row is the document checksum.
+- The response holds no storage paths. The UI reads the internal artifacts from the
   [job artifact routes](#get-apijobsjob_idartifactsparser-and-artifactsextraction).
 
 **Failure:**
@@ -351,10 +338,10 @@ Poll a job.
 |--------|------|
 | 404 | no job with that id |
 | 422 | `job_id` is not a version 4 UUID |
-| 500 | stored job state is unreadable |
-| 503 | the database is unavailable |
+| 500 | stored job state is unreadable, or a done job's extraction artifact is missing or invalid (`artifact_invalid`) |
+| 503 | the database is unavailable, or artifact storage is unavailable while reading a done job |
 
-The route reads only the job state. It never reads an artifact.
+`queued`, `parsing`, `parsed`, `extracting`, and `failed` do not read the extraction artifact. A `done` job does. The file read and the mapping run off the event loop.
 
 **Error body:**
 
@@ -522,29 +509,28 @@ not expose secrets in error messages.
 ```
 src/bioparser/api/
   __init__.py       # main() -> starts the app
-  app.py            # FastAPI app, lifespan startup, all seven routes
+  app.py            # FastAPI app, lifespan, and the route handlers
+  job_responses.py  # public job bodies: open, done, failed, and list
   auth.py           # API key authentication dependency (X-API-Key)
   config.py         # process configuration read from the environment
   errors.py         # named ErrorDetail constants, codes, and OpenAPI helpers
   middleware.py     # body size limit middleware
   schema.py         # pydantic response/error models used across routes
-  uploads.py        # upload-validation helpers shared by POST /api/extractions and POST /extract
+  uploads.py        # upload-validation helpers shared by the upload routes
 ```
 
 No `ports/` or `adapters/` folders exist inside `api/` itself. Routes live
-directly in `app.py`; upload validation is in `uploads.py`; response/error models
-are in `schema.py`. `POST /extract` calls `bioparser.pipeline`, which is outside this package
-so that a child process can import it without building the FastAPI app.
+directly in `app.py`. `job_responses.py` builds the open, done, failed, and list
+bodies. Upload validation is in `uploads.py`. Response and error models are in
+`schema.py`.
 
 ### `app.py`
 
-Holds the FastAPI app, its startup/shutdown lifecycle, and all seven route handlers.
+Holds the FastAPI app, its startup/shutdown lifecycle, and the route handlers.
 
 **Lifespan:** on startup, first calls `setup_logging(settings.log_level)` (see
-[Logging](#logging)), then builds a `VLLMService` (`bioparser.services.vllm`) from
-`config.get_api_settings()` and probes the vLLM model id once. The probe is best-effort: a failure logs one WARNING
-and startup continues. When configured, the lifecycle also opens
-the async Postgres pool (`bioparser.db.engine`, asyncpg), a Redis-backed `DramatiqJobSubmitter`, and a
+[Logging](#logging)). When configured, the lifecycle opens the async Postgres pool
+(`bioparser.db.engine`, asyncpg), a Redis-backed `DramatiqJobSubmitter`, and a
 `FileSystemArtifactStorage`. For `POST /extract` it creates a `ProcessPoolExecutor` and an
 `asyncio.Semaphore`, both sized `config.extract_concurrency`. On shutdown, the pool stops
 taking work (a running child is not waited for), and network clients and the Postgres
@@ -561,8 +547,9 @@ pool are closed. Migrations stay on the sync psycopg driver.
   Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it is still
   being received. A missing or understated `Content-Length` is still capped while
   reading the file in chunks.
-- `GET /api/jobs/{job_id}` — reads the typed state and the document display name
-  from Postgres and maps them to the public status response. No artifact is read.
+- `GET /api/jobs/{job_id}` — reads the typed state from Postgres. A done job then
+  reads its extraction artifact off the event loop and returns the ETS rows. Other
+  statuses do not read it.
 - `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`
   when it has no such ref, then return the stored bytes via async storage (disk I/O runs
   on a thread inside the storage implementation).
@@ -574,7 +561,7 @@ pool are closed. Migrations stay on the sync psycopg driver.
 - `GET /ready` — checks Redis, Postgres, and the artifact directory.
 
 Errors use `fastapi.HTTPException` directly — raised from the `uploads.py` helpers for
-upload validation, inline in `job_status` for the 404, inline in `extract` for the 502,
+upload validation, inline in `job_status` for a missing job or a bad artifact, inline in `extract` for the 502,
 and inline in `_start_pipeline` for the 503. A `413` handler maps oversize errors to
 Starlette's plain-text `Content Too Large` body.
 
@@ -603,10 +590,15 @@ object as its `detail` on failure, and returns normally on success.
 Pydantic models shared by the routes above, used both for response validation and
 for the OpenAPI docs' `responses=` examples:
 
-- `JobStatusResponse` — discriminated union for queued, running, successful, and
-  failed job states, returned by `GET /api/jobs/{job_id}`.
-- `AcceptedJobResponse` — `{job_id, status: "queued"}`, returned by
-  `POST /api/extractions` and `POST /api/documents/{checksum}/jobs`.
+- `JobStatusResponse` — the shapes for `GET /api/jobs/{job_id}`. `OpenJobResponse` is
+  `queued`, `parsing`, `parsed`, or `extracting`. `DoneJobResponse` is the ETS body.
+  `DoneJobFullResponse` is that body plus `source_index` on each row, for `?detail=full`.
+  `FailedJobResponse` carries `error`. `POST /api/extractions` and
+  `POST /api/documents/{checksum}/jobs` return `AcceptedJobResponse`, which is `job_id`
+  and `status`. Lists use `JobListResponse`: the default row is `job_id` and `status`,
+  and `detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and
+  `document_checksum`. A done job in a list has no ETS rows. The same `detail=full` on
+  one job adds that record, and for a done job also `source_index` on each row.
 - `HealthResponse` — `{status: Literal["ok"]}`, returned by `GET /health`.
 
 ### `errors.py`
@@ -724,14 +716,7 @@ docker compose logs --no-log-prefix bioparser | jq -R 'fromjson? // .'
 
 ## Out of scope for this draft
  
-No PDF persistence in the API routes yet (pending wiring to artifact storage). No
-Redis-backed queue worker for `POST /api/extractions`. No worker that advances a
-job past `queued`. No `/api/v1` prefix. No idempotency — `POST /api/extractions`
-computes a checksum but doesn't use it to detect duplicate uploads. No structured
-error envelope for `POST /extract`'s `502`/`503` (they use FastAPI's plain
-`{"detail": "<message>"}`, unlike `POST /api/extractions`'s `{"code", "message"}` object). No
-request-ID middleware or structured logging (see the `# TODO: logger` markers in
-`app.py` and `pipeline.py`). These are the gaps named in the scope note
+No `/api/v1` prefix. No request-ID middleware. These are the gaps named in the scope note
 above, deferred until a later revision of this document.
 
 ## Verification
@@ -756,28 +741,26 @@ curl -s -F file=@sample.pdf localhost:8080/api/extractions
 # -> 202  {"job_id":"...","status":"queued"}
 
 curl -s localhost:8080/api/jobs/<job_id>
-# -> 200  {"job_id":"...","status":"queued","created_at":"...","display_name":"sample.pdf",
-#           "parser":"default",
-#           "extractor":"default","document_checksum":"...","has_parse_result":false}
+# -> 200  {"job_id":"...","status":"queued"}
 ```
 
 Each validation path responds with `{"detail": {"code": ..., "message": ...}}`:
 
 ```
 # no file part
-curl -s -X POST localhost:8080/api/extractions
+curl -s -X POST localhost:8080/api/documents
 # -> 400  missing_file
 
 # content type is not application/pdf
-curl -s -F 'file=@sample.pdf;type=text/plain' localhost:8080/api/extractions
+curl -s -F 'file=@sample.pdf;type=text/plain' localhost:8080/api/documents
 # -> 415  unsupported_content_type
 
 # empty body
-: > empty.pdf && curl -s -F file=@empty.pdf localhost:8080/api/extractions
+: > empty.pdf && curl -s -F file=@empty.pdf localhost:8080/api/documents
 # -> 400  empty_file
 
 # bytes that are not a PDF (curl still sends type=application/pdf for a .pdf name)
-printf 'not a pdf\n' > notpdf.pdf && curl -s -F file=@notpdf.pdf localhost:8080/api/extractions
+printf 'not a pdf\n' > notpdf.pdf && curl -s -F file=@notpdf.pdf localhost:8080/api/documents
 # -> 400  invalid_pdf
 
 # unknown job id
@@ -792,11 +775,12 @@ so a 10-byte limit rejects even a tiny file:
 
 ```
 BIOPARSER_MAX_UPLOAD_BYTES=10 uv run bioparser
-curl -s -F file=@sample.pdf localhost:8080/api/extractions
+curl -s -F file=@sample.pdf localhost:8080/api/documents
 # -> 413  Content Too Large
 ```
 
 `POST /extract` is not part of the walkthrough above: it needs a reachable MinerU
 service (`config.mineru_base_url`) and vLLM service, and expects a real (non-trivial)
 PDF rather than the minimal `sample.pdf` fixture, since MinerU has to actually parse
-it.
+it. A done job's ETS body needs a stored extraction artifact. The minimal PDF above stays
+`queued` until a worker parses and extracts it.

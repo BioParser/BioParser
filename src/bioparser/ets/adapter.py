@@ -8,13 +8,14 @@ from bioparser.ets.notices import format_warning
 from bioparser.extract.models import ExtractionArtifact
 
 
-class MappedRow(BaseModel):
-    """One kept row and the observation it was built from."""
+class EtsSourceRow(EtsRow):
+    """An ETS row plus the observation it was built from.
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    ``source_index`` is not an ETS column. It is the position in the artifact's
+    observations, so a row can be matched back to the observation that produced it.
+    """
 
     source_index: int = Field(ge=0)
-    row: EtsRow
 
 
 class EtsResult(BaseModel):
@@ -22,27 +23,25 @@ class EtsResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    rows: list[MappedRow]
+    rows: list[EtsSourceRow]
 
 
 def to_ets(artifact: ExtractionArtifact, *, references: str) -> EtsResult:
     """Map one stored artifact to ETS v0.10 rows.
 
     ``source_index`` is the position in ``artifact.observations``. ``measurementID``
-    counts only the kept rows. The artifact is not modified.
+    counts the rows, starting at 1. The artifact is not modified.
     """
     if references == "":
         raise ValueError("references is empty")
-    rows: list[MappedRow] = []
+    rows: list[EtsSourceRow] = []
     for index, observation in enumerate(artifact.observations):
         rows.append(
-            MappedRow(
+            _row(
+                assess(observation),
+                references=references,
+                measurement_id=str(len(rows) + 1),
                 source_index=index,
-                row=_row(
-                    assess(observation),
-                    references=references,
-                    measurement_id=str(len(rows) + 1),
-                ),
             )
         )
     return EtsResult(rows=rows)
@@ -53,8 +52,9 @@ def _row(
     *,
     references: str,
     measurement_id: str,
-) -> EtsRow:
-    return EtsRow.model_validate(
+    source_index: int,
+) -> EtsSourceRow:
+    return EtsSourceRow.model_validate(
         {
             "verbatimTraitName": verdict.cited["verbatimTraitName"],
             "scientificName": verdict.scientific_name,
@@ -109,5 +109,6 @@ def _row(
             "measurementID": measurement_id,
             "warnings": " | ".join(format_warning(warning) for warning in verdict.warnings),
             "references": references,
+            "source_index": source_index,
         }
     )

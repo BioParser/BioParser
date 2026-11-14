@@ -75,7 +75,7 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     assert artifact.model_dump() == before
     assert len(result.rows) == 1
     assert result.rows[0].source_index == 0
-    row = result.rows[0].row
+    row = result.rows[0]
     dumped = row.model_dump()
     assert dumped["traitValue"] is None
     assert dumped["traitUnit"] is None
@@ -97,14 +97,14 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     assert "evidence" not in dumped
     assert "trait" not in dumped
     aliases = {field.alias or name for name, field in EtsRow.model_fields.items()}
-    assert set(dumped) == aliases
+    assert set(dumped) == aliases | {"source_index"}
 
 
 def test_a_stored_name_stays_in_the_artifact() -> None:
     """A taxonomy lookup publishes scientificName. The extractor's reading is not a column."""
     observation = _observation(scientificName=_read("Mus musculus", "M. musculus", start=0))
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.scientificName is None
     assert row.taxonID is None
@@ -118,7 +118,7 @@ def test_a_stored_trait_part_does_not_fill_the_standardized_columns() -> None:
         traitUnit=_read("kg", "12.5 kg", start=20),
     )
 
-    row = to_ets(_artifact(stored), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(stored), references=_DOCUMENT_ID).rows[0]
 
     assert row.traitValue is None
     assert row.traitUnit is None
@@ -135,7 +135,7 @@ def test_a_correction_supplies_the_column_and_the_citation_stays_stored() -> Non
     )
     before = observation.lifeStage
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.lifeStage == "juvenile"
     assert observation.lifeStage == before
@@ -150,7 +150,7 @@ def test_a_printed_value_is_kept_as_printed() -> None:
         verbatimTraitUnit=_cited("cm", start=25),
     )
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.traitValue is None
     assert row.traitUnit is None
@@ -165,7 +165,7 @@ def test_basis_and_aggregate_are_read_from_a_passage() -> None:
         aggregateMeasure=_read("TRUE", "mean of 12", start=60),
     )
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.basisOfRecord == "FossilSpecimen"
     assert row.aggregateMeasure is True
@@ -185,8 +185,8 @@ def test_sex_tries_the_reading_before_the_printed_word() -> None:
         )
     )
 
-    preferred_row = to_ets(_artifact(preferred), references=_DOCUMENT_ID).rows[0].row
-    fallback_row = to_ets(_artifact(fallback), references=_DOCUMENT_ID).rows[0].row
+    preferred_row = to_ets(_artifact(preferred), references=_DOCUMENT_ID).rows[0]
+    fallback_row = to_ets(_artifact(fallback), references=_DOCUMENT_ID).rows[0]
 
     assert preferred_row.sex == "male"
     assert preferred_row.warnings == ""
@@ -197,7 +197,7 @@ def test_sex_tries_the_reading_before_the_printed_word() -> None:
 def test_a_country_code_is_written_in_uppercase() -> None:
     observation = _observation(countryCode=_cited("de", start=100))
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.countryCode == "DE"
     assert "not_in_vocabulary:countryCode" not in row.warnings
@@ -206,7 +206,7 @@ def test_a_country_code_is_written_in_uppercase() -> None:
 def test_an_occurrence_id_can_be_read_from_a_wider_phrase() -> None:
     observation = _observation(occurrenceID=_read("145732", "FMNH 145732", start=70))
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.occurrenceID == "145732"
     assert row.taxonRank is None
@@ -219,7 +219,7 @@ def test_a_vocabulary_miss_leaves_the_column_empty() -> None:
         aggregateMeasure=_read("yes", "mean of 12", start=60),
     )
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.sex == "M"
     assert row.basisOfRecord is None
@@ -239,7 +239,7 @@ def test_a_paper_can_state_occurrence_place_and_time() -> None:
         month=_cited("13", start=130),
     )
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.occurrenceID == "FMNH 145732"
     assert row.year == 1963
@@ -308,7 +308,7 @@ def test_a_zero_padded_number_is_normalized() -> None:
         individualCount=_cited("03", start=30),
     )
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.traitValue is None
     assert row.verbatimTraitValue == "08.5"
@@ -336,15 +336,15 @@ def test_a_unit_that_does_not_match_the_trait_is_still_a_row() -> None:
     assert odd.model_dump() == before
     assert isinstance(verdict, Assessment)
     assert [row.source_index for row in result.rows] == [0, 1]
-    assert result.rows[0].row.verbatimTraitUnit == "mm"
-    assert result.rows[0].row.measurementID == "1"
-    assert result.rows[1].row.measurementID == "2"
+    assert result.rows[0].verbatimTraitUnit == "mm"
+    assert result.rows[0].measurementID == "1"
+    assert result.rows[1].measurementID == "2"
 
 
 def test_a_measurement_without_a_code_is_a_row() -> None:
     observation = _observation(traitCode=None)
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.verbatimTraitName == "body mass"
     assert row.verbatimTraitValue == "12.5"
@@ -361,7 +361,7 @@ def test_an_unknown_trait_is_still_a_row() -> None:
     result = to_ets(_artifact(observation), references=_DOCUMENT_ID)
 
     assert isinstance(verdict, Assessment)
-    assert result.rows[0].row.verbatimTraitName == "body mass"
+    assert result.rows[0].verbatimTraitName == "body mass"
 
 
 def test_a_citation_without_a_range_is_rejected() -> None:
@@ -397,7 +397,7 @@ def test_an_unparsed_unit_stays_printed() -> None:
     observation = _observation(verbatimTraitUnit=_cited("grams", start=25))
     before = observation.model_dump()
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert observation.model_dump() == before
     assert row.verbatimTraitUnit == "grams"
@@ -407,7 +407,7 @@ def test_an_unparsed_unit_stays_printed() -> None:
 def test_a_missing_unit_stays_empty() -> None:
     observation = _observation(verbatimTraitUnit=None)
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.verbatimTraitUnit is None
     assert row.warnings == ""
@@ -431,11 +431,9 @@ def test_a_negative_age_is_parsed_and_reversed_bounds_are_kept() -> None:
         isinstance(warning, NotNumeric) and warning.field == "age" for warning in verdict.warnings
     )
     assert result.rows[0].source_index == 0
-    assert result.rows[0].row.measurementValue_min == 4
-    assert result.rows[0].row.measurementValue_max == 2
-    assert (
-        "bounds_reversed:measurementValue_min,measurementValue_max" in result.rows[0].row.warnings
-    )
+    assert result.rows[0].measurementValue_min == 4
+    assert result.rows[0].measurementValue_max == 2
+    assert "bounds_reversed:measurementValue_min,measurementValue_max" in result.rows[0].warnings
     assert result.rows[1].source_index == 1
 
 
@@ -449,7 +447,7 @@ def test_a_printed_token_stays_when_it_fails_its_check() -> None:
         dispersion=_cited("-0.2", start=40),
     )
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.month == "February"
     assert row.eventDate == "08/03/1963"
@@ -471,11 +469,11 @@ def test_a_long_number_does_not_fail_the_other_rows() -> None:
 
     result = to_ets(_artifact(long_month, long_value, _observation()), references=_DOCUMENT_ID)
 
-    assert result.rows[0].row.month == "1" * 40
-    assert "not_numeric:month" in result.rows[0].row.warnings
+    assert result.rows[0].month == "1" * 40
+    assert "not_numeric:month" in result.rows[0].warnings
     assert result.rows[1].source_index == 1
-    assert result.rows[1].row.verbatimTraitValue == "8" * 40
-    assert result.rows[1].row.traitValue is None
+    assert result.rows[1].verbatimTraitValue == "8" * 40
+    assert result.rows[1].traitValue is None
     assert result.rows[2].source_index == 2
 
 
@@ -491,8 +489,8 @@ def test_an_impossible_day_stays_and_a_leap_day_is_kept() -> None:
         day=_cited("29", start=100),
     )
 
-    bad = to_ets(_artifact(impossible), references=_DOCUMENT_ID).rows[0].row
-    good = to_ets(_artifact(leap), references=_DOCUMENT_ID).rows[0].row
+    bad = to_ets(_artifact(impossible), references=_DOCUMENT_ID).rows[0]
+    good = to_ets(_artifact(leap), references=_DOCUMENT_ID).rows[0]
 
     assert (bad.year, bad.month, bad.day) == (2021, 2, 31)
     assert "not_a_date:year,month,day" in bad.warnings
@@ -508,7 +506,7 @@ def test_a_range_and_a_dispersion_stay_printed() -> None:
         measurementValueMax=_cited("14", start=50),
     )
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.traitValue is None
     assert row.dispersion == 0.2
@@ -521,7 +519,7 @@ def test_a_range_and_a_dispersion_stay_printed() -> None:
 def test_a_missing_method_stays_empty() -> None:
     observation = _observation(dispersion=_cited("0.2", start=70))
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.dispersion == 0.2
     assert row.statisticalMethod is None
@@ -531,7 +529,7 @@ def test_a_missing_method_stays_empty() -> None:
 def test_a_missing_count_and_dispersion_stay_empty() -> None:
     observation = _observation(individualCount=None)
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.individualCount is None
     assert row.dispersion is None
@@ -541,7 +539,7 @@ def test_a_missing_count_and_dispersion_stay_empty() -> None:
 def test_a_minimum_stays_printed() -> None:
     observation = _observation(measurementValueMin=_cited("1.5", start=40))
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.measurementValue_min == 1.5
     assert row.measurementValue_max is None
@@ -551,7 +549,7 @@ def test_a_minimum_stays_printed() -> None:
 def test_an_empty_maximum_stays_empty() -> None:
     observation = _observation(measurementValueMin=_cited("10", start=40))
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.measurementValue_min == 10
     assert row.measurementValue_max is None
