@@ -343,6 +343,105 @@ async def test_a_404_clears_the_cached_model_and_rediscovers_it(
     assert requested_models == ["old-model", "new-model"]
 
 
+def _model_list(card: dict[str, object]) -> dict[str, object]:
+    return {"object": "list", "data": [card]}
+
+
+@pytest.mark.anyio
+async def test_a_reported_context_window_is_the_servers_max_model_len(
+    vllm_transport: Callable[[Handler], None],
+) -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/models"):
+            return httpx2.Response(
+                200,
+                json=_model_list({"id": "served-model", "max_model_len": 4096}),
+            )
+        return httpx2.Response(200, json=_completion())
+
+    vllm_transport(handler)
+    service = VLLMService()
+    try:
+        assert await service.get_model() == "served-model"
+        assert await service.get_max_model_len() == 4096
+    finally:
+        await service.aclose()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "card",
+    [
+        {"id": "stub-model"},
+        {"id": "stub-model", "max_model_len": None},
+        {"id": "stub-model", "max_model_len": 0},
+        {"id": "stub-model", "max_model_len": True},
+    ],
+    ids=["omitted", "null", "zero", "bool"],
+)
+async def test_a_missing_context_window_does_not_block_chat(
+    vllm_transport: Callable[[Handler], None],
+    card: dict[str, object],
+) -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/models"):
+            return httpx2.Response(200, json=_model_list(card))
+        return httpx2.Response(200, json=_completion())
+
+    vllm_transport(handler)
+    service = VLLMService()
+    try:
+        assert await service.get_model() == "stub-model"
+        with pytest.raises(VLLMError, match="max_model_len"):
+            await service.get_max_model_len()
+        assert await service.generate("hello") == '{"observations": []}'
+    finally:
+        await service.aclose()
+
+
+@pytest.mark.anyio
+async def test_a_404_replaces_the_cached_context_window(
+    vllm_transport: Callable[[Handler], None],
+) -> None:
+    discoveries = 0
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal discoveries
+        if request.url.path.endswith("/models"):
+            discoveries += 1
+            model = "old-model" if discoveries == 1 else "new-model"
+            window = 4096 if discoveries == 1 else 8192
+            return httpx2.Response(
+                200,
+                json=_model_list({"id": model, "max_model_len": window}),
+            )
+        body = json.loads(request.content)
+        if body["model"] == "old-model":
+            return httpx2.Response(
+                404,
+                json={
+                    "error": {
+                        "message": "model not found",
+                        "type": "invalid_request_error",
+                        "code": "model_not_found",
+                    }
+                },
+            )
+        return httpx2.Response(200, json=_completion() | {"model": "new-model"})
+
+    vllm_transport(handler)
+    service = VLLMService()
+    try:
+        assert await service.get_max_model_len() == 4096
+        with pytest.raises(VLLMError):
+            await service.generate("hello")
+        assert service.model is None
+        assert await service.get_max_model_len() == 8192
+        assert service.model == "new-model"
+    finally:
+        await service.aclose()
+
+
 def test_the_client_has_no_concurrency_cap() -> None:
     assert "max_concurrency" not in vllm_config.Settings.model_fields
     assert "vllm_model" not in vllm_config.Settings.model_fields

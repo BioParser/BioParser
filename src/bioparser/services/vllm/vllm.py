@@ -51,6 +51,7 @@ class VLLMService:
         )
 
         self.model: str | None = None
+        self._max_model_len: int | None = None
         self._max_tokens = settings.vllm_max_tokens
         self._lock = asyncio.Lock()
         self._discovery_timeout = settings.vllm_model_discovery_timeout_seconds
@@ -84,8 +85,22 @@ class VLLMService:
                     raise VLLMError(f"vLLM unreachable: {type(exc).__name__}") from exc
                 if not response.data:
                     raise VLLMError("vLLM exposes no models")
-                self.model = response.data[0].id
+                card = response.data[0]
+                self.model = card.id
+                self._max_model_len = _reported_max_model_len(card)
             return self.model
+
+    async def get_max_model_len(self) -> int:
+        """The served model's context window. vLLM sends this as max_model_len."""
+        await self.get_model()
+        if self._max_model_len is None:
+            raise VLLMError("vLLM did not report max_model_len")
+        return self._max_model_len
+
+    def _forget_model(self) -> None:
+        """Drop the cached id and context window so the next call discovers both."""
+        self.model = None
+        self._max_model_len = None
 
     async def aclose(self) -> None:
         await self.client.close()
@@ -152,7 +167,7 @@ class VLLMService:
         except NotFoundError as exc:
             async with self._lock:
                 if self.model == requested_model:
-                    self.model = None
+                    self._forget_model()
             raise VLLMError(f"vLLM request failed: {type(exc).__name__}") from exc
         except (BadRequestError, UnprocessableEntityError) as exc:
             raise VLLMRequestRejectedError(
@@ -224,6 +239,17 @@ class VLLMService:
         except ValidationError as exc:
             codes = sorted({error["type"] for error in exc.errors(include_input=False)})
             raise VLLMSchemaError(f"response did not match the schema: {', '.join(codes)}") from exc
+
+
+def _reported_max_model_len(card: object) -> int | None:
+    """A positive max_model_len from a vLLM model card, or none when it is absent."""
+    extra = getattr(card, "model_extra", None)
+    if not isinstance(extra, dict):
+        return None
+    value = extra.get("max_model_len")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None
+    return value
 
 
 def _request_timeout(timeout: float | None) -> float | NotGiven:
