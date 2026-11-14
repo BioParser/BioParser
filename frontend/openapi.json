@@ -2602,14 +2602,7 @@
           "sex": {
             "anyOf": [
               {
-                "type": "string",
-                "enum": [
-                  "male",
-                  "female",
-                  "subadult",
-                  "unknown",
-                  "hermaphrodite"
-                ]
+                "type": "string"
               },
               {
                 "type": "null"
@@ -2632,6 +2625,9 @@
             "anyOf": [
               {
                 "type": "number"
+              },
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -2760,8 +2756,10 @@
           "individualCount": {
             "anyOf": [
               {
-                "type": "integer",
-                "minimum": 1.0
+                "type": "integer"
+              },
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -2772,8 +2770,10 @@
           "dispersion": {
             "anyOf": [
               {
-                "type": "number",
-                "minimum": 0.0
+                "type": "number"
+              },
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -2787,6 +2787,9 @@
                 "type": "number"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -2796,6 +2799,9 @@
             "anyOf": [
               {
                 "type": "number"
+              },
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -2877,6 +2883,9 @@
                 "type": "integer"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -2888,6 +2897,9 @@
                 "type": "integer"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -2897,6 +2909,9 @@
             "anyOf": [
               {
                 "type": "integer"
+              },
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -2943,6 +2958,9 @@
                 "type": "number"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -2954,6 +2972,9 @@
                 "type": "number"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -2963,6 +2984,9 @@
             "anyOf": [
               {
                 "type": "number"
+              },
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -3213,14 +3237,7 @@
           "sex": {
             "anyOf": [
               {
-                "type": "string",
-                "enum": [
-                  "male",
-                  "female",
-                  "subadult",
-                  "unknown",
-                  "hermaphrodite"
-                ]
+                "type": "string"
               },
               {
                 "type": "null"
@@ -3243,6 +3260,9 @@
             "anyOf": [
               {
                 "type": "number"
+              },
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -3371,8 +3391,10 @@
           "individualCount": {
             "anyOf": [
               {
-                "type": "integer",
-                "minimum": 1.0
+                "type": "integer"
+              },
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -3383,8 +3405,10 @@
           "dispersion": {
             "anyOf": [
               {
-                "type": "number",
-                "minimum": 0.0
+                "type": "number"
+              },
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -3398,6 +3422,9 @@
                 "type": "number"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -3407,6 +3434,9 @@
             "anyOf": [
               {
                 "type": "number"
+              },
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -3488,6 +3518,9 @@
                 "type": "integer"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -3499,6 +3532,9 @@
                 "type": "integer"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -3508,6 +3544,9 @@
             "anyOf": [
               {
                 "type": "integer"
+              },
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -3554,6 +3593,9 @@
                 "type": "number"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -3565,6 +3607,9 @@
                 "type": "number"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -3574,6 +3619,9 @@
             "anyOf": [
               {
                 "type": "number"
+              },
+              {
+                "type": "string"
               },
               {
                 "type": "null"

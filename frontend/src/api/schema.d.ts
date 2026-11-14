@@ -512,11 +512,11 @@ export interface components {
             /** Genus */
             genus?: string | null;
             /** Sex */
-            sex?: ("male" | "female" | "subadult" | "unknown" | "hermaphrodite") | null;
+            sex?: string | null;
             /** Lifestage */
             lifeStage?: string | null;
             /** Age */
-            age?: number | null;
+            age?: number | string | null;
             /** Morphotype */
             morphotype?: string | null;
             /** Basisofrecord */
@@ -538,13 +538,13 @@ export interface components {
             /** Statisticalmethod */
             statisticalMethod?: string | null;
             /** Individualcount */
-            individualCount?: number | null;
+            individualCount?: number | string | null;
             /** Dispersion */
-            dispersion?: number | null;
+            dispersion?: number | string | null;
             /** Measurementvalue Min */
-            measurementValue_min?: number | null;
+            measurementValue_min?: number | string | null;
             /** Measurementvalue Max */
-            measurementValue_max?: number | null;
+            measurementValue_max?: number | string | null;
             /** Measurementaccuracy */
             measurementAccuracy?: string | null;
             /** Measurementid */
@@ -562,11 +562,11 @@ export interface components {
             /** Samplingprotocol */
             samplingProtocol?: string | null;
             /** Year */
-            year?: number | null;
+            year?: number | string | null;
             /** Month */
-            month?: number | null;
+            month?: number | string | null;
             /** Day */
-            day?: number | null;
+            day?: number | string | null;
             /** Eventdate */
             eventDate?: string | null;
             /** Locationid */
@@ -574,11 +574,11 @@ export interface components {
             /** Habitat */
             habitat?: string | null;
             /** Decimallongitude */
-            decimalLongitude?: number | null;
+            decimalLongitude?: number | string | null;
             /** Decimallatitude */
-            decimalLatitude?: number | null;
+            decimalLatitude?: number | string | null;
             /** Elevation */
-            elevation?: number | null;
+            elevation?: number | string | null;
             /** Geodeticdatum */
             geodeticDatum?: string | null;
             /** Verbatimlocality */
@@ -633,11 +633,11 @@ export interface components {
             /** Genus */
             genus?: string | null;
             /** Sex */
-            sex?: ("male" | "female" | "subadult" | "unknown" | "hermaphrodite") | null;
+            sex?: string | null;
             /** Lifestage */
             lifeStage?: string | null;
             /** Age */
-            age?: number | null;
+            age?: number | string | null;
             /** Morphotype */
             morphotype?: string | null;
             /** Basisofrecord */
@@ -659,13 +659,13 @@ export interface components {
             /** Statisticalmethod */
             statisticalMethod?: string | null;
             /** Individualcount */
-            individualCount?: number | null;
+            individualCount?: number | string | null;
             /** Dispersion */
-            dispersion?: number | null;
+            dispersion?: number | string | null;
             /** Measurementvalue Min */
-            measurementValue_min?: number | null;
+            measurementValue_min?: number | string | null;
             /** Measurementvalue Max */
-            measurementValue_max?: number | null;
+            measurementValue_max?: number | string | null;
             /** Measurementaccuracy */
             measurementAccuracy?: string | null;
             /** Measurementid */
@@ -683,11 +683,11 @@ export interface components {
             /** Samplingprotocol */
             samplingProtocol?: string | null;
             /** Year */
-            year?: number | null;
+            year?: number | string | null;
             /** Month */
-            month?: number | null;
+            month?: number | string | null;
             /** Day */
-            day?: number | null;
+            day?: number | string | null;
             /** Eventdate */
             eventDate?: string | null;
             /** Locationid */
@@ -695,11 +695,11 @@ export interface components {
             /** Habitat */
             habitat?: string | null;
             /** Decimallongitude */
-            decimalLongitude?: number | null;
+            decimalLongitude?: number | string | null;
             /** Decimallatitude */
-            decimalLatitude?: number | null;
+            decimalLatitude?: number | string | null;
             /** Elevation */
-            elevation?: number | null;
+            elevation?: number | string | null;
             /** Geodeticdatum */
             geodeticDatum?: string | null;
             /** Verbatimlocality */
