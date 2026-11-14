@@ -15,9 +15,9 @@ class Settings(BaseSettings):
     vllm_base_url: str = "http://localhost:8000/v1"
     vllm_api_key: SecretStr = SecretStr("EMPTY")
 
-    model_discovery_timeout_seconds: float = Field(default=10.0, gt=0)
+    vllm_model_discovery_timeout_seconds: float = Field(default=10.0, gt=0)
 
-    request_timeout_seconds: float = Field(
+    vllm_request_timeout_seconds: float = Field(
         default=300.0,
         gt=0,
     )

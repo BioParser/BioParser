@@ -47,14 +47,14 @@ class VLLMService:
         self.client = AsyncOpenAI(
             base_url=settings.vllm_base_url,
             api_key=settings.vllm_api_key.get_secret_value(),
-            timeout=settings.request_timeout_seconds,
+            timeout=settings.vllm_request_timeout_seconds,
             max_retries=0,
         )
 
         self.model: str | None = None
         self._max_tokens = settings.vllm_max_tokens
         self._lock = asyncio.Lock()
-        self._discovery_timeout = settings.model_discovery_timeout_seconds
+        self._discovery_timeout = settings.vllm_model_discovery_timeout_seconds
 
     def _token_ceiling(self, max_tokens: int | None) -> int:
         """The configured ceiling, or a caller's smaller count."""
