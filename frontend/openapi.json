@@ -5870,7 +5870,7 @@
           },
           "traits": {
             "items": {
-              "anyOf": [
+              "oneOf": [
                 {
                   "$ref": "#/components/schemas/NumericTrait"
                 },
@@ -5880,7 +5880,15 @@
                 {
                   "$ref": "#/components/schemas/CategoricalTrait"
                 }
-              ]
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "categorical": "#/components/schemas/CategoricalTrait",
+                  "count": "#/components/schemas/CountTrait",
+                  "numeric": "#/components/schemas/NumericTrait"
+                }
+              }
             },
             "type": "array",
             "title": "Traits"

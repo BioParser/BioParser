@@ -331,9 +331,8 @@ export interface components {
             /** Replaced By */
             replaced_by?: string | null;
             /**
-             * Kind
-             * @default categorical
-             * @constant
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
              */
             kind: "categorical";
             /** Levels */
@@ -413,9 +412,8 @@ export interface components {
             /** Replaced By */
             replaced_by?: string | null;
             /**
-             * Kind
-             * @default count
-             * @constant
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
              */
             kind: "count";
             /** Stored Unit */
@@ -946,9 +944,8 @@ export interface components {
             /** Replaced By */
             replaced_by?: string | null;
             /**
-             * Kind
-             * @default numeric
-             * @constant
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
              */
             kind: "numeric";
             /** Stored Unit */
