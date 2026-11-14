@@ -36,7 +36,6 @@ _CITED: dict[str, TextField] = {
     "verbatimTraitValue": "verbatimTraitValue",
     "verbatimTraitUnit": "verbatimTraitUnit",
     "verbatimTraitName": "verbatimTraitName",
-    "taxonRank": "taxonRank",
     "kingdom": "kingdom",
     "phylum": "phylum",
     "taxonClass": "class",
@@ -52,7 +51,6 @@ _CITED: dict[str, TextField] = {
     "measurementDeterminedBy": "measurementDeterminedBy",
     "statisticalMethod": "statisticalMethod",
     "measurementAccuracy": "measurementAccuracy",
-    "occurrenceID": "occurrenceID",
     "eventID": "eventID",
     "preparations": "preparations",
     "samplingProtocol": "samplingProtocol",
@@ -91,6 +89,7 @@ class Assessment(BaseModel):
     decimal_latitude: float | str | None
     elevation: float | str | None
     country_code: str | None
+    occurrence_id: str | None
     cited: dict[TextField, str | None]
 
 
@@ -100,8 +99,11 @@ def assess(observation: Observation) -> Assessment:
 
     # Free-text columns. A correction contributes its interpretation. A citation contributes its text.
     cited = {ets_name: _cited(getattr(observation, name)) for name, ets_name in _CITED.items()}
-    # A taxonomy lookup publishes the accepted name.
+
+    # A taxonomy lookup publishes the accepted name and its rank.
     scientific_name = None
+    cited["taxonRank"] = None
+
     # A trait list publishes the standardized value and its unit.
     trait_value = None
     trait_unit = None
@@ -143,6 +145,9 @@ def assess(observation: Observation) -> Assessment:
     )
     elevation = _parse_decimal(observation.elevation, "elevation", warnings, signed=True)
     country_code = _parse_country_code(observation.countryCode, warnings)
+    occurrence_id = (
+        None if observation.occurrenceID is None else stored_text(observation.occurrenceID)
+    )
 
     return Assessment(
         warnings=tuple(warnings),
@@ -166,6 +171,7 @@ def assess(observation: Observation) -> Assessment:
         decimal_latitude=decimal_latitude,
         elevation=elevation,
         country_code=country_code,
+        occurrence_id=occurrence_id,
         cited=cited,
     )
 
@@ -178,15 +184,22 @@ def _cited(value: CitationOrCorrection | None) -> str | None:
     return value.text
 
 
-def _parse_sex(value: CitationOrInterpretation | None, warnings: list[Notice]) -> str | None:
+def _parse_sex(value: CitationOrCorrection | None, warnings: list[Notice]) -> str | None:
+    """Try the reading first, then the printed word. A miss keeps the printed word."""
     if value is None:
         return None
-    text = stored_text(value)
-    matched = match_sex(text)
-    if matched is None:
-        warnings.append(NotInVocabulary(field="sex"))
-        return text
-    return matched
+    if isinstance(value, Correction):
+        matched = match_sex(value.interpretation.value)
+        if matched is not None:
+            return matched
+        printed = value.citation.text
+    else:
+        printed = value.text
+    matched = match_sex(printed)
+    if matched is not None:
+        return matched
+    warnings.append(NotInVocabulary(field="sex"))
+    return printed
 
 
 def _parse_basis(value: Interpretation | None, warnings: list[Notice]) -> BasisOfRecord | None:
@@ -320,7 +333,7 @@ def _parse_coordinate(
     return parsed
 
 
-_COUNTRY_CODE = re.compile(r"^[A-Z]{2}$")
+_COUNTRY_CODE = re.compile(r"^[A-Za-z]{2}$")
 
 
 def _parse_country_code(
@@ -331,4 +344,5 @@ def _parse_country_code(
     text = stored_text(value)
     if _COUNTRY_CODE.fullmatch(text) is None:
         warnings.append(NotInVocabulary(field="countryCode"))
-    return text
+        return text
+    return text.upper()

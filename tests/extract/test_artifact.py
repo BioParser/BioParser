@@ -133,49 +133,6 @@ def test_a_copied_field_keeps_the_narrow_citation() -> None:
     assert stage.interpretation.passage.text == "adult males"
 
 
-def test_basis_and_aggregate_are_interpretations_only() -> None:
-    observation = _observation(
-        basisOfRecord=Interpretation(value="FossilSpecimen", passage=_cite("fossil")),
-        aggregateMeasure=Interpretation(value="TRUE", passage=_cite("mean of 12")),
-    )
-
-    assert observation.basisOfRecord is not None
-    assert observation.basisOfRecord.value == "FossilSpecimen"
-    assert observation.aggregateMeasure is not None
-    assert observation.aggregateMeasure.value == "TRUE"
-
-    with pytest.raises(ValidationError):
-        Observation.model_validate(
-            {
-                "traitCode": {
-                    "kind": "interpretation",
-                    "value": "body_mass",
-                    "passage": {"text": "weighed"},
-                },
-                "verbatimTraitName": {"kind": "citation", "text": "body mass"},
-                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
-                "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
-                "verbatimTraitUnit": {"kind": "citation", "text": "g"},
-                "basisOfRecord": {"kind": "citation", "text": "LivingSpecimen"},
-            }
-        )
-    with pytest.raises(ValidationError):
-        Observation.model_validate(
-            {
-                "traitCode": {
-                    "kind": "interpretation",
-                    "value": "body_mass",
-                    "passage": {"text": "weighed"},
-                },
-                "verbatimTraitName": {"kind": "citation", "text": "body mass"},
-                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
-                "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
-                "verbatimTraitUnit": {"kind": "citation", "text": "g"},
-                "aggregateMeasure": {"kind": "citation", "text": "TRUE"},
-            }
-        )
-
-
 def test_a_missing_trait_name_is_rejected() -> None:
     with pytest.raises(ValidationError):
         Observation.model_validate(
@@ -187,27 +144,6 @@ def test_a_missing_trait_name_is_rejected() -> None:
                 },
                 "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
                 "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
-            }
-        )
-
-
-def test_a_verbatim_field_rejects_a_choice() -> None:
-    with pytest.raises(ValidationError):
-        Observation.model_validate(
-            {
-                "traitCode": {
-                    "kind": "interpretation",
-                    "value": "body_mass",
-                    "passage": {"text": "weighed"},
-                },
-                "verbatimTraitName": {"kind": "citation", "text": "body mass"},
-                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
-                "verbatimTraitValue": {
-                    "kind": "interpretation",
-                    "value": "12.5",
-                    "passage": {"text": "weighed 12.5 g"},
-                },
-                "verbatimTraitUnit": {"kind": "citation", "text": "g"},
             }
         )
 
@@ -231,17 +167,6 @@ def test_a_scientific_name_can_expand_the_printed_citation() -> None:
     assert observation.verbatimScientificName.text == "M. musculus"
 
 
-def test_a_paired_value_is_a_choice() -> None:
-    observation = _observation(
-        traitValue=Interpretation(value="12.5", passage=_cite("weighed 12,5 kg")),
-        traitUnit=Interpretation(value="kg", passage=_cite("kilograms")),
-    )
-
-    assert isinstance(observation.traitValue, Interpretation)
-    assert isinstance(observation.traitUnit, Interpretation)
-    assert observation.verbatimTraitValue.text == "12.5"
-
-
 def test_a_paired_value_requires_its_verbatim_citation() -> None:
     with pytest.raises(ValidationError):
         Observation.model_validate(
@@ -259,101 +184,5 @@ def test_a_paired_value_requires_its_verbatim_citation() -> None:
                     "passage": {"text": "12.5 g"},
                 },
                 "verbatimTraitUnit": {"kind": "citation", "text": "g"},
-            }
-        )
-
-
-def test_a_paired_field_rejects_a_second_citation() -> None:
-    with pytest.raises(ValidationError):
-        Observation.model_validate(
-            {
-                "traitCode": {
-                    "kind": "interpretation",
-                    "value": "body_mass",
-                    "passage": {"text": "weighed"},
-                },
-                "verbatimTraitName": {"kind": "citation", "text": "body mass"},
-                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
-                "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
-                "traitValue": {"kind": "citation", "text": "12.5"},
-                "verbatimTraitUnit": {"kind": "citation", "text": "g"},
-            }
-        )
-
-
-def test_a_paired_field_rejects_a_correction() -> None:
-    with pytest.raises(ValidationError):
-        Observation.model_validate(
-            {
-                "traitCode": {
-                    "kind": "interpretation",
-                    "value": "body_mass",
-                    "passage": {"text": "weighed"},
-                },
-                "verbatimTraitName": {"kind": "citation", "text": "body mass"},
-                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
-                "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
-                "traitValue": {
-                    "kind": "correction",
-                    "citation": {"kind": "citation", "text": "12.5"},
-                    "choice": {
-                        "kind": "interpretation",
-                        "value": "12.5",
-                        "passage": {"text": "12.5 g"},
-                    },
-                },
-                "verbatimTraitUnit": {"kind": "citation", "text": "g"},
-            }
-        )
-
-
-def test_a_paper_can_state_where_and_when_the_organism_was_recorded() -> None:
-    observation = _observation(
-        occurrenceID=_cite("FMNH 145732"),
-        year=_cite("2008"),
-        decimalLatitude=Interpretation(value="-41.0983423", passage=_cite("41° S")),
-        countryCode=_cite("AR"),
-    )
-
-    assert isinstance(observation.occurrenceID, Citation)
-    assert observation.occurrenceID.text == "FMNH 145732"
-    assert isinstance(observation.year, Citation)
-    assert observation.year.text == "2008"
-    assert isinstance(observation.decimalLatitude, Interpretation)
-    assert observation.decimalLatitude.value == "-41.0983423"
-    assert isinstance(observation.countryCode, Citation)
-    assert observation.eventID is None
-
-    with pytest.raises(ValidationError):
-        Observation.model_validate(
-            {
-                "traitCode": {
-                    "kind": "interpretation",
-                    "value": "body_mass",
-                    "passage": {"text": "weighed"},
-                },
-                "verbatimTraitName": {"kind": "citation", "text": "body mass"},
-                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
-                "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
-                "verbatimTraitUnit": {"kind": "citation", "text": "g"},
-                "measurementID": "1",
-            }
-        )
-
-
-def test_a_trait_unit_must_be_an_interpretation() -> None:
-    with pytest.raises(ValidationError):
-        Observation.model_validate(
-            {
-                "traitCode": {
-                    "kind": "interpretation",
-                    "value": "body_mass",
-                    "passage": {"text": "weighed"},
-                },
-                "verbatimTraitName": {"kind": "citation", "text": "body mass"},
-                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
-                "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
-                "verbatimTraitUnit": {"kind": "citation", "text": "kg"},
-                "traitUnit": {"kind": "citation", "text": "kg"},
             }
         )

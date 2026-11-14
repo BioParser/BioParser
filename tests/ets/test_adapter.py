@@ -171,6 +171,47 @@ def test_basis_and_aggregate_are_read_from_a_passage() -> None:
     assert row.aggregateMeasure is True
 
 
+def test_sex_tries_the_reading_before_the_printed_word() -> None:
+    preferred = _observation(
+        sex=Correction(
+            citation=_cited("males", start=70),
+            interpretation=_read("male", "males", start=70),
+        )
+    )
+    fallback = _observation(
+        sex=Correction(
+            citation=_cited("male", start=70),
+            interpretation=_read("M", "male", start=70),
+        )
+    )
+
+    preferred_row = to_ets(_artifact(preferred), references=_DOCUMENT_ID).rows[0].row
+    fallback_row = to_ets(_artifact(fallback), references=_DOCUMENT_ID).rows[0].row
+
+    assert preferred_row.sex == "male"
+    assert preferred_row.warnings == ""
+    assert fallback_row.sex == "male"
+    assert fallback_row.warnings == ""
+
+
+def test_a_country_code_is_written_in_uppercase() -> None:
+    observation = _observation(countryCode=_cited("de", start=100))
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.countryCode == "DE"
+    assert "not_in_vocabulary:countryCode" not in row.warnings
+
+
+def test_an_occurrence_id_can_be_read_from_a_wider_phrase() -> None:
+    observation = _observation(occurrenceID=_read("145732", "FMNH 145732", start=70))
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.occurrenceID == "145732"
+    assert row.taxonRank is None
+
+
 def test_a_vocabulary_miss_leaves_the_column_empty() -> None:
     observation = _observation(
         sex=_cited("M", start=70),

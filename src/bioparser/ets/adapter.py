@@ -88,7 +88,7 @@ def _row(
             "measurementValue_min": verdict.measurement_value_min,
             "measurementValue_max": verdict.measurement_value_max,
             "measurementAccuracy": verdict.cited["measurementAccuracy"],
-            "occurrenceID": verdict.cited["occurrenceID"],
+            "occurrenceID": verdict.occurrence_id,
             "eventID": verdict.cited["eventID"],
             "preparations": verdict.cited["preparations"],
             "samplingProtocol": verdict.cited["samplingProtocol"],
