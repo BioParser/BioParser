@@ -83,7 +83,7 @@ A printed form that no level or alias matches warns `not_in_vocabulary`, and the
 
 `trait_id` is a prefix and seven digits. `id_prefixes` lists each prefix with its address, such as `http://purl.obolibrary.org/obo/VT_`, or `null`. A prefix is letters only. An address is `null` or starts with `http://` or `https://`.
 
-The project's own traits use the `BPT` prefix. Traits that match a public ontology term use that term, such as `VT:0001259` for body mass. An identifier may move to a public term.
+The project's own traits use the `BPT` prefix. Its address is `https://bioparser.github.io/BioParser/traits/BPT/`. Traits that match a public ontology term use that term, such as `VT:0001259` for body mass. An identifier may move to a public term.
 
 ## The base set
 

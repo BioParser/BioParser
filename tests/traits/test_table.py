@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Any, get_args
 
 import pytest
@@ -13,6 +14,20 @@ from bioparser.traits.table import (
 )
 
 from .helpers import _load, _table, _with_alias_data
+
+
+def test_the_shipped_list_matches_the_newest_published_copy() -> None:
+    root = Path(__file__).parents[2]
+    source = json.loads((root / "src/bioparser/traits/mammal_traits.json").read_text("utf-8"))
+    published = {
+        path.stem: json.loads(path.read_text("utf-8"))
+        for path in (root / "data/traits/releases").glob("*.json")
+    }
+
+    newest = max(published, key=lambda name: tuple(int(part) for part in name.split(".")))
+
+    assert published[newest]["version"] == newest
+    assert published[newest] == source
 
 
 def test_the_shipped_list_loads_and_has_every_value_kind() -> None:
@@ -106,7 +121,10 @@ def test_a_bad_entry_is_rejected(edit: Any, message: str) -> None:
 
 
 def test_an_id_prefix_may_have_no_iri_yet() -> None:
-    table = mammal_traits()
+    data = _table()
+    data["id_prefixes"]["BPT"] = None
+
+    table = _load(data)
 
     assert table.id_prefixes["BPT"] is None
     assert table.id_prefixes["VT"] is not None
