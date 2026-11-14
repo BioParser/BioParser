@@ -8,7 +8,7 @@ The ETS adapter turns an extraction artifact ([extraction-artifact.md](extractio
 
 - The adapter reads an artifact and returns rows. It does not modify the artifact and does not write ETS columns back into it.
 - It does not call the model, and it does not open the parser artifact.
-- Each observation becomes one ETS row.
+- Each observation becomes one ETS row. The result names the `trait_list_version` that filled `traitName` and `traitID`.
 - A new ETS version changes the adapter's mapping. It does not change the stored artifact.
 
 ## Deviations from ETS
@@ -26,16 +26,14 @@ The artifact uses its own camelCase names. The adapter maps them to ETS column n
 | `measurementValueMin` | `measurementValue_min` |
 | `measurementValueMax` | `measurementValue_max` |
 
-`traitCode` is not an ETS column. It is the extractor's code for the measurement, and a later trait list uses it to fill `traitName`, `traitID`, `traitValue`, and `traitUnit`. Until that list exists, those four stay empty.
+`traitCode` is not an ETS column. It is the extractor's code for the measurement. The mammal trait list uses it to fill `traitName`, `traitID`, `traitValue`, and `traitUnit`. A code the list cannot apply leaves those four empty.
 
 ## Sources
 
-The adapter needs two sources. Neither is chosen yet.
+The adapter needs two sources. The taxonomy backbone is not chosen yet.
 
 - **Taxonomy backbone** for `scientificName` and `taxonID`. The source is chosen later.
-- **Trait list** for `traitName`, `traitID`, `traitValue`, and `traitUnit`. ETS does not define the trait list, so it is chosen later. The artifact does not check `traitCode` against a list.
-
-An extractor may store `traitValue` and `traitUnit` as its own reading of the printed number and unit, such as `kg` for a printed `kilograms`. The trait list uses that reading, and falls back to the printed text when there is none. It converts the pair into the trait's unit and writes the ETS columns.
+- **Trait list** for `traitName`, `traitID`, `traitValue`, and `traitUnit`. The list is `src/bioparser/traits/mammal_traits.json`, and [trait-list.md](trait-list.md) describes it. The artifact does not check `traitCode` against it. The adapter does.
 
 ## How a row is derived
 
@@ -49,15 +47,19 @@ A taxonomy lookup fills `scientificName` and `taxonID` together. The extractor's
 
 ### Trait value and unit
 
-The printed value and the printed unit are copied as they are.
+The printed value and the printed unit are copied as they are. `verbatimTraitValue` is the printed number. `verbatimTraitUnit` is the printed unit, such as `kg`. It is optional, and a measurement printed without a unit leaves it empty.
 
-1. `verbatimTraitValue` is the printed number.
-2. `verbatimTraitUnit` is the printed unit, such as `kg`. It is optional, and a measurement printed without a unit leaves it empty.
-3. `traitValue` and `traitUnit` stay empty. A later trait list fills them when it standardizes the measurement.
+An extractor may also store a reading of that number and unit, such as `kg` for a printed `kilograms`. The reading is `traitValue` and `traitUnit` in the artifact. It is not yet the ETS column.
+
+The adapter chooses one unit from those two fields. It uses the printed unit when the trait accepts it as printed, because a cleaned reading can be wrong, such as `Mg` read as `mg`. Otherwise it uses the extractor's reading. When the extractor stored no reading, it uses the printed unit. The value uses the reading when there is one, and the printed number when there is not.
+
+The adapter converts that pair into the trait's unit and writes the ETS columns. `traitName` and `traitID` come from the list. `traitValue` and `traitUnit` are the value in the trait unit. A level has a value and no unit. A row with no code leaves those four empty and does not warn. A code the list does not contain warns `not_on_list:traitName`. A code the list cannot apply warns why: `not_in_vocabulary:traitValue`, `not_numeric:traitValue`, `unit_unknown:traitUnit`, `unit_not_for_trait:traitUnit`, or `level_has_spread:traitName`.
+
+The trait list matches a unit with its case first, then without it, and applies the list's unit aliases. A level is matched without case and separators, and the list's level aliases apply. [trait-list.md](trait-list.md) describes both. A value in a unit the list marks approximate warns `approximate:traitValue`.
 
 ### Range and dispersion
 
-The minimum, the maximum, and the dispersion are the numbers the paper printed, read with `verbatimTraitUnit`. ETS gives them no unit of their own. An empty one stays empty.
+The minimum, the maximum, and the dispersion are the numbers the paper printed, read with `verbatimTraitUnit`. ETS gives them no unit of their own. An empty one stays empty. They stay in the printed unit when `traitValue` moves to the trait unit, and that carries no warning. A level has no spread and no range. A stored one means the code does not apply, so the four standardized columns stay empty, the printed numbers stay, and the row warns `level_has_spread:traitName`.
 
 A minimum greater than the maximum is kept as printed, and the row warns `bounds_reversed:measurementValue_min,measurementValue_max`.
 
@@ -81,7 +83,7 @@ A minimum greater than the maximum is kept as printed, and the row warns `bounds
 - `warnings` collects what the adapter found while building the row.
 - `occurrenceID` is the printed token, or a value read from a wider phrase, when the observation stored one.
 - `taxonRank` stays empty. A taxonomy lookup fills it with `taxonID`. A printed kingdom, phylum, class, order, family, or genus is copied, and a later lookup fills one of those columns only when the observation left it empty.
-- `traitName`, `traitID`, `traitValue`, and `traitUnit` stay empty until the trait list exists.
+- `traitName`, `traitID`, and `traitValue` are filled together when the list applies the code, and empty together when it does not.
 
 ## Warnings
 
@@ -93,4 +95,3 @@ Each row keeps the source index of its observation in the artifact, so a row can
 
 - Which of `verbatimScientificName` and `scientificName` the taxonomy lookup tries first.
 - The taxonomy source.
-- The trait list.

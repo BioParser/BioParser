@@ -14,6 +14,7 @@ from bioparser.extract.models import (
     Observation,
     TextRange,
 )
+from bioparser.traits.table import mammal_traits
 
 _DOCUMENT_ID = "abc123"
 
@@ -73,19 +74,20 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     result = to_ets(artifact, references=_DOCUMENT_ID)
 
     assert artifact.model_dump() == before
+    assert result.trait_list_version == mammal_traits().version
     assert len(result.rows) == 1
     assert result.rows[0].source_index == 0
     row = result.rows[0]
     dumped = row.model_dump()
-    assert dumped["traitValue"] is None
-    assert dumped["traitUnit"] is None
+    assert dumped["traitValue"] == "12500"
+    assert dumped["traitUnit"] == "g"
     assert dumped["verbatimTraitValue"] == "12.5"
     assert dumped["verbatimTraitUnit"] == "kg"
     assert dumped["scientificName"] is None
     assert dumped["verbatimScientificName"] == "M. musculus"
     assert dumped["taxonID"] is None
-    assert dumped["traitName"] is None
-    assert dumped["traitID"] is None
+    assert dumped["traitName"] == "Body mass"
+    assert dumped["traitID"] == "VT:0001259"
     assert dumped["basisOfRecord"] is None
     assert dumped["references"] == _DOCUMENT_ID
     assert dumped["measurementID"] == "1"
@@ -111,8 +113,8 @@ def test_a_stored_name_stays_in_the_artifact() -> None:
     assert row.verbatimScientificName == "M. musculus"
 
 
-def test_a_stored_trait_part_does_not_fill_the_standardized_columns() -> None:
-    """A trait list fills the standardized columns. The printed value is copied."""
+def test_a_stored_reading_is_what_the_list_converts() -> None:
+    """The list uses the stored reading, and falls back to the printed text."""
     stored = _observation(
         traitValue=_read("13", "12.5 kg", start=20),
         traitUnit=_read("kg", "12.5 kg", start=20),
@@ -120,10 +122,101 @@ def test_a_stored_trait_part_does_not_fill_the_standardized_columns() -> None:
 
     row = to_ets(_artifact(stored), references=_DOCUMENT_ID).rows[0]
 
-    assert row.traitValue is None
-    assert row.traitUnit is None
+    assert row.traitValue == "13000"
+    assert row.traitUnit == "g"
+    assert row.traitName == "Body mass"
+    assert row.traitID == "VT:0001259"
     assert row.verbatimTraitValue == "12.5"
     assert row.verbatimTraitUnit == "kg"
+
+
+def test_a_printed_unit_the_trait_takes_wins_over_a_wrong_reading() -> None:
+    wrong = _observation(traitUnit=_read("g", "12.5 kg", start=20))
+
+    row = to_ets(_artifact(wrong), references=_DOCUMENT_ID).rows[0]
+
+    assert row.traitValue == "12500"
+    assert row.warnings == ""
+
+
+def test_a_stored_number_is_converted_in_the_printed_unit() -> None:
+    """The printed unit wins, and the stored number is still the one that is converted."""
+    observation = _observation(
+        traitValue=_read("0.0125", "12.5 kg", start=20),
+        traitUnit=_read("mg", "12.5 kg", start=20),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+
+    assert row.verbatimTraitUnit == "kg"
+    assert row.traitValue == "12.5"
+    assert row.traitUnit == "g"
+
+
+def test_a_count_mean_converts_and_another_traits_unit_does_not() -> None:
+    mean = _observation(
+        traitCode=_read("litter_size", "litter", start=10),
+        verbatimTraitName=_cited("litter", start=10),
+        verbatimTraitValue=_cited("3.5", start=20),
+        verbatimTraitUnit=_cited("young", start=25),
+        aggregateMeasure=_read("TRUE", "mean litter", start=40),
+    )
+    refused = _observation(
+        traitCode=_read("litter_size", "litter", start=10),
+        verbatimTraitName=_cited("litter", start=10),
+        verbatimTraitValue=_cited("3", start=20),
+        verbatimTraitUnit=_cited("kg", start=25),
+    )
+
+    mean_row = to_ets(_artifact(mean), references=_DOCUMENT_ID).rows[0]
+    refused_row = to_ets(_artifact(refused), references=_DOCUMENT_ID).rows[0]
+
+    assert mean_row.traitValue == "3.5"
+    assert mean_row.traitUnit == "young"
+    assert mean_row.traitName == "Litter size"
+    assert refused_row.traitValue is None
+    assert "unit_not_for_trait:traitUnit" in refused_row.warnings
+
+
+def test_an_unknown_level_stays_printed() -> None:
+    observation = _observation(
+        traitCode=_read("migratory_status", "migration", start=10),
+        verbatimTraitName=_cited("migration", start=10),
+        verbatimTraitValue=_cited("sometimes", start=20),
+        verbatimTraitUnit=None,
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+
+    assert row.traitName is None
+    assert row.verbatimTraitValue == "sometimes"
+    assert "not_in_vocabulary:traitValue" in row.warnings
+
+
+def test_an_approximate_unit_converts_and_warns() -> None:
+    observation = _observation(
+        traitCode=_read("maximum_longevity", "longevity", start=10),
+        verbatimTraitName=_cited("longevity", start=10),
+        verbatimTraitValue=_cited("10", start=20),
+        verbatimTraitUnit=_cited("day", start=25),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+
+    assert row.traitUnit == "year"
+    assert row.traitValue is not None
+    assert row.traitName == "Maximum longevity"
+    assert "approximate:traitValue" in row.warnings
+
+
+def test_a_reading_is_used_when_the_printed_unit_is_not_one_the_trait_takes() -> None:
+    spelled = _observation(
+        verbatimTraitUnit=_cited("kilos", start=25), traitUnit=_read("kg", "12.5 kilos", start=20)
+    )
+
+    row = to_ets(_artifact(spelled), references=_DOCUMENT_ID).rows[0]
+
+    assert row.traitValue == "12500"
 
 
 def test_a_correction_supplies_the_column_and_the_citation_stays_stored() -> None:
@@ -143,7 +236,7 @@ def test_a_correction_supplies_the_column_and_the_citation_stays_stored() -> Non
     assert before.citation.text == "juv."
 
 
-def test_a_printed_value_is_kept_as_printed() -> None:
+def test_a_printed_value_is_converted_and_the_verbatim_stays() -> None:
     observation = _observation(
         traitCode=_read("tail_length", "tail", start=10),
         verbatimTraitValue=_cited("2", start=20),
@@ -152,11 +245,12 @@ def test_a_printed_value_is_kept_as_printed() -> None:
 
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
-    assert row.traitValue is None
-    assert row.traitUnit is None
+    assert row.traitValue == "20"
+    assert row.traitUnit == "mm"
+    assert row.traitName == "Tail length"
+    assert row.traitID == "VT:0002758"
     assert row.verbatimTraitValue == "2"
     assert row.verbatimTraitUnit == "cm"
-    assert row.traitName is None
 
 
 def test_basis_and_aggregate_are_read_from_a_passage() -> None:
@@ -310,7 +404,8 @@ def test_a_zero_padded_number_is_normalized() -> None:
 
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
-    assert row.traitValue is None
+    assert row.traitValue == "8.5"
+    assert row.traitUnit == "g"
     assert row.verbatimTraitValue == "08.5"
     assert row.verbatimTraitUnit == "g"
     assert row.month == 3
@@ -352,6 +447,7 @@ def test_a_measurement_without_a_code_is_a_row() -> None:
     assert row.traitID is None
     assert row.traitValue is None
     assert row.traitUnit is None
+    assert row.warnings == ""
 
 
 def test_an_unknown_trait_is_still_a_row() -> None:
@@ -362,6 +458,8 @@ def test_an_unknown_trait_is_still_a_row() -> None:
 
     assert isinstance(verdict, Assessment)
     assert result.rows[0].verbatimTraitName == "body mass"
+    assert result.rows[0].traitID is None
+    assert result.rows[0].warnings == "not_on_list:traitName"
 
 
 def test_a_citation_without_a_range_is_rejected() -> None:
@@ -393,7 +491,7 @@ def test_the_row_keeps_a_sex_abbreviation_and_rejects_an_exponent() -> None:
         _row(traitValue="1.5e2")
 
 
-def test_an_unparsed_unit_stays_printed() -> None:
+def test_grams_converts_to_g_and_the_verbatim_unit_stays() -> None:
     observation = _observation(verbatimTraitUnit=_cited("grams", start=25))
     before = observation.model_dump()
 
@@ -401,7 +499,8 @@ def test_an_unparsed_unit_stays_printed() -> None:
 
     assert observation.model_dump() == before
     assert row.verbatimTraitUnit == "grams"
-    assert row.traitUnit is None
+    assert row.traitValue == "12.5"
+    assert row.traitUnit == "g"
 
 
 def test_a_missing_unit_stays_empty() -> None:
@@ -410,7 +509,8 @@ def test_a_missing_unit_stays_empty() -> None:
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.verbatimTraitUnit is None
-    assert row.warnings == ""
+    assert row.traitID is None
+    assert "unit_unknown:traitUnit" in row.warnings
 
 
 def test_a_negative_age_is_parsed_and_reversed_bounds_are_kept() -> None:
@@ -474,6 +574,7 @@ def test_a_long_number_does_not_fail_the_other_rows() -> None:
     assert result.rows[1].source_index == 1
     assert result.rows[1].verbatimTraitValue == "8" * 40
     assert result.rows[1].traitValue is None
+    assert "not_numeric:traitValue" in result.rows[1].warnings
     assert result.rows[2].source_index == 2
 
 
@@ -508,7 +609,8 @@ def test_a_range_and_a_dispersion_stay_printed() -> None:
 
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
-    assert row.traitValue is None
+    assert row.traitValue == "12500"
+    assert row.traitUnit == "g"
     assert row.dispersion == 0.2
     assert row.measurementValue_min == 10
     assert row.measurementValue_max == 14
@@ -556,6 +658,45 @@ def test_an_empty_maximum_stays_empty() -> None:
     assert row.statisticalMethod is None
     assert row.dispersion is None
     assert row.warnings == ""
+
+
+def test_a_level_is_standardized_when_it_has_no_spread() -> None:
+    observation = _observation(
+        traitCode=_read("activity_cycle", "activity", start=10),
+        verbatimTraitValue=_cited("nocturnal", start=20),
+        verbatimTraitUnit=None,
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+
+    assert row.traitName == "Activity cycle"
+    activity = mammal_traits().get("activity_cycle")
+    assert activity is not None
+    assert row.traitID == activity.trait_id
+    assert row.traitValue == "nocturnal"
+    assert row.traitUnit is None
+    assert row.warnings == ""
+
+
+def test_a_level_with_a_spread_stays_the_printed_row() -> None:
+    observation = _observation(
+        traitCode=_read("activity_cycle", "activity", start=10),
+        verbatimTraitValue=_cited("nocturnal", start=20),
+        verbatimTraitUnit=None,
+        dispersion=_read("0.4", "0.4", start=70),
+        measurementValueMin=_read("1", "1", start=80),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+
+    assert row.traitName is None
+    assert row.traitID is None
+    assert row.traitValue is None
+    assert row.traitUnit is None
+    assert row.verbatimTraitValue == "nocturnal"
+    assert row.dispersion == 0.4
+    assert row.measurementValue_min == 1
+    assert row.warnings == "level_has_spread:traitName"
 
 
 def test_an_empty_document_id_is_rejected() -> None:

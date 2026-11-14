@@ -48,6 +48,7 @@ NumericField = Literal[
     "decimalLongitude",
     "decimalLatitude",
     "elevation",
+    "traitValue",
 ]
 DateField = Literal["measurementDeterminedDate", "eventDate"]
 
@@ -89,7 +90,51 @@ class NotInVocabulary(BaseModel):
         "basisOfRecord",
         "aggregateMeasure",
         "countryCode",
+        "traitValue",
     ]
+
+
+class LevelHasSpread(BaseModel):
+    """A level also stored a dispersion, a minimum, or a maximum.
+
+    The four standardized columns stay empty. The printed numbers stay.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["level_has_spread"] = "level_has_spread"
+    field: Literal["traitName"] = "traitName"
+
+
+class NotOnList(BaseModel):
+    """A trait code was stored and the list has no entry for it."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["not_on_list"] = "not_on_list"
+    field: Literal["traitName"] = "traitName"
+
+
+class UnitRefused(BaseModel):
+    """The trait list could not convert the printed unit, so the value stays as printed.
+
+    ``unit_unknown`` is a unit no numeric trait accepts. ``unit_not_for_trait`` is a known
+    unit that this trait does not accept.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["unit_unknown", "unit_not_for_trait"]
+    field: Literal["traitUnit"] = "traitUnit"
+
+
+class Approximate(BaseModel):
+    """The value was converted with a conventional factor, such as 365.25 days per year."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["approximate"] = "approximate"
+    field: Literal["traitValue"] = "traitValue"
 
 
 class BoundsReversed(BaseModel):
@@ -121,7 +166,18 @@ class NotACalendarDay(BaseModel):
     field: Literal["year,month,day"] = "year,month,day"
 
 
-Notice = NotNumeric | OutOfRange | NotInVocabulary | NotADate | NotACalendarDay | BoundsReversed
+Notice = (
+    NotNumeric
+    | OutOfRange
+    | NotInVocabulary
+    | NotADate
+    | NotACalendarDay
+    | LevelHasSpread
+    | NotOnList
+    | UnitRefused
+    | BoundsReversed
+    | Approximate
+)
 
 
 def format_warning(notice: Notice) -> str:

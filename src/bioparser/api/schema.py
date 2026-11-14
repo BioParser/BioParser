@@ -104,6 +104,8 @@ class _DoneJob(BaseModel):
 
     job_id: UUID
     status: Literal["done"]
+    # The mammal trait list that filled traitName and traitID on these rows.
+    trait_list_version: str
 
 
 class DoneJobResponse(_DoneJob):

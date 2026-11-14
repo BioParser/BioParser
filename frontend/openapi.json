@@ -2238,6 +2238,10 @@
             "const": "done",
             "title": "Status"
           },
+          "trait_list_version": {
+            "type": "string",
+            "title": "Trait List Version"
+          },
           "rows": {
             "items": {
               "$ref": "#/components/schemas/EtsSourceRow"
@@ -2256,6 +2260,7 @@
           "document_checksum",
           "job_id",
           "status",
+          "trait_list_version",
           "rows"
         ],
         "title": "DoneJobFullResponse",
@@ -2273,6 +2278,10 @@
             "const": "done",
             "title": "Status"
           },
+          "trait_list_version": {
+            "type": "string",
+            "title": "Trait List Version"
+          },
           "rows": {
             "items": {
               "$ref": "#/components/schemas/EtsRow"
@@ -2286,6 +2295,7 @@
         "required": [
           "job_id",
           "status",
+          "trait_list_version",
           "rows"
         ],
         "title": "DoneJobResponse",

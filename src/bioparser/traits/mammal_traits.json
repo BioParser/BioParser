@@ -1,0 +1,703 @@
+{
+  "version": "2026.11.0",
+  "id_prefixes": {
+    "VT": "http://purl.obolibrary.org/obo/VT_",
+    "BPT": null
+  },
+  "unit_aliases": {
+    "d": "day",
+    "days": "day",
+    "wk": "week",
+    "wks": "week",
+    "weeks": "week",
+    "mo": "month",
+    "mos": "month",
+    "months": "month",
+    "yr": "year",
+    "yrs": "year",
+    "years": "year",
+    "gram": "g",
+    "grams": "g",
+    "kilogram": "kg",
+    "kilograms": "kg",
+    "milligram": "mg",
+    "milligrams": "mg",
+    "pound": "lb",
+    "pounds": "lb",
+    "lbs": "lb",
+    "ounce": "oz",
+    "ounces": "oz",
+    "tonne": "t",
+    "tonnes": "t",
+    "Mg": "t",
+    "millimeter": "mm",
+    "millimeters": "mm",
+    "millimetre": "mm",
+    "millimetres": "mm",
+    "centimeter": "cm",
+    "centimeters": "cm",
+    "centimetre": "cm",
+    "centimetres": "cm",
+    "meter": "m",
+    "meters": "m",
+    "metre": "m",
+    "metres": "m",
+    "inch": "in",
+    "inches": "in",
+    "foot": "ft",
+    "feet": "ft",
+    "hectare": "ha",
+    "hectares": "ha",
+    "acres": "acre",
+    "sq mi": "mi2",
+    "square mile": "mi2",
+    "square miles": "mi2",
+    "animal": "individuals",
+    "animals": "individuals",
+    "individual": "individuals",
+    "ind": "individuals",
+    "C": "°C",
+    "ºC": "°C",
+    "deg C": "°C",
+    "degree C": "°C",
+    "degrees C": "°C",
+    "Celsius": "°C",
+    "degrees Celsius": "°C"
+  },
+  "level_aliases": {
+    "y": "yes",
+    "true": "yes",
+    "1": "yes",
+    "n": "no",
+    "false": "no",
+    "0": "no"
+  },
+  "domains": [
+    {
+      "name": "morphology",
+      "definition": "Size of the body and its soft parts, at any life stage. Measurements taken on bone are not included."
+    },
+    {
+      "name": "life_history",
+      "definition": "Reproduction, development and lifespan."
+    },
+    {
+      "name": "ecology",
+      "definition": "How the animal lives in its habitat: activity, foraging, seasonal behaviour, social grouping, use of space and population density."
+    },
+    {
+      "name": "physiology",
+      "definition": "Functions of the living body, such as energy use and temperature."
+    },
+    {
+      "name": "distribution",
+      "definition": "Where the species occurs."
+    },
+    {
+      "name": "skeleton",
+      "definition": "Measurements of bone."
+    }
+  ],
+  "traits": [
+    {
+      "code": "body_mass",
+      "name": "Body mass",
+      "trait_id": "VT:0001259",
+      "definition": "Mass of the whole body of an animal, weighed live or fresh. It is not the mass of a single organ or body part.",
+      "domain": "morphology",
+      "kind": "numeric",
+      "trait_unit": "g",
+      "printed_units": {
+        "mg": "0.001",
+        "g": "1",
+        "kg": "1000",
+        "oz": "28.349523125",
+        "lb": "453.59237",
+        "t": "1000000"
+      }
+    },
+    {
+      "code": "brain_mass",
+      "name": "Brain mass",
+      "trait_id": "BPT:0000037",
+      "definition": "Mass of the whole brain, from the olfactory bulbs to the brainstem, without the spinal cord. It is not the volume of the braincase.",
+      "domain": "morphology",
+      "kind": "numeric",
+      "trait_unit": "g",
+      "printed_units": {
+        "mg": "0.001",
+        "g": "1",
+        "kg": "1000",
+        "oz": "28.349523125",
+        "lb": "453.59237"
+      }
+    },
+    {
+      "code": "head_body_length",
+      "name": "Head-body length",
+      "trait_id": "BPT:0000001",
+      "definition": "Length from the tip of the nose to the anus or vent, not including the tail.",
+      "domain": "morphology",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "m": "1000",
+        "in": "25.4",
+        "ft": "304.8"
+      }
+    },
+    {
+      "code": "total_length",
+      "name": "Total length",
+      "trait_id": "BPT:0000002",
+      "definition": "Length from the tip of the nose to the tip of the tail, not including terminal hairs. It equals head-body length plus tail length.",
+      "domain": "morphology",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "m": "1000",
+        "in": "25.4",
+        "ft": "304.8"
+      }
+    },
+    {
+      "code": "tail_length",
+      "name": "Tail length",
+      "trait_id": "VT:0002758",
+      "definition": "Length of the tail from its base at the anus or vent to its tip, not including terminal hairs.",
+      "domain": "morphology",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "m": "1000",
+        "in": "25.4",
+        "ft": "304.8"
+      }
+    },
+    {
+      "code": "hind_foot_length",
+      "name": "Hind foot length",
+      "trait_id": "BPT:0000003",
+      "definition": "Length of the hind foot from the back of the heel to the tip of the longest toe, not including a claw. A hoof is counted as part of the toe.",
+      "domain": "morphology",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "in": "25.4"
+      }
+    },
+    {
+      "code": "hind_foot_length_with_claw",
+      "name": "Hind foot length with claw",
+      "trait_id": "BPT:0000004",
+      "definition": "Length of the hind foot from the back of the heel to the tip of the longest claw.",
+      "domain": "morphology",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "in": "25.4"
+      }
+    },
+    {
+      "code": "ear_length",
+      "name": "Ear length",
+      "trait_id": "BPT:0000005",
+      "definition": "Length of the external ear from the lowest point of the notch at its base to the tip of the ear, not including hairs at the tip.",
+      "domain": "morphology",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "in": "25.4"
+      }
+    },
+    {
+      "code": "neonate_mass",
+      "name": "Neonate mass",
+      "trait_id": "BPT:0000006",
+      "definition": "Mass of the whole body of a young animal at birth.",
+      "domain": "morphology",
+      "kind": "numeric",
+      "trait_unit": "g",
+      "printed_units": {
+        "mg": "0.001",
+        "g": "1",
+        "kg": "1000",
+        "oz": "28.349523125",
+        "lb": "453.59237"
+      }
+    },
+    {
+      "code": "weaning_mass",
+      "name": "Weaning mass",
+      "trait_id": "BPT:0000007",
+      "definition": "Mass of the whole body of a young animal when it stops nursing, as the source defines weaning.",
+      "domain": "morphology",
+      "kind": "numeric",
+      "trait_unit": "g",
+      "printed_units": {
+        "mg": "0.001",
+        "g": "1",
+        "kg": "1000",
+        "oz": "28.349523125",
+        "lb": "453.59237"
+      }
+    },
+    {
+      "code": "neonate_head_body_length",
+      "name": "Neonate head-body length",
+      "trait_id": "BPT:0000008",
+      "definition": "Length of a young animal at birth from the tip of the nose to the anus or vent, not including the tail.",
+      "domain": "morphology",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "m": "1000",
+        "in": "25.4",
+        "ft": "304.8"
+      }
+    },
+    {
+      "code": "weaning_head_body_length",
+      "name": "Weaning head-body length",
+      "trait_id": "BPT:0000009",
+      "definition": "Length of a young animal from the tip of the nose to the anus or vent, not including the tail, when it stops nursing, as the source defines weaning.",
+      "domain": "morphology",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "m": "1000",
+        "in": "25.4",
+        "ft": "304.8"
+      }
+    },
+    {
+      "code": "litter_size",
+      "name": "Litter size",
+      "trait_id": "BPT:0000010",
+      "definition": "Number of young born to one female at one birth.",
+      "domain": "life_history",
+      "kind": "count",
+      "trait_unit": "young"
+    },
+    {
+      "code": "litters_per_year",
+      "name": "Litters per year",
+      "trait_id": "BPT:0000011",
+      "definition": "Number of litters born to one female in one year.",
+      "domain": "life_history",
+      "kind": "numeric",
+      "trait_unit": "litters/year",
+      "printed_units": {
+        "litters/year": "1"
+      }
+    },
+    {
+      "code": "gestation_length",
+      "name": "Gestation length",
+      "trait_id": "BPT:0000012",
+      "definition": "Time from conception to birth, including any pause in the development of the embryo.",
+      "domain": "life_history",
+      "kind": "numeric",
+      "trait_unit": "day",
+      "printed_units": {
+        "day": "1",
+        "week": "7",
+        "month": "30.4375",
+        "year": "365.25"
+      },
+      "approximate_units": [
+        "month",
+        "year"
+      ]
+    },
+    {
+      "code": "weaning_age",
+      "name": "Weaning age",
+      "trait_id": "BPT:0000013",
+      "definition": "Age at which a young animal stops nursing, as the source defines weaning.",
+      "domain": "life_history",
+      "kind": "numeric",
+      "trait_unit": "day",
+      "printed_units": {
+        "day": "1",
+        "week": "7",
+        "month": "30.4375",
+        "year": "365.25"
+      },
+      "approximate_units": [
+        "month",
+        "year"
+      ]
+    },
+    {
+      "code": "age_at_sexual_maturity",
+      "name": "Age at sexual maturity",
+      "trait_id": "BPT:0000014",
+      "definition": "Age at which an animal first becomes physiologically able to reproduce. It applies to either sex.",
+      "domain": "life_history",
+      "kind": "numeric",
+      "trait_unit": "day",
+      "printed_units": {
+        "day": "1",
+        "week": "7",
+        "month": "30.4375",
+        "year": "365.25"
+      },
+      "approximate_units": [
+        "month",
+        "year"
+      ]
+    },
+    {
+      "code": "age_at_first_reproduction",
+      "name": "Age at first reproduction",
+      "trait_id": "BPT:0000015",
+      "definition": "Age at which an animal first reproduces. For a female it is the age at her first birth. For a male it is the age at which he first fathers young.",
+      "domain": "life_history",
+      "kind": "numeric",
+      "trait_unit": "day",
+      "printed_units": {
+        "day": "1",
+        "week": "7",
+        "month": "30.4375",
+        "year": "365.25"
+      },
+      "approximate_units": [
+        "month",
+        "year"
+      ]
+    },
+    {
+      "code": "interbirth_interval",
+      "name": "Interbirth interval",
+      "trait_id": "BPT:0000016",
+      "definition": "Time from one birth to the next birth of the same female.",
+      "domain": "life_history",
+      "kind": "numeric",
+      "trait_unit": "day",
+      "printed_units": {
+        "day": "1",
+        "week": "7",
+        "month": "30.4375",
+        "year": "365.25"
+      },
+      "approximate_units": [
+        "month",
+        "year"
+      ]
+    },
+    {
+      "code": "maximum_longevity",
+      "name": "Maximum longevity",
+      "trait_id": "BPT:0000017",
+      "definition": "Greatest age recorded for an individual of the species, in captivity or in the wild.",
+      "domain": "life_history",
+      "kind": "numeric",
+      "trait_unit": "year",
+      "printed_units": {
+        "year": "1",
+        "month": "0.0833333333333333",
+        "week": "0.0191649555099247",
+        "day": "0.0027378507871321"
+      },
+      "approximate_units": [
+        "month",
+        "week",
+        "day"
+      ]
+    },
+    {
+      "code": "teat_number",
+      "name": "Teat number",
+      "trait_id": "BPT:0000018",
+      "definition": "Total number of teats on a female, counting both sides.",
+      "domain": "life_history",
+      "kind": "count",
+      "trait_unit": "teats"
+    },
+    {
+      "code": "activity_cycle",
+      "name": "Activity cycle",
+      "trait_id": "BPT:0000019",
+      "definition": "Part of the day when the animal is mainly active: nocturnal (night), diurnal (day), crepuscular (dawn and dusk) or cathemeral (irregular). A level with a slash means active in both periods.",
+      "domain": "ecology",
+      "kind": "categorical",
+      "levels": [
+        "nocturnal",
+        "nocturnal/crepuscular",
+        "crepuscular",
+        "diurnal/crepuscular",
+        "cathemeral",
+        "diurnal"
+      ]
+    },
+    {
+      "code": "foraging_stratum",
+      "name": "Foraging stratum",
+      "trait_id": "BPT:0000020",
+      "definition": "Vertical level where the animal mainly finds food. Fossorial is underground, ground is on the surface of the ground, scansorial is on the ground and climbing in trees or on rock, arboreal is in trees, aerial is in flight, and aquatic is in water, fresh or salt.",
+      "domain": "ecology",
+      "kind": "categorical",
+      "levels": [
+        "fossorial",
+        "ground",
+        "scansorial",
+        "arboreal",
+        "aerial",
+        "aquatic"
+      ]
+    },
+    {
+      "code": "hibernation_torpor",
+      "name": "Hibernation or torpor",
+      "trait_id": "BPT:0000021",
+      "definition": "Whether the animal uses torpor, a state of lowered body temperature and metabolism. Hibernation is torpor in bouts of several days through a season. Torpor is torpor not described as hibernation, usually in bouts shorter than a day, and is also the level for a source that says only that the animal uses torpor. No means neither. An animal that does both is recorded as hibernation.",
+      "domain": "ecology",
+      "kind": "categorical",
+      "levels": [
+        "hibernation",
+        "torpor",
+        "no"
+      ],
+      "level_aliases": {
+        "y": "torpor",
+        "yes": "torpor"
+      }
+    },
+    {
+      "code": "migratory_status",
+      "name": "Migratory status",
+      "trait_id": "BPT:0000022",
+      "definition": "Whether the animal moves seasonally between regions. Yes means the species migrates. No means it stays in one region. Partial means some populations or individuals migrate and others do not.",
+      "domain": "ecology",
+      "kind": "categorical",
+      "levels": [
+        "yes",
+        "no",
+        "partial"
+      ]
+    },
+    {
+      "code": "social_group_size",
+      "name": "Social group size",
+      "trait_id": "BPT:0000023",
+      "definition": "Number of individuals living together in one cohesive social group.",
+      "domain": "ecology",
+      "kind": "numeric",
+      "trait_unit": "individuals",
+      "printed_units": {
+        "individuals": "1"
+      }
+    },
+    {
+      "code": "individual_home_range_size",
+      "name": "Individual home range size",
+      "trait_id": "BPT:0000024",
+      "definition": "Area that one individual uses for its normal activity, such as feeding, resting and raising young.",
+      "domain": "ecology",
+      "kind": "numeric",
+      "trait_unit": "km2",
+      "printed_units": {
+        "km2": "1",
+        "ha": "0.01",
+        "m2": "0.000001",
+        "acre": "0.0040468564224",
+        "mi2": "2.589988110336"
+      }
+    },
+    {
+      "code": "population_density",
+      "name": "Population density",
+      "trait_id": "BPT:0000025",
+      "definition": "Number of individuals living in one unit of area.",
+      "domain": "ecology",
+      "kind": "numeric",
+      "trait_unit": "individuals/km2",
+      "printed_units": {
+        "individuals/km2": "1",
+        "individuals/ha": "100",
+        "individuals/m2": "1000000"
+      }
+    },
+    {
+      "code": "basal_metabolic_rate",
+      "name": "Basal metabolic rate",
+      "trait_id": "BPT:0000026",
+      "definition": "Rate of energy use of a whole animal at rest, not digesting food, and at a temperature where it needs no extra energy to keep warm or cool.",
+      "domain": "physiology",
+      "kind": "numeric",
+      "trait_unit": "kJ/h",
+      "printed_units": {
+        "kJ/h": "1",
+        "J/h": "0.001",
+        "kcal/h": "4.184",
+        "W": "3.6",
+        "mW": "0.0036",
+        "mlO2/h": "0.0201",
+        "lO2/h": "20.1"
+      },
+      "approximate_units": [
+        "mlO2/h",
+        "lO2/h"
+      ]
+    },
+    {
+      "code": "body_temperature",
+      "name": "Body temperature",
+      "trait_id": "BPT:0000027",
+      "definition": "Core temperature of the body of an animal at rest and not in torpor, usually measured in the rectum.",
+      "domain": "physiology",
+      "kind": "numeric",
+      "trait_unit": "°C",
+      "printed_units": {
+        "°C": "1"
+      }
+    },
+    {
+      "code": "geographic_range_size",
+      "name": "Geographic range size",
+      "trait_id": "BPT:0000028",
+      "definition": "Total area of the geographic range of the species, the whole region where it occurs.",
+      "domain": "distribution",
+      "kind": "numeric",
+      "trait_unit": "km2",
+      "printed_units": {
+        "km2": "1",
+        "ha": "0.01",
+        "m2": "0.000001",
+        "mi2": "2.589988110336"
+      }
+    },
+    {
+      "code": "greatest_skull_length",
+      "name": "Greatest skull length",
+      "trait_id": "BPT:0000029",
+      "definition": "Greatest length of the skull, from its front-most point, including the incisors, to its hindmost point.",
+      "domain": "skeleton",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "m": "1000",
+        "in": "25.4"
+      }
+    },
+    {
+      "code": "condylobasal_length",
+      "name": "Condylobasal length",
+      "trait_id": "BPT:0000030",
+      "definition": "Length of the skull from the front of the premaxillae to the back of the occipital condyles.",
+      "domain": "skeleton",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "m": "1000",
+        "in": "25.4"
+      }
+    },
+    {
+      "code": "zygomatic_breadth",
+      "name": "Zygomatic breadth",
+      "trait_id": "BPT:0000031",
+      "definition": "Greatest width of the skull across the outer sides of the zygomatic arches.",
+      "domain": "skeleton",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "in": "25.4"
+      }
+    },
+    {
+      "code": "braincase_breadth",
+      "name": "Braincase breadth",
+      "trait_id": "BPT:0000032",
+      "definition": "Greatest width of the braincase itself, not including the zygomatic arches or the mastoid processes.",
+      "domain": "skeleton",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "in": "25.4"
+      }
+    },
+    {
+      "code": "mastoid_breadth",
+      "name": "Mastoid breadth",
+      "trait_id": "BPT:0000033",
+      "definition": "Greatest width of the skull across the outer edges of the mastoid processes.",
+      "domain": "skeleton",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "in": "25.4"
+      }
+    },
+    {
+      "code": "interorbital_breadth",
+      "name": "Interorbital breadth",
+      "trait_id": "BPT:0000034",
+      "definition": "Least width of the skull between the two orbits, at the narrowest point.",
+      "domain": "skeleton",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "in": "25.4"
+      }
+    },
+    {
+      "code": "maxillary_toothrow_length",
+      "name": "Maxillary toothrow length",
+      "trait_id": "BPT:0000035",
+      "definition": "Length of the upper tooth row from the front of the canine to the back of the last molar. When the animal has no canine, the row starts at the first cheek tooth.",
+      "domain": "skeleton",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "in": "25.4"
+      }
+    },
+    {
+      "code": "mandible_length",
+      "name": "Mandible length",
+      "trait_id": "BPT:0000036",
+      "definition": "Length of one half of the lower jaw from the front of the incisors to the back of the condyle.",
+      "domain": "skeleton",
+      "kind": "numeric",
+      "trait_unit": "mm",
+      "printed_units": {
+        "mm": "1",
+        "cm": "10",
+        "m": "1000",
+        "in": "25.4"
+      }
+    }
+  ]
+}
