@@ -8,8 +8,13 @@ The ETS adapter turns an extraction artifact ([extraction-artifact.md](extractio
 
 - The adapter reads an artifact and returns rows. It does not modify the artifact and does not write ETS columns back into it.
 - It does not call the model, and it does not open the parser artifact.
-- One observation is at most one row. An observation the adapter cannot turn into a valid row is dropped.
+- Each observation becomes one ETS row.
 - A new ETS version changes the adapter's mapping. It does not change the stored artifact.
+
+## Deviations from ETS
+
+- A missing `individualCount` is empty. ETS says "Defaults to 1".
+- A missing `dispersion` is empty. ETS says "Defaults to 0". A measured dispersion of zero is stored as `0`.
 
 ## Name mapping
 
@@ -21,17 +26,16 @@ The artifact uses its own camelCase names. The adapter maps them to ETS column n
 | `measurementValueMin` | `measurementValue_min` |
 | `measurementValueMax` | `measurementValue_max` |
 
-`trait` is not an ETS column. The adapter uses it to look up `traitName`, `traitID`, and the standard unit.
+`traitCode` is not an ETS column. It is the extractor's code for the measurement, and a later trait list uses it to fill `traitName`, `traitID`, `traitValue`, and `traitUnit`. Until that list exists, those four stay empty.
 
 ## Sources
 
-The adapter needs three sources. Two are not chosen yet.
+The adapter needs two sources. Neither is chosen yet.
 
 - **Taxonomy backbone** for `scientificName` and `taxonID`. The source is chosen later.
-- **Trait thesaurus** for `traitName`, `traitID`, and the standard unit. ETS does not define the trait list, so the thesaurus is chosen later. The artifact does not check `trait` against a list. The adapter checks it against the thesaurus.
-- **Unit table**, owned by the adapter. It checks that the printed unit belongs to the trait. It converts mass to grams and length to millimetres.
+- **Trait list** for `traitName`, `traitID`, `traitValue`, and `traitUnit`. ETS does not define the trait list, so it is chosen later. The artifact does not check `traitCode` against a list.
 
-An extractor may store `traitValue` and `traitUnit` when the printed token is not itself the value, such as `kg` for a printed `kilograms`. Both are what the paper printed. The adapter converts that pair. The unit check is not written into the artifact.
+An extractor may store `traitValue` and `traitUnit` as its own reading of the printed number and unit, such as `kg` for a printed `kilograms`. The trait list uses that reading, and falls back to the printed text when there is none. It converts the pair into the trait's unit and writes the ETS columns.
 
 ## How a row is derived
 
@@ -41,65 +45,52 @@ An extractor may store `traitValue` and `traitUnit` when the printed token is no
 
 One confident hit becomes the ETS `scientificName` and `taxonID`. No hit, or more than one, leaves `taxonID` empty and adds a warning. The observation is not rewritten.
 
-Until a taxonomy source exists, ETS `scientificName` is the stored `scientificName` when the observation has one, and otherwise the verbatim citation. `taxonID` stays empty. No warning is added for the missing lookup, because none is run.
+A taxonomy lookup fills `scientificName` and `taxonID` together. The extractor's reading of the name stays in the artifact and is not an ETS column. `verbatimScientificName` holds the printed name.
 
 ### Trait value and unit
 
-The adapter resolves the value and the unit each on its own, then converts once. Both are what the paper printed.
+The printed value and the printed unit are copied as they are.
 
-1. The value is `traitValue` when stored, otherwise the parsed `verbatimTraitValue`. A stored value is a cleaned reading of the printed number, in the printed unit.
-2. The unit is `traitUnit` when stored, otherwise the printed `verbatimTraitUnit`. A stored unit is a cleaned reading of the printed unit, such as `kg` for `kilograms`.
-3. The pair is converted with the unit table to grams for mass or millimetres for length. This changes nothing when the unit is already `g` or `mm`.
-
-The adapter is what converts. An extractor does not store a converted pair, such as `12500` and `g` for a printed `12.5 kg`.
-
-A trait outside the unit table drops the row with `trait_unknown`. Until a thesaurus exists, that table is `body_mass`, `body_length`, and `tail_length`. An unknown unit drops the row with `unit_unknown`, and a unit that is not valid for the trait drops it with `unit_not_for_trait`. A value that is not a positive decimal drops the row with `value_not_numeric`.
+1. `verbatimTraitValue` is the printed number.
+2. `verbatimTraitUnit` is the printed unit, such as `kg`. It is optional, and a measurement printed without a unit leaves it empty.
+3. `traitValue` and `traitUnit` stay empty. A later trait list fills them when it standardizes the measurement.
 
 ### Range and dispersion
 
-The minimum, the maximum, and the dispersion share the trait's unit. ETS gives the minimum and the maximum no unit of their own, and it does not convert `dispersion`. A stored minimum or maximum is converted with the same factor as the trait value. An empty side stays empty.
+The minimum, the maximum, and the dispersion are the numbers the paper printed, read with `verbatimTraitUnit`. ETS gives them no unit of their own. An empty one stays empty.
 
-| Stored choice | ETS column | Conversion |
-|---|---|---|
-| `dispersionKind` `standardDeviation` or `standardError` | `dispersion` | Same factor as the trait value |
-| `dispersionKind` `variance` | `dispersion` | Square of that factor |
-| A stored minimum or maximum | `measurementValue_min`, `measurementValue_max` | Same factor as the trait value |
+A minimum greater than the maximum is kept as printed, and the row warns `bounds_reversed:measurementValue_min,measurementValue_max`.
 
-`centralKind` has no column and no conversion. It only feeds the `statisticalMethod` phrase.
-
-`statisticalMethod` stays one free-text phrase. A stored phrase is copied. When no phrase is stored, the adapter writes one from `centralKind` and, when a dispersion number was stored, from `dispersionKind`. The minimum and the maximum are their own columns, so they are not part of the phrase. `mean` and `standardDeviation` become `mean and standard deviation`.
-
-- An unrecognized `centralKind` warns `not_in_vocabulary:statisticalMethod`. A stored phrase is still copied.
-- A dispersion number with no usable kind stays in the printed unit and warns `not_converted:dispersion`. An absent choice and an unrecognized choice both do this. A factor of 1 means the number is already in grams or millimetres, so it is kept and there is no warning.
-- A dispersion kind with no number warns `unspecified:dispersion` and `dispersion` takes the default (see [Defaults](#defaults-and-assigned-columns)). The generated phrase does not name that dispersion.
-- No dispersion number and no kind leaves `dispersion` at 0, with no warning. A single specimen stores none of these choices.
-- A minimum greater than the maximum, after conversion, drops the row with `bounds_reversed`.
+`statisticalMethod` is the phrase the paper printed, or empty.
 
 ### Citation and interpretation columns
 
 - A free-text column that accepts a citation or a correction uses the interpretation value when the extractor stored a correction, and the printed citation otherwise. The narrow citation of a correction is not used for the column. It stays in the artifact for tracing and for UI highlighting, where a precise range is better than a whole passage.
-- A column that accepts a citation or an interpretation (`individualCount`, `measurementValueMin`, dates, coordinates, and the like) is parsed or matched by the adapter. A citation is parsed from its text. An interpretation uses its `value`, and its passage is only the grounding. The adapter parses a number into the numeric ETS column. The artifact does not store the parsed number.
-- `sex` and `aggregateMeasure` are matched against the ETS values. A value that does not match adds a warning and leaves the column empty. A `countryCode` that is not two uppercase letters does the same. A `basisOfRecord` that does not match adds a warning and becomes `literatureData`.
-- A date is written as `YYYY-MM-DD`. A year-first number or a written month is converted. A numeric day and month is converted when one number is greater than 12, so that number is the day. When both are 12 or less, the date is left empty.
+- A column that accepts a citation or an interpretation (`individualCount`, `measurementValueMin`, dates, coordinates, and the like) is parsed or matched by the adapter. A citation is parsed from its text. An interpretation uses its `value`, and its passage is only the grounding. A number that parses is written as that number. Text that does not parse stays as printed and warns `not_numeric` for that field. The artifact does not store the parsed number.
+- `sex` tries the reading first, then the printed word. The first one in the list is the column, in its canonical form. If neither is in the list, the printed word stays and the row warns `not_in_vocabulary:sex`.
+- `countryCode` is two letters. Matching ignores case, and a match is written in uppercase, so `de` becomes `DE`. Other text stays and warns `not_in_vocabulary:countryCode`. The printed country name stays on `country`.
+- `basisOfRecord` and `aggregateMeasure` are not printed tokens. A value outside those lists stays empty and warns `not_in_vocabulary` for that field.
+- A date that parses is written as `YYYY-MM-DD`. A year-first number or a written month is converted. A numeric day and month is converted when one number is greater than 12, so that number is the day. When both are 12 or less, the printed text stays and warns `not_a_date` for that field. Year, month, and day that do not form a calendar day stay as printed and warn `not_a_date:year,month,day`. A number outside its column's range, such as month 13, a count below 1, or a longitude past 180, stays and warns `out_of_range` for that field.
 
 ### Defaults and assigned columns
 
-- `basisOfRecord` is `literatureData` when the observation did not record one. `aggregateMeasure` stays empty.
-- A missing `individualCount` is `1`. A missing `dispersion` is `0`. ETS defines those defaults. The `0` means the measurement did not report a dispersion. It is not a measured dispersion of zero. The minimum and the maximum have no default, so they stay empty.
+- A missing `basisOfRecord` stays empty. ETS does not default it. `aggregateMeasure` stays empty.
+- A missing `individualCount` is empty. A missing `dispersion` is empty. A measured dispersion of zero is stored as `0`. The minimum and the maximum have no default either.
 - `measurementID` is assigned when the rows are built.
 - `references` comes from the job's document.
 - `warnings` collects what the adapter found while building the row.
-- `occurrenceID` is copied when the observation stored one.
-- `traitName` and `traitID` stay empty until the thesaurus exists.
+- `occurrenceID` is the printed token, or a value read from a wider phrase, when the observation stored one.
+- `taxonRank` stays empty. A taxonomy lookup fills it with `taxonID`. A printed kingdom, phylum, class, order, family, or genus is copied, and a later lookup fills one of those columns only when the observation left it empty.
+- `traitName`, `traitID`, `traitValue`, and `traitUnit` stay empty until the trait list exists.
 
-## Warnings and drops
+## Warnings
 
-A warning means the row was built with something missing or doubtful. A drop means no row was built.
+A warning means the row was built with something missing or doubtful.
 
-A dropped observation must not disappear silently. The adapter returns, with the rows, a list of drops. Each has the source index of the observation in the artifact and a reason: `trait_unknown`, `unit_unknown`, `unit_not_for_trait`, `value_not_numeric`, or `bounds_reversed`. It also keeps each row's source index, so a row can be traced back to its observation. The index is not derived from `measurementID`, which counts only kept rows.
+Each row keeps the source index of its observation in the artifact, so a row can be traced back.
 
 ## Open decisions
 
 - Which of `verbatimScientificName` and `scientificName` the taxonomy lookup tries first.
 - The taxonomy source.
-- The trait thesaurus.
+- The trait list.

@@ -21,7 +21,7 @@ One observation is one measurement, which becomes one ETS row. The artifact reco
   "extractor_version": "1",
   "observations": [
     {
-      "trait": {
+      "traitCode": {
         "kind": "interpretation",
         "value": "body_mass",
         "passage": {
@@ -106,9 +106,9 @@ A correction keeps a narrow citation beside an interpretation of a wider passage
 }
 ```
 
-A correction is for a free-text column where the printed token is usable but not the best value. For example, a printed `juv.` can carry the reading `juvenile`, and a printed `U.S.` can carry `United States`.
+A correction keeps the printed token beside a reading of a wider phrase. On a free-text column the reading is the column value, such as `juvenile` for `juv.` or `United States` for `U.S.`. `sex` tries the reading first and then the printed word.
 
-- The adapter uses the interpretation value for the column. Without a correction it uses the printed citation.
+- For a free-text column, the adapter uses the interpretation value. Without a correction it uses the printed citation. `sex` tries the reading first and then the printed word, and keeps the printed word when neither is in the list.
 - The narrow citation stays for tracing and for UI highlighting, where its precise range is better than the whole passage.
 - Both are grounded. The citation points at the printed token, and the interpretation's passage points at the wider text the value was read from.
 
@@ -118,27 +118,28 @@ Each field has one of four shapes. The shape says which kinds of value it accept
 
 | Shape | Accepts | Meaning |
 |---|---|---|
-| **printed** | Citation only. | The printed token is the value. |
-| **printed + correction** | Citation, or correction. | A free-text column. The printed token is always usable. A correction keeps it beside a better value read from wider text. |
-| **printed or interpreted** | Citation, or interpretation. | The column has a format check. The printed token is a citation if it passes the check. Otherwise the value is an interpretation. |
+| **printed** | Citation only. | The printed token is the value. It is an exact citation. |
+| **printed + correction** | Citation, or correction. | The printed token, or that token kept beside a reading of a wider phrase. |
+| **printed or interpreted** | Citation, or interpretation. | The printed token, or a value read from a wider phrase. The passage grounds the value. |
 | **interpreted** | Interpretation only. | The paper does not print the value, such as `LivingSpecimen` or `TRUE`. |
 
 ### Choosing a shape
 
 Ask these questions in order for a field.
 
-1. **Is it a required verbatim column?** (`verbatimScientificName`, `verbatimTraitValue`, `verbatimTraitUnit`.) It is **printed**. It is the printed token by definition.
+1. **Is it a required verbatim column?** (`verbatimScientificName`, `verbatimTraitName`, `verbatimTraitValue`.) It is **printed**. It is an exact citation of the printed token. A correction must not rewrite it. `verbatimTraitUnit` is printed too, but it is optional, because a measurement can be printed without a unit.
 2. **Does the paper ever print the value itself?** If not, it is **interpreted**. `basisOfRecord` is `LivingSpecimen`, and a paper does not print that.
-3. **Does the ETS column check its format?** A number, a date, a code, or a fixed list of tokens is a format check.
-   - If it does, the field is **printed or interpreted**. Printed text often fails the check, so the field is either the printed token (when it passes) or a value read from a passage.
-   - If the column is free text, the field is **printed + correction**.
+3. **Does the column keep the printed token beside a reading?** Free text does. `sex` does too, because the printed word and a reading of it can both be tried. The field is **printed + correction**.
+4. Otherwise the field is **printed or interpreted**. It is the printed token, or a value read from a wider phrase. A number, a date, a country code, and an occurrence id take this shape. The passage grounds the value. It is not a second column value.
 
-The difference between the last two is what to do with a wider passage. Take two fields from the same sentence, `Adult males weighed 12 g, and 8 males and 4 females were caught`:
+The difference between the last two is what is kept beside the reading. Take two fields from the same sentence, `Adult males weighed 12 g, and 8 males and 4 females were caught`:
 
-- `lifeStage` is free text. The printed token `Adult` is a valid value. A correction can keep `Adult` as the citation, and add an interpretation `adult` whose passage is `Adult males`. Both are valid text, so the adapter can use either.
-- `individualCount` must be a number. The passage `8 males and 4 females` is not a number, so it cannot sit beside the field as a fallback. The field is an interpretation, `12`, with that passage as its grounding. If the paper had printed `12`, the field would be a citation instead.
+- `lifeStage` is free text. The printed token `Adult` is kept. A correction can keep `Adult` as the citation, and add a reading `adult` whose passage is `Adult males`.
+- `individualCount` is a number read from a phrase. The field is an interpretation, `12`, and the passage `8 males and 4 females` grounds it. If the paper had printed `12`, the field would be a citation instead.
 
-So a passage is only a usable fallback in a free-text column. In a column with a format check, it is only the grounding for a value.
+`occurrenceID` is the fourth question, not a correction. A printed catalog number is the citation. An id read from a header plus a cell, or from one side of a split range, is an interpretation. A correction would rewrite an identifier that was already printed.
+
+`sex` is the third question. A citation is the printed word. A correction keeps that word beside a reading, such as `male` for `males`. The row tries the reading first, then the printed word.
 
 Three fields are the exception to question 2: `scientificName`, `traitValue`, and `traitUnit`. Each is an **interpreted** value that sits beside a required verbatim column, and it is omitted when the printed token is already the value. The verbatim column holds what was printed, and the paired field holds the standardized reading, such as `Mus musculus` for a printed `M. musculus`.
 
@@ -146,24 +147,23 @@ In the table below, the ETS term is the column the adapter fills from the field.
 
 | Field | Shape | Required | ETS term | Notes |
 |---|---|---|---|---|
-| `trait` | interpreted | yes | - | A free string such as `body_mass`. The adapter looks it up in the trait thesaurus. |
-| `verbatimTraitName` | printed + correction | | `verbatimTraitName` | |
-| `verbatimScientificName` | printed | yes | `verbatimScientificName` | The printed name, such as `M. musculus`. |
+| `traitCode` | interpreted | | - | Optional. The extractor's code for the measurement, such as `body_mass`. A measurement with no code is still an observation. It is not the printed name. A later trait list looks it up. |
+| `verbatimTraitName` | printed | yes | `verbatimTraitName` | An exact citation of the printed trait name. A row without it cannot be read. The trait code is what a later list standardizes. |
+| `verbatimScientificName` | printed | yes | `verbatimScientificName` | An exact citation of the printed name, such as `M. musculus`. |
 | `scientificName` | interpreted | | `scientificName` | Paired with `verbatimScientificName`. A name read from the printed citation, such as `Mus musculus`. |
-| `verbatimTraitValue` | printed | yes | `verbatimTraitValue` | |
+| `verbatimTraitValue` | printed | yes | `verbatimTraitValue` | An exact citation of the printed value. |
 | `traitValue` | interpreted | | `traitValue` | Paired with `verbatimTraitValue`. A cleaned reading of the printed number, in the unit the paper printed. |
-| `verbatimTraitUnit` | printed | yes | `verbatimTraitUnit` | |
+| `verbatimTraitUnit` | printed | | `verbatimTraitUnit` | Optional. A measurement can be printed without a unit. |
 | `traitUnit` | interpreted | | `traitUnit` | Paired with `verbatimTraitUnit`. A cleaned reading of the printed unit, such as `kg` for `kilograms`. |
-| `taxonRank` | printed + correction | | `taxonRank` | |
 | `kingdom` | printed + correction | | `kingdom` | |
 | `phylum` | printed + correction | | `phylum` | |
 | `taxonClass` | printed + correction | | `class` | Taxonomic class. Named `taxonClass` because `class` is a Python keyword. The ETS column is `class`. |
 | `order` | printed + correction | | `order` | |
 | `family` | printed + correction | | `family` | |
 | `genus` | printed + correction | | `genus` | |
-| `sex` | printed or interpreted | | `sex` | Token list (`male`, `female`, `subadult`, `unknown`, `hermaphrodite`). A paper prints `males`, `M`, or `♂`, which fail the check. Compare `lifeStage`, which is free text. |
+| `sex` | printed + correction | | `sex` | Token list (`male`, `female`, `subadult`, `unknown`, `hermaphrodite`). A citation is the printed word. A correction keeps that word beside a reading. The row tries the reading first, then the printed word. If neither is in the list, the printed word stays. |
 | `lifeStage` | printed + correction | | `lifeStage` | Free text, so the printed token is already a usable value. Compare `age`. |
-| `age` | printed or interpreted | | `age` | A number. A paper prints `3 years` or `adult`, which fail the check. `adult` belongs in `lifeStage`. |
+| `age` | printed or interpreted | | `age` | A number. A paper prints `3 years` or `adult`. `adult` belongs in `lifeStage`. |
 | `morphotype` | printed + correction | | `morphotype` | |
 | `basisOfRecord` | interpreted | | `basisOfRecord` | Token list. A paper does not print `LivingSpecimen`, so there is no citation form. |
 | `basisOfRecordDescription` | printed + correction | | `basisOfRecordDescription` | |
@@ -171,17 +171,15 @@ In the table below, the ETS term is the column the adapter fills from the field.
 | `measurementResolution` | printed + correction | | `measurementResolution` | |
 | `measurementRemarks` | printed + correction | | `measurementRemarks` | |
 | `measurementDeterminedBy` | printed + correction | | `measurementDeterminedBy` | |
-| `measurementDeterminedDate` | printed or interpreted | | `measurementDeterminedDate` | A date. A paper prints `8 Mar 1963`, which fails the check. |
+| `measurementDeterminedDate` | printed or interpreted | | `measurementDeterminedDate` | A date. A paper prints `8 Mar 1963`, read as `1963-03-08`. |
 | `aggregateMeasure` | interpreted | | `aggregateMeasure` | `TRUE` or `FALSE`. A paper does not print it. It is read from wording such as `mean of 12`. |
-| `statisticalMethod` | printed + correction | | `statisticalMethod` | The printed phrase, such as `mean ± SD`. When it is omitted, the adapter writes a phrase from `centralKind` and, when a dispersion number was stored, from `dispersionKind`. |
-| `centralKind` | interpreted | | - | `mean` or `median`. A paper does not print this token. It is not converted. |
-| `dispersionKind` | interpreted | | - | `standardDeviation`, `variance`, or `standardError`. With `dispersion`, it selects the conversion. |
-| `individualCount` | printed or interpreted | | `individualCount` | A number. A paper prints `8 males and 4 females`, read as `12`. |
-| `dispersion` | printed or interpreted | | `dispersion` | A number. The printed token often carries a sign or a label, such as `± 1.2`. It shares the trait unit. There is no separate dispersion unit. |
+| `statisticalMethod` | printed + correction | | `statisticalMethod` | The phrase the paper printed, such as `mean ± SD`. When the paper gives none, the column stays empty. |
+| `individualCount` | printed or interpreted | | `individualCount` | A number. A paper prints `8 males and 4 females`, read as `12`. A missing count stays empty. |
+| `dispersion` | printed or interpreted | | `dispersion` | A number. The printed token often carries a sign or a label, such as `± 1.2`. It is read with `verbatimTraitUnit`. A missing dispersion stays empty. |
 | `measurementValueMin` | printed or interpreted | | `measurementValue_min` | A number. Often read from a range such as `10-14 g`. It shares the trait unit. |
 | `measurementValueMax` | printed or interpreted | | `measurementValue_max` | A number. Often read from a range such as `10-14 g`. It shares the trait unit. |
 | `measurementAccuracy` | printed + correction | | `measurementAccuracy` | |
-| `occurrenceID` | printed + correction | | `occurrenceID` | |
+| `occurrenceID` | printed or interpreted | | `occurrenceID` | A printed catalog number is a citation. An id read from a header plus a cell, or from one side of a split range, is an interpretation. |
 | `eventID` | printed + correction | | `eventID` | |
 | `preparations` | printed + correction | | `preparations` | |
 | `samplingProtocol` | printed + correction | | `samplingProtocol` | |
@@ -197,16 +195,16 @@ In the table below, the ETS term is the column the adapter fills from the field.
 | `geodeticDatum` | printed + correction | | `geodeticDatum` | |
 | `verbatimLocality` | printed + correction | | `verbatimLocality` | |
 | `country` | printed + correction | | `country` | Free text. The printed name is the value. Compare `countryCode`. |
-| `countryCode` | printed or interpreted | | `countryCode` | ISO 3166-1 alpha-2. A paper prints `Germany`, read as `DE`. |
+| `countryCode` | printed or interpreted | | `countryCode` | Two letters, matched ignoring case and written in uppercase. A paper prints `Germany`, read as `DE`. |
 | `occurrenceRemarks` | printed + correction | | `occurrenceRemarks` | |
 
-Not in the artifact, because the adapter derives or assigns them: `taxonID`, `traitName`, `traitID`, `measurementID`, `warnings`, and `references`.
+Not in the artifact, because a later step assigns them: `taxonID`, `taxonRank`, `traitName`, `traitID`, `measurementID`, `warnings`, and `references`. `taxonRank` is the rank of the accepted name, filled with `taxonID`. A printed kingdom, phylum, class, order, family, or genus stays on the observation.
 
 ## Names and values
 
 Field names are the artifact's own, in camelCase, and follow the ETS terms where there is one. `taxonClass` and `measurementValueMin` differ from the ETS spellings `class` and `measurementValue_min`. A new ETS version changes the adapter's mapping and not the stored artifact.
 
-The artifact does not enforce a set of allowed values. An interpretation `value` is a non-empty string. That includes `trait`, `sex`, `basisOfRecord`, `aggregateMeasure`, `centralKind`, `dispersionKind`, and `traitUnit`. An extractor may constrain its model to a set, or check afterwards. The adapter decides what a value means and warns on one it does not know.
+The artifact does not enforce a set of allowed values. An interpretation `value` is a non-empty string. That includes `traitCode`, `sex`, `basisOfRecord`, `aggregateMeasure`, and `traitUnit`. An extractor may constrain its model to a set, or check afterwards. The adapter decides what a value means and warns on one it does not know.
 
 ## What the worker checks
 
@@ -223,7 +221,7 @@ The schema does not open the parsed text, so check 3 is done by the worker.
 - Return the whole artifact. An extractor returns an `ExtractionArtifact` the way a parser returns a `ParserArtifact`.
 - Ground every field. A field you cannot locate is not stored. If the field is required, drop the observation.
 - Keep failed attempts out of the artifact. What the model tried and could not ground belongs in the extractor's logs.
-- Keep the number and the unit as the paper printed them. `traitValue`, when stored, is a cleaned reading of the printed number. `traitUnit`, when stored, is a cleaned reading of the printed unit, such as `kg` for `kilograms`. The adapter converts that pair into grams or millimetres. Do not store `12500` and `g` for a printed `12.5 kg`.
-- Record `centralKind` and `dispersionKind` when the paper summarizes a measurement. The adapter uses `dispersionKind` to convert `dispersion`, and it converts a stored minimum and maximum with the same factor as the trait value. One unit covers the measurement, and it is the unit the paper printed for the trait value. Do not store a separate unit for the minimum, the maximum, or the dispersion. If a paper mixes units, store those numbers in that printed unit.
-- You may be stricter than the artifact. An extractor may check names or repair a field before it stores a result. It may also store a result the adapter later rejects, such as a unit that does not fit the trait.
+- Keep the number and the unit as the paper printed them. `traitValue`, when stored, is a cleaned reading of the printed number. `traitUnit`, when stored, is a cleaned reading of the printed unit, such as `kg` for `kilograms`.
+- `statisticalMethod` is the phrase the paper printed. When the paper gives none, leave it empty. The minimum, the maximum, and the dispersion are the printed numbers, read with `verbatimTraitUnit`.
+- You may be stricter than the artifact. An extractor may check names or repair a field before it stores a result.
 - The artifact does not record how a range was found. An extractor may find one any way it likes.

@@ -340,8 +340,7 @@ export interface components {
          * @description A narrow citation kept beside an interpretation.
          *
          *     ``citation`` is the narrow printed token. The interpretation's passage is
-         *     the wider text its value was read from. The adapter uses the
-         *     interpretation value. The citation stays for tracing and highlighting.
+         *     the wider text its value was read from.
          */
         Correction: {
             /**
@@ -493,42 +492,37 @@ export interface components {
          * Observation
          * @description One measurement.
          *
-         *     A citation-only field is printed text. A citation or correction is that citation, or a
-         *     correction that keeps the narrow citation beside an interpretation. A citation
-         *     or interpretation has no verbatim sibling. Its check can reject the printed
-         *     text, so it is a citation or an interpretation of one passage. The passage
-         *     fails that check, so it is not a usable column value. ``basisOfRecord``,
-         *     ``aggregateMeasure``, ``centralKind``, and ``dispersionKind``
-         *     are interpretations only. A paper does not print those tokens. The adapter
-         *     uses ``centralKind`` and ``dispersionKind`` to write ``statisticalMethod``
-         *     when no phrase was stored, and ``dispersionKind`` to convert the dispersion.
-         *     The minimum and the maximum use the same factor as the trait value. One
-         *     unit covers the measurement.
+         *     A citation-only field is the printed token. A citation or correction is that
+         *     token, or the token kept beside a reading of a wider phrase. A citation or
+         *     interpretation is the printed token, or a value read from a wider phrase.
+         *     ``basisOfRecord`` and ``aggregateMeasure`` are interpretations only. A paper
+         *     does not print those tokens.
+         *
+         *     The minimum, the maximum, and the dispersion are the numbers the paper
+         *     printed, read with ``verbatimTraitUnit``. ``statisticalMethod`` is the
+         *     phrase the paper printed, or empty.
          *
          *     ``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations
-         *     beside a required verbatim citation. The interpretation is omitted when the
-         *     printed token is already the value. ``traitValue`` and ``traitUnit`` are
-         *     that printed number and unit, cleaned up, not a converted pair.
-         *     ``scientificName`` is another name a later taxonomy lookup can try.
+         *     beside a verbatim citation. The interpretation is omitted when the printed
+         *     token is already the value. They stay empty until a taxonomy lookup or a
+         *     trait list standardizes them. ``scientificName`` is another name a later
+         *     taxonomy lookup can try.
          *
          *     The artifact does not enforce a closed set of values. An interpretation's
-         *     ``value`` is any non-empty string, including ``trait``. An extractor may
+         *     ``value`` is any non-empty string, including ``traitCode``. An extractor may
          *     constrain it, and the adapter decides what a value means.
          *
          *     Every other column a paper can state is optional. An extractor leaves it null.
          */
         Observation: {
-            trait: components["schemas"]["Interpretation"];
-            /** Verbatimtraitname */
-            verbatimTraitName?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            traitCode?: components["schemas"]["Interpretation"] | null;
+            verbatimTraitName: components["schemas"]["Citation"];
             scientificName?: components["schemas"]["Interpretation"] | null;
             verbatimScientificName: components["schemas"]["Citation"];
             traitValue?: components["schemas"]["Interpretation"] | null;
             verbatimTraitValue: components["schemas"]["Citation"];
             traitUnit?: components["schemas"]["Interpretation"] | null;
-            verbatimTraitUnit: components["schemas"]["Citation"];
-            /** Taxonrank */
-            taxonRank?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            verbatimTraitUnit?: components["schemas"]["Citation"] | null;
             /** Kingdom */
             kingdom?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Phylum */
@@ -542,7 +536,7 @@ export interface components {
             /** Genus */
             genus?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Sex */
-            sex?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            sex?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Lifestage */
             lifeStage?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Age */
@@ -565,8 +559,6 @@ export interface components {
             aggregateMeasure?: components["schemas"]["Interpretation"] | null;
             /** Statisticalmethod */
             statisticalMethod?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
-            centralKind?: components["schemas"]["Interpretation"] | null;
-            dispersionKind?: components["schemas"]["Interpretation"] | null;
             /** Individualcount */
             individualCount?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
             /** Dispersion */
@@ -578,7 +570,7 @@ export interface components {
             /** Measurementaccuracy */
             measurementAccuracy?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Occurrenceid */
-            occurrenceID?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            occurrenceID?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
             /** Eventid */
             eventID?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Preparations */

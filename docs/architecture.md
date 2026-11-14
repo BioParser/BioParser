@@ -296,9 +296,9 @@ source coordinates.
 
 A finished extraction stores one observation per measurement. Each paper field keeps the printed text and a character range in a parser block. A field that cannot be located is not stored, and an observation missing a required field is dropped by its extractor.
 
-The stored file checks its shape: the trait code, a required string, and that a range is ordered. The worker checks every range against the slice it names before storing, for any extractor. A mismatch fails the job. An unresolved name and a unit that cannot be converted are stored as printed. The file does not decide whether a measurement is good enough to show.
+The stored file checks shape only. `verbatimScientificName`, `verbatimTraitName`, and `verbatimTraitValue` are required. `traitCode` is optional. Text is a non-empty string, and a range is ordered. The worker checks every range against the slice it names before storing, for any extractor. A mismatch fails the job. An unresolved name and a unit that cannot be converted are still stored. The file does not decide whether a measurement is good enough to show.
 
-The ETS adapter is the quality gate for what a user is shown. It resolves the name, converts the unit, and decides whether a weak field becomes a warning, an empty id, or a dropped row. An extractor may call those same checks while it is still working, and drop or repair a field before storing it. It does not have to. The stored file can hold a value the response rejects, such as a unit that does not fit the trait.
+The ETS adapter is the quality gate for what a user is shown. It copies printed tokens onto the row and warns when a value fails its check. `scientificName`, `traitName`, `traitID`, `traitValue`, and `traitUnit` stay empty until a later lookup. It does not drop the row. An extractor may check a field while it is still working, and drop or repair it before storing. It does not have to. The stored file can hold a reading the row does not copy.
 
 The field list and the evidence rules are in [extraction-artifact.md](extraction-artifact.md). What the ETS adapter derives is in [ets-adapter.md](ets-adapter.md).
 

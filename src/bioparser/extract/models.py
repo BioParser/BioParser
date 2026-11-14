@@ -54,8 +54,7 @@ class Correction(BaseModel):
     """A narrow citation kept beside an interpretation.
 
     ``citation`` is the narrow printed token. The interpretation's passage is
-    the wider text its value was read from. The adapter uses the
-    interpretation value. The citation stays for tracing and highlighting.
+    the wider text its value was read from.
     """
 
     model_config = _CONFIG
@@ -65,13 +64,7 @@ class Correction(BaseModel):
     interpretation: Interpretation
 
 
-# A column with no verbatim sibling. Its check can reject the printed text, so
-# the field is a citation or an interpretation. A citation that already passes
-# is kept. An interpretation supplies a value that can pass. The passage fails
-# the check, so it is not a usable column value.
 CitationOrInterpretation = Annotated[Citation | Interpretation, Field(discriminator="kind")]
-# A citation, or a correction that keeps the narrow token beside an
-# interpretation of a wider passage. The interpretation is the column value.
 CitationOrCorrection = Annotated[Citation | Correction, Field(discriminator="kind")]
 
 
@@ -85,26 +78,24 @@ def stored_text(value: Citation | Interpretation) -> str:
 class Observation(BaseModel):
     """One measurement.
 
-    A citation-only field is printed text. A citation or correction is that citation, or a
-    correction that keeps the narrow citation beside an interpretation. A citation
-    or interpretation has no verbatim sibling. Its check can reject the printed
-    text, so it is a citation or an interpretation of one passage. The passage
-    fails that check, so it is not a usable column value. ``basisOfRecord``,
-    ``aggregateMeasure``, ``centralKind``, and ``dispersionKind``
-    are interpretations only. A paper does not print those tokens. The adapter
-    uses ``centralKind`` and ``dispersionKind`` to write ``statisticalMethod``
-    when no phrase was stored, and ``dispersionKind`` to convert the dispersion.
-    The minimum and the maximum use the same factor as the trait value. One
-    unit covers the measurement.
+    A citation-only field is the printed token. A citation or correction is that
+    token, or the token kept beside a reading of a wider phrase. A citation or
+    interpretation is the printed token, or a value read from a wider phrase.
+    ``basisOfRecord`` and ``aggregateMeasure`` are interpretations only. A paper
+    does not print those tokens.
+
+    The minimum, the maximum, and the dispersion are the numbers the paper
+    printed, read with ``verbatimTraitUnit``. ``statisticalMethod`` is the
+    phrase the paper printed, or empty.
 
     ``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations
-    beside a required verbatim citation. The interpretation is omitted when the
-    printed token is already the value. ``traitValue`` and ``traitUnit`` are
-    that printed number and unit, cleaned up, not a converted pair.
-    ``scientificName`` is another name a later taxonomy lookup can try.
+    beside a verbatim citation. The interpretation is omitted when the printed
+    token is already the value. They stay empty until a taxonomy lookup or a
+    trait list standardizes them. ``scientificName`` is another name a later
+    taxonomy lookup can try.
 
     The artifact does not enforce a closed set of values. An interpretation's
-    ``value`` is any non-empty string, including ``trait``. An extractor may
+    ``value`` is any non-empty string, including ``traitCode``. An extractor may
     constrain it, and the adapter decides what a value means.
 
     Every other column a paper can state is optional. An extractor leaves it null.
@@ -112,8 +103,8 @@ class Observation(BaseModel):
 
     model_config = _CONFIG
 
-    trait: Interpretation
-    verbatimTraitName: CitationOrCorrection | None = None
+    traitCode: Interpretation | None = None
+    verbatimTraitName: Citation
 
     scientificName: Interpretation | None = None
     verbatimScientificName: Citation
@@ -122,9 +113,8 @@ class Observation(BaseModel):
     verbatimTraitValue: Citation
 
     traitUnit: Interpretation | None = None
-    verbatimTraitUnit: Citation
+    verbatimTraitUnit: Citation | None = None
 
-    taxonRank: CitationOrCorrection | None = None
     kingdom: CitationOrCorrection | None = None
     phylum: CitationOrCorrection | None = None
     taxonClass: CitationOrCorrection | None = None
@@ -132,7 +122,7 @@ class Observation(BaseModel):
     family: CitationOrCorrection | None = None
     genus: CitationOrCorrection | None = None
 
-    sex: CitationOrInterpretation | None = None
+    sex: CitationOrCorrection | None = None
     lifeStage: CitationOrCorrection | None = None
     age: CitationOrInterpretation | None = None
     morphotype: CitationOrCorrection | None = None
@@ -148,15 +138,13 @@ class Observation(BaseModel):
 
     aggregateMeasure: Interpretation | None = None
     statisticalMethod: CitationOrCorrection | None = None
-    centralKind: Interpretation | None = None
-    dispersionKind: Interpretation | None = None
     individualCount: CitationOrInterpretation | None = None
     dispersion: CitationOrInterpretation | None = None
     measurementValueMin: CitationOrInterpretation | None = None
     measurementValueMax: CitationOrInterpretation | None = None
     measurementAccuracy: CitationOrCorrection | None = None
 
-    occurrenceID: CitationOrCorrection | None = None
+    occurrenceID: CitationOrInterpretation | None = None
 
     eventID: CitationOrCorrection | None = None
     preparations: CitationOrCorrection | None = None

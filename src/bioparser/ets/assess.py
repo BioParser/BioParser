@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 from bioparser.ets.dates import parse_date
 from bioparser.ets.notices import (
+    BoundsReversed,
     DateField,
     NotACalendarDay,
     NotADate,
@@ -15,12 +16,11 @@ from bioparser.ets.notices import (
     NotInVocabulary,
     NotNumeric,
     NumericField,
+    OutOfRange,
     TextField,
 )
-from bioparser.ets.numbers import parse_count, parse_decimal, parse_integer, parse_signed_decimal
-from bioparser.ets.statistics import read_statistics
-from bioparser.ets.units import CanonicalTraitValue, TargetUnit, convert_trait_value_to_canonical
-from bioparser.ets.vocab import BasisOfRecord, Sex, match_aggregate, match_basis, match_sex
+from bioparser.ets.numbers import parse_decimal, parse_integer, parse_signed_decimal
+from bioparser.ets.vocab import BasisOfRecord, match_aggregate, match_basis, match_sex
 from bioparser.extract.models import (
     CitationOrCorrection,
     CitationOrInterpretation,
@@ -30,20 +30,12 @@ from bioparser.extract.models import (
     stored_text,
 )
 
-DropReason = Literal[
-    "trait_unknown",
-    "unit_not_for_trait",
-    "unit_unknown",
-    "value_not_numeric",
-    "bounds_reversed",
-]
 # Free-text columns. The value is the ETS name. taxonClass is written as class.
 _CITED: dict[str, TextField] = {
     "verbatimScientificName": "verbatimScientificName",
     "verbatimTraitValue": "verbatimTraitValue",
     "verbatimTraitUnit": "verbatimTraitUnit",
     "verbatimTraitName": "verbatimTraitName",
-    "taxonRank": "taxonRank",
     "kingdom": "kingdom",
     "phylum": "phylum",
     "taxonClass": "class",
@@ -59,7 +51,6 @@ _CITED: dict[str, TextField] = {
     "measurementDeterminedBy": "measurementDeterminedBy",
     "statisticalMethod": "statisticalMethod",
     "measurementAccuracy": "measurementAccuracy",
-    "occurrenceID": "occurrenceID",
     "eventID": "eventID",
     "preparations": "preparations",
     "samplingProtocol": "samplingProtocol",
@@ -72,45 +63,34 @@ _CITED: dict[str, TextField] = {
 }
 
 
-class _Fields(BaseModel):
+class Assessment(BaseModel):
+    """The observation becomes a row."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     warnings: tuple[Notice, ...]
-    scientific_name: str
-    sex: Sex | None
-    age: float | None
+    scientific_name: str | None
+    trait_value: str | None
+    trait_unit: str | None
+    sex: str | None
+    age: float | str | None
     aggregate_measure: bool | None
-    basis_of_record: BasisOfRecord
-    individual_count: int | None
-    dispersion: float | None
-    measurement_value_min: float | None
-    measurement_value_max: float | None
-    year: int | None
-    month: int | None
-    day: int | None
+    basis_of_record: BasisOfRecord | None
+    individual_count: int | str | None
+    dispersion: float | str | None
+    measurement_value_min: float | str | None
+    measurement_value_max: float | str | None
+    year: int | str | None
+    month: int | str | None
+    day: int | str | None
     event_date: str | None
     measurement_determined_date: str | None
-    decimal_longitude: float | None
-    decimal_latitude: float | None
-    elevation: float | None
+    decimal_longitude: float | str | None
+    decimal_latitude: float | str | None
+    elevation: float | str | None
     country_code: str | None
+    occurrence_id: str | None
     cited: dict[TextField, str | None]
-
-
-class Kept(_Fields):
-    """The observation can become a row. The converted value is present."""
-
-    trait_value: str
-    trait_unit: TargetUnit
-
-
-class Dropped(_Fields):
-    """The observation cannot become a row."""
-
-    drop: DropReason
-
-
-Assessment = Kept | Dropped
 
 
 def assess(observation: Observation) -> Assessment:
@@ -119,45 +99,44 @@ def assess(observation: Observation) -> Assessment:
 
     # Free-text columns. A correction contributes its interpretation. A citation contributes its text.
     cited = {ets_name: _cited(getattr(observation, name)) for name, ets_name in _CITED.items()}
-    scientific_name = (
-        observation.scientificName.value
-        if observation.scientificName is not None
-        else observation.verbatimScientificName.text
-    )
 
-    # Closed tokens. A missing or unmatched basis becomes literatureData.
-    sex = _sex(observation.sex, warnings)
-    aggregate_measure = _aggregate(observation.aggregateMeasure, warnings)
-    basis_of_record = _basis(observation.basisOfRecord, warnings)
+    # A taxonomy lookup publishes the accepted name and its rank.
+    scientific_name = None
+    cited["taxonRank"] = None
 
-    # Numbers. ETS defaults a missing count to 1 and a missing dispersion to 0.
+    # A trait list publishes the standardized value and its unit.
+    trait_value = None
+    trait_unit = None
+
+    # Closed tokens. A missing basis stays empty. A token outside the set stays empty.
+    sex = _parse_sex(observation.sex, warnings)
+    aggregate_measure = _parse_aggregate(observation.aggregateMeasure, warnings)
+    basis_of_record = _parse_basis(observation.basisOfRecord, warnings)
+
+    # Numbers.
     age = _parse_decimal(observation.age, "age", warnings, signed=True)
     individual_count = _parse_individual_count(observation.individualCount, warnings)
-    parsed = _parse_trait_value(observation)
-    statistics = read_statistics(
-        observation,
-        trait_factor=parsed.factor if isinstance(parsed, CanonicalTraitValue) else None,
-        stored_phrase=cited["statisticalMethod"],
-        warnings=warnings,
-    )
-    cited["statisticalMethod"] = statistics.phrase
+    dispersion = _parse_dispersion(observation.dispersion, warnings)
+    value_min = _parse_bound(observation.measurementValueMin, "measurementValue_min", warnings)
+    value_max = _parse_bound(observation.measurementValueMax, "measurementValue_max", warnings)
+    if isinstance(value_min, float) and isinstance(value_max, float) and value_min > value_max:
+        warnings.append(BoundsReversed())
 
     # A calendar day is written as YYYY-MM-DD. Year, month, and day stay separate.
     year = _parse_integer(observation.year, "year", warnings, low=1000, high=9999)
     month = _parse_integer(observation.month, "month", warnings, low=1, high=12)
     day = _parse_integer(observation.day, "day", warnings, low=1, high=31)
-    if year is not None and month is not None and day is not None:
+    if isinstance(year, int) and isinstance(month, int) and isinstance(day, int):
         try:
             datetime(year, month, day)
         except ValueError:
             warnings.append(NotACalendarDay())
-            day = None
     event_date = _parse_date(observation.eventDate, "eventDate", warnings)
     measurement_determined_date = _parse_date(
         observation.measurementDeterminedDate, "measurementDeterminedDate", warnings
     )
 
-    # Coordinates outside the valid range stay empty.
+    # A coordinate outside the valid range stays empty.
     decimal_longitude = _parse_coordinate(
         observation.decimalLongitude, "decimalLongitude", warnings, low=-180, high=180
     )
@@ -166,18 +145,23 @@ def assess(observation: Observation) -> Assessment:
     )
     elevation = _parse_decimal(observation.elevation, "elevation", warnings, signed=True)
     country_code = _parse_country_code(observation.countryCode, warnings)
+    occurrence_id = (
+        None if observation.occurrenceID is None else stored_text(observation.occurrenceID)
+    )
 
-    shared = _Fields(
+    return Assessment(
         warnings=tuple(warnings),
         scientific_name=scientific_name,
+        trait_value=trait_value,
+        trait_unit=trait_unit,
         sex=sex,
         age=age,
         aggregate_measure=aggregate_measure,
         basis_of_record=basis_of_record,
         individual_count=individual_count,
-        dispersion=statistics.dispersion,
-        measurement_value_min=statistics.measurement_value_min,
-        measurement_value_max=statistics.measurement_value_max,
+        dispersion=dispersion,
+        measurement_value_min=value_min,
+        measurement_value_max=value_max,
         year=year,
         month=month,
         day=day,
@@ -187,36 +171,9 @@ def assess(observation: Observation) -> Assessment:
         decimal_latitude=decimal_latitude,
         elevation=elevation,
         country_code=country_code,
+        occurrence_id=occurrence_id,
         cited=cited,
     )
-    if not isinstance(parsed, CanonicalTraitValue):
-        return Dropped(drop=parsed, **shared.model_dump())
-    if _bounds_reversed(statistics.measurement_value_min, statistics.measurement_value_max):
-        return Dropped(drop="bounds_reversed", **shared.model_dump())
-    return Kept(
-        trait_value=parsed.value,
-        trait_unit=parsed.unit,
-        **shared.model_dump(),
-    )
-
-
-def _bounds_reversed(lower: float | None, upper: float | None) -> bool:
-    return lower is not None and upper is not None and lower > upper
-
-
-def _parse_trait_value(observation: Observation) -> CanonicalTraitValue | DropReason:
-    value = (
-        observation.traitValue.value
-        if observation.traitValue is not None
-        else observation.verbatimTraitValue.text
-    )
-    # A stored unit is the printed unit, cleaned up. It is not a unit the value was converted into.
-    unit = (
-        observation.traitUnit.value
-        if observation.traitUnit is not None
-        else observation.verbatimTraitUnit.text
-    )
-    return convert_trait_value_to_canonical(observation.trait.value, value, unit)
 
 
 def _cited(value: CitationOrCorrection | None) -> str | None:
@@ -227,26 +184,35 @@ def _cited(value: CitationOrCorrection | None) -> str | None:
     return value.text
 
 
-def _sex(value: CitationOrInterpretation | None, warnings: list[Notice]) -> Sex | None:
+def _parse_sex(value: CitationOrCorrection | None, warnings: list[Notice]) -> str | None:
+    """Try the reading first, then the printed word. A miss keeps the printed word."""
     if value is None:
         return None
-    matched = match_sex(stored_text(value))
-    if matched is None:
-        warnings.append(NotInVocabulary(field="sex"))
-    return matched
+    if isinstance(value, Correction):
+        matched = match_sex(value.interpretation.value)
+        if matched is not None:
+            return matched
+        printed = value.citation.text
+    else:
+        printed = value.text
+    matched = match_sex(printed)
+    if matched is not None:
+        return matched
+    warnings.append(NotInVocabulary(field="sex"))
+    return printed
 
 
-def _basis(value: Interpretation | None, warnings: list[Notice]) -> BasisOfRecord:
+def _parse_basis(value: Interpretation | None, warnings: list[Notice]) -> BasisOfRecord | None:
     if value is None:
-        return "literatureData"
+        return None
     matched = match_basis(value.value)
     if matched is None:
         warnings.append(NotInVocabulary(field="basisOfRecord"))
-        return "literatureData"
+        return None
     return matched
 
 
-def _aggregate(value: Interpretation | None, warnings: list[Notice]) -> bool | None:
+def _parse_aggregate(value: Interpretation | None, warnings: list[Notice]) -> bool | None:
     if value is None:
         return None
     matched = match_aggregate(value.value)
@@ -258,13 +224,46 @@ def _aggregate(value: Interpretation | None, warnings: list[Notice]) -> bool | N
 
 def _parse_individual_count(
     value: CitationOrInterpretation | None, warnings: list[Notice]
-) -> int | None:
+) -> int | str | None:
     if value is None:
-        return 1
-    parsed = parse_count(stored_text(value))
+        return None
+    text = stored_text(value)
+    parsed = parse_integer(text)
     if parsed is None:
         warnings.append(NotNumeric(field="individualCount"))
+        return text
+    if parsed < 1:
+        warnings.append(OutOfRange(field="individualCount"))
+    return parsed
+
+
+def _parse_dispersion(
+    value: CitationOrInterpretation | None, warnings: list[Notice]
+) -> float | str | None:
+    if value is None:
         return None
+    text = stored_text(value)
+    parsed = parse_signed_decimal(text)
+    if parsed is None:
+        warnings.append(NotNumeric(field="dispersion"))
+        return text
+    if parsed < 0:
+        warnings.append(OutOfRange(field="dispersion"))
+    return parsed
+
+
+def _parse_bound(
+    value: CitationOrInterpretation | None,
+    field: Literal["measurementValue_min", "measurementValue_max"],
+    warnings: list[Notice],
+) -> float | str | None:
+    if value is None:
+        return None
+    text = stored_text(value)
+    parsed = parse_signed_decimal(text)
+    if parsed is None:
+        warnings.append(NotNumeric(field=field))
+        return text
     return parsed
 
 
@@ -274,31 +273,34 @@ def _parse_decimal(
     warnings: list[Notice],
     *,
     signed: bool,
-) -> float | None:
+) -> float | str | None:
     if value is None:
         return None
     text = stored_text(value)
     parsed = parse_signed_decimal(text) if signed else parse_decimal(text)
     if parsed is None:
         warnings.append(NotNumeric(field=field))
-        return None
+        return text
     return parsed
 
 
 def _parse_integer(
     value: CitationOrInterpretation | None,
-    field: NumericField,
+    field: Literal["year", "month", "day"],
     warnings: list[Notice],
     *,
     low: int,
     high: int,
-) -> int | None:
+) -> int | str | None:
     if value is None:
         return None
-    parsed = parse_integer(stored_text(value))
-    if parsed is None or not low <= parsed <= high:
+    text = stored_text(value)
+    parsed = parse_integer(text)
+    if parsed is None:
         warnings.append(NotNumeric(field=field))
-        return None
+        return text
+    if not low <= parsed <= high:
+        warnings.append(OutOfRange(field=field))
     return parsed
 
 
@@ -307,31 +309,31 @@ def _parse_date(
 ) -> str | None:
     if value is None:
         return None
-    text = parse_date(stored_text(value))
+    stored = stored_text(value)
+    text = parse_date(stored)
     if text is None:
         warnings.append(NotADate(field=field))
-        return None
+        return stored
     return text
 
 
 def _parse_coordinate(
     value: CitationOrInterpretation | None,
-    field: NumericField,
+    field: Literal["decimalLongitude", "decimalLatitude"],
     warnings: list[Notice],
     *,
     low: float,
     high: float,
-) -> float | None:
+) -> float | str | None:
     parsed = _parse_decimal(value, field, warnings, signed=True)
-    if parsed is None:
-        return None
+    if isinstance(parsed, str) or parsed is None:
+        return parsed
     if not low <= parsed <= high:
-        warnings.append(NotNumeric(field=field))
-        return None
+        warnings.append(OutOfRange(field=field))
     return parsed
 
 
-_COUNTRY_CODE = re.compile(r"^[A-Z]{2}$")
+_COUNTRY_CODE = re.compile(r"^[A-Za-z]{2}$")
 
 
 def _parse_country_code(
@@ -342,5 +344,5 @@ def _parse_country_code(
     text = stored_text(value)
     if _COUNTRY_CODE.fullmatch(text) is None:
         warnings.append(NotInVocabulary(field="countryCode"))
-        return None
-    return text
+        return text
+    return text.upper()
