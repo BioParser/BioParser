@@ -20,7 +20,6 @@ function job(id: string, status: JobStatus = "done"): JobList[number] {
     parser: "mineru",
     extractor: "default",
     document_checksum: "abc",
-    has_parse_result: ["parsed", "extracting", "done", "failed"].includes(status),
   };
   return status === "failed"
     ? { ...metadata, status, error: { code: "extraction_failed" } }
@@ -91,7 +90,6 @@ describe("Dashboard", () => {
       {
         ...job("failed", "failed"),
         status: "failed",
-        has_parse_result: false,
         error: { code: "parse_failed" },
       },
     ];
@@ -132,13 +130,13 @@ describe("Dashboard", () => {
   it("reads filters from the URL, sends them to the API, and resets paging when changed", async () => {
     const router = mount("/?status=queued&parser=mineru&page=2");
     await screen.findByRole("link", { name: "first.pdf" });
-    expect(listCalls()[0][0]).toBe("/api/jobs?status=queued&parser=mineru");
+    expect(listCalls()[0][0]).toBe("/api/jobs?detail=full&status=queued&parser=mineru");
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "failed" } });
     await screen.findByRole("link", { name: "first.pdf" });
     expect(router.state.location.search).toBe("?status=failed&parser=mineru");
     fireEvent.change(screen.getByLabelText("Parser"), { target: { value: "default" } });
     await screen.findByRole("link", { name: "first.pdf" });
-    expect(listCalls().at(-1)?.[0]).toBe("/api/jobs?status=failed&parser=default");
+    expect(listCalls().at(-1)?.[0]).toBe("/api/jobs?detail=full&status=failed&parser=default");
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "" } });
     expect(router.state.location.search).toBe("?parser=default");
   });
@@ -168,7 +166,7 @@ describe("Dashboard", () => {
     jobs = [];
     mount();
     await screen.findByText(/There are no jobs yet/);
-    expect(listCalls()[0][0]).toBe("/api/jobs");
+    expect(listCalls()[0][0]).toBe("/api/jobs?detail=full");
     expect(screen.getAllByRole("link", { name: "Start a job" }).at(-1)?.getAttribute("href")).toBe(
       "/jobs/new",
     );
@@ -262,7 +260,7 @@ describe("dashboard refresh", () => {
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "done" } });
     await tick();
     expect(listCalls()).toHaveLength(1);
-    expect(listCalls()[0][0]).toBe("/api/jobs?status=done");
+    expect(listCalls()[0][0]).toBe("/api/jobs?detail=full&status=done");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByRole("link", { name: "first.pdf" })).toBeDefined();
   });

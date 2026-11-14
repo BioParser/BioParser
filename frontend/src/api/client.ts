@@ -15,15 +15,16 @@ export type CreateJobRequest = Schemas["CreateJobRequest"];
 export type UploadLimitsResponse = Schemas["UploadLimitsResponse"];
 export type ParserArtifact = Schemas["ParserArtifact"];
 export type ExtractionArtifact = Schemas["ExtractionArtifact"];
-export type JobList = paths["/api/jobs"]["get"]["responses"][200]["content"]["application/json"];
+// The dashboard reads the stored record, which the list returns for detail=full.
+export type JobList = (Schemas["ListedJobFullResponse"] | Schemas["FailedJobFullResponse"])[];
 export type JobStatus = JobList[number]["status"];
 
 export function listJobs(status: string, parser: string, signal?: AbortSignal): Promise<JobList> {
   const params = new URLSearchParams();
+  params.set("detail", "full");
   if (status) params.set("status", status);
   if (parser) params.set("parser", parser);
-  const query = params.toString();
-  return apiFetch(`/api/jobs${query ? `?${query}` : ""}`, { signal });
+  return apiFetch(`/api/jobs?${params}`, { signal });
 }
 
 export type Readiness = { unavailable: string[] };
