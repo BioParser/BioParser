@@ -1,33 +1,4 @@
-from typing import Literal
-
-from pydantic import BaseModel, ConfigDict, Field
-
-Trait = Literal["body_mass", "body_length", "tail_length"]
-# A closed set, so guided decoding cannot emit "grams", "g." or "gramme". Free
-# text here makes values incomparable and there is no way to repair it later.
-Unit = Literal["g", "kg", "mm", "cm", "m"]
-
-# Which units are meaningful for which trait. The stored artifact keeps the
-# printed unit, so a mismatched pair is not an error there.
-TRAIT_UNITS: dict[Trait, frozenset[Unit]] = {
-    "body_mass": frozenset({"g", "kg"}),
-    "body_length": frozenset({"mm", "cm", "m"}),
-    "tail_length": frozenset({"mm", "cm", "m"}),
-}
-
-# Canonical units: grams for mass, millimetres for length.
-_CANONICAL_FACTOR: dict[Unit, float] = {
-    "g": 1.0,
-    "kg": 1000.0,
-    "mm": 1.0,
-    "cm": 10.0,
-    "m": 1000.0,
-}
-
-
-def to_canonical(value: float, unit: Unit) -> float:
-    """Value in grams (mass) or millimetres (length)."""
-    return value * _CANONICAL_FACTOR[unit]
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
 class ModelObservation(BaseModel):
@@ -38,15 +9,27 @@ class ModelObservation(BaseModel):
     observation.
     """
 
-    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True, populate_by_name=True)
 
     taxon: str = Field(min_length=1, max_length=120)
-    trait: Trait
-    # allow_inf_nan: json.loads accepts Infinity and NaN, and neither is a mass.
-    value: float = Field(gt=0, allow_inf_nan=False)
-    unit: Unit
+    value: str = Field(min_length=1, max_length=80)
+    unit: str = Field(min_length=1, max_length=80)
     evidence_block_id: str = Field(min_length=1, max_length=80)
     quotation: str = Field(min_length=1, max_length=300)
+    trait_code: str | None = Field(
+        default=None,
+        max_length=80,
+        validation_alias=AliasChoices("trait_code", "trait"),
+    )
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def _coerce_value_str(cls, v: object) -> str:
+        if isinstance(v, (int, float)):
+            return str(v)
+        if isinstance(v, str):
+            return v
+        raise ValueError(f"expected string or number, got {type(v).__name__}")
 
 
 class Extraction(BaseModel):

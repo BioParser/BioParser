@@ -63,7 +63,17 @@ def test_a_mismatched_unit_is_stored_as_printed() -> None:
 def test_the_trait_is_any_non_empty_string() -> None:
     observation = _observation(trait=_trait("wing_length"))
 
+    assert observation.trait is not None
     assert observation.trait.value == "wing_length"
+
+
+def test_an_observation_without_trait_is_valid() -> None:
+    observation = Observation(
+        verbatimScientificName=_cite("Mus musculus"),
+        verbatimTraitValue=_cite("12.5"),
+        verbatimTraitUnit=_cite("g"),
+    )
+    assert observation.trait is None
 
 
 def test_a_citation_without_a_range_is_rejected() -> None:
@@ -93,8 +103,8 @@ def test_the_stored_artifact_has_no_observation_cap() -> None:
 def test_the_model_payload_keeps_its_observation_cap() -> None:
     observation = ModelObservation(
         taxon="Mus musculus",
-        trait="body_mass",
-        value=12.5,
+        trait_code="body_mass",
+        value="12.5",
         unit="g",
         evidence_block_id="b0",
         quotation="12.5 g",
