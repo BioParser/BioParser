@@ -29,14 +29,12 @@ def build_worker(
     )
     vllm = VLLMService()
     char_budget = settings.extraction_char_budget
-    max_tokens = settings.extraction_max_tokens
 
     def extractor_factory(name: str) -> Extractor:
         return get_extractor(
             name,
             vllm=vllm,
             char_budget=char_budget,
-            max_tokens=max_tokens,
         )
 
     handler = ExtractJobHandler(

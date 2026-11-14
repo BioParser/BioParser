@@ -60,7 +60,8 @@ class PipelineOptions:
     mineru_base_url: str
     mineru_tier: MinerUTier
     char_budget: int
-    max_tokens: int
+    # None uses the vLLM client's token ceiling. A number may be smaller than that ceiling.
+    max_tokens: int | None = None
 
 
 @contextmanager

@@ -14,8 +14,6 @@ class Settings(BaseSettings):
 
     vllm_base_url: str = "http://localhost:8000/v1"
     vllm_api_key: SecretStr = SecretStr("EMPTY")
-    # Qwen thinking on generate_json. Off matches today's extraction calls.
-    vllm_enable_thinking: bool = False
 
     model_discovery_timeout_seconds: float = Field(default=10.0, gt=0)
 
@@ -30,8 +28,8 @@ class Settings(BaseSettings):
     #               and client side cap 1024  ~1024
     #
     # So if this is raised, --max-model-len should be changed in docker-compose.
-    # Callers that pass their own max_tokens, including the API and the extractor, override this.
-    max_tokens: int = Field(default=1024, ge=1)
+    # A caller may ask for fewer tokens. A larger request is capped here.
+    vllm_max_tokens: int = Field(default=1024, ge=1)
 
 
 @lru_cache(maxsize=1)

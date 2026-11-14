@@ -3,7 +3,15 @@ import logging
 from collections.abc import Awaitable
 from typing import Any
 
-from openai import APIError, AsyncOpenAI, BadRequestError, NotFoundError, UnprocessableEntityError
+from openai import (
+    NOT_GIVEN,
+    APIError,
+    AsyncOpenAI,
+    BadRequestError,
+    NotFoundError,
+    NotGiven,
+    UnprocessableEntityError,
+)
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 from bioparser.logging_config import stopwatch
@@ -11,6 +19,13 @@ from bioparser.logging_config import stopwatch
 from .config import get_settings
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _request_timeout(timeout: float | None) -> float | NotGiven:
+    """A caller's timeout, or the client's own when the caller does not pass one."""
+    if timeout is None:
+        return NOT_GIVEN
+    return timeout
 
 
 class VLLMError(RuntimeError):
@@ -37,13 +52,13 @@ class VLLMService:
         )
 
         self.model: str | None = None
-        self._enable_thinking = settings.vllm_enable_thinking
-        self._max_tokens = settings.max_tokens
+        self._max_tokens = settings.vllm_max_tokens
         self._lock = asyncio.Lock()
         self._discovery_timeout = settings.model_discovery_timeout_seconds
 
     def _token_ceiling(self, max_tokens: int | None) -> int:
-        if max_tokens is None:
+        """The configured ceiling, or a caller's smaller count."""
+        if max_tokens is None or max_tokens > self._max_tokens:
             return self._max_tokens
         return max_tokens
 
@@ -114,6 +129,8 @@ class VLLMService:
         system_prompt: str | None = None,
         temperature: float = 0.0,
         max_tokens: int | None = None,
+        enable_thinking: bool = False,
+        timeout: float | None = None,
     ) -> str:
         token_ceiling = self._token_ceiling(max_tokens)
         messages: list[ChatCompletionMessageParam] = []
@@ -139,6 +156,8 @@ class VLLMService:
                 messages=messages,
                 temperature=temperature,
                 max_tokens=token_ceiling,
+                extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
+                timeout=_request_timeout(timeout),
             )
         )
 
@@ -156,6 +175,8 @@ class VLLMService:
         schema: dict[str, Any],
         system_prompt: str,
         max_tokens: int | None = None,
+        enable_thinking: bool = False,
+        timeout: float | None = None,
     ) -> str:
         token_ceiling = self._token_ceiling(max_tokens)
         requested_model = await self.get_model()
@@ -174,7 +195,8 @@ class VLLMService:
                         "json_schema": {"name": "extraction", "schema": schema},
                     },
                     # Qwen3 emits <think> blocks unless this is off.
-                    extra_body={"chat_template_kwargs": {"enable_thinking": self._enable_thinking}},
+                    extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
+                    timeout=_request_timeout(timeout),
                 )
             )
         except NotFoundError as exc:

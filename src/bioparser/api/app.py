@@ -924,7 +924,6 @@ async def extract(request: Request, file: UploadFile | None = None) -> Extractio
         mineru_base_url=settings.mineru_base_url,
         mineru_tier=settings.mineru_tier,
         char_budget=settings.extraction_char_budget,
-        max_tokens=settings.extraction_max_tokens,
     )
     run, pool = await _start_pipeline(request.app, content, options)
     try:

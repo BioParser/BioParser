@@ -326,7 +326,7 @@ async def test_a_404_clears_the_cached_model_and_rediscovers_it(
 def test_the_client_has_no_concurrency_cap() -> None:
     assert "max_concurrency" not in vllm_config.Settings.model_fields
     assert "vllm_model" not in vllm_config.Settings.model_fields
-    assert vllm_config.Settings.model_fields["vllm_enable_thinking"].default is False
+    assert "vllm_enable_thinking" not in vllm_config.Settings.model_fields
 
 
 def _chat(
@@ -360,23 +360,25 @@ def _chat(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("enabled", [False, True], ids=["off", "on"])
-async def test_generate_json_sends_the_thinking_setting(
+async def test_a_call_sends_its_own_thinking_flag(
     monkeypatch: pytest.MonkeyPatch,
     vllm_transport: Callable[[Handler], None],
     enabled: bool,
 ) -> None:
-    monkeypatch.setenv("BIOPARSER_VLLM_ENABLE_THINKING", "true" if enabled else "false")
+    monkeypatch.setenv("BIOPARSER_VLLM_MAX_TOKENS", "1024")
     bodies: list[dict[str, object]] = []
     vllm_transport(_chat(bodies))
     service = VLLMService()
     try:
-        await service.generate_json(PROMPT, schema={}, system_prompt="sys", max_tokens=64)
-        await service.generate("hello", max_tokens=64)
+        await service.generate_json(
+            PROMPT, schema={}, system_prompt="sys", max_tokens=64, enable_thinking=enabled
+        )
+        await service.generate("hello", max_tokens=64, enable_thinking=enabled)
     finally:
         await service.aclose()
 
     assert bodies[0]["chat_template_kwargs"] == {"enable_thinking": enabled}
-    assert "chat_template_kwargs" not in bodies[1]
+    assert bodies[1]["chat_template_kwargs"] == {"enable_thinking": enabled}
 
 
 @pytest.mark.anyio
@@ -386,7 +388,7 @@ async def test_an_omitted_token_ceiling_uses_the_client_setting(
     vllm_transport: Callable[[Handler], None],
     method: str,
 ) -> None:
-    monkeypatch.setenv("BIOPARSER_MAX_TOKENS", "256")
+    monkeypatch.setenv("BIOPARSER_VLLM_MAX_TOKENS", "256")
     bodies: list[dict[str, object]] = []
     vllm_transport(_chat(bodies))
     service = VLLMService()
@@ -402,18 +404,19 @@ async def test_an_omitted_token_ceiling_uses_the_client_setting(
 
 
 @pytest.mark.anyio
-async def test_an_explicit_token_ceiling_overrides_the_client_setting(
+async def test_a_caller_may_ask_for_fewer_tokens_than_the_ceiling(
     monkeypatch: pytest.MonkeyPatch,
     vllm_transport: Callable[[Handler], None],
 ) -> None:
-    monkeypatch.setenv("BIOPARSER_MAX_TOKENS", "256")
+    monkeypatch.setenv("BIOPARSER_VLLM_MAX_TOKENS", "256")
     bodies: list[dict[str, object]] = []
     vllm_transport(_chat(bodies))
     service = VLLMService()
     try:
         await service.generate("hello", max_tokens=64)
         await service.generate_json(PROMPT, schema={}, system_prompt="sys", max_tokens=32)
+        await service.generate("hello", max_tokens=999)
     finally:
         await service.aclose()
 
-    assert [body["max_tokens"] for body in bodies] == [64, 32]
+    assert [body["max_tokens"] for body in bodies] == [64, 32, 256]

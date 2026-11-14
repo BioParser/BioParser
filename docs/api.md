@@ -656,8 +656,7 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 | `extract_queue_timeout_seconds` | `5.0` | how long `POST /extract` waits for a semaphore slot before returning `503` |
 | `dependency_check_timeout_seconds` | `1.0` | timeout for each readiness dependency check |
 | `artifact_storage_path` | required | filesystem artifact root |
-| `extraction_char_budget` | `8000` | character (not token) budget passed to vLLM extraction |
-| `extraction_max_tokens` | `1024` | max generation tokens passed to vLLM extraction |
+| `extraction_char_budget` | `8000` | character budget for the extraction prompt. The generation token ceiling is `BIOPARSER_VLLM_MAX_TOKENS` on the vLLM client |
 | `redis_url` | required | Redis URL for the parse queue |
 | `redis_timeout_seconds` | `5.0` | Redis connect and operation timeout |
 | `database_url` | required | `postgresql` URL (`PostgresDsn`) for job state; `/ready` TCP-connects to it |

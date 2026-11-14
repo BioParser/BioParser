@@ -34,10 +34,9 @@ class ApiSettings(BaseSettings):
     artifact_storage_path: str
     # The built UI (frontend/dist). None: the API serves no UI and /ui returns 404.
     ui_dist_path: str | None = None
-    # NOTE: char budget not token budget
-    # --max-model-len is cap for all tokens
+    # Character budget for the prompt, not the generation ceiling.
+    # The generation ceiling is BIOPARSER_VLLM_MAX_TOKENS on the vLLM client.
     extraction_char_budget: int = Field(default=8000, ge=50)
-    extraction_max_tokens: int = Field(default=1024, ge=64)
 
     # redis. repr=False: the URL can hold the password.
     redis_url: AnyUrl = Field(repr=False)

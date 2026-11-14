@@ -78,7 +78,7 @@ async def extract_observations(
     artifact: ParserArtifact,
     *,
     char_budget: int,
-    max_tokens: int,
+    max_tokens: int | None = None,
 ) -> ModelResult:
     prompt = render_prompt(artifact, char_budget=char_budget)
     if not prompt.text:
@@ -107,7 +107,7 @@ class DefaultExtractor:
 
     vllm: VLLMService
     char_budget: int
-    max_tokens: int
+    max_tokens: int | None = None
 
     async def extract(self, artifact: ParserArtifact) -> ExtractionArtifact:
         try:

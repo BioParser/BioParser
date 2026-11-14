@@ -23,6 +23,8 @@ async def run_prompt(
     system_prompt: str | None = None,
     temperature: float = 0.0,
     max_tokens: int | None = None,
+    enable_thinking: bool = False,
+    timeout: float | None = None,
 ) -> str:
     service = VLLMService()
     try:
@@ -32,6 +34,8 @@ async def run_prompt(
             system_prompt=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
+            enable_thinking=enable_thinking,
+            timeout=timeout,
         )
     finally:
         await service.aclose()
@@ -46,8 +50,12 @@ def main() -> None:
         "--max-tokens",
         type=int,
         default=None,
-        help="Generation tokens. Omit to use the vLLM client's BIOPARSER_MAX_TOKENS (default 1024).",
+        help="Fewer generation tokens than BIOPARSER_VLLM_MAX_TOKENS. A larger value is capped.",
     )
+    parser.add_argument(
+        "--thinking", action="store_true", help="Enable Qwen thinking for this prompt."
+    )
+    parser.add_argument("--timeout", type=float, default=None, help="Seconds for this request.")
     args = parser.parse_args()
 
     try:
@@ -57,6 +65,8 @@ def main() -> None:
                 system_prompt=args.system_prompt,
                 temperature=args.temperature,
                 max_tokens=args.max_tokens,
+                enable_thinking=args.thinking,
+                timeout=args.timeout,
             )
         )
     except (APIConnectionError, APITimeoutError):
