@@ -67,7 +67,9 @@ A minimum greater than the maximum is kept as printed, and the row warns `bounds
 
 - A free-text column that accepts a citation or a correction uses the interpretation value when the extractor stored a correction, and the printed citation otherwise. The narrow citation of a correction is not used for the column. It stays in the artifact for tracing and for UI highlighting, where a precise range is better than a whole passage.
 - A column that accepts a citation or an interpretation (`individualCount`, `measurementValueMin`, dates, coordinates, and the like) is parsed or matched by the adapter. A citation is parsed from its text. An interpretation uses its `value`, and its passage is only the grounding. A number that parses is written as that number. Text that does not parse stays as printed and warns `not_numeric` for that field. The artifact does not store the parsed number.
-- `sex` and `countryCode` are matched against their lists. A printed token outside the list stays and warns `not_in_vocabulary` for that field. `basisOfRecord` and `aggregateMeasure` are not printed tokens. A value outside those lists stays empty and warns `not_in_vocabulary` for that field.
+- `sex` tries the reading first, then the printed word. The first one in the list is the column, in its canonical form. If neither is in the list, the printed word stays and the row warns `not_in_vocabulary:sex`.
+- `countryCode` is two letters. Matching ignores case, and a match is written in uppercase, so `de` becomes `DE`. Other text stays and warns `not_in_vocabulary:countryCode`. The printed country name stays on `country`.
+- `basisOfRecord` and `aggregateMeasure` are not printed tokens. A value outside those lists stays empty and warns `not_in_vocabulary` for that field.
 - A date that parses is written as `YYYY-MM-DD`. A year-first number or a written month is converted. A numeric day and month is converted when one number is greater than 12, so that number is the day. When both are 12 or less, the printed text stays and warns `not_a_date` for that field. Year, month, and day that do not form a calendar day stay as printed and warn `not_a_date:year,month,day`. A number outside its column's range, such as month 13, a count below 1, or a longitude past 180, stays and warns `out_of_range` for that field.
 
 ### Defaults and assigned columns
@@ -77,7 +79,8 @@ A minimum greater than the maximum is kept as printed, and the row warns `bounds
 - `measurementID` is assigned when the rows are built.
 - `references` comes from the job's document.
 - `warnings` collects what the adapter found while building the row.
-- `occurrenceID` is copied when the observation stored one.
+- `occurrenceID` is the printed token, or a value read from a wider phrase, when the observation stored one.
+- `taxonRank` stays empty. A taxonomy lookup fills it with `taxonID`. A printed kingdom, phylum, class, order, family, or genus is copied, and a later lookup fills one of those columns only when the observation left it empty.
 - `traitName`, `traitID`, `traitValue`, and `traitUnit` stay empty until the trait list exists.
 
 ## Warnings

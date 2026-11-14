@@ -340,8 +340,7 @@ export interface components {
          * @description A narrow citation kept beside an interpretation.
          *
          *     ``citation`` is the narrow printed token. The interpretation's passage is
-         *     the wider text its value was read from. The adapter uses the
-         *     interpretation value. The citation stays for tracing and highlighting.
+         *     the wider text its value was read from.
          */
         Correction: {
             /**
@@ -493,12 +492,11 @@ export interface components {
          * Observation
          * @description One measurement.
          *
-         *     A citation-only field is printed text. A citation or correction is that citation, or a
-         *     correction that keeps the narrow citation beside an interpretation. A citation
-         *     or interpretation has no verbatim sibling. Its check can reject the printed
-         *     text, so it is a citation or an interpretation of one passage. The passage
-         *     fails that check, so it is not a usable column value. ``basisOfRecord`` and
-         *     ``aggregateMeasure`` are interpretations only. A paper does not print those tokens.
+         *     A citation-only field is the printed token. A citation or correction is that
+         *     token, or the token kept beside a reading of a wider phrase. A citation or
+         *     interpretation is the printed token, or a value read from a wider phrase.
+         *     ``basisOfRecord`` and ``aggregateMeasure`` are interpretations only. A paper
+         *     does not print those tokens.
          *
          *     The minimum, the maximum, and the dispersion are the numbers the paper
          *     printed, read with ``verbatimTraitUnit``. ``statisticalMethod`` is the
@@ -518,16 +516,13 @@ export interface components {
          */
         Observation: {
             traitCode?: components["schemas"]["Interpretation"] | null;
-            /** Verbatimtraitname */
-            verbatimTraitName: components["schemas"]["Citation"] | components["schemas"]["Correction"];
+            verbatimTraitName: components["schemas"]["Citation"];
             scientificName?: components["schemas"]["Interpretation"] | null;
             verbatimScientificName: components["schemas"]["Citation"];
             traitValue?: components["schemas"]["Interpretation"] | null;
             verbatimTraitValue: components["schemas"]["Citation"];
             traitUnit?: components["schemas"]["Interpretation"] | null;
             verbatimTraitUnit?: components["schemas"]["Citation"] | null;
-            /** Taxonrank */
-            taxonRank?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Kingdom */
             kingdom?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Phylum */
@@ -541,7 +536,7 @@ export interface components {
             /** Genus */
             genus?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Sex */
-            sex?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            sex?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Lifestage */
             lifeStage?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Age */
@@ -575,7 +570,7 @@ export interface components {
             /** Measurementaccuracy */
             measurementAccuracy?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Occurrenceid */
-            occurrenceID?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            occurrenceID?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
             /** Eventid */
             eventID?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Preparations */

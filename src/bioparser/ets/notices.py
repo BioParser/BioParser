@@ -26,7 +26,6 @@ TextField = Literal[
     "measurementDeterminedBy",
     "statisticalMethod",
     "measurementAccuracy",
-    "occurrenceID",
     "eventID",
     "preparations",
     "samplingProtocol",

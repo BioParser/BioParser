@@ -2177,7 +2177,7 @@
           "interpretation"
         ],
         "title": "Correction",
-        "description": "A narrow citation kept beside an interpretation.\n\n``citation`` is the narrow printed token. The interpretation's passage is\nthe wider text its value was read from. The adapter uses the\ninterpretation value. The citation stays for tracing and highlighting."
+        "description": "A narrow citation kept beside an interpretation.\n\n``citation`` is the narrow printed token. The interpretation's passage is\nthe wider text its value was read from."
       },
       "CreateJobRequest": {
         "properties": {
@@ -2469,22 +2469,7 @@
             ]
           },
           "verbatimTraitName": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Citation"
-              },
-              {
-                "$ref": "#/components/schemas/Correction"
-              }
-            ],
-            "title": "Verbatimtraitname",
-            "discriminator": {
-              "propertyName": "kind",
-              "mapping": {
-                "citation": "#/components/schemas/Citation",
-                "correction": "#/components/schemas/Correction"
-              }
-            }
+            "$ref": "#/components/schemas/Citation"
           },
           "scientificName": {
             "anyOf": [
@@ -2531,31 +2516,6 @@
                 "type": "null"
               }
             ]
-          },
-          "taxonRank": {
-            "anyOf": [
-              {
-                "oneOf": [
-                  {
-                    "$ref": "#/components/schemas/Citation"
-                  },
-                  {
-                    "$ref": "#/components/schemas/Correction"
-                  }
-                ],
-                "discriminator": {
-                  "propertyName": "kind",
-                  "mapping": {
-                    "citation": "#/components/schemas/Citation",
-                    "correction": "#/components/schemas/Correction"
-                  }
-                }
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Taxonrank"
           },
           "kingdom": {
             "anyOf": [
@@ -2715,14 +2675,14 @@
                     "$ref": "#/components/schemas/Citation"
                   },
                   {
-                    "$ref": "#/components/schemas/Interpretation"
+                    "$ref": "#/components/schemas/Correction"
                   }
                 ],
                 "discriminator": {
                   "propertyName": "kind",
                   "mapping": {
                     "citation": "#/components/schemas/Citation",
-                    "interpretation": "#/components/schemas/Interpretation"
+                    "correction": "#/components/schemas/Correction"
                   }
                 }
               },
@@ -3135,14 +3095,14 @@
                     "$ref": "#/components/schemas/Citation"
                   },
                   {
-                    "$ref": "#/components/schemas/Correction"
+                    "$ref": "#/components/schemas/Interpretation"
                   }
                 ],
                 "discriminator": {
                   "propertyName": "kind",
                   "mapping": {
                     "citation": "#/components/schemas/Citation",
-                    "correction": "#/components/schemas/Correction"
+                    "interpretation": "#/components/schemas/Interpretation"
                   }
                 }
               },
@@ -3586,7 +3546,7 @@
           "verbatimTraitValue"
         ],
         "title": "Observation",
-        "description": "One measurement.\n\nA citation-only field is printed text. A citation or correction is that citation, or a\ncorrection that keeps the narrow citation beside an interpretation. A citation\nor interpretation has no verbatim sibling. Its check can reject the printed\ntext, so it is a citation or an interpretation of one passage. The passage\nfails that check, so it is not a usable column value. ``basisOfRecord`` and\n``aggregateMeasure`` are interpretations only. A paper does not print those tokens.\n\nThe minimum, the maximum, and the dispersion are the numbers the paper\nprinted, read with ``verbatimTraitUnit``. ``statisticalMethod`` is the\nphrase the paper printed, or empty.\n\n``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations\nbeside a verbatim citation. The interpretation is omitted when the printed\ntoken is already the value. They stay empty until a taxonomy lookup or a\ntrait list standardizes them. ``scientificName`` is another name a later\ntaxonomy lookup can try.\n\nThe artifact does not enforce a closed set of values. An interpretation's\n``value`` is any non-empty string, including ``traitCode``. An extractor may\nconstrain it, and the adapter decides what a value means.\n\nEvery other column a paper can state is optional. An extractor leaves it null."
+        "description": "One measurement.\n\nA citation-only field is the printed token. A citation or correction is that\ntoken, or the token kept beside a reading of a wider phrase. A citation or\ninterpretation is the printed token, or a value read from a wider phrase.\n``basisOfRecord`` and ``aggregateMeasure`` are interpretations only. A paper\ndoes not print those tokens.\n\nThe minimum, the maximum, and the dispersion are the numbers the paper\nprinted, read with ``verbatimTraitUnit``. ``statisticalMethod`` is the\nphrase the paper printed, or empty.\n\n``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations\nbeside a verbatim citation. The interpretation is omitted when the printed\ntoken is already the value. They stay empty until a taxonomy lookup or a\ntrait list standardizes them. ``scientificName`` is another name a later\ntaxonomy lookup can try.\n\nThe artifact does not enforce a closed set of values. An interpretation's\n``value`` is any non-empty string, including ``traitCode``. An extractor may\nconstrain it, and the adapter decides what a value means.\n\nEvery other column a paper can state is optional. An extractor leaves it null."
       },
       "Page": {
         "properties": {
