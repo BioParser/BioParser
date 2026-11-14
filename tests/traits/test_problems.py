@@ -21,19 +21,12 @@ def test_a_list_that_is_not_json_says_so() -> None:
 
 def test_every_problem_is_reported_not_only_the_first() -> None:
     data = _table()
-    data["unit_aliases"]["smoots"] = "smoot"
-    data["level_aliases"]["maybe"] = "perhaps"
     data["traits"][1]["code"] = data["traits"][0]["code"]
     data["traits"][2]["domain"] = "nowhere"
 
     rules = {p.rule for p in _problems(data)}
 
-    assert rules >= {
-        "unit_alias_target_unused",
-        "level_alias_target_unused",
-        "duplicate_code",
-        "unknown_domain",
-    }
+    assert rules >= {"duplicate_code", "unknown_domain"}
 
 
 def test_a_problem_names_the_trait_the_field_and_the_spelling() -> None:
@@ -113,6 +106,13 @@ def test_each_shape_rule_names_the_trait_and_the_field(
     problems = [p for p in _problems(data) if p.rule == rule]
 
     assert [(p.trait, p.field) for p in problems] == [(trait, field)]
+
+
+def test_a_subset_of_traits_keeps_list_wide_aliases_nothing_uses() -> None:
+    data = _table()
+    data["traits"] = [data["traits"][0]]
+
+    assert _problems(data) == []
 
 
 def test_a_list_wide_level_alias_that_takes_a_level_says_what_to_add() -> None:

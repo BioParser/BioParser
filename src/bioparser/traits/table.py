@@ -559,45 +559,11 @@ class TraitTable(BaseModel):
                 trait=None,
             ),
         ]
-        unit_sides: set[str] = set()
         for trait in self.traits:
             if isinstance(trait, NumericTrait):
                 problems.extend(trait.unit_problems(self.unit_aliases))
-                for key in trait.printed_keys(self.unit_aliases):
-                    unit_sides.add(key)
-                    unit_sides.update(key.split("/"))
-            elif isinstance(trait, CountTrait):
-                key = normalize_unit(
-                    trait.trait_unit, {**self.unit_aliases, **trait.unit_aliases}, casefold=False
-                )
-                unit_sides.add(key)
-                unit_sides.update(key.split("/"))
-        for spelling, unit in self.unit_aliases.items():
-            if clean_unit(unit) not in unit_sides:
-                problems.append(
-                    ListProblem(
-                        "unit_alias_target_unused",
-                        f"The unit alias {spelling!r} names {unit!r}, which no trait prints. "
-                        "Remove it or print the unit on a trait.",
-                        None,
-                        "unit_aliases",
-                        spelling,
-                    )
-                )
         categorical = [t for t in self.traits if isinstance(t, CategoricalTrait)]
-        level_keys_all = {normalize_level(level) for t in categorical for level in t.levels}
-        for spelling, level in self.level_aliases.items():
-            if normalize_level(level) not in level_keys_all:
-                problems.append(
-                    ListProblem(
-                        "level_alias_target_unused",
-                        f"The level alias {spelling!r} names {level!r}, which no trait has "
-                        "as a level.",
-                        None,
-                        "level_aliases",
-                        spelling,
-                    )
-                )
+        for spelling in self.level_aliases:
             for trait in categorical:
                 has_level = normalize_level(spelling) in {normalize_level(i) for i in trait.levels}
                 if has_level and not trait.overrides_level_alias(spelling):

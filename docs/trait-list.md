@@ -171,9 +171,8 @@ Basal metabolic rate is the rate of a whole animal. A rate per gram of body mass
 | `approximate_not_printed` | An approximate unit is not a printed unit. |
 | `duplicate_alias` | Two aliases in one table are the same spelling once cleaned. |
 | `unit_alias_target_not_printed`, `unit_alias_target_not_trait_unit` | A trait's unit alias names a unit the trait does not print, or a count's alias names another unit. |
-| `unit_alias_target_unused` | A list-wide unit alias names a unit no trait prints. |
 | `levels_not_distinct` | A trait has fewer than two levels, or levels that differ only in case or separators. |
-| `level_alias_target_not_a_level`, `level_alias_target_unused` | A level alias names a level the trait lacks, or one no trait has. |
+| `level_alias_target_not_a_level` | A trait's level alias names a level that trait lacks. |
 | `level_alias_is_already_a_level` | A trait alias gives a level a different meaning. |
 | `level_alias_takes_a_level` | A list-wide alias is spelled like a trait's level, and that trait does not keep it. |
 

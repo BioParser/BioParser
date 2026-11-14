@@ -31,9 +31,7 @@ Rule = Literal[
     "duplicate_alias",
     "unit_alias_target_not_printed",
     "unit_alias_target_not_trait_unit",
-    "unit_alias_target_unused",
     "level_alias_target_not_a_level",
-    "level_alias_target_unused",
     "level_alias_takes_a_level",
     "level_alias_is_already_a_level",
 ]

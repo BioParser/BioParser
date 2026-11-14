@@ -303,18 +303,12 @@ def test_the_list_names_every_alias_it_accepts() -> None:
     assert table.level_aliases["y"] == "yes"
 
 
-def test_a_list_wide_unit_alias_must_name_a_printed_unit() -> None:
-    data = _with_alias_data(unit_aliases={"smoots": "smoot"})
+def test_a_list_wide_alias_may_name_something_no_trait_uses() -> None:
+    units = _with_alias_data(unit_aliases={"smoots": "smoot"})
+    levels = _with_alias_data(level_aliases={"maybe": "perhaps"})
 
-    with pytest.raises(ValidationError, match="no trait prints"):
-        _load(data)
-
-
-def test_a_list_wide_level_alias_must_name_a_level() -> None:
-    data = _with_alias_data(level_aliases={"maybe": "perhaps"})
-
-    with pytest.raises(ValidationError, match="no trait has"):
-        _load(data)
+    assert _load(units).unit_aliases["smoots"] == "smoot"
+    assert _load(levels).level_aliases["maybe"] == "perhaps"
 
 
 def test_a_trait_unit_alias_applies_to_that_trait_only() -> None:
