@@ -19,8 +19,8 @@ from bioparser.ets.notices import (
     OutOfRange,
     TextField,
 )
-from bioparser.ets.numbers import parse_count, parse_decimal, parse_integer, parse_signed_decimal
-from bioparser.ets.vocab import BasisOfRecord, Sex, match_aggregate, match_basis, match_sex
+from bioparser.ets.numbers import parse_decimal, parse_integer, parse_signed_decimal
+from bioparser.ets.vocab import BasisOfRecord, match_aggregate, match_basis, match_sex
 from bioparser.extract.models import (
     CitationOrCorrection,
     CitationOrInterpretation,
@@ -74,22 +74,22 @@ class Assessment(BaseModel):
     scientific_name: str | None
     trait_value: str | None
     trait_unit: str | None
-    sex: Sex | None
-    age: float | None
+    sex: str | None
+    age: float | str | None
     aggregate_measure: bool | None
     basis_of_record: BasisOfRecord | None
-    individual_count: int | None
-    dispersion: float | None
-    measurement_value_min: float | None
-    measurement_value_max: float | None
-    year: int | None
-    month: int | None
-    day: int | None
+    individual_count: int | str | None
+    dispersion: float | str | None
+    measurement_value_min: float | str | None
+    measurement_value_max: float | str | None
+    year: int | str | None
+    month: int | str | None
+    day: int | str | None
     event_date: str | None
     measurement_determined_date: str | None
-    decimal_longitude: float | None
-    decimal_latitude: float | None
-    elevation: float | None
+    decimal_longitude: float | str | None
+    decimal_latitude: float | str | None
+    elevation: float | str | None
     country_code: str | None
     cited: dict[TextField, str | None]
 
@@ -117,14 +117,14 @@ def assess(observation: Observation) -> Assessment:
     dispersion = _parse_dispersion(observation.dispersion, warnings)
     value_min = _parse_bound(observation.measurementValueMin, "measurementValue_min", warnings)
     value_max = _parse_bound(observation.measurementValueMax, "measurementValue_max", warnings)
-    if value_min is not None and value_max is not None and value_min > value_max:
+    if isinstance(value_min, float) and isinstance(value_max, float) and value_min > value_max:
         warnings.append(BoundsReversed())
 
     # A calendar day is written as YYYY-MM-DD. Year, month, and day stay separate.
     year = _parse_integer(observation.year, "year", warnings, low=1000, high=9999)
     month = _parse_integer(observation.month, "month", warnings, low=1, high=12)
     day = _parse_integer(observation.day, "day", warnings, low=1, high=31)
-    if year is not None and month is not None and day is not None:
+    if isinstance(year, int) and isinstance(month, int) and isinstance(day, int):
         try:
             datetime(year, month, day)
         except ValueError:
@@ -178,12 +178,14 @@ def _cited(value: CitationOrCorrection | None) -> str | None:
     return value.text
 
 
-def _parse_sex(value: CitationOrInterpretation | None, warnings: list[Notice]) -> Sex | None:
+def _parse_sex(value: CitationOrInterpretation | None, warnings: list[Notice]) -> str | None:
     if value is None:
         return None
-    matched = match_sex(stored_text(value))
+    text = stored_text(value)
+    matched = match_sex(text)
     if matched is None:
         warnings.append(NotInVocabulary(field="sex"))
+        return text
     return matched
 
 
@@ -209,25 +211,31 @@ def _parse_aggregate(value: Interpretation | None, warnings: list[Notice]) -> bo
 
 def _parse_individual_count(
     value: CitationOrInterpretation | None, warnings: list[Notice]
-) -> int | None:
+) -> int | str | None:
     if value is None:
         return None
-    parsed = parse_count(stored_text(value))
+    text = stored_text(value)
+    parsed = parse_integer(text)
     if parsed is None:
         warnings.append(NotNumeric(field="individualCount"))
-        return None
+        return text
+    if parsed < 1:
+        warnings.append(OutOfRange(field="individualCount"))
     return parsed
 
 
 def _parse_dispersion(
     value: CitationOrInterpretation | None, warnings: list[Notice]
-) -> float | None:
+) -> float | str | None:
     if value is None:
         return None
-    parsed = parse_decimal(stored_text(value))
+    text = stored_text(value)
+    parsed = parse_signed_decimal(text)
     if parsed is None:
         warnings.append(NotNumeric(field="dispersion"))
-        return None
+        return text
+    if parsed < 0:
+        warnings.append(OutOfRange(field="dispersion"))
     return parsed
 
 
@@ -235,13 +243,14 @@ def _parse_bound(
     value: CitationOrInterpretation | None,
     field: Literal["measurementValue_min", "measurementValue_max"],
     warnings: list[Notice],
-) -> float | None:
+) -> float | str | None:
     if value is None:
         return None
-    parsed = parse_signed_decimal(stored_text(value))
+    text = stored_text(value)
+    parsed = parse_signed_decimal(text)
     if parsed is None:
         warnings.append(NotNumeric(field=field))
-        return None
+        return text
     return parsed
 
 
@@ -251,14 +260,14 @@ def _parse_decimal(
     warnings: list[Notice],
     *,
     signed: bool,
-) -> float | None:
+) -> float | str | None:
     if value is None:
         return None
     text = stored_text(value)
     parsed = parse_signed_decimal(text) if signed else parse_decimal(text)
     if parsed is None:
         warnings.append(NotNumeric(field=field))
-        return None
+        return text
     return parsed
 
 
@@ -269,16 +278,16 @@ def _parse_integer(
     *,
     low: int,
     high: int,
-) -> int | None:
+) -> int | str | None:
     if value is None:
         return None
-    parsed = parse_integer(stored_text(value))
+    text = stored_text(value)
+    parsed = parse_integer(text)
     if parsed is None:
         warnings.append(NotNumeric(field=field))
-        return None
+        return text
     if not low <= parsed <= high:
         warnings.append(OutOfRange(field=field))
-        return None
     return parsed
 
 
@@ -287,10 +296,11 @@ def _parse_date(
 ) -> str | None:
     if value is None:
         return None
-    text = parse_date(stored_text(value))
+    stored = stored_text(value)
+    text = parse_date(stored)
     if text is None:
         warnings.append(NotADate(field=field))
-        return None
+        return stored
     return text
 
 
@@ -301,13 +311,12 @@ def _parse_coordinate(
     *,
     low: float,
     high: float,
-) -> float | None:
+) -> float | str | None:
     parsed = _parse_decimal(value, field, warnings, signed=True)
-    if parsed is None:
-        return None
+    if isinstance(parsed, str) or parsed is None:
+        return parsed
     if not low <= parsed <= high:
         warnings.append(OutOfRange(field=field))
-        return None
     return parsed
 
 
@@ -322,5 +331,4 @@ def _parse_country_code(
     text = stored_text(value)
     if _COUNTRY_CODE.fullmatch(text) is None:
         warnings.append(NotInVocabulary(field="countryCode"))
-        return None
     return text
