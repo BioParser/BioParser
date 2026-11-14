@@ -34,10 +34,6 @@ services:
     mem_limit: 16g
     memswap_limit: 16g
 
-  bioparser:
-    environment:
-      BIOPARSER_MINERU_TIER: "${BIOPARSER_MINERU_TIER:-standard}"
-
   parser-worker:
     environment:
       BIOPARSER_MINERU_TIER: "${BIOPARSER_MINERU_TIER:-standard}"

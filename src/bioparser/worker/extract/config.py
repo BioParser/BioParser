@@ -9,7 +9,7 @@ from bioparser.logging_config import parse_level
 DEFAULT_EXTRACT_TIME_LIMIT_SECONDS = 10 * 60
 DEFAULT_EXTRACT_MAX_RETRIES = 3
 
-# Same budgets as the API test route. A character budget, not a token budget.
+# A character budget, not a token budget.
 DEFAULT_EXTRACTION_CHAR_BUDGET = 8000
 DEFAULT_EXTRACTION_MAX_TOKENS = 1024
 # Probe port for GET /health.
