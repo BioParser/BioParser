@@ -26,7 +26,7 @@ The README has the default install and start commands. This page covers env vars
 
 ## Environment
 
-vLLM reads the model id from `VLLM_MODEL`. If that variable is empty, the `vllm` container exits immediately with an error like `Repo id must use alphanumeric chars ...: ''`.
+vLLM reads the model id from `VLLM_MODEL`. If that variable is empty, the `vllm` container exits immediately with an error like `Repo id must use alphanumeric chars ...: ''`. The client discovers that served id unless `BIOPARSER_VLLM_MODEL` is set. That setting is the id chat requests send, and it is separate from `VLLM_MODEL`.
 
 ```sh
 cp .env.example .env

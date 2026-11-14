@@ -1,10 +1,9 @@
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# TODO: expand config
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(".env"),
@@ -15,6 +14,10 @@ class Settings(BaseSettings):
 
     vllm_base_url: str = "http://localhost:8000/v1"
     vllm_api_key: SecretStr = SecretStr("EMPTY")
+    # Empty discovers the first id the server lists. Not VLLM_MODEL, which is what the server loads.
+    vllm_model: str = ""
+    # Qwen thinking on generate_json. Off matches today's extraction calls.
+    vllm_enable_thinking: bool = False
 
     model_discovery_timeout_seconds: float = Field(default=10.0, gt=0)
 
@@ -23,18 +26,21 @@ class Settings(BaseSettings):
         gt=0,
     )
 
-    max_concurrency: int = Field(
-        default=4,
-        ge=1,
-    )
-
     # --max-model-len is server-side cap e.g. 4096
     # from that we use tokens to system_prompt ~100
     #               CHAR_BUDGET (extract.py)  ~2400 ?
     #               and client side cap 1024  ~1024
     #
-    # So if this is raised, --max-model-len should be changed in docker-compose
+    # So if this is raised, --max-model-len should be changed in docker-compose.
+    # Callers that pass their own max_tokens, including the API and the extractor, override this.
     max_tokens: int = Field(default=1024, ge=1)
+
+    @field_validator("vllm_model", mode="before")
+    @classmethod
+    def blank_model_is_unset(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
 
 @lru_cache(maxsize=1)

@@ -321,3 +321,176 @@ async def test_a_404_clears_the_cached_model_and_rediscovers_it(
     assert result == '{"observations": []}'
     assert model_discoveries == 2
     assert requested_models == ["old-model", "new-model"]
+
+
+def test_the_client_has_no_concurrency_cap() -> None:
+    assert "max_concurrency" not in vllm_config.Settings.model_fields
+
+    settings = vllm_config.Settings(vllm_model="  ", vllm_enable_thinking=False)
+
+    assert settings.vllm_model == ""
+    assert settings.vllm_enable_thinking is False
+
+
+def _chat(
+    bodies: list[dict[str, object]],
+    *,
+    status: int = 200,
+    model: str = "stub-model",
+) -> Handler:
+    """Record each chat body. A /models request is a mistake when the id is configured."""
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/models"):
+            raise AssertionError("a configured model must not be discovered")
+        body = json.loads(request.content)
+        bodies.append(body)
+        if status != 200:
+            return httpx2.Response(
+                status,
+                json={
+                    "error": {
+                        "message": "model not found",
+                        "type": "invalid_request_error",
+                        "code": "model_not_found",
+                    }
+                },
+            )
+        return httpx2.Response(200, json=_completion() | {"model": model})
+
+    return handler
+
+
+@pytest.mark.anyio
+async def test_an_empty_model_setting_discovers_the_first_listed_id(
+    monkeypatch: pytest.MonkeyPatch,
+    vllm_transport: Callable[[Handler], None],
+) -> None:
+    monkeypatch.setenv("BIOPARSER_VLLM_MODEL", "")
+    listed = 0
+    requested: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal listed
+        if request.url.path.endswith("/models"):
+            listed += 1
+            return httpx2.Response(
+                200,
+                json={"object": "list", "data": [{"id": "first-model"}, {"id": "second-model"}]},
+            )
+        requested.append(json.loads(request.content)["model"])
+        return httpx2.Response(200, json=_completion() | {"model": "first-model"})
+
+    vllm_transport(handler)
+    service = VLLMService()
+    try:
+        await service.generate_json(PROMPT, schema={}, system_prompt="sys", max_tokens=64)
+    finally:
+        await service.aclose()
+
+    assert listed == 1
+    assert requested == ["first-model"]
+
+
+@pytest.mark.anyio
+async def test_a_configured_model_is_sent_and_not_discovered(
+    monkeypatch: pytest.MonkeyPatch,
+    vllm_transport: Callable[[Handler], None],
+) -> None:
+    monkeypatch.setenv("BIOPARSER_VLLM_MODEL", " chosen-model ")
+    bodies: list[dict[str, object]] = []
+    vllm_transport(_chat(bodies, model="chosen-model"))
+    service = VLLMService()
+    try:
+        await service.generate("hello", max_tokens=64)
+        await service.generate_json(PROMPT, schema={}, system_prompt="sys", max_tokens=64)
+    finally:
+        await service.aclose()
+
+    assert [body["model"] for body in bodies] == ["chosen-model", "chosen-model"]
+    assert service.model == "chosen-model"
+
+
+@pytest.mark.anyio
+async def test_a_404_keeps_a_configured_model_id(
+    monkeypatch: pytest.MonkeyPatch,
+    vllm_transport: Callable[[Handler], None],
+) -> None:
+    monkeypatch.setenv("BIOPARSER_VLLM_MODEL", "pinned-model")
+    bodies: list[dict[str, object]] = []
+    vllm_transport(_chat(bodies, status=404))
+    service = VLLMService()
+    try:
+        with pytest.raises(VLLMError):
+            await service.generate_json(PROMPT, schema={}, system_prompt="sys")
+        assert service.model == "pinned-model"
+        with pytest.raises(VLLMError):
+            await service.generate_json(PROMPT, schema={}, system_prompt="sys")
+    finally:
+        await service.aclose()
+
+    assert [body["model"] for body in bodies] == ["pinned-model", "pinned-model"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("enabled", [False, True], ids=["off", "on"])
+async def test_generate_json_sends_the_thinking_setting(
+    monkeypatch: pytest.MonkeyPatch,
+    vllm_transport: Callable[[Handler], None],
+    enabled: bool,
+) -> None:
+    monkeypatch.setenv("BIOPARSER_VLLM_MODEL", "stub-model")
+    monkeypatch.setenv("BIOPARSER_VLLM_ENABLE_THINKING", "true" if enabled else "false")
+    bodies: list[dict[str, object]] = []
+    vllm_transport(_chat(bodies))
+    service = VLLMService()
+    try:
+        await service.generate_json(PROMPT, schema={}, system_prompt="sys", max_tokens=64)
+        await service.generate("hello", max_tokens=64)
+    finally:
+        await service.aclose()
+
+    assert bodies[0]["chat_template_kwargs"] == {"enable_thinking": enabled}
+    assert "chat_template_kwargs" not in bodies[1]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["generate", "generate_json"])
+async def test_an_omitted_token_ceiling_uses_the_client_setting(
+    monkeypatch: pytest.MonkeyPatch,
+    vllm_transport: Callable[[Handler], None],
+    method: str,
+) -> None:
+    monkeypatch.setenv("BIOPARSER_VLLM_MODEL", "stub-model")
+    monkeypatch.setenv("BIOPARSER_MAX_TOKENS", "256")
+    bodies: list[dict[str, object]] = []
+    vllm_transport(_chat(bodies))
+    service = VLLMService()
+    try:
+        if method == "generate":
+            await service.generate("hello")
+        else:
+            await service.generate_json(PROMPT, schema={}, system_prompt="sys")
+    finally:
+        await service.aclose()
+
+    assert bodies[0]["max_tokens"] == 256
+
+
+@pytest.mark.anyio
+async def test_an_explicit_token_ceiling_overrides_the_client_setting(
+    monkeypatch: pytest.MonkeyPatch,
+    vllm_transport: Callable[[Handler], None],
+) -> None:
+    monkeypatch.setenv("BIOPARSER_VLLM_MODEL", "stub-model")
+    monkeypatch.setenv("BIOPARSER_MAX_TOKENS", "256")
+    bodies: list[dict[str, object]] = []
+    vllm_transport(_chat(bodies))
+    service = VLLMService()
+    try:
+        await service.generate("hello", max_tokens=64)
+        await service.generate_json(PROMPT, schema={}, system_prompt="sys", max_tokens=32)
+    finally:
+        await service.aclose()
+
+    assert [body["max_tokens"] for body in bodies] == [64, 32]

@@ -22,7 +22,7 @@ async def run_prompt(
     *,
     system_prompt: str | None = None,
     temperature: float = 0.0,
-    max_tokens: int = 1024,
+    max_tokens: int | None = None,
 ) -> str:
     service = VLLMService()
     try:
@@ -42,7 +42,12 @@ def main() -> None:
     parser.add_argument("prompt")
     parser.add_argument("--system-prompt")
     parser.add_argument("--temperature", type=float, default=0.0)
-    parser.add_argument("--max-tokens", type=int, default=1024)
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help="Generation tokens. Omit to use the vLLM client's BIOPARSER_MAX_TOKENS (default 1024).",
+    )
     args = parser.parse_args()
 
     try:

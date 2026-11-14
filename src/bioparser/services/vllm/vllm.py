@@ -37,8 +37,16 @@ class VLLMService:
         )
 
         self.model: str | None = None
+        self._configured_model = settings.vllm_model or None
+        self._enable_thinking = settings.vllm_enable_thinking
+        self._max_tokens = settings.max_tokens
         self._lock = asyncio.Lock()
         self._discovery_timeout = settings.model_discovery_timeout_seconds
+
+    def _token_ceiling(self, max_tokens: int | None) -> int:
+        if max_tokens is None:
+            return self._max_tokens
+        return max_tokens
 
     async def ping(self) -> bool:
         """True when the server answers a models request. An API error means it is down."""
@@ -49,19 +57,23 @@ class VLLMService:
         return True
 
     async def get_model(self) -> str:
-        """Discover the served model id - used once per process"""
+        """The id chat requests send. A configured id, or the first one the server lists."""
         if self.model is not None:
             return self.model
 
         async with self._lock:
-            if self.model is None:
-                try:
-                    response = await self.client.models.list(timeout=self._discovery_timeout)
-                except APIError as exc:
-                    raise VLLMError(f"vLLM unreachable: {type(exc).__name__}") from exc
-                if not response.data:
-                    raise VLLMError("vLLM exposes no models")
-                self.model = response.data[0].id
+            if self.model is not None:
+                return self.model
+            if self._configured_model is not None:
+                self.model = self._configured_model
+                return self.model
+            try:
+                response = await self.client.models.list(timeout=self._discovery_timeout)
+            except APIError as exc:
+                raise VLLMError(f"vLLM unreachable: {type(exc).__name__}") from exc
+            if not response.data:
+                raise VLLMError("vLLM exposes no models")
+            self.model = response.data[0].id
             return self.model
 
     async def aclose(self) -> None:
@@ -106,9 +118,9 @@ class VLLMService:
         *,
         system_prompt: str | None = None,
         temperature: float = 0.0,
-        max_tokens: int,
+        max_tokens: int | None = None,
     ) -> str:
-
+        token_ceiling = self._token_ceiling(max_tokens)
         messages: list[ChatCompletionMessageParam] = []
 
         if system_prompt is not None:
@@ -131,7 +143,7 @@ class VLLMService:
                 model=await self.get_model(),
                 messages=messages,
                 temperature=temperature,
-                max_tokens=max_tokens,
+                max_tokens=token_ceiling,
             )
         )
 
@@ -148,8 +160,9 @@ class VLLMService:
         *,
         schema: dict[str, Any],
         system_prompt: str,
-        max_tokens: int,
+        max_tokens: int | None = None,
     ) -> str:
+        token_ceiling = self._token_ceiling(max_tokens)
         requested_model = await self.get_model()
         try:
             response = await self._logged(
@@ -160,19 +173,20 @@ class VLLMService:
                         {"role": "user", "content": prompt},
                     ],
                     temperature=0.0,
-                    max_tokens=max_tokens,
+                    max_tokens=token_ceiling,
                     response_format={
                         "type": "json_schema",
                         "json_schema": {"name": "extraction", "schema": schema},
                     },
-                    # Qwen3 emits <think> blocks; disable it
-                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                    # Qwen3 emits <think> blocks unless this is off.
+                    extra_body={"chat_template_kwargs": {"enable_thinking": self._enable_thinking}},
                 )
             )
         except NotFoundError as exc:
-            async with self._lock:
-                if self.model == requested_model:
-                    self.model = None
+            if self._configured_model is None:
+                async with self._lock:
+                    if self.model == requested_model:
+                        self.model = None
             raise VLLMError(f"vLLM request failed: {type(exc).__name__}") from exc
         except (BadRequestError, UnprocessableEntityError) as exc:
             raise VLLMRequestRejectedError(
@@ -186,7 +200,7 @@ class VLLMService:
 
         if choice.finish_reason == "length":
             raise VLLMTruncatedError(
-                f"generation hit max_tokens={max_tokens} "
+                f"generation hit max_tokens={token_ceiling} "
                 f"(finish_reason=length); lower Extraction.max_length "
                 f"or raise max_tokens within --max-model-len"
             )
