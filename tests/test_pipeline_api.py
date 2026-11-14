@@ -12,7 +12,7 @@ import pytest
 from conftest import TEST_API_KEY
 from fastapi.testclient import TestClient
 from httpx2 import ASGITransport
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from stubs import (
     LOCATABLE_OBSERVATION,
     LOCATABLE_TEXT,
@@ -36,7 +36,7 @@ from bioparser.parser.errors import (
 )
 from bioparser.parser_names import DEFAULT_PARSER_NAME
 from bioparser.pipeline import PipelineError, PipelineOptions, run_pipeline
-from bioparser.services.vllm.vllm import VLLMError
+from bioparser.services.vllm.vllm import VLLMError, VLLMSchemaError
 
 # bioparser.api re-exports the FastAPI instance as `app`, which shadows the
 # submodule of the same name; import_module returns the module itself.
@@ -166,7 +166,10 @@ class FreeTextUnitVLLM(StubVLLMService):
             "evidence_block_id": "x",
             "quotation": "12.5 g",
         }
-        return response_model.model_validate({"observations": [observation]})
+        try:
+            return response_model.model_validate({"observations": [observation]})
+        except ValidationError as exc:
+            raise VLLMSchemaError("response did not match the schema") from exc
 
 
 class UnreachableVLLM(StubVLLMService):

@@ -17,6 +17,7 @@ from bioparser.services.vllm import vllm as vllm_module
 from bioparser.services.vllm.vllm import (
     VLLMError,
     VLLMRequestRejectedError,
+    VLLMSchemaError,
     VLLMService,
     VLLMTruncatedError,
 )
@@ -43,7 +44,9 @@ def vllm_log(
     return caplog
 
 
-def _completion(finish_reason: str = "stop") -> dict[str, object]:
+def _completion(
+    finish_reason: str = "stop", content: str = '{"observations": []}'
+) -> dict[str, object]:
     return {
         "id": "cmpl-1",
         "object": "chat.completion",
@@ -53,7 +56,7 @@ def _completion(finish_reason: str = "stop") -> dict[str, object]:
             {
                 "index": 0,
                 "finish_reason": finish_reason,
-                "message": {"role": "assistant", "content": '{"observations": []}'},
+                "message": {"role": "assistant", "content": content},
             }
         ],
         "usage": {"prompt_tokens": 120, "completion_tokens": 34, "total_tokens": 154},
@@ -128,6 +131,20 @@ async def test_a_completion_cut_off_by_max_tokens_logs_a_warning(
 
     [(level, fields)] = _completions(vllm_log)
     assert (level, fields["finish_reason"]) == (logging.WARNING, "length")
+
+
+@pytest.mark.anyio
+async def test_a_body_that_does_not_match_the_model_is_a_schema_error(
+    make_service: Callable[[Handler], VLLMService],
+) -> None:
+    service = make_service(
+        lambda _request: httpx2.Response(200, json=_completion(content="canary-not-json"))
+    )
+
+    with pytest.raises(VLLMSchemaError, match="json_invalid") as raised:
+        await _generate_model(service)
+
+    assert "canary-not-json" not in str(raised.value)
 
 
 @pytest.mark.anyio
@@ -259,9 +276,17 @@ def test_the_api_key_is_masked_when_settings_are_printed() -> None:
     assert settings.vllm_api_key.get_secret_value() == API_KEY
 
 
+async def _ask(service: VLLMService, method: str) -> str | _Reply:
+    if method == "generate":
+        return await service.generate(PROMPT, max_tokens=64)
+    return await service.generate_model(PROMPT, _Reply, system_prompt="sys", max_tokens=64)
+
+
 @pytest.mark.anyio
+@pytest.mark.parametrize("method", ["generate", "generate_model"])
 async def test_a_404_clears_the_cached_model_and_rediscovers_it(
     vllm_transport: Callable[[Handler], None],
+    method: str,
 ) -> None:
     model_discoveries = 0
     requested_models: list[str] = []
@@ -305,25 +330,15 @@ async def test_a_404_clears_the_cached_model_and_rediscovers_it(
 
     try:
         with pytest.raises(VLLMError):
-            await service.generate_model(
-                PROMPT,
-                _Reply,
-                system_prompt="sys",
-                max_tokens=64,
-            )
+            await _ask(service, method)
 
         assert service.model is None
 
-        result = await service.generate_model(
-            PROMPT,
-            _Reply,
-            system_prompt="sys",
-            max_tokens=64,
-        )
+        result = await _ask(service, method)
     finally:
         await service.aclose()
 
-    assert result == _Reply()
+    assert result == ('{"observations": []}' if method == "generate" else _Reply())
     assert model_discoveries == 2
     assert requested_models == ["old-model", "new-model"]
 
@@ -425,3 +440,17 @@ async def test_a_caller_may_ask_for_fewer_tokens_than_the_ceiling(
         await service.aclose()
 
     assert [body["max_tokens"] for body in bodies] == [64, 32, 256]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("max_tokens", [0, -1])
+async def test_a_non_positive_token_count_is_rejected(
+    make_service: Callable[[Handler], VLLMService],
+    max_tokens: int,
+) -> None:
+    service = make_service(lambda _request: httpx2.Response(500, json={"error": "unused"}))
+    try:
+        with pytest.raises(ValueError, match="at least 1"):
+            await service.generate("hello", max_tokens=max_tokens)
+    finally:
+        await service.aclose()

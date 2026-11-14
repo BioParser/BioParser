@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pydantic import ValidationError
-
 from bioparser.extract.backend.default.locate import cited_observations
 from bioparser.extract.backend.default.schema import Extraction
 from bioparser.extract.errors import ExtractionFailedError, ExtractorProcessError
@@ -11,7 +9,12 @@ from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
 from bioparser.parser.models import BlockRole, ParserArtifact, TextContent
 from bioparser.services.vllm import VLLMService
-from bioparser.services.vllm.vllm import VLLMError, VLLMRequestRejectedError, VLLMTruncatedError
+from bioparser.services.vllm.vllm import (
+    VLLMError,
+    VLLMRequestRejectedError,
+    VLLMSchemaError,
+    VLLMTruncatedError,
+)
 
 # Dropping references to cut tokens
 SKIP_ROLES = frozenset({BlockRole.REFERENCE, BlockRole.HEADER, BlockRole.FOOTER})
@@ -84,19 +87,12 @@ async def extract_observations(
     if not prompt.text:
         return ModelResult(output=Extraction(), prompt=prompt)
 
-    try:
-        parsed = await vllm.generate_model(
-            prompt.text,
-            Extraction,
-            system_prompt=SYSTEM_PROMPT,
-            max_tokens=max_tokens,
-        )
-    except ValidationError as exc:
-        codes = sorted({error["type"] for error in exc.errors(include_input=False)})
-        raise ExtractionFailedError(
-            f"model output did not match the extraction schema: {', '.join(codes)}"
-        ) from exc
-
+    parsed = await vllm.generate_model(
+        prompt.text,
+        Extraction,
+        system_prompt=SYSTEM_PROMPT,
+        max_tokens=max_tokens,
+    )
     return ModelResult(output=parsed, prompt=prompt)
 
 
@@ -121,6 +117,8 @@ class DefaultExtractor:
                 extractor_version=EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME],
                 observations=cited_observations(result.output, artifact),
             )
+        except VLLMSchemaError as exc:
+            raise ExtractionFailedError(str(exc)) from exc
         except (VLLMTruncatedError, VLLMRequestRejectedError) as exc:
             raise ExtractionFailedError(f"vLLM could not answer: {type(exc).__name__}") from exc
         except VLLMError as exc:

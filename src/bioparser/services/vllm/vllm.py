@@ -14,7 +14,7 @@ from openai import (
 )
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from openai.types.shared_params.response_format_json_schema import ResponseFormatJSONSchema
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from bioparser.logging_config import stopwatch
 
@@ -23,31 +23,20 @@ from .config import get_settings
 LOGGER = logging.getLogger(__name__)
 
 
-def _request_timeout(timeout: float | None) -> float | NotGiven:
-    """A caller's timeout, or the client's own when the caller does not pass one."""
-    if timeout is None:
-        return NOT_GIVEN
-    return timeout
-
-
-def _messages(prompt: str, system_prompt: str | None) -> list[ChatCompletionMessageParam]:
-    messages: list[ChatCompletionMessageParam] = []
-    if system_prompt is not None:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-    return messages
-
-
 class VLLMError(RuntimeError):
     """vLLM was unreachable, timed out, or returned an error status"""
 
 
 class VLLMTruncatedError(VLLMError):
-    """Generation hit max_tokens before the model closed the JSON."""
+    """Generation stopped because it reached max_tokens."""
 
 
 class VLLMRequestRejectedError(VLLMError):
     """vLLM rejected the request. Retrying the same input will fail again."""
+
+
+class VLLMSchemaError(VLLMError):
+    """The response body did not match the model. The server did accept the request."""
 
 
 class VLLMService:
@@ -67,9 +56,11 @@ class VLLMService:
         self._discovery_timeout = settings.vllm_model_discovery_timeout_seconds
 
     def _token_ceiling(self, max_tokens: int | None) -> int:
-        """The configured ceiling, or a caller's smaller count."""
+        """The configured ceiling, or a caller's smaller positive count."""
         if max_tokens is None or max_tokens > self._max_tokens:
             return self._max_tokens
+        if max_tokens < 1:
+            raise ValueError("max_tokens must be at least 1")
         return max_tokens
 
     async def ping(self) -> bool:
@@ -117,7 +108,7 @@ class VLLMService:
         finish_reason = response.choices[0].finish_reason if response.choices else None
         usage = response.usage
         LOGGER.log(
-            # "length" means max_tokens cut the answer off; generate_model raises on it
+            # "length" means max_tokens cut the answer off; _chat_completion raises on it
             logging.INFO if finish_reason == "stop" else logging.WARNING,
             "vllm completion finished",
             extra={
@@ -132,7 +123,7 @@ class VLLMService:
             raise VLLMError("vLLM returned no choices")
         return response
 
-    async def _chat(
+    async def _chat_completion(
         self,
         prompt: str,
         *,
@@ -142,73 +133,22 @@ class VLLMService:
         enable_thinking: bool,
         timeout: float | None,
         response_format: ResponseFormatJSONSchema | None = None,
-    ) -> tuple[ChatCompletion, int]:
-        """One chat completion. The int is the token ceiling this call sent."""
+    ) -> str:
+        """One chat completion, as text. A 404 forgets the model id that was sent."""
         token_ceiling = self._token_ceiling(max_tokens)
+        requested_model = await self.get_model()
         request = self.client.chat.completions.create(
-            model=await self.get_model(),
+            model=requested_model,
             messages=_messages(prompt, system_prompt),
             temperature=temperature,
             max_tokens=token_ceiling,
+            # Qwen thinks unless the call says otherwise, so false is sent too.
             extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
             timeout=_request_timeout(timeout),
             response_format=omit if response_format is None else response_format,
         )
-        return await self._logged(request), token_ceiling
-
-    async def generate(
-        self,
-        prompt: str,
-        *,
-        system_prompt: str | None = None,
-        temperature: float = 0.0,
-        max_tokens: int | None = None,
-        enable_thinking: bool = False,
-        timeout: float | None = None,
-    ) -> str:
-        response, _token_ceiling = await self._chat(
-            prompt,
-            system_prompt=system_prompt,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            enable_thinking=enable_thinking,
-            timeout=timeout,
-        )
-        content = response.choices[0].message.content
-        if content is None:
-            raise RuntimeError("vLLM returned an empty response")
-        return content
-
-    async def generate_model[ModelT: BaseModel](
-        self,
-        prompt: str,
-        response_model: type[ModelT],
-        *,
-        system_prompt: str | None = None,
-        temperature: float = 0.0,
-        max_tokens: int | None = None,
-        enable_thinking: bool = False,
-        timeout: float | None = None,
-    ) -> ModelT:
-        """Ask for JSON matching [response_model] and return that model."""
-        requested_model = await self.get_model()
-        schema: ResponseFormatJSONSchema = {
-            "type": "json_schema",
-            "json_schema": {
-                "name": response_model.__name__,
-                "schema": response_model.model_json_schema(),
-            },
-        }
         try:
-            response, token_ceiling = await self._chat(
-                prompt,
-                system_prompt=system_prompt,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                enable_thinking=enable_thinking,
-                timeout=timeout,
-                response_format=schema,
-            )
+            response = await self._logged(request)
         except NotFoundError as exc:
             async with self._lock:
                 if self.model == requested_model:
@@ -225,12 +165,77 @@ class VLLMService:
         choice = response.choices[0]
         if choice.finish_reason == "length":
             raise VLLMTruncatedError(
-                f"generation hit max_tokens={token_ceiling} "
-                f"(finish_reason=length); lower Extraction.max_length "
-                f"or raise max_tokens within --max-model-len"
+                f"generation hit max_tokens={token_ceiling} (finish_reason=length)."
             )
-
         content = choice.message.content
         if content is None:
             raise VLLMError("vLLM returned an empty response")
-        return response_model.model_validate_json(content)
+        return content
+
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        system_prompt: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+        enable_thinking: bool = False,
+        timeout: float | None = None,
+    ) -> str:
+        return await self._chat_completion(
+            prompt,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            enable_thinking=enable_thinking,
+            timeout=timeout,
+        )
+
+    async def generate_model[ModelT: BaseModel](
+        self,
+        prompt: str,
+        response_model: type[ModelT],
+        *,
+        system_prompt: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+        enable_thinking: bool = False,
+        timeout: float | None = None,
+    ) -> ModelT:
+        """Ask for JSON matching [response_model] and return that model."""
+        schema: ResponseFormatJSONSchema = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": response_model.__name__,
+                "schema": response_model.model_json_schema(),
+            },
+        }
+        content = await self._chat_completion(
+            prompt,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            enable_thinking=enable_thinking,
+            timeout=timeout,
+            response_format=schema,
+        )
+        try:
+            return response_model.model_validate_json(content)
+        except ValidationError as exc:
+            codes = sorted({error["type"] for error in exc.errors(include_input=False)})
+            raise VLLMSchemaError(f"response did not match the schema: {', '.join(codes)}") from exc
+
+
+def _request_timeout(timeout: float | None) -> float | NotGiven:
+    """A caller's timeout, or the client's own when the caller does not pass one."""
+    if timeout is None:
+        return NOT_GIVEN
+    return timeout
+
+
+def _messages(prompt: str, system_prompt: str | None) -> list[ChatCompletionMessageParam]:
+    messages: list[ChatCompletionMessageParam] = []
+    if system_prompt is not None:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    return messages

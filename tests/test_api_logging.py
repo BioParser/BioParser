@@ -41,6 +41,7 @@ from bioparser.parser.errors import ParserProcessError
 from bioparser.parser_names import DEFAULT_PARSER_NAME, MINERU_PARSER_NAME
 from bioparser.pipeline import PipelineError, PipelineOptions, run_pipeline
 from bioparser.services.vllm import config as vllm_config
+from bioparser.services.vllm.vllm import VLLMSchemaError
 
 # bioparser.api re-exports the FastAPI instance as `app`, which shadows the
 # submodule of the same name; import_module returns the module itself.
@@ -408,7 +409,11 @@ class _CutOffVLLM(StubVLLMService):
         max_tokens: int | None = None,
     ) -> BaseModel:
         payload = '{"observations": [{"quotation": "' + "canary-quote"
-        return response_model.model_validate_json(payload)
+        try:
+            return response_model.model_validate_json(payload)
+        except ValidationError as exc:
+            codes = sorted({error["type"] for error in exc.errors(include_input=False)})
+            raise VLLMSchemaError(f"response did not match the schema: {', '.join(codes)}") from exc
 
 
 def test_a_failure_traceback_quotes_no_model_output(
@@ -480,4 +485,4 @@ def test_a_schema_failure_names_the_pydantic_error_codes(
 
     [failure] = [r for r in _stage_records(pipeline_log) if r.levelno == logging.ERROR]
     # pydantic's own message is redacted; its error codes (never input) survive in ours
-    assert "did not match the extraction schema: json_invalid" in JsonFormatter().format(failure)
+    assert "response did not match the schema: json_invalid" in JsonFormatter().format(failure)

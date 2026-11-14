@@ -6,6 +6,7 @@ from openai import APIConnectionError, APITimeoutError
 
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.config import get_settings
+from bioparser.services.vllm.vllm import VLLMError
 
 
 def vllm_unreachable_message(base_url: str) -> str:
@@ -69,7 +70,9 @@ def main() -> None:
                 timeout=args.timeout,
             )
         )
-    except (APIConnectionError, APITimeoutError):
+    except VLLMError as exc:
+        if not isinstance(exc.__cause__, (APIConnectionError, APITimeoutError)):
+            raise
         print(vllm_unreachable_message(get_settings().vllm_base_url), file=sys.stderr)
         raise SystemExit(1) from None
 
