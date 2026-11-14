@@ -6,6 +6,7 @@ from bioparser.ets.assess import Assessment, assess
 from bioparser.ets.models import EtsRow
 from bioparser.ets.notices import format_warning
 from bioparser.extract.models import ExtractionArtifact
+from bioparser.traits.table import mammal_traits
 
 
 class EtsSourceRow(EtsRow):
@@ -19,11 +20,13 @@ class EtsSourceRow(EtsRow):
 
 
 class EtsResult(BaseModel):
-    """One row per observation."""
+    """One row per observation, named by the trait list that filled them."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     rows: list[EtsSourceRow]
+    # The mammal trait list that filled traitName and traitID.
+    trait_list_version: str
 
 
 def to_ets(artifact: ExtractionArtifact, *, references: str) -> EtsResult:
@@ -44,7 +47,7 @@ def to_ets(artifact: ExtractionArtifact, *, references: str) -> EtsResult:
                 source_index=index,
             )
         )
-    return EtsResult(rows=rows)
+    return EtsResult(rows=rows, trait_list_version=mammal_traits().version)
 
 
 def _row(
@@ -56,6 +59,8 @@ def _row(
 ) -> EtsSourceRow:
     return EtsSourceRow.model_validate(
         {
+            "traitID": verdict.trait_id,
+            "traitName": verdict.trait_name,
             "verbatimTraitName": verdict.cited["verbatimTraitName"],
             "scientificName": verdict.scientific_name,
             "verbatimScientificName": verdict.cited["verbatimScientificName"],

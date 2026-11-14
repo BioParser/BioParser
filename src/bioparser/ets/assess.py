@@ -10,6 +10,7 @@ from bioparser.ets.dates import parse_date
 from bioparser.ets.notices import (
     BoundsReversed,
     DateField,
+    LevelHasSpread,
     NotACalendarDay,
     NotADate,
     Notice,
@@ -20,6 +21,7 @@ from bioparser.ets.notices import (
     TextField,
 )
 from bioparser.ets.numbers import parse_decimal, parse_integer, parse_signed_decimal
+from bioparser.ets.trait_values import ResolvedTraitValue, resolve_trait_value
 from bioparser.ets.vocab import BasisOfRecord, match_aggregate, match_basis, match_sex
 from bioparser.extract.models import (
     CitationOrCorrection,
@@ -70,6 +72,8 @@ class Assessment(BaseModel):
 
     warnings: tuple[Notice, ...]
     scientific_name: str | None
+    trait_name: str | None
+    trait_id: str | None
     trait_value: str | None
     trait_unit: str | None
     sex: str | None
@@ -104,16 +108,12 @@ def assess(observation: Observation) -> Assessment:
     scientific_name = None
     cited["taxonRank"] = None
 
-    # A trait list publishes the standardized value and its unit.
-    trait_value = None
-    trait_unit = None
-
     # Closed tokens. A missing basis stays empty. A token outside the set stays empty.
     sex = _parse_sex(observation.sex, warnings)
     aggregate_measure = _parse_aggregate(observation.aggregateMeasure, warnings)
     basis_of_record = _parse_basis(observation.basisOfRecord, warnings)
 
-    # Numbers.
+    # Numbers. The minimum, the maximum, and the dispersion stay in the printed unit.
     age = _parse_decimal(observation.age, "age", warnings, signed=True)
     individual_count = _parse_individual_count(observation.individualCount, warnings)
     dispersion = _parse_dispersion(observation.dispersion, warnings)
@@ -121,6 +121,29 @@ def assess(observation: Observation) -> Assessment:
     value_max = _parse_bound(observation.measurementValueMax, "measurementValue_max", warnings)
     if isinstance(value_min, float) and isinstance(value_max, float) and value_min > value_max:
         warnings.append(BoundsReversed())
+
+    parsed = _parse_trait_value(observation, aggregate=aggregate_measure is True)
+    # A level has no spread and no range. A stored one means the code does not apply,
+    # so the printed row stays and the four standardized columns stay empty.
+    if isinstance(parsed, ResolvedTraitValue) and _level_has_a_spread(parsed, observation):
+        warnings.append(LevelHasSpread())
+        trait_name = None
+        trait_id = None
+        trait_value = None
+        trait_unit = None
+    elif isinstance(parsed, ResolvedTraitValue):
+        warnings.extend(parsed.warnings)
+        trait_name = parsed.trait_name
+        trait_id = parsed.trait_id
+        trait_value = parsed.value
+        trait_unit = parsed.unit
+    else:
+        if parsed is not None:
+            warnings.append(parsed)
+        trait_name = None
+        trait_id = None
+        trait_value = None
+        trait_unit = None
 
     # A calendar day is written as YYYY-MM-DD. Year, month, and day stay separate.
     year = _parse_integer(observation.year, "year", warnings, low=1000, high=9999)
@@ -152,6 +175,8 @@ def assess(observation: Observation) -> Assessment:
     return Assessment(
         warnings=tuple(warnings),
         scientific_name=scientific_name,
+        trait_name=trait_name,
+        trait_id=trait_id,
         trait_value=trait_value,
         trait_unit=trait_unit,
         sex=sex,
@@ -173,6 +198,37 @@ def assess(observation: Observation) -> Assessment:
         country_code=country_code,
         occurrence_id=occurrence_id,
         cited=cited,
+    )
+
+
+def _parse_trait_value(
+    observation: Observation, *, aggregate: bool
+) -> ResolvedTraitValue | Notice | None:
+    """The resolved value, the notice for a failed code, or nothing when no code was stored."""
+    if observation.traitCode is None:
+        return None
+    if observation.traitValue is not None:
+        value = observation.traitValue.value
+    else:
+        value = observation.verbatimTraitValue.text
+    if observation.traitUnit is not None:
+        unit = observation.traitUnit.value
+    elif observation.verbatimTraitUnit is not None:
+        unit = observation.verbatimTraitUnit.text
+    else:
+        unit = ""
+    return resolve_trait_value(observation.traitCode.value, value, unit, aggregate=aggregate)
+
+
+def _level_has_a_spread(parsed: ResolvedTraitValue, observation: Observation) -> bool:
+    """A categorical code stored a dispersion, a minimum, or a maximum."""
+    return parsed.kind == "categorical" and any(
+        value is not None
+        for value in (
+            observation.dispersion,
+            observation.measurementValueMin,
+            observation.measurementValueMax,
+        )
     )
 
 

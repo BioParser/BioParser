@@ -339,6 +339,8 @@ def test_job_status_openapi_schema() -> None:
     assert full["properties"]["rows"]["items"]["$ref"] == "#/components/schemas/EtsSourceRow"
     assert "drops" not in full["properties"]
     assert "source_index" in schema["components"]["schemas"]["EtsSourceRow"]["properties"]
+    assert done["properties"]["trait_list_version"]["type"] == "string"
+    assert full["properties"]["trait_list_version"]["type"] == "string"
     assert "traitlist" not in done["properties"]
     assert "traitlist" not in full["properties"]
     assert "created_at" not in done["properties"]
@@ -474,8 +476,12 @@ def test_a_done_job_returns_its_ets_rows(
     assert body.rows == [
         EtsRow.model_validate(row.model_dump(exclude={"source_index"})) for row in expected.rows
     ]
+    assert response.json()["trait_list_version"] == "2026.10.0"
     assert response.json()["rows"][0]["verbatimTraitName"] == "M. musculus"
-    assert response.json()["rows"][0]["traitName"] is None
+    assert response.json()["rows"][0]["traitName"] == "Body mass"
+    assert response.json()["rows"][0]["traitID"] == "VT:0001259"
+    assert response.json()["rows"][0]["traitValue"] == "12.5"
+    assert response.json()["rows"][0]["traitUnit"] == "g"
     assert "source_index" not in response.json()["rows"][0]
     assert "drops" not in response.json()
     assert "artifact.retrieve" in events

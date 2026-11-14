@@ -319,7 +319,7 @@ Poll a job.
 
 - `queued`, `parsing`, `parsed`, and `extracting` return `job_id` and `status`.
 - `failed` adds `error`, a safe error code.
-- `done` adds the ETS rows.
+- `done` adds the ETS rows and `trait_list_version`, the mammal trait list that filled `traitName` and `traitID`.
 - `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and
   `document_checksum`. The status says whether a parser or extraction artifact exists.
   A done job also adds `source_index` on each row. The index is the observation's
@@ -532,9 +532,9 @@ Pydantic models shared by the routes above, used both for response validation an
 for the OpenAPI docs' `responses=` examples:
 
 - `JobStatusResponse` — the shapes for `GET /api/jobs/{job_id}`. `OpenJobResponse` is
-  `queued`, `parsing`, `parsed`, or `extracting`. `DoneJobResponse` is the ETS body.
-  `DoneJobFullResponse` is that body plus `source_index` on each row, for `?detail=full`.
-  `FailedJobResponse` carries `error`. `POST /api/extractions` and
+  `queued`, `parsing`, `parsed`, or `extracting`. `DoneJobResponse` is the ETS body
+  and `trait_list_version`. `DoneJobFullResponse` is that body plus `source_index` on
+  each row, for `?detail=full`. `FailedJobResponse` carries `error`. `POST /api/extractions` and
   `POST /api/documents/{checksum}/jobs` return `AcceptedJobResponse`, which is `job_id`
   and `status`. Lists use `JobListResponse`: the default row is `job_id` and `status`,
   and `detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and
