@@ -180,7 +180,7 @@ def test_a_vocabulary_miss_leaves_the_column_empty() -> None:
 
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
-    assert row.sex is None
+    assert row.sex == "M"
     assert row.basisOfRecord is None
     assert row.aggregateMeasure is None
     assert "not_in_vocabulary:sex" in row.warnings
@@ -205,7 +205,7 @@ def test_a_paper_can_state_occurrence_place_and_time() -> None:
     assert row.countryCode == "DE"
     assert row.eventDate == "1963-03-08"
     assert row.measurementDeterminedDate == "1963-03-08"
-    assert row.month is None
+    assert row.month == 13
     assert "out_of_range:month" in row.warnings
 
 
@@ -346,9 +346,8 @@ def test_a_citation_without_a_range_is_rejected() -> None:
         )
 
 
-def test_the_row_schema_rejects_a_sex_abbreviation_and_an_exponent() -> None:
-    with pytest.raises(ValidationError):
-        _row(sex="M")
+def test_the_row_keeps_a_sex_abbreviation_and_rejects_an_exponent() -> None:
+    assert _row(sex="M").sex == "M"
     with pytest.raises(ValidationError):
         _row(traitValue="1.5e2")
 
@@ -399,13 +398,39 @@ def test_a_negative_age_is_parsed_and_reversed_bounds_are_kept() -> None:
     assert result.rows[1].source_index == 1
 
 
+def test_a_printed_token_stays_when_it_fails_its_check() -> None:
+    observation = _observation(
+        month=_cited("February", start=130),
+        eventDate=_cited("08/03/1963", start=110),
+        countryCode=_cited("Germany", start=100),
+        decimalLongitude=_cited("200", start=150),
+        individualCount=_cited("0", start=30),
+        dispersion=_cited("-0.2", start=40),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.month == "February"
+    assert row.eventDate == "08/03/1963"
+    assert row.countryCode == "Germany"
+    assert row.decimalLongitude == 200
+    assert row.individualCount == 0
+    assert row.dispersion == -0.2
+    assert "out_of_range:individualCount" in row.warnings
+    assert "out_of_range:dispersion" in row.warnings
+    assert "not_numeric:month" in row.warnings
+    assert "not_a_date:eventDate" in row.warnings
+    assert "out_of_range:decimalLongitude" in row.warnings
+    assert "not_in_vocabulary:countryCode" in row.warnings
+
+
 def test_a_long_number_does_not_fail_the_other_rows() -> None:
     long_month = _observation(month=_cited("1" * 40, start=130))
     long_value = _observation(verbatimTraitValue=_cited("8" * 40, start=20))
 
     result = to_ets(_artifact(long_month, long_value, _observation()), references=_DOCUMENT_ID)
 
-    assert result.rows[0].row.month is None
+    assert result.rows[0].row.month == "1" * 40
     assert "not_numeric:month" in result.rows[0].row.warnings
     assert result.rows[1].source_index == 1
     assert result.rows[1].row.verbatimTraitValue == "8" * 40

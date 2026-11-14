@@ -11,7 +11,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from bioparser.ets.numbers import canonical_decimal
-from bioparser.ets.vocab import BasisOfRecord, Sex
+from bioparser.ets.vocab import BasisOfRecord
 
 _MEASUREMENT_ID = re.compile(r"^[1-9]\d*$")
 
@@ -57,9 +57,9 @@ class EtsRow(BaseModel):
     genus: str | None = None
 
     # The organism.
-    sex: Sex | None = None
+    sex: str | None = None
     lifeStage: str | None = None
-    age: float | None = Field(default=None, allow_inf_nan=False)
+    age: float | str | None = Field(default=None, allow_inf_nan=False)
     morphotype: str | None = None
 
     # Where the measurement came from.
@@ -78,10 +78,10 @@ class EtsRow(BaseModel):
     statisticalMethod: str | None = None
     # No default. ETS says "Defaults to 1" and "Defaults to 0". A missing value is
     # empty, because a default would state something the paper did not say.
-    individualCount: int | None = Field(default=None, ge=1)
-    dispersion: float | None = Field(default=None, ge=0, allow_inf_nan=False)
-    measurementValue_min: float | None = Field(default=None, allow_inf_nan=False)
-    measurementValue_max: float | None = Field(default=None, allow_inf_nan=False)
+    individualCount: int | str | None = None
+    dispersion: float | str | None = Field(default=None, allow_inf_nan=False)
+    measurementValue_min: float | str | None = Field(default=None, allow_inf_nan=False)
+    measurementValue_max: float | str | None = Field(default=None, allow_inf_nan=False)
     measurementAccuracy: str | None = None
 
     # measurementID is assigned for this response.
@@ -94,15 +94,15 @@ class EtsRow(BaseModel):
     eventID: str | None = None
     preparations: str | None = None
     samplingProtocol: str | None = None
-    year: int | None = None
-    month: int | None = None
-    day: int | None = None
+    year: int | str | None = None
+    month: int | str | None = None
+    day: int | str | None = None
     eventDate: str | None = None
     locationID: str | None = None
     habitat: str | None = None
-    decimalLongitude: float | None = Field(default=None, allow_inf_nan=False)
-    decimalLatitude: float | None = Field(default=None, allow_inf_nan=False)
-    elevation: float | None = Field(default=None, allow_inf_nan=False)
+    decimalLongitude: float | str | None = Field(default=None, allow_inf_nan=False)
+    decimalLatitude: float | str | None = Field(default=None, allow_inf_nan=False)
+    elevation: float | str | None = Field(default=None, allow_inf_nan=False)
     geodeticDatum: str | None = None
     verbatimLocality: str | None = None
     country: str | None = None

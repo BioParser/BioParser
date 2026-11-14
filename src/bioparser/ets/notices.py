@@ -54,16 +54,24 @@ DateField = Literal["measurementDeterminedDate", "eventDate"]
 
 
 class OutOfRange(BaseModel):
-    """A printed number outside the range of its column. The column stays empty."""
+    """A printed number outside the range of its column."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["out_of_range"] = "out_of_range"
-    field: Literal["year", "month", "day", "decimalLongitude", "decimalLatitude"]
+    field: Literal[
+        "year",
+        "month",
+        "day",
+        "decimalLongitude",
+        "decimalLatitude",
+        "individualCount",
+        "dispersion",
+    ]
 
 
 class NotNumeric(BaseModel):
-    """A printed number that is not the ETS numeric type."""
+    """Text in a numeric column."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
