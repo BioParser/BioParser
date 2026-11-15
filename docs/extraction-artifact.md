@@ -147,14 +147,14 @@ In the table below, the ETS term is the column the adapter fills from the field.
 
 | Field | Shape | Required | ETS term | Notes |
 |---|---|---|---|---|
-| `traitCode` | interpreted | | - | Optional. The extractor's code for the measurement, such as `body_mass`. A measurement with no code is still an observation. It is not the printed name. A later trait list looks it up. |
-| `verbatimTraitName` | printed | yes | `verbatimTraitName` | An exact citation of the printed trait name. A row without it cannot be read. The trait code is what a later list standardizes. |
+| `traitCode` | interpreted | | - | Optional. The extractor's code for the measurement, such as `body_mass`. A measurement with no code is still an observation. It is not the printed name. The trait list looks it up. |
+| `verbatimTraitName` | printed | yes | `verbatimTraitName` | An exact citation of the printed trait name. A row without it cannot be read. The trait code is what the list standardizes. |
 | `verbatimScientificName` | printed | yes | `verbatimScientificName` | An exact citation of the printed name, such as `M. musculus`. |
 | `scientificName` | interpreted | | `scientificName` | Paired with `verbatimScientificName`. A name read from the printed citation, such as `Mus musculus`. |
 | `verbatimTraitValue` | printed | yes | `verbatimTraitValue` | An exact citation of the printed value. |
 | `traitValue` | interpreted | | `traitValue` | Paired with `verbatimTraitValue`. A cleaned reading of the printed number, in the unit the paper printed. |
 | `verbatimTraitUnit` | printed | | `verbatimTraitUnit` | Optional. A measurement can be printed without a unit. |
-| `traitUnit` | interpreted | | `traitUnit` | Paired with `verbatimTraitUnit`. A cleaned reading of the printed unit, such as `kg` for `kilograms`. |
+| `traitUnit` | interpreted | | `traitUnit` | Paired with `verbatimTraitUnit`. A cleaned reading of the printed unit, such as `kg` for `kilograms`. The adapter uses the printed unit first when the trait list accepts it, and the reading when it does not. |
 | `kingdom` | printed + correction | | `kingdom` | |
 | `phylum` | printed + correction | | `phylum` | |
 | `taxonClass` | printed + correction | | `class` | Taxonomic class. Named `taxonClass` because `class` is a Python keyword. The ETS column is `class`. |

@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Trait = Literal["body_mass", "body_length", "tail_length"]
+Trait = Literal["body_mass", "tail_length"]
 # A closed set, so guided decoding cannot emit "grams", "g." or "gramme". Free
 # text here makes values incomparable and there is no way to repair it later.
 Unit = Literal["g", "kg", "mm", "cm", "m"]
@@ -11,7 +11,6 @@ Unit = Literal["g", "kg", "mm", "cm", "m"]
 # printed unit, so a mismatched pair is not an error there.
 TRAIT_UNITS: dict[Trait, frozenset[Unit]] = {
     "body_mass": frozenset({"g", "kg"}),
-    "body_length": frozenset({"mm", "cm", "m"}),
     "tail_length": frozenset({"mm", "cm", "m"}),
 }
 
