@@ -80,9 +80,41 @@ function fill({ trait, iri, version }) {
   back.textContent = version;
 }
 
+const notice = document.getElementById("version-error");
+let shown = document.querySelector("#version .chip.on")?.dataset.version ?? "";
+let request = null;
+
+function setAddress(version) {
+  const url = new URL(location.href);
+  url.searchParams.set("version", version);
+  history.replaceState(null, "", url);
+}
+
+function fail(version) {
+  selectVersion(shown);
+  setAddress(shown);
+  notice.hidden = false;
+  notice.textContent = `Version ${version} did not load. This page still shows ${shown}.`;
+}
+
 async function load(version) {
-  const response = await fetch(`../../${version}/traits/${file}.json`);
-  if (response.ok) fill(await response.json());
+  request?.abort();
+  const controller = new AbortController();
+  request = controller;
+  notice.hidden = true;
+  try {
+    const response = await fetch(`../../${version}/traits/${file}.json`, {
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(String(response.status));
+    const payload = await response.json();
+    if (request !== controller) return;
+    fill(payload);
+    shown = version;
+  } catch (error) {
+    if (error.name === "AbortError" || request !== controller) return;
+    fail(version);
+  }
 }
 
 versions.addEventListener("click", (event) => {
@@ -90,10 +122,8 @@ versions.addEventListener("click", (event) => {
   if (!chip) return;
   event.preventDefault();
   const version = chip.dataset.version;
-  const url = new URL(location.href);
-  url.searchParams.set("version", version);
-  history.replaceState(null, "", url);
   selectVersion(version);
+  setAddress(version);
   load(version);
 });
 

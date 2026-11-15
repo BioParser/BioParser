@@ -13,6 +13,7 @@
       <li><a class="chip{{ ' on' if item == version else '' }}" href="?version={{ item }}" data-version="{{ item }}">{{ item }}{{ ' · latest' if item == latest else '' }}</a></li>
     {% endfor %}
     </ul>
+    <p id="version-error" class="banner" hidden></p>
   </div>
 </section>
 <section class="sec">
