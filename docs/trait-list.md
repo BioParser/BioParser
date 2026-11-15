@@ -46,7 +46,7 @@ The trait unit is chosen once. Days suit gestation and weaning because the conve
 
 ### How a printed unit is matched
 
-A printed unit is cleaned first. Spaces, a trailing period, a `^` or a superscript, and a negative exponent are normalized, so `individuals ha-1` becomes `individuals/ha`. Then it is matched in two passes.
+A printed unit is cleaned first. Spaces, a trailing period, a `^` or a superscript, and a negative exponent are normalized, so `individuals ha-1` and `individuals ha⁻¹` both become `individuals/ha`. A period at the end of either side of a `/` is removed, so `ind. ha-1` becomes `ind/ha`. Then it is matched in two passes.
 
 1. **With its case.** `mg` is a milligram and `Mg` is a tonne. They are different units here.
 2. **Without its case**, only if the first pass found nothing. `Kg` and `KG` still mean `kg`.
@@ -59,7 +59,7 @@ A `/` splits a unit into sides, and each side is looked up on its own. So `yr` i
 
 A spelling that cleaning cannot reach is an alias, such as `lbs` for `lb` or `deg C` for `°C`. Aliases are part of the list, so the list says everything it accepts.
 
-- `unit_aliases` at the top of the file applies to every numeric and count trait. The target is a printed unit of some trait, or one side of one.
+- `unit_aliases` at the top of the file applies to every numeric and count trait. A list-wide alias may name a unit no trait in the file prints. A subset of the traits still validates.
 - `unit_aliases` on a trait applies to that trait only. The target must be one of its printed units. It wins over the list-wide alias for the same spelling.
 - An alias of a unit to itself turns the list-wide alias off for that trait. A trait that prints `C` for something other than temperature can do this.
 

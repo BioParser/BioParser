@@ -434,9 +434,8 @@ class TraitTable(BaseModel):
     )
     # Prefix to IRI. None means the identifiers with that prefix do not resolve yet.
     id_prefixes: dict[str, str | None]
-    # Spellings every numeric trait accepts, mapped to the unit they stand for. The target is a
-    # printed unit of some trait, or one side of a printed unit, such as ``ha`` in
-    # ``individuals/ha``.
+    # Spellings every numeric and count trait accepts, mapped to the unit they stand for.
+    # A list-wide alias may name a unit no trait prints. A trait's own alias must name one of its units.
     unit_aliases: dict[str, str] = Field(default_factory=dict)
     # Printed answers every categorical trait accepts, mapped to the level they stand for. An
     # alias only applies to a trait that has that level.
@@ -786,8 +785,9 @@ class _CountIndex:
     """One count unit, keyed once with its case and once without."""
 
     def __init__(self, trait_unit: str, aliases: Mapping[str, str]) -> None:
+        folded = _foldable(aliases, {clean_unit(trait_unit).casefold()})
         self.exact_aliases = alias_keys(aliases, casefold=False)
-        self.folded_aliases = alias_keys(aliases, casefold=True)
+        self.folded_aliases = alias_keys(folded, casefold=True)
         self.exact = apply_unit(trait_unit, self.exact_aliases, casefold=False)
         self.folded = apply_unit(trait_unit, self.folded_aliases, casefold=True)
 

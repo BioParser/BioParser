@@ -270,6 +270,9 @@ def test_levels_accept_the_forms_papers_print() -> None:
         ("individual_home_range_size", "sq mi", "2.589988110336"),
         ("individual_home_range_size", "acres", "0.0040468564224"),
         ("population_density", "individuals m-2", "1000000"),
+        ("population_density", "individuals km⁻²", "1"),
+        ("population_density", "individuals ha⁻¹", "100"),
+        ("population_density", "ind. ha-1", "100"),
         ("basal_metabolic_rate", "kcal/h", "4.184"),
         ("basal_metabolic_rate", "mW", "0.0036"),
     ],
@@ -348,6 +351,17 @@ def test_a_trait_level_alias_wins_over_a_list_wide_alias() -> None:
 
     assert table.level_for("migratory_status", "Y") == "partial"
     assert table.level_for("migratory_status", "yes") == "yes"
+
+
+def test_a_count_does_not_let_a_folded_alias_capture_another_unit() -> None:
+    data = _table()
+    data["unit_aliases"]["mg"] = "young"
+    table = _load(data)
+
+    assert table.accepts_unit("litter_size", "mg")
+    assert table.accepts_unit("litter_size", "YOUNG")
+    assert not table.accepts_unit("litter_size", "MG")
+    assert not table.accepts_unit("litter_size", "Mg")
 
 
 def test_a_list_wide_unit_alias_can_name_a_count_unit() -> None:

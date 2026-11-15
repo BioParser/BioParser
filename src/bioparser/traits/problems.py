@@ -1,8 +1,9 @@
 """What is wrong with one trait list, as data a tool can show next to the right field.
 
-A list can be wrong by itself: a unit alias that names a unit no trait prints, two traits with
-one code. ``ListProblem`` names the rule, the trait, the field and the spelling, and carries a
-plain sentence.
+A list can be wrong by itself: a trait's own unit alias that names a unit that trait does not
+print, two traits with one code. A list-wide alias may name a unit no trait prints.
+``ListProblem`` names the rule, the trait, the field and the spelling, and carries a plain
+sentence.
 """
 
 from collections.abc import Sequence

@@ -20,16 +20,19 @@ from collections.abc import Mapping
 # "individuals ha-1" and "individuals km-2" mean "per hectare" and "per square kilometre".
 _NEGATIVE_EXPONENT = re.compile(r"^(?P<top>.+?)[\s·]+(?P<unit>[A-Za-z]+)-(?P<power>[12])$")
 _SEPARATORS = re.compile(r"[\s\-_/]+")
+# NFKC turns a superscript minus into U+2212, which is not the hyphen the exponent rule matches.
+_ASCII_HYPHEN = str.maketrans({"\u2212": "-"})
 
 
 def clean_unit(text: str) -> str:
     """The unit's spelling with spaces, exponents and a trailing period normalized. Case stays."""
-    cleaned = unicodedata.normalize("NFKC", text).strip().replace("^", "")
+    cleaned = unicodedata.normalize("NFKC", text).strip().translate(_ASCII_HYPHEN).replace("^", "")
     match = _NEGATIVE_EXPONENT.match(cleaned)
     if match is not None:
         power = "" if match["power"] == "1" else match["power"]
         cleaned = f"{match['top']}/{match['unit']}{power}"
-    return re.sub(r"\s+", "", cleaned).rstrip(".")
+    cleaned = re.sub(r"\s+", "", cleaned)
+    return "/".join(part.rstrip(".") for part in cleaned.split("/"))
 
 
 def unit_key(text: str, *, casefold: bool) -> str:
