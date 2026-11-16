@@ -3,11 +3,11 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { ApiError, getJob, type JobStatusResponse } from "../api/client";
 import { EvidenceView } from "../evidence/EvidenceView";
+import { JOB_STATUS_LABELS } from "../jobStatus";
 
 const OBSERVATION_PARAM = "observation";
 
 const STAGES = ["queued", "parsing", "parsed", "extracting", "done"] as const;
-const LABELS = ["Queued", "Parsing", "Parsed", "Extracting", "Done"];
 type FailureCode = Extract<JobStatusResponse, { status: "failed" }>["error"]["code"];
 const FAILURE_MESSAGES: Record<FailureCode, string> = {
   invalid_pdf: "The file could not be read as a valid PDF.",
@@ -88,7 +88,10 @@ export function JobDetailPage() {
 }
 
 function JobStatus({ job }: { job: JobStatusResponse }) {
-  const stage = job.status === "failed" ? -1 : STAGES.indexOf(job.status);
+  const stage =
+    job.status === "failed"
+      ? STAGES.indexOf(job.has_parse_result ? "extracting" : "parsing")
+      : STAGES.indexOf(job.status);
   return (
     <>
       <section className="job-summary" aria-labelledby="job-details-heading">
@@ -110,7 +113,8 @@ function JobStatus({ job }: { job: JobStatusResponse }) {
         <ol className="job-progress" aria-label="Job progress">
           {STAGES.map((status, index) => (
             <li key={status} aria-current={index === stage ? "step" : undefined}>
-              {LABELS[index]}
+              {JOB_STATUS_LABELS[status]}
+              {index === stage && job.status === "failed" ? " — failed" : ""}
               {index < stage ? " — complete" : ""}
             </li>
           ))}
@@ -122,9 +126,7 @@ function JobStatus({ job }: { job: JobStatusResponse }) {
             Job failed: <code>{job.error.code}</code>
           </p>
           <p>{FAILURE_MESSAGES[job.error.code]}</p>
-          {(job.has_parse_result || job.error.code === "extraction_failed") && (
-            <p>The parse result is kept.</p>
-          )}
+          {job.has_parse_result && <p>The parse result is kept.</p>}
         </div>
       )}
       {job.status === "done" && (

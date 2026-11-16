@@ -141,23 +141,42 @@ describe("JobDetailPage", () => {
     expect(screen.getByRole("status").textContent).toBe("Status: queued");
   });
 
-  it.each([
-    ["invalid_pdf", "The file could not be read as a valid PDF."],
-    ["parse_failed", "The PDF could not be parsed."],
-    ["extraction_failed", "Traits could not be extracted from the parsed document."],
-    ["timeout", "The job took too long to complete."],
-    ["internal_error", "An unexpected error stopped the job."],
-  ])("explains %s", async (code, message) => {
+  it.each(
+    [
+      ["invalid_pdf", "The file could not be read as a valid PDF."],
+      ["parse_failed", "The PDF could not be parsed."],
+      ["extraction_failed", "Traits could not be extracted from the parsed document."],
+      ["timeout", "The job took too long to complete."],
+      ["internal_error", "An unexpected error stopped the job."],
+    ].flatMap(([code, message]) =>
+      [false, true].map((hasParseResult) => ({ code, message, hasParseResult })),
+    ),
+  )("explains $code (parse result: $hasParseResult)", async ({ code, message, hasParseResult }) => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ ...metadata, status: "failed", error: { code } })),
+      vi.fn(async () =>
+        Response.json({
+          ...metadata,
+          status: "failed",
+          has_parse_result: hasParseResult,
+          error: { code },
+        }),
+      ),
     );
     renderPage();
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(code);
     expect(alert.textContent).toContain(message);
-    expect(alert.textContent?.includes("The parse result is kept.")).toBe(
-      code === "extraction_failed",
+    expect(alert.textContent?.includes("The parse result is kept.")).toBe(hasParseResult);
+    const stages = within(screen.getByRole("list", { name: "Job progress" })).getAllByRole(
+      "listitem",
+    );
+    const failedStage = stages.find((li) => li.getAttribute("aria-current") === "step");
+    expect(failedStage?.textContent).toBe(
+      hasParseResult ? "Extracting — failed" : "Parsing — failed",
+    );
+    expect(stages.filter((li) => li.textContent?.includes("— complete"))).toHaveLength(
+      hasParseResult ? 3 : 1,
     );
   });
 
