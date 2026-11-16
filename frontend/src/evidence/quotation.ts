@@ -74,7 +74,7 @@ export function buildQuotation(
   blocks: ReadonlyMap<string, TextBlock>,
 ): QuotedBlock[] {
   const valueRanges = observation.verbatimTraitValue.evidence;
-  const unitRanges = observation.verbatimTraitUnit.evidence;
+  const unitRanges = observation.verbatimTraitUnit?.evidence ?? [];
   const blockIds = [...new Set(valueRanges.map((range) => range.block_id))];
 
   return blockIds.map((blockId) => {

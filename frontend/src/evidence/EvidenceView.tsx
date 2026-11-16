@@ -113,10 +113,14 @@ function ValueAndUnit({ observation }: { observation: Observation }) {
       <dd>
         <mark className="evidence-value">{observation.verbatimTraitValue.text}</mark>
       </dd>
-      <dt>Unit</dt>
-      <dd>
-        <mark className="evidence-unit">{observation.verbatimTraitUnit.text}</mark>
-      </dd>
+      {observation.verbatimTraitUnit != null && (
+        <>
+          <dt>Unit</dt>
+          <dd>
+            <mark className="evidence-unit">{observation.verbatimTraitUnit.text}</mark>
+          </dd>
+        </>
+      )}
     </dl>
   );
 }

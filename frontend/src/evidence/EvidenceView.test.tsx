@@ -49,7 +49,8 @@ function observation(
   unit: ReturnType<typeof citation>,
 ): Observation {
   return {
-    trait: { kind: "interpretation", value: "body_mass", passage: value },
+    traitCode: { kind: "interpretation", value: "body_mass", passage: value },
+    verbatimTraitName: value,
     verbatimScientificName: value,
     verbatimTraitValue: value,
     verbatimTraitUnit: unit,

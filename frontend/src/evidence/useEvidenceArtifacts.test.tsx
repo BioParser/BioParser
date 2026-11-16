@@ -44,7 +44,8 @@ const EXTRACTION: ExtractionArtifact = {
   extractor_version: "1",
   observations: [
     {
-      trait: { kind: "interpretation", value: "body_mass", passage: VALUE },
+      traitCode: { kind: "interpretation", value: "body_mass", passage: VALUE },
+      verbatimTraitName: VALUE,
       verbatimScientificName: VALUE,
       verbatimTraitValue: VALUE,
       verbatimTraitUnit: UNIT,
