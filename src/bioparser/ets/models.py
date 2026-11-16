@@ -59,7 +59,7 @@ class EtsRow(BaseModel):
     # The organism.
     sex: str | None = None
     lifeStage: str | None = None
-    age: float | str | None = Field(default=None, allow_inf_nan=False)
+    age: str | None = None
     morphotype: str | None = None
 
     # Where the measurement came from.
@@ -78,10 +78,10 @@ class EtsRow(BaseModel):
     statisticalMethod: str | None = None
     # No default. ETS says "Defaults to 1" and "Defaults to 0". A missing value is
     # empty, because a default would state something the paper did not say.
-    individualCount: int | str | None = None
-    dispersion: float | str | None = Field(default=None, allow_inf_nan=False)
-    measurementValue_min: float | str | None = Field(default=None, allow_inf_nan=False)
-    measurementValue_max: float | str | None = Field(default=None, allow_inf_nan=False)
+    individualCount: str | None = None
+    dispersion: str | None = None
+    measurementValue_min: str | None = None
+    measurementValue_max: str | None = None
     measurementAccuracy: str | None = None
 
     # measurementID is assigned for this response.
@@ -94,15 +94,15 @@ class EtsRow(BaseModel):
     eventID: str | None = None
     preparations: str | None = None
     samplingProtocol: str | None = None
-    year: int | str | None = None
-    month: int | str | None = None
-    day: int | str | None = None
+    year: str | None = None
+    month: str | None = None
+    day: str | None = None
     eventDate: str | None = None
     locationID: str | None = None
     habitat: str | None = None
-    decimalLongitude: float | str | None = Field(default=None, allow_inf_nan=False)
-    decimalLatitude: float | str | None = Field(default=None, allow_inf_nan=False)
-    elevation: float | str | None = Field(default=None, allow_inf_nan=False)
+    decimalLongitude: str | None = None
+    decimalLatitude: str | None = None
+    elevation: str | None = None
     geodeticDatum: str | None = None
     verbatimLocality: str | None = None
     country: str | None = None

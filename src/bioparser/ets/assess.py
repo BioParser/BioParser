@@ -73,21 +73,21 @@ class Assessment(BaseModel):
     trait_value: str | None
     trait_unit: str | None
     sex: str | None
-    age: float | str | None
+    age: str | None
     aggregate_measure: bool | None
     basis_of_record: BasisOfRecord | None
-    individual_count: int | str | None
-    dispersion: float | str | None
-    measurement_value_min: float | str | None
-    measurement_value_max: float | str | None
-    year: int | str | None
-    month: int | str | None
-    day: int | str | None
+    individual_count: str | None
+    dispersion: str | None
+    measurement_value_min: str | None
+    measurement_value_max: str | None
+    year: str | None
+    month: str | None
+    day: str | None
     event_date: str | None
     measurement_determined_date: str | None
-    decimal_longitude: float | str | None
-    decimal_latitude: float | str | None
-    elevation: float | str | None
+    decimal_longitude: str | None
+    decimal_latitude: str | None
+    elevation: str | None
     country_code: str | None
     occurrence_id: str | None
     cited: dict[TextField, str | None]
@@ -119,16 +119,21 @@ def assess(observation: Observation) -> Assessment:
     dispersion = _parse_dispersion(observation.dispersion, warnings)
     value_min = _parse_bound(observation.measurementValueMin, "measurementValue_min", warnings)
     value_max = _parse_bound(observation.measurementValueMax, "measurementValue_max", warnings)
-    if isinstance(value_min, float) and isinstance(value_max, float) and value_min > value_max:
+    parsed_min = None if value_min is None else parse_signed_decimal(value_min)
+    parsed_max = None if value_max is None else parse_signed_decimal(value_max)
+    if parsed_min is not None and parsed_max is not None and parsed_min > parsed_max:
         warnings.append(BoundsReversed())
 
     # A calendar day is written as YYYY-MM-DD. Year, month, and day stay separate.
     year = _parse_integer(observation.year, "year", warnings, low=1000, high=9999)
     month = _parse_integer(observation.month, "month", warnings, low=1, high=12)
     day = _parse_integer(observation.day, "day", warnings, low=1, high=31)
-    if isinstance(year, int) and isinstance(month, int) and isinstance(day, int):
+    parsed_year = None if year is None else parse_integer(year)
+    parsed_month = None if month is None else parse_integer(month)
+    parsed_day = None if day is None else parse_integer(day)
+    if parsed_year is not None and parsed_month is not None and parsed_day is not None:
         try:
-            datetime(year, month, day)
+            datetime(parsed_year, parsed_month, parsed_day)
         except ValueError:
             warnings.append(NotACalendarDay())
     event_date = _parse_date(observation.eventDate, "eventDate", warnings)
@@ -224,7 +229,7 @@ def _parse_aggregate(value: Interpretation | None, warnings: list[Notice]) -> bo
 
 def _parse_individual_count(
     value: CitationOrInterpretation | None, warnings: list[Notice]
-) -> int | str | None:
+) -> str | None:
     if value is None:
         return None
     text = stored_text(value)
@@ -234,12 +239,10 @@ def _parse_individual_count(
         return text
     if parsed < 1:
         warnings.append(OutOfRange(field="individualCount"))
-    return parsed
+    return text
 
 
-def _parse_dispersion(
-    value: CitationOrInterpretation | None, warnings: list[Notice]
-) -> float | str | None:
+def _parse_dispersion(value: CitationOrInterpretation | None, warnings: list[Notice]) -> str | None:
     if value is None:
         return None
     text = stored_text(value)
@@ -249,22 +252,20 @@ def _parse_dispersion(
         return text
     if parsed < 0:
         warnings.append(OutOfRange(field="dispersion"))
-    return parsed
+    return text
 
 
 def _parse_bound(
     value: CitationOrInterpretation | None,
     field: Literal["measurementValue_min", "measurementValue_max"],
     warnings: list[Notice],
-) -> float | str | None:
+) -> str | None:
     if value is None:
         return None
     text = stored_text(value)
-    parsed = parse_signed_decimal(text)
-    if parsed is None:
+    if parse_signed_decimal(text) is None:
         warnings.append(NotNumeric(field=field))
-        return text
-    return parsed
+    return text
 
 
 def _parse_decimal(
@@ -273,15 +274,14 @@ def _parse_decimal(
     warnings: list[Notice],
     *,
     signed: bool,
-) -> float | str | None:
+) -> str | None:
     if value is None:
         return None
     text = stored_text(value)
     parsed = parse_signed_decimal(text) if signed else parse_decimal(text)
     if parsed is None:
         warnings.append(NotNumeric(field=field))
-        return text
-    return parsed
+    return text
 
 
 def _parse_integer(
@@ -291,7 +291,7 @@ def _parse_integer(
     *,
     low: int,
     high: int,
-) -> int | str | None:
+) -> str | None:
     if value is None:
         return None
     text = stored_text(value)
@@ -301,7 +301,7 @@ def _parse_integer(
         return text
     if not low <= parsed <= high:
         warnings.append(OutOfRange(field=field))
-    return parsed
+    return text
 
 
 def _parse_date(
@@ -324,13 +324,14 @@ def _parse_coordinate(
     *,
     low: float,
     high: float,
-) -> float | str | None:
-    parsed = _parse_decimal(value, field, warnings, signed=True)
-    if isinstance(parsed, str) or parsed is None:
-        return parsed
-    if not low <= parsed <= high:
+) -> str | None:
+    text = _parse_decimal(value, field, warnings, signed=True)
+    if text is None:
+        return None
+    parsed = parse_signed_decimal(text)
+    if parsed is not None and not low <= parsed <= high:
         warnings.append(OutOfRange(field=field))
-    return parsed
+    return text
 
 
 _COUNTRY_CODE = re.compile(r"^[A-Za-z]{2}$")

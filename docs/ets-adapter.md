@@ -14,7 +14,7 @@ The ETS adapter turns an extraction artifact ([extraction-artifact.md](extractio
 ## Deviations from ETS
 
 - A missing `individualCount` is empty. ETS says "Defaults to 1".
-- A missing `dispersion` is empty. ETS says "Defaults to 0". A measured dispersion of zero is stored as `0`.
+- A missing `dispersion` is empty. ETS says "Defaults to 0". A measured dispersion of zero keeps the spelling the paper printed.
 
 ## Name mapping
 
@@ -66,7 +66,7 @@ A minimum greater than the maximum is kept as printed, and the row warns `bounds
 ### Citation and interpretation columns
 
 - A free-text column that accepts a citation or a correction uses the interpretation value when the extractor stored a correction, and the printed citation otherwise. The narrow citation of a correction is not used for the column. It stays in the artifact for tracing and for UI highlighting, where a precise range is better than a whole passage.
-- A column that accepts a citation or an interpretation (`individualCount`, `measurementValueMin`, dates, coordinates, and the like) is parsed or matched by the adapter. A citation is parsed from its text. An interpretation uses its `value`, and its passage is only the grounding. A number that parses is written as that number. Text that does not parse stays as printed and warns `not_numeric` for that field. The artifact does not store the parsed number.
+- A column that accepts a citation or an interpretation (`individualCount`, `measurementValueMin`, dates, coordinates, and the like) is parsed or matched by the adapter. A citation is parsed from its text. An interpretation uses its `value`, and its passage is only the grounding. A printed number keeps the spelling the paper printed, so `0.20` stays `0.20` and `03` stays `03`. Text that does not parse stays as printed and warns `not_numeric` for that field. The artifact does not store the parsed number.
 - `sex` tries the reading first, then the printed word. The first one in the list is the column, in its canonical form. If neither is in the list, the printed word stays and the row warns `not_in_vocabulary:sex`.
 - `countryCode` is two letters. Matching ignores case, and a match is written in uppercase, so `de` becomes `DE`. Other text stays and warns `not_in_vocabulary:countryCode`. The printed country name stays on `country`.
 - `basisOfRecord` and `aggregateMeasure` are not printed tokens. A value outside those lists stays empty and warns `not_in_vocabulary` for that field.
@@ -75,7 +75,7 @@ A minimum greater than the maximum is kept as printed, and the row warns `bounds
 ### Defaults and assigned columns
 
 - A missing `basisOfRecord` stays empty. ETS does not default it. `aggregateMeasure` stays empty.
-- A missing `individualCount` is empty. A missing `dispersion` is empty. A measured dispersion of zero is stored as `0`. The minimum and the maximum have no default either.
+- A missing `individualCount` is empty. A missing `dispersion` is empty. A measured dispersion of zero keeps the spelling the paper printed. The minimum and the maximum have no default either.
 - `measurementID` is assigned when the rows are built.
 - `references` comes from the job's document.
 - `warnings` collects what the adapter found while building the row.

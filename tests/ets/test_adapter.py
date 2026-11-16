@@ -90,7 +90,7 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     assert dumped["references"] == _DOCUMENT_ID
     assert dumped["measurementID"] == "1"
     assert dumped["occurrenceID"] is None
-    assert dumped["individualCount"] == 25
+    assert dumped["individualCount"] == "25"
     assert dumped["measurementValue_min"] is None
     assert dumped["dispersion"] is None
     assert dumped["warnings"] == ""
@@ -242,11 +242,11 @@ def test_a_paper_can_state_occurrence_place_and_time() -> None:
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
     assert row.occurrenceID == "FMNH 145732"
-    assert row.year == 1963
+    assert row.year == "1963"
     assert row.countryCode == "DE"
     assert row.eventDate == "1963-03-08"
     assert row.measurementDeterminedDate == "1963-03-08"
-    assert row.month == 13
+    assert row.month == "13"
     assert "out_of_range:month" in row.warnings
 
 
@@ -299,7 +299,7 @@ def test_a_written_date_accepts_prose_and_other_separators() -> None:
     assert parse_date("8\u201310 March 1963") is None
 
 
-def test_a_zero_padded_number_is_normalized() -> None:
+def test_a_zero_padded_number_keeps_its_spelling() -> None:
     observation = _observation(
         verbatimTraitValue=_cited("08.5", start=20),
         verbatimTraitUnit=_cited("g", start=25),
@@ -313,9 +313,9 @@ def test_a_zero_padded_number_is_normalized() -> None:
     assert row.traitValue is None
     assert row.verbatimTraitValue == "08.5"
     assert row.verbatimTraitUnit == "g"
-    assert row.month == 3
-    assert row.day == 8
-    assert row.individualCount == 3
+    assert row.month == "03"
+    assert row.day == "08"
+    assert row.individualCount == "03"
     assert row.warnings == ""
 
 
@@ -424,15 +424,15 @@ def test_a_negative_age_is_parsed_and_reversed_bounds_are_kept() -> None:
     result = to_ets(_artifact(observation, _observation()), references=_DOCUMENT_ID)
 
     assert isinstance(verdict, Assessment)
-    assert verdict.age == -1
-    assert verdict.measurement_value_min == 4
-    assert verdict.measurement_value_max == 2
+    assert verdict.age == "-1"
+    assert verdict.measurement_value_min == "4"
+    assert verdict.measurement_value_max == "2"
     assert not any(
         isinstance(warning, NotNumeric) and warning.field == "age" for warning in verdict.warnings
     )
     assert result.rows[0].source_index == 0
-    assert result.rows[0].row.measurementValue_min == 4
-    assert result.rows[0].row.measurementValue_max == 2
+    assert result.rows[0].row.measurementValue_min == "4"
+    assert result.rows[0].row.measurementValue_max == "2"
     assert (
         "bounds_reversed:measurementValue_min,measurementValue_max" in result.rows[0].row.warnings
     )
@@ -454,9 +454,9 @@ def test_a_printed_token_stays_when_it_fails_its_check() -> None:
     assert row.month == "February"
     assert row.eventDate == "08/03/1963"
     assert row.countryCode == "Germany"
-    assert row.decimalLongitude == 200
-    assert row.individualCount == 0
-    assert row.dispersion == -0.2
+    assert row.decimalLongitude == "200"
+    assert row.individualCount == "0"
+    assert row.dispersion == "-0.2"
     assert "out_of_range:individualCount" in row.warnings
     assert "out_of_range:dispersion" in row.warnings
     assert "not_numeric:month" in row.warnings
@@ -494,9 +494,9 @@ def test_an_impossible_day_stays_and_a_leap_day_is_kept() -> None:
     bad = to_ets(_artifact(impossible), references=_DOCUMENT_ID).rows[0].row
     good = to_ets(_artifact(leap), references=_DOCUMENT_ID).rows[0].row
 
-    assert (bad.year, bad.month, bad.day) == (2021, 2, 31)
+    assert (bad.year, bad.month, bad.day) == ("2021", "2", "31")
     assert "not_a_date:year,month,day" in bad.warnings
-    assert (good.year, good.month, good.day) == (2020, 2, 29)
+    assert (good.year, good.month, good.day) == ("2020", "2", "29")
     assert good.warnings == ""
 
 
@@ -511,9 +511,9 @@ def test_a_range_and_a_dispersion_stay_printed() -> None:
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
     assert row.traitValue is None
-    assert row.dispersion == 0.2
-    assert row.measurementValue_min == 10
-    assert row.measurementValue_max == 14
+    assert row.dispersion == "0.2"
+    assert row.measurementValue_min == "10"
+    assert row.measurementValue_max == "14"
     assert row.statisticalMethod == "mean ± SD, range"
     assert row.warnings == ""
 
@@ -523,7 +523,7 @@ def test_a_missing_method_stays_empty() -> None:
 
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
-    assert row.dispersion == 0.2
+    assert row.dispersion == "0.2"
     assert row.statisticalMethod is None
     assert row.warnings == ""
 
@@ -538,12 +538,27 @@ def test_a_missing_count_and_dispersion_stay_empty() -> None:
     assert row.warnings == ""
 
 
+def test_a_decimal_keeps_the_printed_spelling() -> None:
+    observation = _observation(
+        measurementValueMin=_cited("0.20", start=40),
+        measurementValueMax=_cited("10", start=50),
+        dispersion=_cited("0.00", start=70),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.measurementValue_min == "0.20"
+    assert row.measurementValue_max == "10"
+    assert row.dispersion == "0.00"
+    assert row.warnings == ""
+
+
 def test_a_minimum_stays_printed() -> None:
     observation = _observation(measurementValueMin=_cited("1.5", start=40))
 
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
-    assert row.measurementValue_min == 1.5
+    assert row.measurementValue_min == "1.5"
     assert row.measurementValue_max is None
     assert row.warnings == ""
 
@@ -553,7 +568,7 @@ def test_an_empty_maximum_stays_empty() -> None:
 
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
-    assert row.measurementValue_min == 10
+    assert row.measurementValue_min == "10"
     assert row.measurementValue_max is None
     assert row.statisticalMethod is None
     assert row.dispersion is None
