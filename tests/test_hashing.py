@@ -1,4 +1,13 @@
-from bioparser.hashing import is_sha256_hex, sha256_bytes
+from pathlib import Path
+
+from bioparser.hashing import is_sha256_hex, sha256_bytes, sha256_file
+
+
+def test_sha256_file_matches_sha256_bytes(tmp_path: Path) -> None:
+    payload = b"%PDF-1.4\nhello world\n%%EOF\n"
+    path = tmp_path / "sample.pdf"
+    path.write_bytes(payload)
+    assert sha256_file(path) == sha256_bytes(payload)
 
 
 def test_is_sha256_hex_valid() -> None:
