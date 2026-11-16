@@ -766,7 +766,7 @@ def test_the_body_limit_leaves_room_for_the_multipart_envelope() -> None:
     limits = [
         middleware.kwargs["max_body_size"]
         for middleware in api_app.user_middleware
-        if middleware.cls is TypedRequestBodyLimitMiddleware
+        if getattr(middleware.cls, "__name__", None) == TypedRequestBodyLimitMiddleware.__name__
     ]
 
     assert limits == [max_body_bytes()]
