@@ -99,6 +99,10 @@ Open `http://localhost:5173/ui/`. The page reloads when you save a file. The dev
 
 > The UI asks for the API key (`BIOPARSER_API_KEY`) when it first opens and sends it with every request. "Remember on this device" keeps the key after the tab is closed; the **API key** page forgets it. With `BIOPARSER_AUTH_DISABLED=true` the API accepts any key, so run it with a real key to check the key screen.
 
+The dashboard lists jobs in pages of ten, with status and parser filters in the URL. It refreshes unfinished jobs every five seconds and pauses polling in hidden tabs. The services panel checks `/ready` on the same interval.
+
+To show a Grafana link, set `VITE_GRAFANA_URL` in `frontend/.env.local` before building (see `frontend/.env.example`). For the API image, pass `--build-arg VITE_GRAFANA_URL=http://localhost:3000` to `docker build`. This is a build-time setting; without it, the link is hidden.
+
 After a change to the API, regenerate the UI's API types and commit both files. CI fails while they are out of date.
 
 ```sh

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,7 +19,12 @@ afterEach(() => {
 
 function renderAt(path: string): ReturnType<typeof createMemoryRouter> {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(<RouterProvider router={router} />);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
   return router;
 }
 
@@ -26,6 +32,12 @@ describe("routes", () => {
   // With a key, the pages show; the gate is tested below.
   beforeEach(() => {
     setApiKey("test-key", false);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (url) =>
+        Response.json(url === "/ready" ? { status: "ready" } : []),
+      ),
+    );
   });
 
   it("links to every screen from the navigation", async () => {

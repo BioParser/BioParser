@@ -82,7 +82,10 @@ Submit a PDF.
 - **Size limit:** the upload is read in 1 MiB chunks and rejected once it exceeds
   `config.MAX_UPLOAD_BYTES` (20 MiB by default — see [`config.py`](#configpy)).
 - Submitting the same file twice creates two separate jobs. The PDF artifact is
-  content-addressed by SHA-256 and reused by both jobs.
+  content-addressed by SHA-256 and reused by both jobs. The document row and the
+  job row are inserted in one transaction. A checksum that already has a document
+  keeps that row, including its display name. A new document stores the sanitized
+  upload filename and the upload size.
 
 The checks run in a fixed order: `Content-Length` header format and size →
 `file` part present → content type → body size while streaming → non-empty body →
@@ -93,21 +96,13 @@ The checks run in a fixed order: `Content-Length` header format and size →
 ```json
 {
   "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
-  "status": "queued",
-  "created_at": "2026-10-30T10:15:30Z",
-  "display_name": null,
-  "parser": "default",
-  "extractor": "default",
-  "document_checksum": "18c1d82f9a9c9be88b6ee58f7486e5672f73a4e885f163001c2a66a0f983bc1a",
-  "has_parse_result": false
+  "status": "queued"
 }
 ```
 
-The response identifies the selected parser and extractor and includes the
-SHA-256 checksum of the uploaded document. If the same content was uploaded through
-`POST /api/documents`, `display_name` is that document's stored name; otherwise it
-is `null`. A newly queued job cannot yet have a parse result, so
-`has_parse_result` is always `false` here.
+The stored name is on the document and on a later job read. A failed insert stores
+no job. When the job insert fails, a document row from this request is rolled back
+with it.
 
 **Failure:**
 
@@ -246,13 +241,7 @@ If omitted or `{}` is sent, parameters default to `parser: "default"` and `extra
 ```json
 {
   "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
-  "status": "queued",
-  "created_at": "2026-10-30T10:15:30Z",
-  "display_name": "paper.pdf",
-  "parser": "default",
-  "extractor": "default",
-  "document_checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
-  "has_parse_result": false
+  "status": "queued"
 }
 ```
 
@@ -563,10 +552,12 @@ pool are closed. Migrations stay on the sync psycopg driver.
 
 - `POST /api/extractions` — runs `_validated_upload()` (the [`uploads.py`](#uploadspy) helpers,
   in order: `validate_content_length`, `require_file`, `validate_content_type`,
-  `read_upload`, `validate_pdf_content`), persists the content-addressed PDF,
-  creates a `JobState` in Postgres, commits it, then enqueues a `ParseJobMessage`,
-  and returns `202`. The enqueue is outside the database transaction. A failed
-  enqueue marks that row `failed` in a later transaction.
+  `read_upload`, `validate_pdf_content`), persists the content-addressed PDF, then
+  inserts the document row and the job in one Postgres transaction. A checksum that
+  already has a document keeps that row. The 202 body is `AcceptedJobResponse`
+  (`job_id` and `status`). `POST /api/documents/{checksum}/jobs` returns the same
+  body. The enqueue of a `ParseJobMessage` is outside that transaction. A failed
+  enqueue marks that job `failed` in a later transaction.
   Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it is still
   being received. A missing or understated `Content-Length` is still capped while
   reading the file in chunks.
@@ -613,8 +604,9 @@ Pydantic models shared by the routes above, used both for response validation an
 for the OpenAPI docs' `responses=` examples:
 
 - `JobStatusResponse` — discriminated union for queued, running, successful, and
-  failed job states, returned by `GET /api/jobs/{job_id}`. `POST /api/extractions`
-  returns `QueuedJobResponse`.
+  failed job states, returned by `GET /api/jobs/{job_id}`.
+- `AcceptedJobResponse` — `{job_id, status: "queued"}`, returned by
+  `POST /api/extractions` and `POST /api/documents/{checksum}/jobs`.
 - `HealthResponse` — `{status: Literal["ok"]}`, returned by `GET /health`.
 
 ### `errors.py`
@@ -761,12 +753,10 @@ curl -s localhost:8080/health
 # -> {"status":"ok"}
 
 curl -s -F file=@sample.pdf localhost:8080/api/extractions
-# -> 202  {"job_id":"...","status":"queued","created_at":"...","display_name":null,
-#           "parser":"default",
-#           "extractor":"default","document_checksum":"...","has_parse_result":false}
+# -> 202  {"job_id":"...","status":"queued"}
 
 curl -s localhost:8080/api/jobs/<job_id>
-# -> 200  {"job_id":"...","status":"queued","created_at":"...","display_name":null,
+# -> 200  {"job_id":"...","status":"queued","created_at":"...","display_name":"sample.pdf",
 #           "parser":"default",
 #           "extractor":"default","document_checksum":"...","has_parse_result":false}
 ```
