@@ -188,6 +188,8 @@ activemq-data/
 *.secret
 *.token
 *.credentials
+bioparser-configmap.yaml
+bioparser-secret.yaml
 
 # SSH / private keys
 .ssh/

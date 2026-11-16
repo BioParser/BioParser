@@ -11,11 +11,12 @@ from concurrent.futures import Executor, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ValidationError
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from bioparser.artifact_paths import ArtifactPathError, pdf_checksum, pdf_path
 from bioparser.db import documents as document_queries
@@ -49,6 +50,7 @@ from bioparser.storage import (
     ArtifactAlreadyExistsError,
     ArtifactMetadata,
     ArtifactNotFoundError,
+    ArtifactStorage,
     CreationInfo,
     FileSystemArtifactStorage,
     StorageError,
@@ -80,6 +82,7 @@ from .errors import (
 )
 from .middleware import TypedRequestBodyLimitMiddleware
 from .schema import (
+    AcceptedJobResponse,
     CreateJobRequest,
     DocumentMetadataResponse,
     FailedJobResponse,
@@ -223,13 +226,96 @@ app.add_middleware(ApiKeyMiddleware)
 add_ui_routes(app)
 
 
-async def _validated_upload(request: Request, file: UploadFile | None) -> bytes:
+async def _validated_upload(request: Request, file: UploadFile | None) -> tuple[UploadFile, bytes]:
     validate_content_length(request.headers.get("content-length"))
     file = require_file(file)
     validate_content_type(file)
     content = await read_upload(file)
     validate_pdf_content(content)
-    return content
+    return file, content
+
+
+class StoredPdf(NamedTuple):
+    checksum: Sha256Hex
+    display_name: str | None
+    size_bytes: int
+    path: str
+
+
+async def _store_pdf(
+    storage: ArtifactStorage,
+    file: UploadFile,
+    pdf_bytes: bytes,
+    log_fields: dict[str, str] | None = None,
+) -> StoredPdf:
+    """Store one PDF under its checksum. An artifact that is already there is kept.
+
+    Hashing runs off the event loop. hashlib releases the GIL, so a thread keeps a file
+    of up to max_upload_bytes from blocking other requests.
+    """
+    checksum = await asyncio.to_thread(sha256_bytes, pdf_bytes)
+    path = pdf_path(checksum)
+    display_name = sanitize_display_name(file.filename)
+    metadata = ArtifactMetadata(
+        artifact_path=path,
+        media_type="application/pdf",
+        creation_info=CreationInfo(created_by="api-upload"),
+        size_bytes=len(pdf_bytes),
+        checksum=checksum,
+    )
+    try:
+        await storage.store(pdf_bytes, metadata)
+    except ArtifactAlreadyExistsError:
+        pass
+    except StorageError as exc:
+        LOGGER.error(
+            "artifact store failed",
+            extra={"document_id": checksum, **(log_fields or {}), **error_fields(exc)},
+        )
+        raise http_error(503, STORAGE_UNAVAILABLE) from exc
+    return StoredPdf(
+        checksum=checksum,
+        display_name=display_name,
+        size_bytes=len(pdf_bytes),
+        path=path,
+    )
+
+
+async def _insert_document(
+    connection: AsyncConnection, stored: StoredPdf
+) -> tuple[DocumentRecord, bool]:
+    """Insert the document for a stored PDF, or return the row that checksum already has."""
+    return await document_queries.create(
+        connection,
+        checksum=stored.checksum,
+        display_name=stored.display_name,
+        size_bytes=stored.size_bytes,
+    )
+
+
+async def _enqueue_or_mark_failed(request: Request, job_id: UUID, fields: dict[str, str]) -> None:
+    """Enqueue the job id. A failed enqueue marks that queued row failed, then returns 503."""
+    try:
+        await request.app.state.parse_queue.submit(ParseJobMessage(job_id=job_id))
+    except JobQueueError as exc:
+        LOGGER.error("parse job enqueue failed", extra=fields | error_fields(exc))
+        try:
+            async with database.transaction() as connection:
+                outcome = await job_queries.mark_failed(
+                    connection,
+                    job_id,
+                    "internal_error",
+                    from_statuses=("queued",),
+                )
+        except DatabaseError as mark_error:
+            LOGGER.error(
+                "queued job remains after the enqueue failed",
+                extra=fields | error_fields(mark_error),
+            )
+        else:
+            if outcome != "recorded":
+                LOGGER.error("queued job remains after the enqueue failed", extra=fields)
+        raise http_error(503, QUEUE_UNAVAILABLE) from exc
 
 
 async def _start_pipeline(
@@ -424,31 +510,23 @@ async def _stored_artifact(request: Request, job: JobState, ref: str | None, kin
         503: error_response(STORAGE_UNAVAILABLE, DATABASE_UNAVAILABLE, QUEUE_UNAVAILABLE),
     },
 )
-async def submit_job(request: Request, file: UploadFile | None = None) -> QueuedJobResponse:
-    pdf_bytes = await _validated_upload(request, file)
-    # The same PDF always gets the same id. hashlib releases the GIL, so a thread keeps the
-    # hashing of up to max_upload_bytes off the event loop.
-    document_id = await asyncio.to_thread(sha256_bytes, pdf_bytes)
+async def upload_document_and_submit_job(
+    request: Request, file: UploadFile | None = None
+) -> AcceptedJobResponse:
+    """Store the PDF and queue a job.
+
+    The document row and the job row are inserted in one transaction. A checksum
+    that already has a document keeps that row. The request does not parse or extract.
+    """
+    file, pdf_bytes = await _validated_upload(request, file)
     job_id = uuid.uuid4()
-    creation_info = CreationInfo(created_by="api-upload")
-    artifact_metadata = ArtifactMetadata(
-        artifact_path=f"pdf/{document_id}",
-        media_type="application/pdf",
-        creation_info=creation_info,
+    stored = await _store_pdf(
+        request.app.state.artifact_storage,
+        file,
+        pdf_bytes,
+        {"job_id": str(job_id)},
     )
-
-    fields = {
-        "job_id": str(job_id),
-        "document_id": document_id,
-    }
-
-    try:
-        pdf_ref = await request.app.state.artifact_storage.store(pdf_bytes, artifact_metadata)
-    except ArtifactAlreadyExistsError:
-        pdf_ref = artifact_metadata.artifact_path
-    except StorageError as exc:
-        LOGGER.error("artifact store failed", extra=fields | error_fields(exc))
-        raise http_error(503, STORAGE_UNAVAILABLE) from exc
+    fields = {"job_id": str(job_id), "document_id": stored.checksum}
 
     # JobState needs an aware value before persistence. `create` omits this placeholder
     # from the insert and returns the database-generated creation time instead.
@@ -457,53 +535,20 @@ async def submit_job(request: Request, file: UploadFile | None = None) -> Queued
         status="queued",
         parser=DEFAULT_PARSER_NAME,
         extractor=DEFAULT_EXTRACTOR_NAME,
-        pdf_ref=pdf_ref,
+        pdf_ref=stored.path,
         created_at=datetime.now(UTC),
     )
-    parse_job_message = ParseJobMessage(
-        job_id=job_id,
-    )
-    # Commit the row before calling Redis, so a queue round trip does not hold a
-    # pooled connection. A failed enqueue marks that row failed afterwards.
+    # Commit both rows before calling Redis, so a queue round trip does not hold a
+    # pooled connection. A failed enqueue marks that job failed afterwards.
     try:
         async with database.transaction() as connection:
+            await _insert_document(connection, stored)
             job_state = await job_queries.create(connection, job_state)
-            document = await document_queries.get(connection, document_id)
     except DatabaseError as exc:
-        LOGGER.error("job state create failed", extra=fields | error_fields(exc))
+        LOGGER.error("extraction insert failed", extra=fields | error_fields(exc))
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
-    try:
-        await request.app.state.parse_queue.submit(parse_job_message)
-    except JobQueueError as exc:
-        LOGGER.error("parse job enqueue failed", extra=fields | error_fields(exc))
-        try:
-            async with database.transaction() as connection:
-                outcome = await job_queries.mark_failed(
-                    connection,
-                    job_id,
-                    "internal_error",
-                    from_statuses=("queued",),
-                )
-        except DatabaseError as mark_error:
-            LOGGER.error(
-                "queued job remains after the enqueue failed",
-                extra=fields | error_fields(mark_error),
-            )
-        else:
-            if outcome != "recorded":
-                LOGGER.error("queued job remains after the enqueue failed", extra=fields)
-        raise http_error(503, QUEUE_UNAVAILABLE) from exc
-
-    return QueuedJobResponse(
-        job_id=job_state.job_id,
-        status="queued",
-        created_at=job_state.created_at,
-        display_name=document.display_name if document is not None else None,
-        parser=job_state.parser,
-        extractor=job_state.extractor,
-        document_checksum=document_id,
-        has_parse_result=False,
-    )
+    await _enqueue_or_mark_failed(request, job_id, fields)
+    return AcceptedJobResponse(job_id=job_state.job_id, status="queued")
 
 
 @app.post(
@@ -532,43 +577,16 @@ async def upload_document(
     response: Response,
     file: UploadFile | None = None,
 ) -> DocumentMetadataResponse:
-    pdf_bytes = await _validated_upload(request, file)
-    checksum = await asyncio.to_thread(sha256_bytes, pdf_bytes)
-    doc_path = pdf_path(checksum)
-
-    display_name = sanitize_display_name(file.filename) if file else None
-    creation_info = CreationInfo(created_by="api-upload")
-    artifact_metadata = ArtifactMetadata(
-        artifact_path=doc_path,
-        media_type="application/pdf",
-        creation_info=creation_info,
-        size_bytes=len(pdf_bytes),
-        checksum=checksum,
-    )
-
-    try:
-        await request.app.state.artifact_storage.store(pdf_bytes, artifact_metadata)
-    except ArtifactAlreadyExistsError:
-        pass
-    except StorageError as exc:
-        LOGGER.error(
-            "artifact store failed",
-            extra={"document_id": checksum, **error_fields(exc)},
-        )
-        raise http_error(503, STORAGE_UNAVAILABLE) from exc
+    file, pdf_bytes = await _validated_upload(request, file)
+    stored = await _store_pdf(request.app.state.artifact_storage, file, pdf_bytes)
 
     try:
         async with database.transaction() as connection:
-            doc, is_new = await document_queries.create(
-                connection,
-                checksum=checksum,
-                display_name=display_name,
-                size_bytes=len(pdf_bytes),
-            )
+            doc, is_new = await _insert_document(connection, stored)
     except DatabaseError as exc:
         LOGGER.error(
             "document insert failed",
-            extra={"document_id": checksum, **error_fields(exc)},
+            extra={"document_id": stored.checksum, **error_fields(exc)},
         )
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
 
@@ -695,7 +713,7 @@ async def get_document_file(request: Request, checksum: str) -> Response:
     "/api/documents/{checksum}/jobs",
     status_code=202,
     dependencies=[Depends(require_api_key)],
-    response_model=QueuedJobResponse,
+    response_model=AcceptedJobResponse,
     responses={
         401: error_response(UNAUTHORIZED),
         404: error_response(DOCUMENT_NOT_FOUND),
@@ -708,7 +726,7 @@ async def submit_document_job(
     request: Request,
     checksum: str,
     payload: CreateJobRequest | None = None,
-) -> QueuedJobResponse:
+) -> AcceptedJobResponse:
     if payload is None:
         payload = CreateJobRequest()
     valid_checksum = _validate_checksum(checksum)
@@ -745,39 +763,8 @@ async def submit_document_job(
         LOGGER.error("job state create failed", extra=fields | error_fields(exc))
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
 
-    parse_job_message = ParseJobMessage(job_id=job_id)
-    try:
-        await request.app.state.parse_queue.submit(parse_job_message)
-    except JobQueueError as exc:
-        LOGGER.error("parse job enqueue failed", extra=fields | error_fields(exc))
-        try:
-            async with database.transaction() as connection:
-                outcome = await job_queries.mark_failed(
-                    connection,
-                    job_id,
-                    "internal_error",
-                    from_statuses=("queued",),
-                )
-        except DatabaseError as mark_error:
-            LOGGER.error(
-                "queued job remains after the enqueue failed",
-                extra=fields | error_fields(mark_error),
-            )
-        else:
-            if outcome != "recorded":
-                LOGGER.error("queued job remains after the enqueue failed", extra=fields)
-        raise http_error(503, QUEUE_UNAVAILABLE) from exc
-
-    return QueuedJobResponse(
-        job_id=job_state.job_id,
-        status="queued",
-        created_at=job_state.created_at,
-        display_name=doc.display_name,
-        parser=job_state.parser,
-        extractor=job_state.extractor,
-        document_checksum=valid_checksum,
-        has_parse_result=False,
-    )
+    await _enqueue_or_mark_failed(request, job_id, fields)
+    return AcceptedJobResponse(job_id=job_state.job_id, status="queued")
 
 
 @app.get(
@@ -928,7 +915,7 @@ async def extract(request: Request, file: UploadFile | None = None) -> Extractio
     The same parser, extractor and settings as a job from `POST /api/extractions`. Nothing is
     stored. The response is the extraction artifact that the job stores.
     """
-    content = await _validated_upload(request, file)
+    _file, content = await _validated_upload(request, file)
     settings = config.get_api_settings()
     options = PipelineOptions(
         parser=DEFAULT_PARSER_NAME,

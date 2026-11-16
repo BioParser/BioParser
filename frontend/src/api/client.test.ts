@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { clearApiKey, getApiKey, getRemovedReason, setApiKey } from "./apiKey";
-import { ApiError, apiFetch, getJob, startDocumentJob, uploadDocument } from "./client";
+import {
+  ApiError,
+  apiFetch,
+  getDocumentFile,
+  getExtractionArtifact,
+  getJob,
+  getParserArtifact,
+  getReadiness,
+  startDocumentJob,
+  uploadDocument,
+} from "./client";
 
 function stubFetch(response: Response): Mock<typeof fetch> {
   const fetchMock = vi.fn<typeof fetch>(async () => response);
@@ -21,10 +31,93 @@ function unauthorized(): Response {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   clearApiKey("forgotten");
   sessionStorage.clear();
   localStorage.clear();
+});
+
+describe("getReadiness", () => {
+  function pendingFetch() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(
+        (_url, options) =>
+          new Promise((_resolve, reject) => {
+            const signal = options?.signal;
+            if (signal?.aborted) reject(signal.reason);
+            else signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+          }),
+      ),
+    );
+  }
+
+  it("works without AbortSignal.any or AbortSignal.timeout", async () => {
+    // Keep AbortController available, but expose neither static signal helper.
+    vi.stubGlobal("AbortSignal", {});
+    stubFetch(Response.json({ status: "ready" }));
+    await expect(getReadiness(new AbortController().signal)).resolves.toEqual({ unavailable: [] });
+  });
+
+  it("aborts a pending request after ten seconds", async () => {
+    vi.useFakeTimers();
+    pendingFetch();
+    const result = expect(getReadiness()).rejects.toMatchObject({ name: "TimeoutError" });
+    const signal = vi.mocked(fetch).mock.calls[0]?.[1]?.signal;
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await result;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("cleans up the timer and listener after a network failure", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+    const error = new TypeError("Failed to fetch");
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(error));
+    await expect(getReadiness(controller.signal)).rejects.toBe(error);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
+  it.each([false, true])("forwards caller cancellation, already aborted: %s", async (already) => {
+    vi.useFakeTimers();
+    pendingFetch();
+    const controller = new AbortController();
+    if (already) controller.abort();
+    const result = expect(getReadiness(controller.signal)).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    if (!already) controller.abort();
+    await result;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([200, 503, 502])(
+    "cleans up the timer and listener after a %s response",
+    async (status) => {
+      vi.useFakeTimers();
+      const controller = new AbortController();
+      const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+      stubFetch(
+        Response.json(
+          status === 200 ? { status: "ready" } : { detail: { unavailable: ["redis"] } },
+          { status },
+        ),
+      );
+      if (status === 502) await expect(getReadiness(controller.signal)).rejects.toThrow();
+      else
+        await expect(getReadiness(controller.signal)).resolves.toEqual({
+          unavailable: status === 200 ? [] : ["redis"],
+        });
+      expect(vi.getTimerCount()).toBe(0);
+      expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
+    },
+  );
 });
 
 describe("apiFetch", () => {
@@ -151,6 +244,58 @@ describe("apiFetch and the API key", () => {
       expect(init.method).toBe("POST");
       expect(sentHeaders(fetchMock).get("Content-Type")).toBe("application/json");
       expect(JSON.parse(String(init.body))).toEqual({ parser: "mineru", extractor: "default" });
+    });
+  });
+
+  describe("job artifacts", () => {
+    it("gets the parser artifact of the job", async () => {
+      const fetchMock = stubFetch(Response.json({ pages: [] }));
+      await expect(getParserArtifact("job/1")).resolves.toEqual({ pages: [] });
+      expect(sentRequest(fetchMock).path).toBe("/api/jobs/job%2F1/artifacts/parser");
+    });
+
+    it("gets the extraction artifact of the job", async () => {
+      const fetchMock = stubFetch(Response.json({ observations: [] }));
+      await expect(getExtractionArtifact("job/1")).resolves.toEqual({ observations: [] });
+      expect(sentRequest(fetchMock).path).toBe("/api/jobs/job%2F1/artifacts/extraction");
+    });
+
+    it("passes the abort signal on", async () => {
+      const fetchMock = stubFetch(Response.json({ pages: [] }));
+      const controller = new AbortController();
+      await getParserArtifact("job-1", controller.signal);
+      expect(sentRequest(fetchMock).init.signal).toBe(controller.signal);
+    });
+
+    describe("getDocumentFile", () => {
+      it("returns the PDF's bytes and sends the key", async () => {
+        setApiKey("the-key", false);
+        const fetchMock = stubFetch(new Response(new Uint8Array([37, 80, 68, 70])));
+        const bytes = await getDocumentFile("abc");
+        expect([...new Uint8Array(bytes)]).toEqual([37, 80, 68, 70]);
+        expect(sentRequest(fetchMock).path).toBe("/api/documents/abc/file");
+        expect(sentHeaders(fetchMock).get("X-API-Key")).toBe("the-key");
+      });
+
+      it("throws ApiError for a missing document", async () => {
+        stubFetch(
+          Response.json(
+            { detail: { code: "document_not_found", message: "Document not found" } },
+            { status: 404 },
+          ),
+        );
+        await expect(getDocumentFile("abc")).rejects.toMatchObject({
+          status: 404,
+          code: "document_not_found",
+        });
+      });
+
+      it("forgets a rejected key", async () => {
+        setApiKey("the-key", false);
+        stubFetch(unauthorized());
+        await expect(getDocumentFile("abc")).rejects.toMatchObject({ status: 401 });
+        expect(getApiKey()).toBeNull();
+      });
     });
   });
 });

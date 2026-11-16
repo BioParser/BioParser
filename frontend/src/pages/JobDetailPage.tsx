@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { useParams } from "react-router";
+import { useParams, useSearchParams } from "react-router";
 import { ApiError, getJob, type JobStatusResponse } from "../api/client";
+import { EvidenceView } from "../evidence/EvidenceView";
+
+const OBSERVATION_PARAM = "observation";
 
 const STAGES = ["queued", "parsing", "parsed", "extracting", "done"] as const;
 const LABELS = ["Queued", "Parsing", "Parsed", "Extracting", "Done"];
@@ -26,6 +29,16 @@ function isPermanentError(error: Error | null): boolean {
 
 export function JobDetailPage() {
   const { jobId = "" } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const observationIndex = parseObservationIndex(searchParams.get(OBSERVATION_PARAM));
+  function closeEvidence() {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.delete(OBSERVATION_PARAM);
+      return next;
+    });
+  }
+  const showEvidence = observationIndex !== null;
   const [visible, setVisible] = useState(document.visibilityState !== "hidden");
   useEffect(() => {
     const update = () => setVisible(document.visibilityState !== "hidden");
@@ -49,23 +62,28 @@ export function JobDetailPage() {
   const missing = job.error instanceof ApiError && [404, 422].includes(job.error.status);
 
   return (
-    <>
-      <h1>Job</h1>
-      <p>
-        Job ID: <code>{jobId}</code>
-      </p>
-      {job.isPending && <p role="status">Loading job…</p>}
-      {job.error && (
-        <p role="alert">
-          {missing
-            ? "There is no such job."
-            : isPermanentError(job.error)
-              ? "The job could not be loaded. Check your access and try again."
-              : "The API is temporarily unavailable. Retrying automatically…"}
+    <div className={showEvidence ? "job-detail job-detail-with-evidence" : "job-detail"}>
+      <div>
+        <h1>Job</h1>
+        <p>
+          Job ID: <code>{jobId}</code>
         </p>
+        {job.isPending && <p role="status">Loading job…</p>}
+        {job.error && (
+          <p role="alert">
+            {missing
+              ? "There is no such job."
+              : isPermanentError(job.error)
+                ? "The job could not be loaded. Check your access and try again."
+                : "The API is temporarily unavailable. Retrying automatically…"}
+          </p>
+        )}
+        {!missing && job.data && <JobStatus job={job.data} />}
+      </div>
+      {showEvidence && (
+        <EvidenceView jobId={jobId} observationIndex={observationIndex} onClose={closeEvidence} />
       )}
-      {!missing && job.data && <JobStatus job={job.data} />}
-    </>
+    </div>
   );
 }
 
@@ -117,4 +135,8 @@ function JobStatus({ job }: { job: JobStatusResponse }) {
       )}
     </>
   );
+}
+
+function parseObservationIndex(value: string | null): number | null {
+  return value !== null && /^\d+$/.test(value) ? Number(value) : null;
 }

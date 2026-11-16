@@ -66,6 +66,10 @@ Stop with `Ctrl+C` or `docker compose down`.
 
 Published ports bind to `127.0.0.1` only. Ports, environment variables, log queries, and `test_prompt`: [docs/docker-compose.md](docs/docker-compose.md).
 
+## Running on an OKD-cluster (kubernetes)
+
+The manifest files can be found [here](manifests/). For more info on running BioParser on an OKD-cluster see [here](manifests/README.md).
+
 ## Local development (uv)
 
 Prerequisites: [uv](https://docs.astral.sh/uv/). The project pins Python 3.13; `uv sync` downloads it if missing.
@@ -98,6 +102,10 @@ npm run dev
 Open `http://localhost:5173/ui/`. The page reloads when you save a file. The dev server forwards `/api` and `/ready` to the API on `127.0.0.1:8080`, so run `uv run bioparser` in a second terminal.
 
 > The UI asks for the API key (`BIOPARSER_API_KEY`) when it first opens and sends it with every request. "Remember on this device" keeps the key after the tab is closed; the **API key** page forgets it. With `BIOPARSER_AUTH_DISABLED=true` the API accepts any key, so run it with a real key to check the key screen.
+
+The dashboard lists jobs in pages of ten, with status and parser filters in the URL. It refreshes unfinished jobs every five seconds and pauses polling in hidden tabs. The services panel checks `/ready` on the same interval.
+
+To show a Grafana link, set `VITE_GRAFANA_URL` in `frontend/.env.local` before building (see `frontend/.env.example`). For the API image, pass `--build-arg VITE_GRAFANA_URL=http://localhost:3000` to `docker build`. This is a build-time setting; without it, the link is hidden.
 
 After a change to the API, regenerate the UI's API types and commit both files. CI fails while they are out of date.
 

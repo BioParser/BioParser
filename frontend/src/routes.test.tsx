@@ -34,7 +34,11 @@ describe("routes", () => {
     setApiKey("test-key", false);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(null, { status: 404 })),
+      vi.fn<typeof fetch>(async (url) => {
+        if (url === "/ready") return Response.json({ status: "ready" });
+        if (url === "/api/jobs") return Response.json([]);
+        return new Response(null, { status: 404 });
+      }),
     );
   });
 

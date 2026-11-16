@@ -327,7 +327,8 @@ describe("StartJobPage", () => {
     expect(uploadedNames(fetchMock)).toEqual(["a.pdf"]);
     // An aborted request is never sent, so only the ones that were not aborted count.
     const jobStarts = fetchMock.mock.calls.filter(
-      ([path, init]) => String(path).endsWith("/jobs") && !init?.signal?.aborted,
+      ([path, init]) =>
+        String(path).endsWith("/jobs") && init?.method === "POST" && !init.signal?.aborted,
     );
     expect(jobStarts).toEqual([]);
   });

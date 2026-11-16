@@ -270,6 +270,96 @@ def test_get_document_file_not_found_and_invalid_checksum(client: TestClient) ->
     assert res.json()["detail"]["code"] == "invalid_checksum"
 
 
+def test_extract_stores_the_document_and_queues_a_job(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    artifact_storage, job_store, parse_queue, _events = stub_api_adapters
+
+    res = client.post(
+        "/api/extractions",
+        files={"file": ("paper.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+
+    assert res.status_code == 202
+    body = res.json()
+    assert set(body) == {"job_id", "status"}
+    assert body["status"] == "queued"
+    state = job_store.states[body["job_id"]]
+    assert state.parser == "default"
+    assert state.extractor == "default"
+    assert state.pdf_ref == f"pdf/{MINIMAL_PDF_HASH}"
+    assert artifact_storage.artifacts[state.pdf_ref][0] == MINIMAL_PDF
+    assert parse_queue.messages[0].job_id == UUID(body["job_id"])
+    stored = client.get(f"/api/documents/{MINIMAL_PDF_HASH}")
+    assert stored.status_code == 200
+    assert stored.json()["display_name"] == "paper.pdf"
+    assert stored.json()["size_bytes"] == len(MINIMAL_PDF)
+
+
+def test_extract_keeps_the_existing_display_name(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    _artifact_storage, job_store, _parse_queue, _events = stub_api_adapters
+
+    first = client.post(
+        "/api/extractions",
+        files={"file": ("paper.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+    second = client.post(
+        "/api/extractions",
+        files={"file": ("other.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert len(job_store.states) == 2
+    stored = client.get(f"/api/documents/{MINIMAL_PDF_HASH}")
+    assert stored.json()["display_name"] == "paper.pdf"
+
+
+def test_a_failed_extraction_insert_stores_no_job(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    _artifact_storage, job_store, _parse_queue, _events = stub_api_adapters
+    job_store.create_error = DatabaseError("insert failed")
+
+    res = client.post(
+        "/api/extractions",
+        files={"file": ("paper.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+
+    assert res.status_code == 503
+    assert res.json()["detail"]["code"] == "database_unavailable"
+    assert job_store.states == {}
+    assert job_store.documents == {}
+
+
+def test_a_failed_extraction_insert_keeps_an_existing_document(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    _artifact_storage, job_store, _parse_queue, _events = stub_api_adapters
+    created = client.post(
+        "/api/documents",
+        files={"file": ("paper.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+    assert created.status_code == 201
+    job_store.create_error = DatabaseError("insert failed")
+
+    res = client.post(
+        "/api/extractions",
+        files={"file": ("other.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+
+    assert res.status_code == 503
+    assert job_store.states == {}
+    stored = client.get(f"/api/documents/{MINIMAL_PDF_HASH}")
+    assert stored.json()["display_name"] == "paper.pdf"
+
+
 def test_submit_document_job_success(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
@@ -288,12 +378,7 @@ def test_submit_document_job_success(
     assert res.status_code == 202
     data = res.json()
     assert data["status"] == "queued"
-    assert datetime.fromisoformat(data["created_at"]).tzinfo is not None
-    assert data["display_name"] == "paper.pdf"
-    assert data["parser"] == "mineru"
-    assert data["extractor"] == "default"
-    assert data["document_checksum"] == MINIMAL_PDF_HASH
-    assert data["has_parse_result"] is False
+    assert set(data) == {"job_id", "status"}
     job_id = UUID(data["job_id"])
 
     # Job record created in store

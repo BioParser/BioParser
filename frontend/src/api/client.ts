@@ -6,13 +6,68 @@ type Schemas = components["schemas"];
 // The header the API reads the key from (API_KEY_HEADER in src/bioparser/api/auth.py).
 const API_KEY_HEADER = "X-API-Key";
 export type ErrorCode = Schemas["ErrorDetail"]["code"];
-export type QueuedJobResponse = Schemas["QueuedJobResponse"];
+export type AcceptedJobResponse = Schemas["AcceptedJobResponse"];
 // JobStatusResponse is a union in Python, not a model, so it has no entry in the schemas.
 export type JobStatusResponse =
   paths["/api/jobs/{job_id}"]["get"]["responses"][200]["content"]["application/json"];
 export type DocumentMetadataResponse = Schemas["DocumentMetadataResponse"];
 export type CreateJobRequest = Schemas["CreateJobRequest"];
 export type UploadLimitsResponse = Schemas["UploadLimitsResponse"];
+export type ParserArtifact = Schemas["ParserArtifact"];
+export type ExtractionArtifact = Schemas["ExtractionArtifact"];
+export type JobList = paths["/api/jobs"]["get"]["responses"][200]["content"]["application/json"];
+export type JobStatus = JobList[number]["status"];
+
+export function listJobs(status: string, parser: string, signal?: AbortSignal): Promise<JobList> {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (parser) params.set("parser", parser);
+  const query = params.toString();
+  return apiFetch(`/api/jobs${query ? `?${query}` : ""}`, { signal });
+}
+
+export type Readiness = { unavailable: string[] };
+
+// /ready is public. Its 503 response is data, not a generic request error.
+export async function getReadiness(signal?: AbortSignal): Promise<Readiness> {
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
+  const timeout = setTimeout(
+    () => controller.abort(new DOMException("Readiness request timed out", "TimeoutError")),
+    10000,
+  );
+  try {
+    const response = await fetch("/ready", { signal: controller.signal });
+    const body: unknown = await response.json();
+    if (
+      response.ok &&
+      typeof body === "object" &&
+      body !== null &&
+      "status" in body &&
+      body.status === "ready"
+    ) {
+      return { unavailable: [] };
+    }
+    if (response.status === 503 && typeof body === "object" && body !== null && "detail" in body) {
+      const detail = body.detail;
+      if (
+        typeof detail === "object" &&
+        detail !== null &&
+        "unavailable" in detail &&
+        Array.isArray(detail.unavailable) &&
+        detail.unavailable.every((check) => typeof check === "string")
+      ) {
+        return { unavailable: detail.unavailable };
+      }
+    }
+    throw new Error("Readiness could not be read");
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
+  }
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -56,7 +111,7 @@ async function toApiError(response: Response): Promise<ApiError> {
 
 // The one place the UI calls the API. A network failure rejects with fetch's own TypeError,
 // and an aborted request (init.signal) with a DOMException named AbortError.
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function apiRequest(path: string, init?: RequestInit): Promise<Response> {
   // Read the key on every call, so a key entered or forgotten since the last call is used.
   const headers = new Headers(init?.headers);
   const apiKey = getApiKey();
@@ -72,6 +127,11 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   if (!response.ok) {
     throw await toApiError(response);
   }
+  return response;
+}
+
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await apiRequest(path, init);
   return (await response.json()) as T;
 }
 
@@ -101,11 +161,35 @@ export function startDocumentJob(
   checksum: string,
   request: CreateJobRequest,
   signal?: AbortSignal,
-): Promise<QueuedJobResponse> {
+): Promise<AcceptedJobResponse> {
   return apiFetch(`/api/documents/${encodeURIComponent(checksum)}/jobs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
     signal,
   });
+}
+
+// The parser artifact, from the job's `parsed` state on. 409 until then.
+export function getParserArtifact(jobId: string, signal?: AbortSignal): Promise<ParserArtifact> {
+  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/artifacts/parser`, { signal });
+}
+
+// The extraction artifact of a `done` job. 409 until then.
+export function getExtractionArtifact(
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<ExtractionArtifact> {
+  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/artifacts/extraction`, { signal });
+}
+
+// The stored PDF, as bytes: the route needs X-API-Key, so it cannot be a plain link.
+export async function getDocumentFile(
+  checksum: string,
+  signal?: AbortSignal,
+): Promise<ArrayBuffer> {
+  const response = await apiRequest(`/api/documents/${encodeURIComponent(checksum)}/file`, {
+    signal,
+  });
+  return response.arrayBuffer();
 }
