@@ -37,9 +37,11 @@ ENV UV_CACHE_DIR=/root/.cache/uv \
 FROM build AS cpu-build
 
 # The mineru pin is checked against MINERU_VERSION.
+# DocVortex is pinned because MinerU only requires >=0.5.16,<1. 0.6.22 rejects
+# 4.0.12's native text call (private_ranges). 0.6.0 accepts it.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /opt/mineru \
-    && uv pip install --python /opt/mineru/bin/python "mineru==4.0.12"
+    && uv pip install --python /opt/mineru/bin/python "mineru==4.0.12" "docvortex==0.6.0"
 
 # g=u gives OpenShift's random UID (group 0) the owner's access.
 RUN /opt/mineru/bin/mineru-models-download --tier basic --small-backend onnx -s huggingface \
@@ -50,9 +52,12 @@ FROM build AS gpu-build
 
 # full = torch and vLLM. vLLM pins its torch, so no torch index is chosen here: the PyPI
 # wheels (vLLM 0.28, torch 2.13) are CUDA 13 builds and need an NVIDIA driver for CUDA 13.
+# DocVortex is pinned for the same reason as the CPU image. transformers is pinned because
+# MinerU allows >=5.10.1,<6, and 5.23.0 fails vLLM 0.28 warmup on a video pad token when no
+# video was passed. 5.22.0 does not have that check. The CPU image never starts vLLM.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /opt/mineru \
-    && uv pip install --python /opt/mineru/bin/python "mineru[full]==4.0.12"
+    && uv pip install --python /opt/mineru/bin/python "mineru[full]==4.0.12" "docvortex==0.6.0" "transformers==5.22.0"
 
 # Fail the build if torch is not a CUDA build or vLLM does not import.
 RUN /opt/mineru/bin/python -c "import torch, vllm; assert torch.version.cuda, torch.__version__"

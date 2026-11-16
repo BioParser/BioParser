@@ -23,8 +23,13 @@ _ENTRYPOINT = re.compile(r"^ENTRYPOINT (\[.*\])$", re.MULTILINE)
 
 
 def test_mineru_image_pins_the_schema_version() -> None:
-    pins = set(_PIN.findall(_DOCKERFILE.read_text(encoding="utf-8")))
+    text = _DOCKERFILE.read_text(encoding="utf-8")
+    pins = set(_PIN.findall(text))
     assert pins == {MINERU_VERSION}
+    # MinerU leaves DocVortex floating. 0.6.22 breaks 4.0.12's native text call.
+    assert text.count("docvortex==0.6.0") == 2
+    # The GPU install leaves transformers floating. 5.23.0 breaks vLLM 0.28 warmup.
+    assert text.count("transformers==5.22.0") == 1
 
 
 def test_mineru_fixtures_come_from_the_pinned_service() -> None:
