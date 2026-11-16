@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    alpha.image.policy.openshift.io/resolve-names: "*"
+    image.openshift.io/triggers: >-
+      [{"from":{"kind":"ImageStreamTag","name":"bioparser-api:latest","namespace":"biogpt-ohtu-s2026"},"fieldPath":"spec.template.spec.containers[?(@.name==\"bioparser-api\")].image","pause":"false"}]
+  name: bioparser-api-dep
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bioparser-api
+  template:
+    metadata:
+      labels:
+        app: bioparser-api
+    spec:
+      containers:
+        - name: bioparser-api
+          image: ghcr.io/bioparser/bioparser/api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: BIOPARSER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bioparser-secret
+                  key: BIOPARSER_API_KEY
+          envFrom:
+            - configMapRef:
+                name: bioparser-config
+            - secretRef:
+                name: bioparser-secret
+          volumeMounts:
+            - mountPath: /data
+              name: artifact-storage
+          resources:
+            limits:
+              memory: "4Gi"
+              cpu: "1"
+            requests:
+              memory: "2Gi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: artifact-storage
+          persistentVolumeClaim:
+            claimName: bioparser-artifact-pvc
