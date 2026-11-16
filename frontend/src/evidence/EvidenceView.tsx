@@ -1,5 +1,6 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef } from "react";
 import { ApiError } from "../api/client";
+import { EvidencePdf } from "./EvidencePdf";
 import {
   buildQuotation,
   EvidenceMismatchError,
@@ -95,7 +96,7 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
           ) : blocks.isError ? (
             <EvidenceError>{artifactError(blocks.error, "parser")}</EvidenceError>
           ) : (
-            <Quotation observation={observation} blocks={blocks.data} />
+            <Quotation jobId={jobId} observation={observation} blocks={blocks.data} />
           )}
         </>
       )}
@@ -121,9 +122,11 @@ function ValueAndUnit({ observation }: { observation: Observation }) {
 }
 
 function Quotation({
+  jobId,
   observation,
   blocks,
 }: {
+  jobId: string;
   observation: Observation;
   blocks: ReadonlyMap<string, TextBlock>;
 }) {
@@ -152,6 +155,8 @@ function Quotation({
           </blockquote>
         </figure>
       ))}
+      <h3 className="evidence-subheading">In the PDF</h3>
+      <EvidencePdf jobId={jobId} quotation={quotation} />
     </>
   );
 }

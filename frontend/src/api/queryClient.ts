@@ -1,4 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
+import { destroyPdfsOnRemove } from "../evidence/usePdfDocument";
 import { getApiKey, subscribeToApiKey } from "./apiKey";
 import { ApiError } from "./client";
 
@@ -11,6 +12,7 @@ export function createQueryClient(): QueryClient {
       queries: { retry: shouldRetry },
     },
   });
+  destroyPdfsOnRemove(queryClient);
   // Data loaded with a key is dropped when the key is forgotten or rejected, so it is not
   // shown again to whoever enters the next key. The pages load it again with the new key.
   subscribeToApiKey(() => {
