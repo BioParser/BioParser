@@ -4,14 +4,15 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { ApiError } from "../api/client";
 import { shouldRetry } from "../api/queryClient";
-import { retryDocument, usePdfDocument } from "./usePdfDocument";
+import { destroyPdfsOnRemove, pdfQueryKey, retryDocument, usePdfDocument } from "./usePdfDocument";
 
 // pdf.js needs a real browser; these tests check what is fetched and when.
 const openPdf = vi.hoisted(() => vi.fn());
 vi.mock("./pdfjs", () => ({ openPdf }));
 
 const CHECKSUM = "a".repeat(64);
-const PDF = { numPages: 3 };
+const destroy = vi.hoisted(() => vi.fn());
+const PDF = { numPages: 3, loadingTask: { destroy } };
 
 // Vitest globals are off, so Testing Library cannot register its cleanup by itself.
 afterEach(cleanup);
@@ -23,6 +24,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   openPdf.mockReset();
+  destroy.mockReset();
 });
 
 function job(): Response {
@@ -122,6 +124,34 @@ describe("usePdfDocument", () => {
     });
     await waitFor(() => expect(result.current.pdf.isError).toBe(true));
     expect(openPdf).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("destroyPdfsOnRemove", () => {
+  it("ends the pdf.js worker when the PDF is removed from the cache", async () => {
+    stubApi();
+    const queryClient = newQueryClient();
+    destroyPdfsOnRemove(queryClient);
+    const { result, unmount } = renderHook(() => usePdfDocument("job-1", true), {
+      wrapper: wrapperFor(queryClient),
+    });
+    await waitFor(() => expect(result.current.pdf.isSuccess).toBe(true));
+    unmount();
+    expect(destroy).not.toHaveBeenCalled();
+    queryClient.removeQueries({ queryKey: pdfQueryKey(CHECKSUM) });
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("ends every open PDF when the cache is cleared", async () => {
+    stubApi();
+    const queryClient = newQueryClient();
+    destroyPdfsOnRemove(queryClient);
+    const { result } = renderHook(() => usePdfDocument("job-1", true), {
+      wrapper: wrapperFor(queryClient),
+    });
+    await waitFor(() => expect(result.current.pdf.isSuccess).toBe(true));
+    queryClient.clear();
+    expect(destroy).toHaveBeenCalledTimes(1);
   });
 });
 
