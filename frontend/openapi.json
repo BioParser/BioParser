@@ -2629,9 +2629,6 @@
           "age": {
             "anyOf": [
               {
-                "type": "number"
-              },
-              {
                 "type": "string"
               },
               {
@@ -2761,9 +2758,6 @@
           "individualCount": {
             "anyOf": [
               {
-                "type": "integer"
-              },
-              {
                 "type": "string"
               },
               {
@@ -2774,9 +2768,6 @@
           },
           "dispersion": {
             "anyOf": [
-              {
-                "type": "number"
-              },
               {
                 "type": "string"
               },
@@ -2789,9 +2780,6 @@
           "measurementValue_min": {
             "anyOf": [
               {
-                "type": "number"
-              },
-              {
                 "type": "string"
               },
               {
@@ -2802,9 +2790,6 @@
           },
           "measurementValue_max": {
             "anyOf": [
-              {
-                "type": "number"
-              },
               {
                 "type": "string"
               },
@@ -2885,9 +2870,6 @@
           "year": {
             "anyOf": [
               {
-                "type": "integer"
-              },
-              {
                 "type": "string"
               },
               {
@@ -2899,9 +2881,6 @@
           "month": {
             "anyOf": [
               {
-                "type": "integer"
-              },
-              {
                 "type": "string"
               },
               {
@@ -2912,9 +2891,6 @@
           },
           "day": {
             "anyOf": [
-              {
-                "type": "integer"
-              },
               {
                 "type": "string"
               },
@@ -2960,9 +2936,6 @@
           "decimalLongitude": {
             "anyOf": [
               {
-                "type": "number"
-              },
-              {
                 "type": "string"
               },
               {
@@ -2974,9 +2947,6 @@
           "decimalLatitude": {
             "anyOf": [
               {
-                "type": "number"
-              },
-              {
                 "type": "string"
               },
               {
@@ -2987,9 +2957,6 @@
           },
           "elevation": {
             "anyOf": [
-              {
-                "type": "number"
-              },
               {
                 "type": "string"
               },
@@ -3264,9 +3231,6 @@
           "age": {
             "anyOf": [
               {
-                "type": "number"
-              },
-              {
                 "type": "string"
               },
               {
@@ -3396,9 +3360,6 @@
           "individualCount": {
             "anyOf": [
               {
-                "type": "integer"
-              },
-              {
                 "type": "string"
               },
               {
@@ -3409,9 +3370,6 @@
           },
           "dispersion": {
             "anyOf": [
-              {
-                "type": "number"
-              },
               {
                 "type": "string"
               },
@@ -3424,9 +3382,6 @@
           "measurementValue_min": {
             "anyOf": [
               {
-                "type": "number"
-              },
-              {
                 "type": "string"
               },
               {
@@ -3437,9 +3392,6 @@
           },
           "measurementValue_max": {
             "anyOf": [
-              {
-                "type": "number"
-              },
               {
                 "type": "string"
               },
@@ -3520,9 +3472,6 @@
           "year": {
             "anyOf": [
               {
-                "type": "integer"
-              },
-              {
                 "type": "string"
               },
               {
@@ -3534,9 +3483,6 @@
           "month": {
             "anyOf": [
               {
-                "type": "integer"
-              },
-              {
                 "type": "string"
               },
               {
@@ -3547,9 +3493,6 @@
           },
           "day": {
             "anyOf": [
-              {
-                "type": "integer"
-              },
               {
                 "type": "string"
               },
@@ -3595,9 +3538,6 @@
           "decimalLongitude": {
             "anyOf": [
               {
-                "type": "number"
-              },
-              {
                 "type": "string"
               },
               {
@@ -3609,9 +3549,6 @@
           "decimalLatitude": {
             "anyOf": [
               {
-                "type": "number"
-              },
-              {
                 "type": "string"
               },
               {
@@ -3622,9 +3559,6 @@
           },
           "elevation": {
             "anyOf": [
-              {
-                "type": "number"
-              },
               {
                 "type": "string"
               },
