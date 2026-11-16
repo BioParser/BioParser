@@ -136,8 +136,15 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return (await response.json()) as T;
 }
 
-export function getJob(jobId: string, signal?: AbortSignal): Promise<JobStatusResponse> {
-  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}`, { signal });
+export function getJob(
+  jobId: string,
+  signal?: AbortSignal,
+  detail?: "ets" | "full",
+): Promise<JobStatusResponse> {
+  const params = new URLSearchParams();
+  if (detail !== undefined) params.set("detail", detail);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}${query}`, { signal });
 }
 
 // The largest PDF the API accepts (BIOPARSER_MAX_UPLOAD_BYTES), so the browser checks

@@ -30,6 +30,9 @@ export function destroyPdfsOnRemove(queryClient: QueryClient): () => void {
 }
 
 function documentChecksumOf(job: JobStatusResponse): string {
+  if (!("document_checksum" in job)) {
+    throw new Error("The job has no document checksum.");
+  }
   return job.document_checksum;
 }
 
@@ -47,7 +50,7 @@ export function retryDocument(failureCount: number, error: Error): boolean {
 export function usePdfDocument(jobId: string, enabled: boolean) {
   const checksum = useQuery({
     queryKey: jobQueryKey(jobId),
-    queryFn: ({ signal }) => getJob(jobId, signal),
+    queryFn: ({ signal }) => getJob(jobId, signal, "full"),
     select: documentChecksumOf,
     // The checksum never changes; the job page polls the status on its own.
     staleTime: Number.POSITIVE_INFINITY,
