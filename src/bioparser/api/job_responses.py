@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn, cast
 
 from fastapi import Request
 from pydantic import ValidationError
@@ -13,7 +13,12 @@ from bioparser.ets.models import EtsRow
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.jobs import JobState, SafeError
 from bioparser.logging_config import error_fields
-from bioparser.storage import ArtifactNotFoundError, StorageError, StoragePayloadError
+from bioparser.storage import (
+    ArtifactNotFoundError,
+    ArtifactStorage,
+    StorageError,
+    StoragePayloadError,
+)
 
 from .errors import ARTIFACT_INVALID, JOB_STATE_UNREADABLE, STORAGE_UNAVAILABLE, http_error
 from .schema import (
@@ -32,7 +37,20 @@ LOGGER = logging.getLogger(__name__)
 
 
 class _InvalidArtifact(Exception):
-    """The stored extraction artifact is missing its body or does not validate."""
+    """The stored extraction artifact does not validate."""
+
+
+def _raise_invalid(exc: ValueError, job_id: object) -> NoReturn:
+    """Log a mapping failure without its values, then mark the artifact invalid."""
+    extra: dict[str, object] = {"job_id": str(job_id), "artifact": "extraction"}
+    extra.update(error_fields(exc))
+    if isinstance(exc, ValidationError):
+        extra["invalid_fields"] = [
+            ".".join(str(part) for part in error["loc"])
+            for error in exc.errors(include_input=False)
+        ]
+    LOGGER.error("job artifact missing or invalid", extra=extra)
+    raise _InvalidArtifact from exc
 
 
 def job_pdf_checksum(state: JobState) -> str:
@@ -45,7 +63,7 @@ def job_pdf_checksum(state: JobState) -> str:
 
 
 def _record(state: JobState, display_name: str | None) -> dict[str, Any]:
-    """The stored record. No storage paths, and no flag for an artifact the status names."""
+    """The stored record. No storage paths."""
     return {
         "job_id": state.job_id,
         "created_at": state.created_at,
@@ -53,6 +71,7 @@ def _record(state: JobState, display_name: str | None) -> dict[str, Any]:
         "parser": state.parser,
         "extractor": state.extractor,
         "document_checksum": job_pdf_checksum(state),
+        "has_parse_result": state.parse_result_ref is not None,
     }
 
 
@@ -112,8 +131,8 @@ def _done_body(
     try:
         artifact = ExtractionArtifact.model_validate_json(payload)
         result = to_ets(artifact, references=references)
-    except (ValidationError, ValueError) as exc:
-        raise _InvalidArtifact(str(exc)) from exc
+    except ValueError as exc:
+        _raise_invalid(exc, fields["job_id"])
     if detail == "full":
         return DoneJobFullResponse(
             status="done",
@@ -125,7 +144,7 @@ def _done_body(
             EtsRow.model_validate(row.model_dump(exclude={"source_index"})) for row in result.rows
         ]
     except ValidationError as exc:
-        raise _InvalidArtifact(str(exc)) from exc
+        _raise_invalid(exc, fields["job_id"])
     return DoneJobResponse(
         status="done",
         rows=rows,
@@ -151,12 +170,14 @@ async def done_job(
         LOGGER.error("done job has no extraction artifact", extra={"job_id": str(state.job_id)})
         raise http_error(500, ARTIFACT_INVALID)
     log_fields = {"job_id": str(state.job_id), "artifact": "extraction"}
-    storage: Any = request.app.state.artifact_storage
+    storage = cast(ArtifactStorage, request.app.state.artifact_storage)
     try:
-        payload: bytes = await storage.retrieve(ref)
+        payload = await storage.retrieve(ref)
         return await asyncio.to_thread(_done_body, payload, checksum, detail, fields)
-    except (ArtifactNotFoundError, StoragePayloadError, _InvalidArtifact) as exc:
+    except (ArtifactNotFoundError, StoragePayloadError) as exc:
         LOGGER.error("job artifact missing or invalid", extra=log_fields | error_fields(exc))
+        raise http_error(500, ARTIFACT_INVALID) from exc
+    except _InvalidArtifact as exc:
         raise http_error(500, ARTIFACT_INVALID) from exc
     except StorageError as exc:
         LOGGER.warning("job artifact read failed", extra=log_fields | error_fields(exc))

@@ -2316,6 +2316,10 @@
             "type": "string",
             "title": "Document Checksum"
           },
+          "has_parse_result": {
+            "type": "boolean",
+            "title": "Has Parse Result"
+          },
           "job_id": {
             "type": "string",
             "format": "uuid",
@@ -2342,6 +2346,7 @@
           "parser",
           "extractor",
           "document_checksum",
+          "has_parse_result",
           "job_id",
           "status",
           "rows"
@@ -3769,6 +3774,10 @@
             "type": "string",
             "title": "Document Checksum"
           },
+          "has_parse_result": {
+            "type": "boolean",
+            "title": "Has Parse Result"
+          },
           "job_id": {
             "type": "string",
             "format": "uuid",
@@ -3791,6 +3800,7 @@
           "parser",
           "extractor",
           "document_checksum",
+          "has_parse_result",
           "job_id",
           "status",
           "error"
@@ -3911,6 +3921,10 @@
             "type": "string",
             "title": "Document Checksum"
           },
+          "has_parse_result": {
+            "type": "boolean",
+            "title": "Has Parse Result"
+          },
           "job_id": {
             "type": "string",
             "format": "uuid",
@@ -3936,6 +3950,7 @@
           "parser",
           "extractor",
           "document_checksum",
+          "has_parse_result",
           "job_id",
           "status"
         ],
@@ -5098,6 +5113,10 @@
             "type": "string",
             "title": "Document Checksum"
           },
+          "has_parse_result": {
+            "type": "boolean",
+            "title": "Has Parse Result"
+          },
           "job_id": {
             "type": "string",
             "format": "uuid",
@@ -5122,6 +5141,7 @@
           "parser",
           "extractor",
           "document_checksum",
+          "has_parse_result",
           "job_id",
           "status"
         ],

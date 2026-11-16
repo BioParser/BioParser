@@ -325,8 +325,10 @@ Poll a job.
 - `queued`, `parsing`, `parsed`, and `extracting` return `job_id` and `status`.
 - `failed` adds `error`, a safe error code.
 - `done` adds the ETS rows.
-- `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and
-  `document_checksum`. The status says whether a parser or extraction artifact exists.
+- `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`,
+  `document_checksum`, and `has_parse_result`. The flag is true when the parser
+  artifact was stored. `timeout` and `internal_error` do not say which stage ended,
+  so a full read is what tells a reader that parsing finished.
   A done job also adds `source_index` on each row. The index is the observation's
   position in the extraction artifact. `references` on each row is the document checksum.
 - The response holds no storage paths. The UI reads the internal artifacts from the
@@ -596,8 +598,8 @@ for the OpenAPI docs' `responses=` examples:
   `FailedJobResponse` carries `error`. `POST /api/extractions` and
   `POST /api/documents/{checksum}/jobs` return `AcceptedJobResponse`, which is `job_id`
   and `status`. Lists use `JobListResponse`: the default row is `job_id` and `status`,
-  and `detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and
-  `document_checksum`. A done job in a list has no ETS rows. The same `detail=full` on
+  and `detail=full` adds `created_at`, `display_name`, `parser`, `extractor`,
+  `document_checksum`, and `has_parse_result`. A done job in a list has no ETS rows. The same `detail=full` on
   one job adds that record, and for a done job also `source_index` on each row.
 - `HealthResponse` — `{status: Literal["ok"]}`, returned by `GET /health`.
 

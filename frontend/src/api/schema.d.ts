@@ -424,6 +424,8 @@ export interface components {
             extractor: string;
             /** Document Checksum */
             document_checksum: string;
+            /** Has Parse Result */
+            has_parse_result: boolean;
             /**
              * Job Id
              * Format: uuid
@@ -749,6 +751,8 @@ export interface components {
             extractor: string;
             /** Document Checksum */
             document_checksum: string;
+            /** Has Parse Result */
+            has_parse_result: boolean;
             /**
              * Job Id
              * Format: uuid
@@ -825,6 +829,8 @@ export interface components {
             extractor: string;
             /** Document Checksum */
             document_checksum: string;
+            /** Has Parse Result */
+            has_parse_result: boolean;
             /**
              * Job Id
              * Format: uuid
@@ -988,6 +994,8 @@ export interface components {
             extractor: string;
             /** Document Checksum */
             document_checksum: string;
+            /** Has Parse Result */
+            has_parse_result: boolean;
             /**
              * Job Id
              * Format: uuid

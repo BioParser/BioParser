@@ -345,7 +345,11 @@ def test_job_status_openapi_schema() -> None:
     assert "document_checksum" not in done["properties"]
     assert "created_at" in full["properties"]
     assert "document_checksum" in full["properties"]
-    assert "has_parse_result" not in full["properties"]
+    assert "has_parse_result" in full["properties"]
+    assert "has_parse_result" not in done["properties"]
+    assert (
+        "has_parse_result" not in schema["components"]["schemas"]["FailedJobResponse"]["properties"]
+    )
     assert "rows" not in schema["components"]["schemas"]["ListedJobResponse"]["properties"]
     assert "created_at" in schema["components"]["schemas"]["ListedJobFullResponse"]["properties"]
 
@@ -758,6 +762,34 @@ def test_the_artifact_routes_are_documented_as_internal(kind: str, schema: str) 
     assert body == {"$ref": f"#/components/schemas/{schema}"}
 
 
+def test_the_body_limit_leaves_room_for_the_multipart_envelope() -> None:
+    limits = [
+        middleware.kwargs["max_body_size"]
+        for middleware in api_app.user_middleware
+        if middleware.cls is TypedRequestBodyLimitMiddleware
+    ]
+
+    assert limits == [max_body_bytes()]
+
+
+def test_a_failed_job_reports_whether_parsing_finished(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    jobs = stub_api_adapters[1]
+    state = _job("failed", error_code="timeout")
+    jobs.states[str(state.job_id)] = state
+
+    plain = client.get(f"/api/jobs/{state.job_id}")
+    full = client.get(f"/api/jobs/{state.job_id}", params={"detail": "full"})
+
+    assert plain.status_code == 200
+    assert "has_parse_result" not in plain.json()
+    assert full.status_code == 200
+    assert full.json()["has_parse_result"] is True
+    assert full.json()["error"] == {"code": "timeout"}
+
+
 def test_failed_job_status(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
@@ -815,6 +847,7 @@ def test_job_status_response_requires_an_aware_creation_time() -> None:
         "parser": "default",
         "extractor": "default",
         "document_checksum": DOCUMENT_CHECKSUM,
+        "has_parse_result": False,
     }
 
     with pytest.raises(ValidationError, match="timezone"):

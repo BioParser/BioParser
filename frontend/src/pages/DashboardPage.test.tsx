@@ -22,8 +22,12 @@ function job(id: string, status: JobStatus = "done"): JobList[number] {
     document_checksum: "abc",
   };
   return status === "failed"
-    ? { ...metadata, status, error: { code: "extraction_failed" } }
-    : { ...metadata, status };
+    ? { ...metadata, status, error: { code: "extraction_failed" }, has_parse_result: true }
+    : {
+        ...metadata,
+        status,
+        has_parse_result: status === "parsed" || status === "extracting" || status === "done",
+      };
 }
 
 function mount(path = "/") {
@@ -85,12 +89,31 @@ describe("Dashboard", () => {
     expect(steps[2].className).not.toBe("complete");
   });
 
+  it("keeps parsing complete when a later stage times out", async () => {
+    jobs = [
+      {
+        ...job("failed", "failed"),
+        status: "failed",
+        error: { code: "timeout" },
+        has_parse_result: true,
+      },
+    ];
+    mount();
+    await screen.findByRole("link", { name: "failed.pdf" });
+    const steps = within(screen.getByRole("list", { name: "Progress: Failed" })).getAllByRole(
+      "listitem",
+    );
+    expect(steps[0].className).toBe("complete");
+    expect(steps[1].className).not.toBe("complete");
+  });
+
   it("does not mark parsing complete when parsing fails", async () => {
     jobs = [
       {
         ...job("failed", "failed"),
         status: "failed",
         error: { code: "parse_failed" },
+        has_parse_result: false,
       },
     ];
     mount();

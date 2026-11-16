@@ -13,13 +13,19 @@ from bioparser.parser_names import DEFAULT_PARSER_NAME, ParserName
 
 
 class JobRecord(BaseModel):
-    """Fields a `detail=full` body adds. The status already says which artifacts exist."""
+    """Fields a `detail=full` body adds.
+
+    ``has_parse_result`` says the parser artifact was stored. ``timeout`` and
+    ``internal_error`` do not say which stage ended, so the flag tells a reader
+    that parsing finished.
+    """
 
     created_at: AwareDatetime
     display_name: str | None
     parser: str
     extractor: str
     document_checksum: str
+    has_parse_result: bool
 
 
 class HealthResponse(BaseModel):

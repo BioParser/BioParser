@@ -104,6 +104,7 @@ from .schema import (
 from .ui import add_ui_routes
 from .uploads import (
     inline_content_disposition,
+    max_body_bytes,
     read_upload,
     require_file,
     sanitize_display_name,
@@ -223,7 +224,7 @@ except ValidationError as exc:
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     TypedRequestBodyLimitMiddleware,
-    max_body_size=config.get_api_settings().max_upload_bytes,
+    max_body_size=max_body_bytes(),
 )
 # Added last, so it runs first: a request without the key gets 401 before the body
 # limit, the form parser or a route reads any of its body.
