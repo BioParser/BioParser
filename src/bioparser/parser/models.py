@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from bioparser.hashing import Sha256Hex
 
-PARSER_ARTIFACT_SCHEMA_VERSION = "1"
+PARSER_ARTIFACT_SCHEMA_VERSION = "2"
 
 
 class BlockKind(StrEnum):
@@ -54,25 +54,81 @@ class BoundingBox(BaseModel):
         return self
 
 
-class TextSpan(BaseModel):
-    """Word box mapped onto `TextContent.text` as a half-open character range."""
+class TextLine(BaseModel):
+    """One horizontal line, with a horizontal edge for each stored character.
+
+    ``x0[i]`` and ``x1[i]`` are the glyph edges of ``text[start + i]`` on the block
+    that owns this line. A null pair is a stored character with no ink: a space
+    inserted between words, a hyphen removed at a line join, or MinerU's ``^{}``
+    and ``_{}`` markers. A ligature repeats its edges on every character it covers.
+    """
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     start: int
     end: int
-    line: int
-    bbox: BoundingBox
+    y0: float
+    y1: float
+    x0: list[float | None]
+    x1: list[float | None]
 
     @model_validator(mode="after")
-    def _ordered_range(self) -> "TextSpan":
+    def _edges_match_the_range(self) -> "TextLine":
         if self.start < 0:
             raise ValueError("start must be >= 0")
-        if self.end < self.start:
-            raise ValueError("end must be greater than or equal to start")
-        if self.line < 0:
-            raise ValueError("line must be >= 0")
+        if self.end <= self.start:
+            raise ValueError("end must be greater than start")
+        width = self.end - self.start
+        if len(self.x0) != width or len(self.x1) != width:
+            raise ValueError("x0 and x1 must have one entry per character")
+        if not 0.0 <= self.y0 <= 1.0 or not 0.0 <= self.y1 <= 1.0:
+            raise ValueError("y0 and y1 must be in [0, 1]")
+        if self.y1 < self.y0:
+            raise ValueError("y1 must be greater than or equal to y0")
+        for left, right in zip(self.x0, self.x1, strict=True):
+            if left is None and right is None:
+                continue
+            if left is None or right is None:
+                raise ValueError("a glyph edge must set both x0 and x1")
+            if not 0.0 <= left <= 1.0 or not 0.0 <= right <= 1.0:
+                raise ValueError("glyph edges must be in [0, 1]")
+            if right < left:
+                raise ValueError("x1 must be greater than or equal to x0")
         return self
+
+
+def boxes_for_range(lines: list[TextLine], start: int, end: int) -> list[BoundingBox]:
+    """One rectangle per line the half-open range touches, from the glyph edges inside it."""
+    if end <= start:
+        return []
+    boxes: list[BoundingBox] = []
+    for line in lines:
+        lo = max(start, line.start)
+        hi = min(end, line.end)
+        if lo >= hi:
+            continue
+        offset = lo - line.start
+        count = hi - lo
+        edges = [
+            (left, right)
+            for left, right in zip(
+                line.x0[offset : offset + count],
+                line.x1[offset : offset + count],
+                strict=True,
+            )
+            if left is not None and right is not None
+        ]
+        if not edges:
+            continue
+        boxes.append(
+            BoundingBox(
+                x0=min(left for left, _ in edges),
+                y0=line.y0,
+                x1=max(right for _, right in edges),
+                y1=line.y1,
+            )
+        )
+    return boxes
 
 
 class TextContent(BaseModel):
@@ -81,7 +137,16 @@ class TextContent(BaseModel):
     type: Literal["text"] = "text"
     text: str
     heading_level: int | None = None
-    spans: list[TextSpan] = Field(default_factory=list)
+    lines: list[TextLine] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _lines_fit_text(self) -> "TextContent":
+        previous = 0
+        for line in self.lines:
+            if line.start < previous or line.end > len(self.text):
+                raise ValueError("lines must sit inside the text without overlapping")
+            previous = line.end
+        return self
 
 
 class TableCell(BaseModel):

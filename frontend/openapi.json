@@ -4681,12 +4681,12 @@
             ],
             "title": "Heading Level"
           },
-          "spans": {
+          "lines": {
             "items": {
-              "$ref": "#/components/schemas/TextSpan"
+              "$ref": "#/components/schemas/TextLine"
             },
             "type": "array",
-            "title": "Spans"
+            "title": "Lines"
           }
         },
         "additionalProperties": false,
@@ -4695,6 +4695,66 @@
           "text"
         ],
         "title": "TextContent"
+      },
+      "TextLine": {
+        "properties": {
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "y0": {
+            "type": "number",
+            "title": "Y0"
+          },
+          "y1": {
+            "type": "number",
+            "title": "Y1"
+          },
+          "x0": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "X0"
+          },
+          "x1": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "X1"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "start",
+          "end",
+          "y0",
+          "y1",
+          "x0",
+          "x1"
+        ],
+        "title": "TextLine",
+        "description": "One horizontal line, with a horizontal edge for each stored character.\n\n``x0[i]`` and ``x1[i]`` are the glyph edges of ``text[start + i]`` on the block\nthat owns this line. A null pair is a stored character with no ink: a space\ninserted between words, a hyphen removed at a line join, or MinerU's ``^{}``\nand ``_{}`` markers. A ligature repeats its edges on every character it covers."
       },
       "TextRange": {
         "properties": {
@@ -4721,35 +4781,6 @@
         ],
         "title": "TextRange",
         "description": "Half-open character range in one parser block.\n\n``start`` and ``end`` are Unicode code points, the same indexes as a Python\n``str``. ``end`` is greater than ``start``."
-      },
-      "TextSpan": {
-        "properties": {
-          "start": {
-            "type": "integer",
-            "title": "Start"
-          },
-          "end": {
-            "type": "integer",
-            "title": "End"
-          },
-          "line": {
-            "type": "integer",
-            "title": "Line"
-          },
-          "bbox": {
-            "$ref": "#/components/schemas/BoundingBox"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "start",
-          "end",
-          "line",
-          "bbox"
-        ],
-        "title": "TextSpan",
-        "description": "Word box mapped onto `TextContent.text` as a half-open character range."
       },
       "UploadLimitsResponse": {
         "properties": {

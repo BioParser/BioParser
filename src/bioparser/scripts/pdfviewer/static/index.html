@@ -411,7 +411,7 @@
             if (block.content?.type !== "text") continue;
             const text = block.content.text ?? "";
             const haystack = text.toLowerCase();
-            const spans = block.content.spans ?? [];
+            const lines = block.content.lines ?? [];
             let from = 0;
             while (true) {
               const at = haystack.indexOf(needleLower, from);
@@ -421,7 +421,7 @@
                 blockId: block.block_id,
                 start: at,
                 end: at + needle.length,
-                spans,
+                lines,
               });
               from = at + 1;
             }
@@ -430,25 +430,27 @@
         return matches;
       }
 
-      function lineBoxesForRange(spans, start, end) {
-        const byLine = new Map();
-        for (const span of spans) {
-          if (!(span.start < end && span.end > start) || !span.bbox) continue;
-          const box = span.bbox;
-          const prev = byLine.get(span.line);
-          byLine.set(
-            span.line,
-            prev
-              ? {
-                  x0: Math.min(prev.x0, box.x0),
-                  y0: Math.min(prev.y0, box.y0),
-                  x1: Math.max(prev.x1, box.x1),
-                  y1: Math.max(prev.y1, box.y1),
-                }
-              : { x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1 },
-          );
+      function lineBoxesForRange(lines, start, end) {
+        const boxes = [];
+        for (const line of lines) {
+          const lo = Math.max(start, line.start);
+          const hi = Math.min(end, line.end);
+          if (lo >= hi) continue;
+          const offset = lo - line.start;
+          let x0 = Infinity;
+          let x1 = -Infinity;
+          for (let index = 0; index < hi - lo; index += 1) {
+            const left = line.x0[offset + index];
+            const right = line.x1[offset + index];
+            if (left == null || right == null) continue;
+            x0 = Math.min(x0, left);
+            x1 = Math.max(x1, right);
+          }
+          if (x0 <= x1) {
+            boxes.push({ x0, y0: line.y0, x1, y1: line.y1 });
+          }
         }
-        return [...byLine.values()];
+        return boxes;
       }
 
       function updateSearchLabel() {
@@ -468,7 +470,7 @@
         searchMatches.forEach((match, index) => {
           if (match.page !== pageNumber) return;
           const current = index === searchIndex;
-          for (const box of lineBoxesForRange(match.spans, match.start, match.end)) {
+          for (const box of lineBoxesForRange(match.lines, match.start, match.end)) {
             const el = document.createElement("div");
             el.className = current ? "hit current" : "hit";
             el.style.left = `${box.x0 * 100}%`;

@@ -117,11 +117,76 @@ def test_joins_hyphenated_line_wrap() -> None:
     blocks = group_words_into_text_blocks(words, line_tolerance=3.0, paragraph_gap_factor=0.6)
     assert len(blocks) == 1
     assert blocks[0].text == "significant"
-    assert [blocks[0].text[span.start : span.end] for span in blocks[0].spans] == [
+    assert [blocks[0].text[line.start : line.end] for line in blocks[0].lines] == [
         "signifi",
         "cant",
     ]
-    assert [span.line for span in blocks[0].spans] == [0, 1]
+    assert all(edge is not None for line in blocks[0].lines for edge in line.x0)
+    assert len(blocks[0].lines[0].x0) == len("signifi")
+
+
+def test_space_between_words_has_no_edge() -> None:
+    words = [
+        WordBox("Hello", 10, 40, 20, 30),
+        WordBox("world", 45, 80, 21, 31),
+    ]
+    blocks = group_words_into_text_blocks(words, line_tolerance=3.0, paragraph_gap_factor=0.6)
+    line = blocks[0].lines[0]
+    space = blocks[0].text.index(" ")
+    assert line.x0[space] is None
+    assert line.x1[space] is None
+
+
+def test_soft_hyphen_is_stripped_from_the_word_and_its_edges() -> None:
+    soft = "\u00ad"
+    words = [
+        WordBox(
+            f"sig{soft}nifi",
+            10,
+            60,
+            20,
+            30,
+            glyphs=(
+                ("s", 10, 14),
+                ("i", 14, 18),
+                ("g", 18, 22),
+                (soft, 22, 24),
+                ("n", 24, 28),
+                ("i", 28, 32),
+                ("f", 32, 36),
+                ("i", 36, 40),
+            ),
+        )
+    ]
+    blocks = group_words_into_text_blocks(words, line_tolerance=3.0, paragraph_gap_factor=0.6)
+    assert blocks[0].text == "signifi"
+    line = blocks[0].lines[0]
+    assert line.x0 == (10, 14, 18, 24, 28, 32, 36)
+    assert None not in line.x0
+
+
+def test_a_character_range_keeps_that_glyphs_edges() -> None:
+    words = [
+        WordBox(
+            "Hello",
+            10,
+            50,
+            20,
+            30,
+            glyphs=(
+                ("H", 10, 12),
+                ("e", 12, 16),
+                ("l", 16, 20),
+                ("l", 20, 24),
+                ("o", 24, 28),
+            ),
+        )
+    ]
+    blocks = group_words_into_text_blocks(words, line_tolerance=3.0, paragraph_gap_factor=0.6)
+    line = blocks[0].lines[0]
+    start = blocks[0].text.index("ll")
+    assert line.x0[start : start + 2] == (16, 20)
+    assert line.x1[start : start + 2] == (20, 24)
 
 
 def test_wrapped_large_lines_stay_one_block() -> None:
@@ -330,7 +395,9 @@ def test_wrapped_substring_covers_two_lines() -> None:
     text = blocks[0].text
     start = text.index("world again")
     end = start + len("world again")
-    hit_lines = {span.line for span in blocks[0].spans if span.start < end and span.end > start}
+    hit_lines = {
+        index for index, line in enumerate(blocks[0].lines) if line.start < end and line.end > start
+    }
     assert hit_lines == {0, 1}
 
 

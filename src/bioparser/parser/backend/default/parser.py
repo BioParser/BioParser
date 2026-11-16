@@ -14,6 +14,7 @@ from bioparser.hashing import sha256_file
 from bioparser.parser.backend.default.child import EXIT_NOT_FOUND, EXIT_UNSUPPORTED
 from bioparser.parser.backend.default.grouping import (
     SPAN_WIDTH_FACTOR,
+    LineGeom,
     WordBox,
     group_words_into_text_blocks,
 )
@@ -29,7 +30,7 @@ from bioparser.parser.models import (
     ParserArtifact,
     ParserInfo,
     TextContent,
-    TextSpan,
+    TextLine,
 )
 from bioparser.parser_names import DEFAULT_PARSER_NAME, PARSER_VERSIONS
 
@@ -65,14 +66,53 @@ def _normalize_bbox(
     )
 
 
+def _unit(value: float, size: float) -> float:
+    if size <= 0:
+        return 0.0
+    return min(1.0, max(0.0, value / size))
+
+
+def _text_lines(block_lines: tuple[LineGeom, ...], width: float, height: float) -> list[TextLine]:
+    lines: list[TextLine] = []
+    for line in block_lines:
+        x0: list[float | None] = []
+        x1: list[float | None] = []
+        for left, right in zip(line.x0, line.x1, strict=True):
+            if left is None or right is None:
+                x0.append(None)
+                x1.append(None)
+                continue
+            norm_left = _unit(left, width)
+            norm_right = _unit(right, width)
+            if norm_right < norm_left:
+                x0.append(None)
+                x1.append(None)
+                continue
+            x0.append(norm_left)
+            x1.append(norm_right)
+        y0 = _unit(line.top, height)
+        y1 = _unit(line.bottom, height)
+        if y1 < y0:
+            continue
+        lines.append(TextLine(start=line.start, end=line.end, y0=y0, y1=y1, x0=x0, x1=x1))
+    return lines
+
+
 def _words_from_page(page: PdfPlumberPage) -> list[WordBox]:
     working = page.dedupe_chars() if DEDUPE_CHARS else page
     raw_words = working.extract_words(
         x_tolerance=WORD_X_TOLERANCE,
         y_tolerance=WORD_Y_TOLERANCE,
+        return_chars=True,
     )
     words: list[WordBox] = []
     for item in raw_words:
+        glyphs: list[tuple[str, float, float]] = []
+        for char in item.get("chars") or []:
+            text = str(char.get("text") or "")
+            if not text:
+                continue
+            glyphs.append((text, float(char["x0"]), float(char["x1"])))
         words.append(
             WordBox(
                 text=str(item["text"]),
@@ -80,6 +120,7 @@ def _words_from_page(page: PdfPlumberPage) -> list[WordBox]:
                 x1=float(item["x1"]),
                 top=float(item["top"]),
                 bottom=float(item["bottom"]),
+                glyphs=tuple(glyphs),
             )
         )
     return words
@@ -156,22 +197,7 @@ class DefaultParser:
                                 role=BlockRole.BODY,
                                 content=TextContent(
                                     text=block.text,
-                                    spans=[
-                                        TextSpan(
-                                            start=span.start,
-                                            end=span.end,
-                                            line=span.line,
-                                            bbox=_normalize_bbox(
-                                                span.x0,
-                                                span.top,
-                                                span.x1,
-                                                span.bottom,
-                                                width,
-                                                height,
-                                            ),
-                                        )
-                                        for span in block.spans
-                                    ],
+                                    lines=_text_lines(block.lines, width, height),
                                 ),
                                 bbox=_normalize_bbox(
                                     block.x0,
