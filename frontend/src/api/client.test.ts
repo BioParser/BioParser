@@ -3,7 +3,9 @@ import { clearApiKey, getApiKey, getRemovedReason, setApiKey } from "./apiKey";
 import {
   ApiError,
   apiFetch,
+  getExtractionArtifact,
   getJob,
+  getParserArtifact,
   getReadiness,
   startDocumentJob,
   uploadDocument,
@@ -241,6 +243,27 @@ describe("apiFetch and the API key", () => {
       expect(init.method).toBe("POST");
       expect(sentHeaders(fetchMock).get("Content-Type")).toBe("application/json");
       expect(JSON.parse(String(init.body))).toEqual({ parser: "mineru", extractor: "default" });
+    });
+  });
+
+  describe("job artifacts", () => {
+    it("gets the parser artifact of the job", async () => {
+      const fetchMock = stubFetch(Response.json({ pages: [] }));
+      await expect(getParserArtifact("job/1")).resolves.toEqual({ pages: [] });
+      expect(sentRequest(fetchMock).path).toBe("/api/jobs/job%2F1/artifacts/parser");
+    });
+
+    it("gets the extraction artifact of the job", async () => {
+      const fetchMock = stubFetch(Response.json({ observations: [] }));
+      await expect(getExtractionArtifact("job/1")).resolves.toEqual({ observations: [] });
+      expect(sentRequest(fetchMock).path).toBe("/api/jobs/job%2F1/artifacts/extraction");
+    });
+
+    it("passes the abort signal on", async () => {
+      const fetchMock = stubFetch(Response.json({ pages: [] }));
+      const controller = new AbortController();
+      await getParserArtifact("job-1", controller.signal);
+      expect(sentRequest(fetchMock).init.signal).toBe(controller.signal);
     });
   });
 });
