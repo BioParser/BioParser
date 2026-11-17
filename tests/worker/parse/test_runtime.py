@@ -6,7 +6,7 @@ from pathlib import Path
 from threading import Event
 
 import pytest
-from stubs import fake_mineru, file_parse_reply
+from stubs import fake_mineru, parsed_task
 
 from bioparser.worker.parse import runtime
 from bioparser.worker.parse.config import WorkerSettings
@@ -65,19 +65,19 @@ def test_python_dash_m_runs_the_worker_main(monkeypatch: pytest.MonkeyPatch) -> 
 def test_one_tier_setting_names_the_request_and_the_result_path(tmp_path: Path) -> None:
     pdf = tmp_path / "paper.pdf"
     pdf.write_bytes(b"%PDF-1.4\n%%EOF\n")
-    with fake_mineru(file_parse_reply()) as (url, seen):
+    with fake_mineru(parsed_task()) as mineru:
         settings = WorkerSettings(
             redis_url="redis://127.0.0.1:1/0",  # type: ignore[arg-type]  # never reached
             database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
             artifact_storage_path=tmp_path,
             parse_queue_name="parse",
             extract_queue_name="extract",
-            mineru_base_url=url,  # type: ignore[arg-type]
+            mineru_base_url=mineru.url,  # type: ignore[arg-type]
             mineru_tier="standard",
         )
         _queue, handler = build_worker(settings)
         artifact = asyncio.run(handler._parser_factory("mineru").parse(pdf))
         asyncio.run(handler.aclose())
 
-    assert "tier=standard&" in seen[0]
+    assert mineru.created[0]["tier"] == "standard"
     assert artifact.parser.configuration["tier"] == handler._mineru_tier == "standard"

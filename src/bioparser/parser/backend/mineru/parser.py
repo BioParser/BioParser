@@ -22,6 +22,7 @@ from bioparser.services.mineru.client import (
     MAX_WAIT_SECONDS,
     MinerUClient,
     MinerUError,
+    MinerUInputError,
     MinerUPermanentError,
     MinerUTier,
     MinerUTimeoutError,
@@ -58,10 +59,14 @@ class MinerUParser:
                 await client.aclose()
         except MinerUTimeoutError as exc:
             raise ParserTimeoutError(f"MinerU ran longer than {wait_s:.0f} s. {exc}") from exc
+        except MinerUInputError as exc:
+            # mineru-api judged the PDF: corrupted, encrypted, or over its limits.
+            raise UnsupportedDocumentError(str(exc)) from exc
         except MinerUPermanentError as exc:
             raise ParserBackendUnavailableError(str(exc)) from exc
         except MinerUError as exc:
-            # Unreachable, busy, or failed: retried. 4.0.12 does not tell a bad PDF from a crash.
+            # Unreachable, busy, or failed: retried. parse_failed is a crash or a lack of
+            # memory as well as a PDF mineru-api could not read.
             raise ParserProcessError(str(exc)) from exc
 
         try:

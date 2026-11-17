@@ -119,9 +119,10 @@ def test_real_article_keeps_continuations_tables_and_exponents() -> None:
         if block.continuation_of is not None
     }
 
-    assert len(links) == 10
+    assert len(links) == 11
     assert links[(1, 20)] == (1, 19)
     assert links[(10, 1)] == (9, 17)  # across the page break
+    assert links[(11, 5)] == (11, 4)  # across the column break (MinerU 4.2 finds this one)
     tables = [block for block in artifact.pages[8].blocks if block.kind == BlockKind.TABLE]
     assert [len(_table(block).cells) for block in tables] == [136]
     assert "approximately equal to 10^{9} neurons" in _text(artifact.pages[0].blocks[4]).text

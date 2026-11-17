@@ -20,7 +20,7 @@ from stubs import (
     StubParser,
     StubVLLMService,
     fake_mineru,
-    file_parse_reply,
+    parsed_task,
     stub_parser_artifact,
 )
 
@@ -215,13 +215,13 @@ def test_run_pipeline_asks_mineru_for_the_configured_tier(
     # The real MinerU parser against a mineru-api on loopback, for a job whose parser is mineru
     vllm = StubVLLMService()
     monkeypatch.setattr(pipeline_module, "VLLMService", lambda: vllm)
-    with fake_mineru(file_parse_reply()) as (url, seen):
+    with fake_mineru(parsed_task()) as mineru:
         options = dataclasses.replace(
-            OPTIONS, parser="mineru", mineru_base_url=url, mineru_tier="standard"
+            OPTIONS, parser="mineru", mineru_base_url=mineru.url, mineru_tier="standard"
         )
         run_pipeline(PDF, options)
 
-    assert "tier=standard&" in seen[0]
+    assert mineru.created[0]["tier"] == "standard"
     # The extractor read the MinerU parse
     assert "Adult body mass averaged 12.5 g" in vllm.prompts[0]
 

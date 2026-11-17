@@ -26,7 +26,7 @@ The PDF remains CC BY 4.0. It is not relicensed with BioParser source.
 
 ## mineru-middle.json
 
-MinerU 4.0.12 `middle_json` for `plos-biology-3000248.pdf`, from `POST /v1/file_parse` with `output_formats=middle_json`, written one block per line. It was produced with `tier=flash`. The protocol (`docvortex.middle` 2.0) is the same for every tier; the mix of blocks and spans is not. Regenerate it whenever `MINERU_VERSION` changes.
+MinerU 4.2.3 `middle_json.json` for `plos-biology-3000248.pdf`, from the result ZIP of a `POST /v1/tasks` task with `output_formats=["default"]`, written one block per line. It was produced with `tier=flash`. The protocol (`docvortex.middle` 2.0) is the same for every tier; the mix of blocks and spans is not. Regenerate it whenever `MINERU_VERSION` changes.
 
 ## mineru-middle-1002000.json
 
