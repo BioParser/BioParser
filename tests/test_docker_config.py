@@ -41,3 +41,18 @@ def test_dockerfiles_npm_cache_mounts_use_sharing_locked() -> None:
         assert "sharing=locked" in line, (
             f"api.Dockerfile:{idx} npm cache mount missing sharing=locked: {line}"
         )
+
+
+def test_mineru_dockerfile_uses_separate_uv_cache_id() -> None:
+    mineru_dockerfile = _DOCKER_DIR / "mineru.Dockerfile"
+    lines = mineru_dockerfile.read_text(encoding="utf-8").splitlines()
+    uv_cache_lines = [
+        (idx, line)
+        for idx, line in enumerate(lines, 1)
+        if "--mount=type=cache" in line and "/root/.cache/uv" in line
+    ]
+    assert uv_cache_lines, "Expected uv cache mount in mineru.Dockerfile"
+    for idx, line in uv_cache_lines:
+        assert "id=uv-mineru" in line, (
+            f"mineru.Dockerfile:{idx} should use its own uv cache id: {line}"
+        )
