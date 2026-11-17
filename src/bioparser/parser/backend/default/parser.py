@@ -10,13 +10,14 @@ import pdfplumber
 from pdfplumber.page import Page as PdfPlumberPage
 from pydantic import ValidationError
 
+from bioparser.hashing import sha256_file
 from bioparser.parser.backend.default.child import EXIT_NOT_FOUND, EXIT_UNSUPPORTED
 from bioparser.parser.backend.default.grouping import (
     SPAN_WIDTH_FACTOR,
     WordBox,
     group_words_into_text_blocks,
 )
-from bioparser.parser.checksum import block_id, sha256_file
+from bioparser.parser.checksum import block_id
 from bioparser.parser.errors import ParserProcessError, UnsupportedDocumentError
 from bioparser.parser.models import (
     PARSER_ARTIFACT_SCHEMA_VERSION,
