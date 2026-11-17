@@ -423,9 +423,9 @@ Does not read or write the job store or artifact storage. It will be removed wit
 
 ```json
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "extractor": "default",
-  "extractor_version": "1",
+  "extractor_version": "2",
   "observations": [...]
 }
 ```

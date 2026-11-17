@@ -2305,9 +2305,9 @@
         "properties": {
           "schema_version": {
             "type": "string",
-            "const": "1",
+            "const": "2",
             "title": "Schema Version",
-            "default": "1"
+            "default": "2"
           },
           "extractor": {
             "type": "string",

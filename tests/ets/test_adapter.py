@@ -368,7 +368,7 @@ def test_a_citation_without_a_range_is_rejected() -> None:
     with pytest.raises(ValidationError):
         ExtractionArtifact.model_validate(
             {
-                "schema_version": "1",
+                "schema_version": "2",
                 "extractor": "default",
                 "extractor_version": "1",
                 "observations": [

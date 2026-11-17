@@ -108,7 +108,8 @@ def assess(observation: Observation) -> Assessment:
     trait_value = None
     trait_unit = None
 
-    # Closed tokens. A missing basis stays empty. A token outside the set stays empty.
+    # basisOfRecord and aggregateMeasure stay empty outside their lists.
+    # sex keeps the printed word and warns not_in_vocabulary.
     sex = _parse_sex(observation.sex, warnings)
     aggregate_measure = _parse_aggregate(observation.aggregateMeasure, warnings)
     basis_of_record = _parse_basis(observation.basisOfRecord, warnings)
@@ -141,7 +142,7 @@ def assess(observation: Observation) -> Assessment:
         observation.measurementDeterminedDate, "measurementDeterminedDate", warnings
     )
 
-    # A coordinate outside the valid range stays empty.
+    # A coordinate outside its range is kept and warns out_of_range.
     decimal_longitude = _parse_coordinate(
         observation.decimalLongitude, "decimalLongitude", warnings, low=-180, high=180
     )

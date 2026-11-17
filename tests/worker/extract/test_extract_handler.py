@@ -64,7 +64,7 @@ from bioparser.worker.extract.handler import ExtractJobHandler
 JOB_ID = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
 PARSE_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
 PDF_CHECKSUM = "a" * 64
-RESULT_PATH = extract_result_path(PARSE_REF, "default", "1")
+RESULT_PATH = extract_result_path(PARSE_REF, "default", EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME])
 QUOTE = "Mus musculus adults averaged 12.5 kg in the sampled population."
 CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -242,7 +242,7 @@ def test_success_stores_the_report_and_marks_done() -> None:
     assert QUOTE[value.evidence[0].start : value.evidence[0].end] == "12.5"
     assert stored.observations[0].verbatimScientificName.text == "Mus musculus"
     assert stored.extractor == "default"
-    assert stored.extractor_version == "1"
+    assert stored.extractor_version == EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME]
     assert "model" not in stored.model_dump()
     assert "canonical_value" not in stored.model_dump()
     assert storage.metadata[RESULT_PATH].created_by == "extractor-worker"
@@ -590,7 +590,7 @@ def test_an_invalid_stored_extraction_fails_without_calling_the_model() -> None:
 
 
 def test_a_parse_path_that_cannot_take_an_extraction_is_internal_error() -> None:
-    suffix = "/extracted/default/1"
+    suffix = "/extracted/default/2"
     ref = "/".join(("a" * 200, "b" * 200, "c" * 93))
     assert len(ref) <= ARTIFACT_PATH_MAX_LENGTH
     assert len(ref) + len(suffix) > ARTIFACT_PATH_MAX_LENGTH
@@ -645,8 +645,9 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
     asyncio.run(handler.handle(ExtractJobMessage(job_id=other_id)))
     asyncio.run(handler.aclose())
 
-    basic_path = extract_result_path(basic_ref, "default", "1")
-    standard_path = extract_result_path(standard_ref, "default", "1")
+    version = EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME]
+    basic_path = extract_result_path(basic_ref, "default", version)
+    standard_path = extract_result_path(standard_ref, "default", version)
     assert basic.state is not None and standard.state is not None
     assert basic.state.extract_result_ref == basic_path
     assert standard.state.extract_result_ref == standard_path
@@ -735,7 +736,7 @@ def test_a_range_that_is_not_its_slice_fails_the_job_for_any_extractor() -> None
 
 def test_an_artifact_for_another_extractor_fails_the_job() -> None:
     _failed_with(_artifact([], extractor="other"))
-    _failed_with(_artifact([], extractor_version="2"))
+    _failed_with(_artifact([], extractor_version="1"))
 
 
 def test_registered_extractor_stores_the_resolved_version() -> None:
@@ -764,7 +765,7 @@ def test_registered_extractor_stores_the_resolved_version() -> None:
 
     version = EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME]
     assert seen == [DEFAULT_EXTRACTOR_NAME]
-    assert version == "1"
+    assert version == "2"
     assert jobs.state is not None
     assert jobs.state.status == "done"
     assert jobs.state.extract_result_ref == extract_result_path(

@@ -91,7 +91,7 @@ def test_extract_runs_the_parser_and_extractor_of_a_queued_job(
     assert inline_pipeline.parser.pdfs == [PDF]
     # The response is the artifact the extractor worker stores for the job
     assert ExtractionArtifact.model_validate(body).model_dump(mode="json") == body
-    assert body["schema_version"] == "1"
+    assert body["schema_version"] == "2"
 
 
 def _citation(text: str, start: int) -> dict[str, Any]:

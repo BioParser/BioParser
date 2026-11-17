@@ -16,9 +16,9 @@ One observation is one measurement, which becomes one ETS row. The artifact reco
 
 ```json
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "extractor": "default",
-  "extractor_version": "1",
+  "extractor_version": "2",
   "observations": [
     {
       "traitCode": {

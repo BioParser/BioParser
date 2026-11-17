@@ -88,7 +88,7 @@ const PARSER: ParserArtifact = {
 };
 
 const EXTRACTION: ExtractionArtifact = {
-  schema_version: "1",
+  schema_version: "2",
   extractor: "default",
   extractor_version: "1",
   observations: [

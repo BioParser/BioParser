@@ -2,7 +2,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-EXTRACTION_ARTIFACT_SCHEMA_VERSION: Literal["1"] = "1"
+EXTRACTION_ARTIFACT_SCHEMA_VERSION: Literal["2"] = "2"
 
 _CONFIG = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
@@ -170,7 +170,7 @@ class ExtractionArtifact(BaseModel):
 
     model_config = _CONFIG
 
-    schema_version: Literal["1"] = EXTRACTION_ARTIFACT_SCHEMA_VERSION
+    schema_version: Literal["2"] = EXTRACTION_ARTIFACT_SCHEMA_VERSION
     extractor: str = Field(min_length=1)
     extractor_version: str = Field(min_length=1)
     observations: list[Observation] = Field(default_factory=list)

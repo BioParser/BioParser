@@ -134,18 +134,11 @@ def test_a_copied_field_keeps_the_narrow_citation() -> None:
 
 
 def test_a_missing_trait_name_is_rejected() -> None:
-    with pytest.raises(ValidationError):
-        Observation.model_validate(
-            {
-                "traitCode": {
-                    "kind": "interpretation",
-                    "value": "body_mass",
-                    "passage": {"text": "weighed"},
-                },
-                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
-                "verbatimTraitValue": {"kind": "citation", "text": "12.5"},
-            }
-        )
+    data = _observation().model_dump()
+    del data["verbatimTraitName"]
+    with pytest.raises(ValidationError) as caught:
+        Observation.model_validate(data)
+    assert [error["loc"] for error in caught.value.errors()] == [("verbatimTraitName",)]
 
 
 def test_a_paired_value_may_be_omitted() -> None:
@@ -168,21 +161,10 @@ def test_a_scientific_name_can_expand_the_printed_citation() -> None:
 
 
 def test_a_paired_value_requires_its_verbatim_citation() -> None:
-    with pytest.raises(ValidationError):
-        Observation.model_validate(
-            {
-                "traitCode": {
-                    "kind": "interpretation",
-                    "value": "body_mass",
-                    "passage": {"text": "weighed"},
-                },
-                "verbatimTraitName": {"kind": "citation", "text": "body mass"},
-                "verbatimScientificName": {"kind": "citation", "text": "Mus musculus"},
-                "traitValue": {
-                    "kind": "interpretation",
-                    "value": "12.5",
-                    "passage": {"text": "12.5 g"},
-                },
-                "verbatimTraitUnit": {"kind": "citation", "text": "g"},
-            }
-        )
+    data = _observation(
+        traitValue=Interpretation(value="12.5", passage=_cite("12.5 g"))
+    ).model_dump()
+    del data["verbatimTraitValue"]
+    with pytest.raises(ValidationError) as caught:
+        Observation.model_validate(data)
+    assert [error["loc"] for error in caught.value.errors()] == [("verbatimTraitValue",)]

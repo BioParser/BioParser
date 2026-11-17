@@ -416,10 +416,10 @@ export interface components {
         ExtractionArtifact: {
             /**
              * Schema Version
-             * @default 1
+             * @default 2
              * @constant
              */
-            schema_version: "1";
+            schema_version: "2";
             /** Extractor */
             extractor: string;
             /** Extractor Version */
