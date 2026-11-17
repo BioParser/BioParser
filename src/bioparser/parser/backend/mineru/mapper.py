@@ -23,6 +23,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from bioparser.parser.backend.mineru.glyphs import lines_by_block, text_lines_for_block
 from bioparser.parser.backend.mineru.schema import MINERU_VERSION, MiddleBlock, MiddleDump
 from bioparser.parser.backend.mineru.tables import table_from_html
 from bioparser.parser.backend.mineru.text import bbox_from_unit, role_and_heading, text_from_leaf
@@ -61,6 +62,7 @@ class MiddleJsonContractError(ValueError):
 @dataclass(frozen=True, slots=True)
 class _PreparedBlock:
     leaf_type: str
+    index: int | None
     kind: BlockKind
     role: BlockRole
     content: TextContent | TableContent
@@ -88,7 +90,12 @@ def _prepare_leaf(leaf: MiddleBlock, *, in_list: bool) -> _PreparedBlock | None:
         if table is None:
             return None
         return _PreparedBlock(
-            leaf_type=leaf.type, kind=BlockKind.TABLE, role=BlockRole.BODY, content=table, bbox=bbox
+            leaf_type=leaf.type,
+            index=leaf.index,
+            kind=BlockKind.TABLE,
+            role=BlockRole.BODY,
+            content=table,
+            bbox=bbox,
         )
     text = text_from_leaf(leaf)
     if not text.strip():
@@ -96,6 +103,7 @@ def _prepare_leaf(leaf: MiddleBlock, *, in_list: bool) -> _PreparedBlock | None:
     role, heading_level = role_and_heading(leaf, in_list=in_list)
     return _PreparedBlock(
         leaf_type=leaf.type,
+        index=leaf.index,
         kind=BlockKind.TEXT,
         role=role,
         content=TextContent(text=text, heading_level=heading_level),
@@ -139,6 +147,7 @@ def artifact_from_middle_json(
         )
 
     pages: list[Page] = []
+    geometry = lines_by_block(middle.get("extensions", {}).get("bioparser_lines"))
     # The block a later ``continues_prev`` block continues, by leaf type.
     last_of_type: dict[str, str] = {}
     for page, (width, height) in zip(dump.pages, _page_sizes(dump), strict=True):
@@ -153,6 +162,13 @@ def artifact_from_middle_json(
                 if prepared is None:
                     continue
                 links = continues and carrier in (None, prepared.leaf_type)
+                content = prepared.content
+                if isinstance(content, TextContent) and prepared.index is not None:
+                    raw_lines = geometry.get((page.page_idx, prepared.index))
+                    if raw_lines is not None:
+                        content = content.model_copy(
+                            update={"lines": text_lines_for_block(content.text, raw_lines)}
+                        )
                 ident = block_id(checksum, page_number, len(blocks))
                 blocks.append(
                     ContentBlock(
@@ -160,7 +176,7 @@ def artifact_from_middle_json(
                         order=len(blocks),
                         kind=prepared.kind,
                         role=prepared.role,
-                        content=prepared.content,
+                        content=content,
                         bbox=prepared.bbox,
                         continuation_of=last_of_type.get(prepared.leaf_type) if links else None,
                     )
