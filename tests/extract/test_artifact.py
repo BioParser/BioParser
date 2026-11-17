@@ -168,9 +168,9 @@ def test_a_range_without_a_central_value_is_kept() -> None:
     )
 
     assert observation.verbatimTraitValue is None
-    assert observation.measurementValueMin is not None
+    assert isinstance(observation.measurementValueMin, Citation)
     assert observation.measurementValueMin.text == "10"
-    assert observation.measurementValueMax is not None
+    assert isinstance(observation.measurementValueMax, Citation)
     assert observation.measurementValueMax.text == "15"
 
 

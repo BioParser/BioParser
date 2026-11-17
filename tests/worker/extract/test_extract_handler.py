@@ -237,8 +237,8 @@ def test_success_stores_the_report_and_marks_done() -> None:
     assert jobs.state.claims("extracting") == 1
     stored = ExtractionArtifact.model_validate_json(asyncio.run(storage.retrieve(RESULT_PATH)))
     value = stored.observations[0].verbatimTraitValue
+    assert value is not None
     assert value.text == "12.5"
-    assert value.evidence is not None
     assert QUOTE[value.evidence[0].start : value.evidence[0].end] == "12.5"
     assert stored.observations[0].verbatimScientificName.text == "Mus musculus"
     assert stored.extractor == "default"
@@ -658,7 +658,7 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
         .observations[0]
         .verbatimTraitValue
     )
-    assert basic_value.evidence is not None
+    assert basic_value is not None
     assert basic_text[basic_value.evidence[0].start : basic_value.evidence[0].end] == "12.5"
     standard_result = ExtractionArtifact.model_validate_json(
         asyncio.run(storage.retrieve(standard_path))
