@@ -21,6 +21,7 @@ from bioparser.parser.models import (
     ParserArtifact,
     TableContent,
     TextContent,
+    boxes_for_range,
 )
 from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 
@@ -400,6 +401,45 @@ def test_oversized_span_product_is_capped(raw: str) -> None:
     assert cells[0].rowspan * cells[0].colspan == HTML_CELL_MAX_OCCUPIED
     assert cells[0].rowspan == 1
     assert cells[0].colspan == HTML_CELL_MAX_SPAN
+
+
+def test_glyph_edges_highlight_inside_a_superscript() -> None:
+    middle = _middle([_block("text", 0, "April 9"), _block("text", 1, "x")])
+    # The stored text wraps the superscript the way text.py does. The edges are the glyphs.
+    middle["pages"][0]["blocks"][0]["content"] = [
+        {"type": "text", "content": "April 9"},
+        {"type": "text", "content": "th", "styles": ["superscript"]},
+    ]
+    middle["extensions"]["bioparser_lines"] = {
+        "version": 1,
+        "pages": [
+            {
+                "page_idx": 0,
+                "blocks": [
+                    {
+                        "index": 0,
+                        "lines": [
+                            {
+                                "y0": 0.30,
+                                "y1": 0.32,
+                                "glyphs": [
+                                    {"t": "April 9", "x0": 0.10, "x1": 0.40},
+                                    {"t": "th", "x0": 0.40, "x1": 0.46},
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    assert content.text == "April 9^{th}"
+    boxes = boxes_for_range(content.lines, content.text.index("th"), content.text.index("th") + 2)
+    assert len(boxes) == 1
+    assert boxes[0].x0 == pytest.approx(0.40)
+    assert boxes[0].x1 == pytest.approx(0.46)
+    assert boxes[0].y0 == pytest.approx(0.30)
 
 
 def test_balanced_span_product_is_capped() -> None:
