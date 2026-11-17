@@ -1,6 +1,7 @@
 """MinerU 4 ``middle.json``: a DocVortex ``docvortex.middle`` document, protocol 2.0.
 
-Written against the pinned service in ``MINERU_VERSION``. ``pages`` are in file order, each
+Written against the pinned service in ``MINERU_VERSION``, which puts it in the result ZIP as
+``middle_json.json``. ``pages`` are in file order, each
 with a zero-based ``page_idx`` and ``blocks`` in reading order. A block's ``bbox`` is already
 normalized to the page ([0, 1], top-left origin); there are no line or span boxes.
 ``content`` is a string (equation LaTeX, table HTML), a list of inline spans (text-like
@@ -19,7 +20,10 @@ from bioparser.services.mineru.client import OCR_MODE, MinerUTier
 
 # Service this schema is written against. Bump together with the mineru image pin, the
 # fixture, and the mapper if the document shape changes.
-MINERU_VERSION = "4.0.12"
+MINERU_VERSION = "4.2.3"
+# DocVortex builds the document model and parses native PDF text. mineru 4.2.3 takes any
+# 0.6.x from 0.6.24, so the image pins the release the fixtures came from.
+DOCVORTEX_VERSION = "0.6.24"
 
 # Blocks whose content is child blocks, not text.
 CONTAINER_TYPES = frozenset({"list", "index", "image", "table", "chart", "code"})

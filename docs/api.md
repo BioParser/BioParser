@@ -650,7 +650,7 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 |-------|---------|---------|
 | `max_upload_bytes` | `DEFAULT_MAX_UPLOAD_BYTES` (20 MiB) | upload ceiling used by `uploads.py` and the body-limit middleware |
 | `mineru_base_url` | `http://mineru:8000` | MinerU base URL for `POST /extract` when the job parser is `mineru` |
-| `mineru_timeout_seconds` | `600.0` | how long the API waits for MinerU to parse one PDF, time queued behind other parses included (its `wait_timeout`, at most 3600); the task is cancelled then |
+| `mineru_timeout_seconds` | `600.0` | how long the API waits for MinerU to parse one PDF, time queued behind other parses included (at most 3600); the task is cancelled in MinerU then |
 | `mineru_tier` | `basic` | MinerU parse tier (`basic`, `standard`, `advanced`); the GPU stack sets `standard`, see [parser.md](parser.md) |
 | `extract_concurrency` | `2` | number of `POST /extract` processes, and of slots for them |
 | `extract_queue_timeout_seconds` | `5.0` | how long `POST /extract` waits for a semaphore slot before returning `503` |
@@ -675,7 +675,7 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 stderr as one line of JSON:
 
 ```json
-{"timestamp": "2026-09-22T09:05:56.721+00:00", "level": "INFO", "logger": "bioparser.services.mineru.client", "msg": "mineru-api request completed", "status_code": 200, "bytes_read": 183422, "latency_ms": 4123.4, "checksum": "9f86d081884c7d65..."}
+{"timestamp": "2026-09-22T09:05:56.721+00:00", "level": "INFO", "logger": "bioparser.services.mineru.client", "msg": "mineru-api request completed", "status_code": 200, "bytes_read": 183422, "requests": 5, "latency_ms": 4123.4, "checksum": "9f86d081884c7d65..."}
 ```
 
 - Fields: `timestamp` (UTC), `level`, `logger`, `msg`, then any fields passed with

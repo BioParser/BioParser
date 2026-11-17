@@ -12,7 +12,7 @@ from uuid import UUID
 import pytest
 from dramatiq.brokers.stub import StubBroker
 from dramatiq.middleware.time_limit import TimeLimit
-from stubs import MemoryStorage, StubJobs, bind_jobs, clear_jobs, fake_mineru
+from stubs import MemoryStorage, StubJobs, bind_jobs, clear_jobs, failed_task, fake_mineru
 
 from bioparser.artifact_paths import parse_result_path
 from bioparser.db.engine import DatabaseError, DatabaseUnavailableError
@@ -459,26 +459,41 @@ def test_unavailable_parser_fails_without_retry() -> None:
     assert jobs.state.error_code == "parse_failed"
 
 
+def _mineru_handler(url: str) -> ParseJobHandler:
+    """A handler that parses through the real MinerU client and parser."""
+    return ParseJobHandler(
+        database_url="postgresql://unused",
+        storage=_storage(),
+        parser_factory=lambda name: get_parser(name, timeout_s=5.0, mineru_base_url=url),
+        max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
+        before_claim=mineru_before_claim(url),
+    )
+
+
 def test_a_mineru_failure_is_retried_not_failed_as_invalid_pdf() -> None:
     """MinerU's catch-all parse_failed, through the real client, is not a judged document."""
-    entry = {"name": "a.pdf", "status": "failed", "error": {"code": "parse_failed"}}
-    reply = (409, {"task_id": "job_1", "status": "failed", "files": [entry]})
-
     jobs = StubJobs(_queued().with_changes(parser="mineru"))
-    with fake_mineru(reply) as (url, _seen):
-        handler = ParseJobHandler(
-            database_url="postgresql://unused",
-            storage=_storage(),
-            parser_factory=lambda name: get_parser(name, timeout_s=5.0, mineru_base_url=url),
-            max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
-            before_claim=mineru_before_claim(url),
-        )
+    with fake_mineru(failed_task("parse_failed")) as mineru:
+        handler = _mineru_handler(mineru.url)
         with pytest.raises(ParserProcessError, match="parse_failed"):
             asyncio.run(handler.handle(_message()))
         asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.status == "parsing"
+
+
+def test_a_pdf_mineru_judged_unreadable_fails_as_invalid_pdf_without_retry() -> None:
+    """MinerU 4.2 names a corrupted or encrypted PDF; the same PDF would fail the same way."""
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
+    with fake_mineru(failed_task("file_encrypted")) as mineru:
+        handler = _mineru_handler(mineru.url)
+        asyncio.run(handler.handle(_message()))
+        asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "invalid_pdf"
 
 
 @pytest.mark.parametrize("error", [ParserTimeoutError("too slow"), asyncio.CancelledError()])
@@ -806,7 +821,7 @@ def test_the_mineru_result_path_has_the_tier_as_its_last_segment() -> None:
     asyncio.run(handler.aclose())
 
     assert jobs.state is not None
-    assert jobs.state.parse_result_ref == f"pdf/{PDF_CHECKSUM}/parsed/mineru/2/standard"
+    assert jobs.state.parse_result_ref == f"pdf/{PDF_CHECKSUM}/parsed/mineru/3/standard"
 
 
 def test_each_backend_gets_its_own_result_path() -> None:
@@ -819,7 +834,7 @@ def test_each_backend_gets_its_own_result_path() -> None:
 
     assert jobs.state is not None
     # Without a tier the handler names the default tier's path
-    assert jobs.state.parse_result_ref == parse_result_path(PDF_CHECKSUM, "mineru", "2", "basic")
+    assert jobs.state.parse_result_ref == parse_result_path(PDF_CHECKSUM, "mineru", "3", "basic")
 
 
 def test_the_parser_reads_a_closed_temp_file_that_is_removed_afterwards(

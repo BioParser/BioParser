@@ -10,7 +10,7 @@ from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 # MinerU on CPU can take much longer than the queue's 10 minute default. A shorter limit
 # ends the parse as a timeout.
 DEFAULT_PARSE_TIME_LIMIT_SECONDS = 30 * 60
-# mineru-api waits at most an hour for one synchronous parse.
+# The MinerU client waits at most an hour for one parse (MAX_WAIT_SECONDS).
 MAX_PARSE_TIME_LIMIT_SECONDS = 60 * 60
 DEFAULT_PARSE_MAX_RETRIES = 3
 # Head start the MinerU client limit has over the queue limit, so the HTTP call

@@ -27,7 +27,7 @@ from stubs import (
     StubParser,
     StubVLLMService,
     fake_mineru,
-    file_parse_reply,
+    parsed_task,
     stub_parser_artifact,
 )
 
@@ -382,8 +382,10 @@ def test_every_record_of_a_run_carries_the_checksum(
 ) -> None:
     setup_logging("INFO")
     # The real MinerU parser, so a record from another logger is in the run too
-    with fake_mineru(file_parse_reply()) as (url, _seen):
-        options = dataclasses.replace(OPTIONS, parser=MINERU_PARSER_NAME, mineru_base_url=url)
+    with fake_mineru(parsed_task()) as mineru:
+        options = dataclasses.replace(
+            OPTIONS, parser=MINERU_PARSER_NAME, mineru_base_url=mineru.url
+        )
         _run(monkeypatch, None, StubVLLMService(), options)
     logging.getLogger("bioparser.tests").warning("after the run")
 
@@ -422,8 +424,10 @@ def test_a_failure_traceback_quotes_no_paper_text(
 ) -> None:
     middle = copy.deepcopy(STUB_JSON)
     middle["pages"][0]["blocks"][0]["content"] = ["canary-paper-text"]
-    with fake_mineru(file_parse_reply(middle)) as (url, _seen):
-        options = dataclasses.replace(OPTIONS, parser=MINERU_PARSER_NAME, mineru_base_url=url)
+    with fake_mineru(parsed_task(middle)) as mineru:
+        options = dataclasses.replace(
+            OPTIONS, parser=MINERU_PARSER_NAME, mineru_base_url=mineru.url
+        )
         with pytest.raises(PipelineError):
             _run(monkeypatch, None, StubVLLMService(), options)
 

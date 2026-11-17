@@ -1,16 +1,19 @@
 """Fake network hops"""
 
 import asyncio
+import io
 import json
 import re
 import threading
+import zipfile
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
+from urllib.parse import unquote
 
 import httpx2
 
@@ -20,6 +23,7 @@ from bioparser.db import jobs as job_queries
 from bioparser.db.documents import DocumentRecord
 from bioparser.jobs import ALLOWED_TRANSITIONS, JobState, JobStatus
 from bioparser.jobs.queue import JobQueueError, JobSubmitter, ParseJobMessage
+from bioparser.parser.backend.mineru.schema import MINERU_VERSION
 from bioparser.parser.models import (
     BlockKind,
     BlockRole,
@@ -44,7 +48,7 @@ type Handler = Callable[[httpx2.Request], httpx2.Response]
 STUB_JSON: dict[str, Any] = {
     "schema": "docvortex.middle",
     "schema_version": "2.0",
-    "metadata": {"file_suffix": "pdf", "producer": {"name": "mineru", "version": "4.0.12"}},
+    "metadata": {"file_suffix": "pdf", "producer": {"name": "mineru", "version": MINERU_VERSION}},
     "extensions": {
         "docvortex_layout": {
             "version": 1,
@@ -73,54 +77,203 @@ STUB_JSON: dict[str, Any] = {
 }
 
 
-def file_parse_reply(middle: dict[str, Any] = STUB_JSON) -> tuple[int, dict[str, Any]]:
-    """mineru-api's 200 reply to /v1/file_parse for one PDF."""
-    entry = {"name": "a.pdf", "status": "completed", "content": {"middle_json": middle}}
-    return 200, {"task_id": "job_1", "status": "completed", "files": [entry]}
+def result_zip(middle: dict[str, Any] | None = STUB_JSON) -> bytes:
+    """A mineru-api result ZIP as 4.2.3 packs output_formats=["default"]. ``None`` leaves out
+    middle_json.json."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("markdown.md", "# Stub\n")
+        if middle is not None:
+            archive.writestr("middle_json.json", json.dumps(middle, ensure_ascii=False, indent=2))
+        archive.writestr("structured_content.json", "{}")
+        archive.writestr("images/", b"")
+    return buffer.getvalue()
+
+
+@dataclass(frozen=True)
+class FakeTask:
+    """How the fake mineru-api plays one task.
+
+    ``refused`` answers POST /v1/tasks instead of creating the task. Otherwise each GET of the
+    task shows the next of ``statuses``, the last one repeating. A completed file serves
+    ``middle`` as its middle_json.json; a failed one carries ``error_code``. A cancelled task
+    shows ``canceled`` from then on.
+    """
+
+    statuses: tuple[str, ...] = ("completed",)
+    middle: dict[str, Any] = field(default_factory=lambda: STUB_JSON)
+    error_code: str = "parse_failed"
+    refused: tuple[int, dict[str, Any]] | None = None
+    task_id: str = "job_1"
+
+
+def parsed_task(middle: dict[str, Any] = STUB_JSON) -> FakeTask:
+    """A task whose file completes with ``middle`` as its middle_json.json."""
+    return FakeTask(middle=middle)
+
+
+def failed_task(code: str) -> FakeTask:
+    """A task whose file fails with the V1 error ``code``."""
+    return FakeTask(statuses=("failed",), error_code=code)
+
+
+def unfinished_task(status: str, *, task_id: str = "job_1") -> FakeTask:
+    """A task whose file stays ``status`` (pending or running) until it is cancelled."""
+    return FakeTask(statuses=(status,), task_id=task_id)
+
+
+def refused_task(status: int, body: dict[str, Any]) -> FakeTask:
+    """POST /v1/tasks answers ``status`` and ``body``; no task is created."""
+    return FakeTask(refused=(status, body))
+
+
+class FakeMinerU(NamedTuple):
+    url: str
+    # "METHOD path" of every request but the health probes, in the order they came
+    seen: list[str]
+    # The JSON body of every POST /v1/tasks
+    created: list[dict[str, Any]]
+
+
+@dataclass
+class _LiveTask:
+    plan: FakeTask
+    file_name: str
+    polls: int = 0
+    cancelled: bool = False
+
+    @property
+    def file_id(self) -> str:
+        return f"file-{self.plan.task_id}"
 
 
 @contextmanager
-def fake_mineru(
-    *replies: tuple[int, dict[str, Any]], health: Sequence[int] = ()
-) -> Iterator[tuple[str, list[str]]]:
-    """A mineru-api on loopback. Each POST gets the next reply, a DELETE gets 200, and
-    GET /v1/health gets the next of ``health``, then 200.
-
-    Yields the base URL and the "METHOD path?query" of every POST and DELETE it served.
-    """
-    pending = list(replies)
+def fake_mineru(*tasks: FakeTask, health: Sequence[int] = ()) -> Iterator[FakeMinerU]:
+    """mineru-api's Tasks API (MinerU 4.2) on loopback. Each POST /v1/tasks plays the next of
+    ``tasks``, and GET /v1/health answers the next of ``health``, then 200."""
+    pending = list(tasks)
     probes = list(health)
     seen: list[str] = []
+    created: list[dict[str, Any]] = []
+    live: dict[str, _LiveTask] = {}
+    origin: list[str] = []
 
     class Handler(BaseHTTPRequestHandler):
-        def _reply(self, status: int, payload: dict[str, Any]) -> None:
-            body = json.dumps(payload).encode()
+        def _reply(self, status: int, body: bytes, content_type: str) -> None:
             self.send_response(status)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
 
-        def do_POST(self) -> None:
-            self.rfile.read(int(self.headers["Content-Length"]))
-            seen.append(f"POST {self.path}")
-            self._reply(*pending.pop(0))
+        def _json(self, status: int, payload: dict[str, Any]) -> None:
+            self._reply(status, json.dumps(payload).encode(), "application/json")
 
-        def do_DELETE(self) -> None:
-            seen.append(f"DELETE {self.path}")
-            self._reply(200, {})
+        def _not_found(self) -> None:
+            self._json(404, {"error": {"code": "task_not_found", "message": "secret text"}})
+
+        def _request_body(self) -> bytes:
+            return self.rfile.read(int(self.headers.get("Content-Length", 0)))
+
+        def _file(self, task: _LiveTask, status: str) -> dict[str, Any]:
+            file: dict[str, Any] = {
+                "file_id": task.file_id,
+                "file_name": task.file_name,
+                "status": status,
+            }
+            if status == "completed":
+                file["result_url"] = f"{origin[0]}/v1/files/{task.file_id}/content"
+            if status == "failed":
+                file["error"] = {"code": task.plan.error_code, "message": "secret text"}
+            return file
+
+        def do_POST(self) -> None:
+            body = self._request_body()
+            seen.append(f"POST {self.path}")
+            if self.path == "/v1/tasks":
+                request = json.loads(body)
+                created.append(request)
+                plan = pending.pop(0)
+                if plan.refused is not None:
+                    self._json(*plan.refused)
+                    return
+                task = _LiveTask(plan, request["files"][0]["file_name"])
+                live[plan.task_id] = task
+                upload = {
+                    "url": f"{origin[0]}/v1/tasks/{plan.task_id}/uploads/{task.file_id}",
+                    "headers": {"Content-Type": "application/octet-stream"},
+                    "expires_at": 1,
+                }
+                file = self._file(task, "waiting-file") | {"upload": upload}
+                self._json(
+                    202, {"task_id": plan.task_id, "status": "waiting-file", "files": [file]}
+                )
+                return
+            match = re.fullmatch(r"/v1/tasks/([^/]+)/cancel", self.path)
+            if match is None or (cancelled := live.get(unquote(match[1]))) is None:
+                self._not_found()
+                return
+            cancelled.cancelled = True
+            payload = {
+                "task_id": cancelled.plan.task_id,
+                "status": "canceled",
+                "finished_at": "2026-01-01T00:00:00Z",
+                "files": [self._file(cancelled, "canceled")],
+            }
+            self._json(200, payload)
+
+        def do_PUT(self) -> None:
+            self._request_body()
+            seen.append(f"PUT {self.path}")
+            match = re.fullmatch(r"/v1/tasks/([^/]+)/uploads/([^/]+)", self.path)
+            if match is None or (task := live.get(unquote(match[1]))) is None:
+                self._not_found()
+                return
+            self._json(
+                200, {"task_id": task.plan.task_id, "file_id": task.file_id, "status": "pending"}
+            )
 
         def do_GET(self) -> None:
-            status = probes.pop(0) if probes else 200
-            self._reply(status, {"status": "healthy" if status == 200 else "starting"})
+            if self.path == "/v1/health":
+                probe = probes.pop(0) if probes else 200
+                self._json(probe, {"status": "ok" if probe == 200 else "starting"})
+                return
+            seen.append(f"GET {self.path}")
+            if match := re.fullmatch(r"/v1/files/file-([^/]+)/content", self.path):
+                done = live.get(unquote(match[1]))
+                if done is None:
+                    self._not_found()
+                    return
+                self._reply(200, result_zip(done.plan.middle), "application/zip")
+                return
+            match = re.fullmatch(r"/v1/tasks/([^/]+)", self.path)
+            if match is None or (task := live.get(unquote(match[1]))) is None:
+                self._not_found()
+                return
+            statuses = task.plan.statuses
+            status = "canceled" if task.cancelled else statuses[min(task.polls, len(statuses) - 1)]
+            task.polls += 1
+            payload = {
+                "task_id": task.plan.task_id,
+                "status": status,
+                "created_at": "2026-01-01T00:00:00Z",
+                "output_formats": ["default"],
+                "progress": {"completed": 0, "failed": 0, "total": 1},
+                "files": [self._file(task, status)],
+            }
+            self._json(200, payload)
 
         def log_message(self, format: str, *args: object) -> None:
             return
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    origin.append(f"http://127.0.0.1:{server.server_address[1]}")
+    # shutdown() waits for the next poll; the default 0.5 s would add that much to every test.
+    threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    ).start()
     try:
-        yield f"http://127.0.0.1:{server.server_address[1]}", seen
+        yield FakeMinerU(origin[0], seen, created)
     finally:
         server.shutdown()
         server.server_close()
