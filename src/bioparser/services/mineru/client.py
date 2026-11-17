@@ -58,8 +58,14 @@ MAX_MIDDLE_JSON_BYTES = 64 * _MIB
 # run mineru-api with a --task-timeout above this, so the client gives up and cancels first:
 # a task that reaches mineru-api's own limit makes the service refuse all work until it restarts.
 MAX_WAIT_SECONDS = 3600
-# One request, not the whole parse: the parse is bounded by its deadline.
+# One request, not the whole parse. The wait limits the parse, and _DOWNLOAD_TIMEOUT_S limits
+# the download of its result.
 _REQUEST_TIMEOUT_S = 60.0
+# The download of the result ZIP is not part of the wait: a parse that is complete must not
+# become a timeout because its download is slow. The parse worker keeps 30 s after the wait
+# (PARSE_TIME_LIMIT_MARGIN_S). The download must stop in that time, with time left to store
+# the artifact.
+_DOWNLOAD_TIMEOUT_S = 15.0
 # A cancel or a health probe is best effort and must not hold the caller for long.
 _CANCEL_TIMEOUT_S = 5.0
 # Polls start fast, so a short parse is not held up, and back off to this interval. The
@@ -299,7 +305,7 @@ class MinerUClient:
         *,
         tier: MinerUTier = DEFAULT_TIER,
     ) -> None:
-        # The whole parse: create, upload, time queued and parsing, and the download.
+        # The wait: create, upload, time queued and the parse, but not the download.
         self._wait_s = min(timeout, MAX_WAIT_SECONDS)
         self._tier: MinerUTier = tier
         # mineru-api is an internal service: the PDF must not go through a proxy from the
@@ -323,13 +329,20 @@ class MinerUClient:
         with _logged(attempt):
             try:
                 async with asyncio.timeout(self._wait_s):
-                    return await self._run(attempt, filename, content)
+                    result_url = await self._run(attempt, filename, content)
+                async with asyncio.timeout(_DOWNLOAD_TIMEOUT_S):
+                    return await self._download(attempt, result_url)
             except TimeoutError as exc:
                 await self._cancel(attempt)
                 # The wait counts time queued behind other parses. A file that never started
                 # was not judged, so it is retried; one that ran out of time would run out again.
                 if attempt.file_status in _NOT_STARTED:
                     raise MinerUError("mineru-api did not start the parse within its wait") from exc
+                # The parse is complete and only its download was slow, so a retry can succeed.
+                if attempt.file_status == "completed":
+                    raise MinerUError(
+                        f"mineru-api did not send the result within {_DOWNLOAD_TIMEOUT_S:g} s"
+                    ) from exc
                 raise MinerUTimeoutError(
                     "mineru-api did not finish the parse within its wait"
                 ) from exc
@@ -341,7 +354,8 @@ class MinerUClient:
                 await self._cancel(attempt)
                 raise
 
-    async def _run(self, attempt: _Attempt, filename: str, content: bytes) -> dict[str, Any]:
+    async def _run(self, attempt: _Attempt, filename: str, content: bytes) -> httpx2.URL:
+        """Create the task, send the PDF and wait for the parse. Return the URL of its result."""
         created = await self._create(attempt, filename, content)
         upload = created.files[0].upload
         if upload is not None:
@@ -360,7 +374,7 @@ class MinerUClient:
             raise MinerUError("mineru-api parse canceled")
         if file.result_url is None:
             raise MinerUError("mineru-api returned no result_url")
-        return await self._download(attempt, self._same_origin(file.result_url))
+        return self._same_origin(file.result_url)
 
     async def _create(self, attempt: _Attempt, filename: str, content: bytes) -> _Task:
         checksum = await asyncio.to_thread(sha256_bytes, content)
@@ -377,7 +391,7 @@ class MinerUClient:
         return task
 
     async def _wait_for_file(self, attempt: _Attempt, task_id: str) -> _TaskFile:
-        """Poll until the file is completed, failed or canceled. The parse's timeout ends it."""
+        """Poll until the file is completed, failed or canceled. The wait ends it."""
         path = _task_path(task_id)
         delay = _FIRST_POLL_S
         while True:

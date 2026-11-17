@@ -15,7 +15,8 @@ MAX_PARSE_TIME_LIMIT_SECONDS = 60 * 60
 DEFAULT_PARSE_MAX_RETRIES = 3
 # Head start the MinerU client limit has over the queue limit, so the HTTP call
 # ends and is reported before the queue cancels the handler. Also covers fetching
-# the PDF and storing the artifact. Capped at half the limit for small limits.
+# the PDF, the download of the result (up to 15 s after the client's wait) and
+# storing the artifact. Capped at half the limit for small limits.
 PARSE_TIME_LIMIT_MARGIN_S = 30.0
 # Probe port for GET /health.
 DEFAULT_LIVENESS_PORT = 8081

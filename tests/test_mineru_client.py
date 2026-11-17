@@ -411,6 +411,32 @@ def test_a_failed_cancel_still_reports_the_timeout() -> None:
         _parse(fake, wait_s=0.2)
 
 
+async def _after(delay_s: float, body: bytes) -> AsyncIterator[bytes]:
+    await asyncio.sleep(delay_s)
+    yield body
+
+
+def test_a_complete_parse_keeps_its_result_when_the_download_ends_after_the_wait() -> None:
+    # The download is not part of the wait: mineru-api completed the parse within it.
+    fake = FakeTasks(result=httpx2.Response(200, content=_after(0.3, result_zip(MIDDLE))))
+
+    assert _parse(fake, wait_s=0.2) == MIDDLE
+    assert not any(request.url.path.endswith("/cancel") for request in fake.requests)
+
+
+def test_a_download_past_its_own_limit_is_retryable_not_a_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # mineru-api completed the parse, so a later attempt can get the result.
+    monkeypatch.setattr(client_module, "_DOWNLOAD_TIMEOUT_S", 0.1)
+    fake = FakeTasks(result=httpx2.Response(200, content=_after(5.0, result_zip(MIDDLE))))
+
+    with pytest.raises(MinerUError, match="did not send the result within 0.1 s") as caught:
+        _parse(fake)
+    assert type(caught.value) is MinerUError
+    assert not any(request.url.path.endswith("/cancel") for request in fake.requests)
+
+
 @pytest.mark.anyio
 async def test_a_caller_that_stops_waiting_cancels_the_task() -> None:
     fake = FakeTasks("running")
