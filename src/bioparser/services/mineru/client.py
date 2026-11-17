@@ -62,9 +62,11 @@ MAX_WAIT_SECONDS = 3600
 _REQUEST_TIMEOUT_S = 60.0
 # A cancel or a health probe is best effort and must not hold the caller for long.
 _CANCEL_TIMEOUT_S = 5.0
-# Polls start fast, so a short parse is not held up, and back off to this interval.
+# Polls start fast, so a short parse is not held up, and back off to this interval. The
+# interval stays below the 5 s keep-alive of the uvicorn in mineru-api. Thus a poll does not
+# use a connection at the time that the server closes it.
 _FIRST_POLL_S = 0.5
-_MAX_POLL_S = 5.0
+_MAX_POLL_S = 2.0
 _SPOOL_MEMORY_BYTES = 8 * _MIB
 # A task reply describes one file and stays small.
 _REPLY_BYTES = 1 * _MIB
