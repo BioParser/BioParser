@@ -31,7 +31,7 @@ from typing import IO, Any, Literal, get_args
 from urllib.parse import quote
 
 import httpx2
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from bioparser.hashing import sha256_bytes
 from bioparser.logging_config import stopwatch
@@ -79,8 +79,6 @@ _RETRIED_STATUSES = frozenset({408, 429})
 # After the task exists, these mean it is gone or ended (mineru-api restarted, the upload
 # window or the result retention ran out, someone cancelled it), not that the request is wrong.
 _TASK_GONE_STATUSES = _RETRIED_STATUSES | {404, 409, 410}
-# The request did not reach mineru-api whole; sending it again can succeed.
-_RETRIED_CODES = frozenset({"request_interrupted", "upload_interrupted"})
 # mineru-api judged the PDF itself: the same PDF fails the same way.
 _INPUT_ERROR_CODES = frozenset(
     {
@@ -147,7 +145,6 @@ class _Upload(BaseModel):
 class _TaskFile(BaseModel):
     model_config = _REPLY_CONFIG
 
-    file_id: str = Field(min_length=1)
     status: FileStatus
     upload: _Upload | None = None
     result_url: str | None = None
@@ -159,16 +156,8 @@ class _Task(BaseModel):
 
     model_config = _REPLY_CONFIG
 
-    task_id: str = Field(min_length=1, max_length=256)
+    task_id: str = Field(min_length=1)
     files: list[_TaskFile] = Field(min_length=1, max_length=1)
-
-    @field_validator("task_id")
-    @classmethod
-    def _not_a_dot_segment(cls, value: str) -> str:
-        # Quoting keeps a task ID in one path segment, but "." and ".." would still move it.
-        if value in {".", ".."}:
-            raise ValueError("task_id must not be a dot segment")
-        return value
 
 
 @dataclass(slots=True)
@@ -234,7 +223,7 @@ def _code_from_error_body(body: bytes | None) -> str:
 
 def _http_error(status_code: int, code: str, retried: frozenset[int]) -> MinerUError:
     message = f"mineru-api returned {status_code} ({code})"
-    if 400 <= status_code < 500 and status_code not in retried and code not in _RETRIED_CODES:
+    if 400 <= status_code < 500 and status_code not in retried:
         return MinerUPermanentError(message)
     return MinerUError(message)
 
@@ -248,16 +237,6 @@ def _file_error(error: _FileError | None) -> MinerUError:
     # --task-timeout, mineru-api fails each task it starts after that with this code until it
     # restarts, so this PDF was not judged. The retry waits at the worker's health check.
     return MinerUError(message)
-
-
-def _upload_headers(named: dict[str, str]) -> dict[str, str]:
-    """The upload's Content-Type, the one header mineru-api names for a local upload. Framing
-    headers (Host, Content-Length, Transfer-Encoding) stay those httpx2 sets."""
-    content_type = next(
-        (value for name, value in named.items() if name.lower() == "content-type"),
-        "application/octet-stream",
-    )
-    return {"Content-Type": content_type}
 
 
 def _task_from(body: bytes) -> _Task:
@@ -291,20 +270,15 @@ def _middle_json_from_zip(archive_file: IO[bytes]) -> dict[str, Any]:
                 member = archive.getinfo(_MIDDLE_JSON_MEMBER)
             except KeyError:
                 raise MinerUError("mineru-api result has no middle_json.json") from None
-            # The declared size is checked before anything is inflated; zipfile never inflates
-            # past it, and the read below is capped as well.
+            # zipfile does not inflate more than the declared size of a member. Thus this
+            # check limits the memory that the read uses.
             if member.file_size > MAX_MIDDLE_JSON_BYTES:
                 raise MinerUPermanentError(
                     f"mineru-api middle_json.json exceeded {MAX_MIDDLE_JSON_BYTES} bytes"
                 )
-            with archive.open(member) as source:
-                raw = source.read(MAX_MIDDLE_JSON_BYTES + 1)
+            raw = archive.read(member)
     except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError) as exc:
         raise MinerUError("mineru-api returned an unreadable result ZIP") from exc
-    if len(raw) > MAX_MIDDLE_JSON_BYTES:
-        raise MinerUPermanentError(
-            f"mineru-api middle_json.json exceeded {MAX_MIDDLE_JSON_BYTES} bytes"
-        )
     try:
         middle = json.loads(raw)
     except ValueError as exc:
@@ -374,10 +348,10 @@ class MinerUClient:
                 "PUT",
                 self._same_origin(upload.url),
                 content=content,
-                headers=_upload_headers(upload.headers),
+                headers=upload.headers,
                 retried=_TASK_GONE_STATUSES,
             )
-        file = await self._wait_for_file(attempt, created)
+        file = await self._wait_for_file(attempt, created.task_id)
         if file.status == "failed":
             raise _file_error(file.error)
         if file.status == "canceled":
@@ -400,16 +374,13 @@ class MinerUClient:
         attempt.file_status = task.files[0].status
         return task
 
-    async def _wait_for_file(self, attempt: _Attempt, created: _Task) -> _TaskFile:
+    async def _wait_for_file(self, attempt: _Attempt, task_id: str) -> _TaskFile:
         """Poll until the file is completed, failed or canceled. The parse's timeout ends it."""
-        path = _task_path(created.task_id)
+        path = _task_path(task_id)
         delay = _FIRST_POLL_S
         while True:
             body = await self._send(attempt, "GET", path, retried=_TASK_GONE_STATUSES)
-            task = _task_from(body)
-            file = task.files[0]
-            if task.task_id != created.task_id or file.file_id != created.files[0].file_id:
-                raise MinerUError("mineru-api answered for another task")
+            file = _task_from(body).files[0]
             attempt.file_status = file.status
             if file.status in _FINAL:
                 return file

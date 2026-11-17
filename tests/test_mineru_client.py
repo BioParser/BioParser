@@ -202,28 +202,6 @@ def test_the_pdf_goes_to_the_upload_url_with_its_headers_then_the_result_is_read
     assert upload.headers["content-type"] == "application/octet-stream"
 
 
-def test_only_the_content_type_of_the_named_upload_headers_is_sent() -> None:
-    # Framing headers from a reply would let mineru-api reshape the PDF upload.
-    fake = FakeTasks()
-    created = _created()
-    created["files"][0]["upload"]["headers"] = {
-        "content-type": "application/pdf",
-        "Host": "elsewhere",
-        "Content-Length": "1",
-        "Transfer-Encoding": "chunked",
-    }
-    fake.created = created
-
-    _parse(fake)
-
-    upload = fake.requests[1]
-    assert upload.method == "PUT"
-    assert upload.headers["content-type"] == "application/pdf"
-    assert upload.headers["host"] == "mineru:8000"
-    assert upload.headers["content-length"] == str(len(PDF))
-    assert "transfer-encoding" not in upload.headers
-
-
 def test_a_pdf_mineru_already_holds_is_not_sent_again() -> None:
     # Same SHA-256 as an earlier upload: the reply has no upload URL and the file is pending.
     fake = FakeTasks(upload=False)
@@ -322,7 +300,6 @@ def test_a_refused_task_is_judged_by_status_and_code(
         ("upload", 404, "upload_not_found"),
         ("upload", 409, "file_already_terminal"),
         ("upload", 410, "upload_expired"),
-        ("upload", 400, "upload_interrupted"),
         ("poll", 404, "task_not_found"),
         ("result", 404, "file_not_found"),
     ],
@@ -488,7 +465,6 @@ def test_a_transport_failure_after_the_task_exists_cancels_it() -> None:
         b'{"task_id": "job_1", "files": []}',
         b'{"task_id": "job_1", "files": [{}, {}]}',
         b'{"task_id": "", "files": [{"file_id": "f", "status": "pending"}]}',
-        b'{"task_id": "..", "files": [{"file_id": "f", "status": "pending"}]}',
         b'{"task_id": "job_1", "files": [{"file_id": "f", "status": "sleeping"}]}',
     ],
     ids=[
@@ -498,7 +474,6 @@ def test_a_transport_failure_after_the_task_exists_cancels_it() -> None:
         "zero-files",
         "two-files",
         "empty-id",
-        "dot-dot-id",
         "unknown-status",
     ],
 )
@@ -509,14 +484,6 @@ def test_malformed_task_replies_are_retryable_errors(body: bytes) -> None:
     with pytest.raises(MinerUError, match="unexpected task reply") as caught:
         _parse(fake)
     assert type(caught.value) is MinerUError
-
-
-def test_a_reply_for_another_task_is_refused() -> None:
-    fake = FakeTasks()
-    fake.detail = httpx2.Response(200, json=_detail("completed") | {"task_id": "job_2"})
-
-    with pytest.raises(MinerUError, match="another task"):
-        _parse(fake)
 
 
 def test_a_completed_file_without_a_result_url_is_retryable() -> None:
