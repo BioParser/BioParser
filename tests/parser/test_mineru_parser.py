@@ -156,8 +156,10 @@ def test_an_unreachable_service_is_a_process_error(pdf: Path) -> None:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]  # nothing listens once the socket closes
 
+    # On Windows, a connection to a closed port fails after approximately 2 s. Thus the wait
+    # must be longer. If the wait is shorter, the parse deadline stops the parse first.
     with pytest.raises(ParserProcessError, match="unreachable"):
-        asyncio.run(MinerUParser(f"http://127.0.0.1:{port}", timeout_s=0.1).parse(pdf))
+        asyncio.run(MinerUParser(f"http://127.0.0.1:{port}", timeout_s=30.0).parse(pdf))
 
 
 def test_a_proxy_in_the_environment_is_not_used(pdf: Path, monkeypatch: pytest.MonkeyPatch) -> None:
