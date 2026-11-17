@@ -51,7 +51,7 @@ A taxonomy lookup fills `scientificName` and `taxonID` together. The extractor's
 
 The printed value and the printed unit are copied as they are.
 
-1. `verbatimTraitValue` is the printed number.
+1. `verbatimTraitValue` is the printed number. A paper that prints only a range leaves it empty, and the minimum and the maximum stay.
 2. `verbatimTraitUnit` is the printed unit, such as `kg`. It is optional, and a measurement printed without a unit leaves it empty.
 3. `traitValue` and `traitUnit` stay empty. A later trait list fills them when it standardizes the measurement.
 

@@ -520,7 +520,7 @@ export interface components {
             scientificName?: components["schemas"]["Interpretation"] | null;
             verbatimScientificName: components["schemas"]["Citation"];
             traitValue?: components["schemas"]["Interpretation"] | null;
-            verbatimTraitValue: components["schemas"]["Citation"];
+            verbatimTraitValue?: components["schemas"]["Citation"] | null;
             traitUnit?: components["schemas"]["Interpretation"] | null;
             verbatimTraitUnit?: components["schemas"]["Citation"] | null;
             /** Kingdom */

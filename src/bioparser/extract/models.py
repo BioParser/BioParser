@@ -1,4 +1,4 @@
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -110,7 +110,7 @@ class Observation(BaseModel):
     verbatimScientificName: Citation
 
     traitValue: Interpretation | None = None
-    verbatimTraitValue: Citation
+    verbatimTraitValue: Citation | None = None
 
     traitUnit: Interpretation | None = None
     verbatimTraitUnit: Citation | None = None
@@ -163,6 +163,15 @@ class Observation(BaseModel):
     country: CitationOrCorrection | None = None
     countryCode: CitationOrInterpretation | None = None
     occurrenceRemarks: CitationOrCorrection | None = None
+
+    @model_validator(mode="after")
+    def _has_a_value_or_a_range(self) -> Self:
+        """A measurement is a printed value, or a printed minimum or maximum."""
+        if self.verbatimTraitValue is None and (
+            self.measurementValueMin is None and self.measurementValueMax is None
+        ):
+            raise ValueError("an observation needs a printed value or a range")
+        return self
 
 
 class ExtractionArtifact(BaseModel):

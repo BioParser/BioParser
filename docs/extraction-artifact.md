@@ -127,7 +127,7 @@ Each field has one of four shapes. The shape says which kinds of value it accept
 
 Ask these questions in order for a field.
 
-1. **Is it a required verbatim column?** (`verbatimScientificName`, `verbatimTraitName`, `verbatimTraitValue`.) It is **printed**. It is an exact citation of the printed token. A correction must not rewrite it. `verbatimTraitUnit` is printed too, but it is optional, because a measurement can be printed without a unit.
+1. **Is it a required verbatim column?** (`verbatimScientificName`, `verbatimTraitName`.) It is **printed**. It is an exact citation of the printed token. A correction must not rewrite it. `verbatimTraitValue` is printed too, but it is optional when the paper prints a minimum or a maximum and no single value. `verbatimTraitUnit` is printed and optional, because a measurement can be printed without a unit.
 2. **Does the paper ever print the value itself?** If not, it is **interpreted**. `basisOfRecord` is `LivingSpecimen`, and a paper does not print that.
 3. **Does the column keep the printed token beside a reading?** Free text does. `sex` does too, because the printed word and a reading of it can both be tried. The field is **printed + correction**.
 4. Otherwise the field is **printed or interpreted**. It is the printed token, or a value read from a wider phrase. A number, a date, a country code, and an occurrence id take this shape. The passage grounds the value. It is not a second column value.
@@ -151,7 +151,7 @@ In the table below, the ETS term is the column the adapter fills from the field.
 | `verbatimTraitName` | printed | yes | `verbatimTraitName` | An exact citation of the printed trait name. A row without it cannot be read. The trait code is what a later list standardizes. |
 | `verbatimScientificName` | printed | yes | `verbatimScientificName` | An exact citation of the printed name, such as `M. musculus`. |
 | `scientificName` | interpreted | | `scientificName` | Paired with `verbatimScientificName`. A name read from the printed citation, such as `Mus musculus`. |
-| `verbatimTraitValue` | printed | yes | `verbatimTraitValue` | An exact citation of the printed value. |
+| `verbatimTraitValue` | printed | | `verbatimTraitValue` | An exact citation of the printed value. Optional when the paper prints a minimum or a maximum and no single value. An observation needs this value or one of those bounds. |
 | `traitValue` | interpreted | | `traitValue` | Paired with `verbatimTraitValue`. A cleaned reading of the printed number, in the unit the paper printed. |
 | `verbatimTraitUnit` | printed | | `verbatimTraitUnit` | Optional. A measurement can be printed without a unit. |
 | `traitUnit` | interpreted | | `traitUnit` | Paired with `verbatimTraitUnit`. A cleaned reading of the printed unit, such as `kg` for `kilograms`. |

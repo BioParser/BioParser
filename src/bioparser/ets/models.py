@@ -43,7 +43,7 @@ class EtsRow(BaseModel):
 
     # The trait list fills the value and the unit. The verbatim fields are printed.
     traitValue: str | None = None
-    verbatimTraitValue: str = Field(min_length=1)
+    verbatimTraitValue: str | None = None
     traitUnit: str | None = None
     verbatimTraitUnit: str | None = None
 

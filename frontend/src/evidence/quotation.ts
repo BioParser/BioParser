@@ -73,7 +73,7 @@ export function buildQuotation(
   observation: Observation,
   blocks: ReadonlyMap<string, TextBlock>,
 ): QuotedBlock[] {
-  const valueRanges = observation.verbatimTraitValue.evidence;
+  const valueRanges = measurementRanges(observation);
   const unitRanges = observation.verbatimTraitUnit?.evidence ?? [];
   const blockIds = [...new Set(valueRanges.map((range) => range.block_id))];
 
@@ -93,6 +93,17 @@ export function buildQuotation(
       segments: toSegments(block.text, marks),
     };
   });
+}
+
+// The printed value, or the printed bounds when the paper gives no single value.
+function measurementRanges(observation: Observation): TextRange[] {
+  const value = observation.verbatimTraitValue;
+  if (value != null) {
+    return value.evidence;
+  }
+  return [observation.measurementValueMin, observation.measurementValueMax].flatMap((bound) =>
+    bound == null ? [] : bound.kind === "citation" ? bound.evidence : bound.passage.evidence,
+  );
 }
 
 function markRanges(

@@ -354,6 +354,20 @@ def test_a_measurement_without_a_code_is_a_row() -> None:
     assert row.traitUnit is None
 
 
+def test_a_range_without_a_central_value_stays_on_the_row() -> None:
+    observation = _observation(
+        verbatimTraitValue=None,
+        measurementValueMin=_cited("10", start=20),
+        measurementValueMax=_cited("15", start=24),
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+
+    assert row.verbatimTraitValue is None
+    assert row.measurementValue_min == "10"
+    assert row.measurementValue_max == "15"
+
+
 def test_an_unknown_trait_is_still_a_row() -> None:
     observation = _observation(traitCode=_read("wing_length", "wing", start=10))
 

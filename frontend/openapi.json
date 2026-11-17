@@ -2495,7 +2495,14 @@
             ]
           },
           "verbatimTraitValue": {
-            "$ref": "#/components/schemas/Citation"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Citation"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "traitUnit": {
             "anyOf": [
@@ -3542,8 +3549,7 @@
         "type": "object",
         "required": [
           "verbatimTraitName",
-          "verbatimScientificName",
-          "verbatimTraitValue"
+          "verbatimScientificName"
         ],
         "title": "Observation",
         "description": "One measurement.\n\nA citation-only field is the printed token. A citation or correction is that\ntoken, or the token kept beside a reading of a wider phrase. A citation or\ninterpretation is the printed token, or a value read from a wider phrase.\n``basisOfRecord`` and ``aggregateMeasure`` are interpretations only. A paper\ndoes not print those tokens.\n\nThe minimum, the maximum, and the dispersion are the numbers the paper\nprinted, read with ``verbatimTraitUnit``. ``statisticalMethod`` is the\nphrase the paper printed, or empty.\n\n``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations\nbeside a verbatim citation. The interpretation is omitted when the printed\ntoken is already the value. They stay empty until a taxonomy lookup or a\ntrait list standardizes them. ``scientificName`` is another name a later\ntaxonomy lookup can try.\n\nThe artifact does not enforce a closed set of values. An interpretation's\n``value`` is any non-empty string, including ``traitCode``. An extractor may\nconstrain it, and the adapter decides what a value means.\n\nEvery other column a paper can state is optional. An extractor leaves it null."

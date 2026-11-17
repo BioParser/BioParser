@@ -160,11 +160,23 @@ def test_a_scientific_name_can_expand_the_printed_citation() -> None:
     assert observation.verbatimScientificName.text == "M. musculus"
 
 
-def test_a_paired_value_requires_its_verbatim_citation() -> None:
-    data = _observation(
-        traitValue=Interpretation(value="12.5", passage=_cite("12.5 g"))
-    ).model_dump()
+def test_a_range_without_a_central_value_is_kept() -> None:
+    observation = _observation(
+        verbatimTraitValue=None,
+        measurementValueMin=_cite("10"),
+        measurementValueMax=_cite("15"),
+    )
+
+    assert observation.verbatimTraitValue is None
+    assert observation.measurementValueMin is not None
+    assert observation.measurementValueMin.text == "10"
+    assert observation.measurementValueMax is not None
+    assert observation.measurementValueMax.text == "15"
+
+
+def test_an_observation_needs_a_value_or_a_range() -> None:
+    data = _observation().model_dump()
     del data["verbatimTraitValue"]
     with pytest.raises(ValidationError) as caught:
         Observation.model_validate(data)
-    assert [error["loc"] for error in caught.value.errors()] == [("verbatimTraitValue",)]
+    assert any("printed value or a range" in error["msg"] for error in caught.value.errors())
