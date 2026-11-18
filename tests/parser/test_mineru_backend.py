@@ -442,6 +442,65 @@ def test_glyph_edges_highlight_inside_a_superscript() -> None:
     assert boxes[0].y0 == pytest.approx(0.30)
 
 
+def test_a_removed_line_end_hyphen_does_not_take_a_later_hyphen() -> None:
+    middle = _middle([_block("text", 0, "computing X-ray")])
+    middle["extensions"]["bioparser_lines"] = {
+        "version": 1,
+        "pages": [
+            {
+                "page_idx": 0,
+                "blocks": [
+                    {
+                        "index": 0,
+                        "lines": [
+                            {
+                                "y0": 0.10,
+                                "y1": 0.12,
+                                "glyphs": [
+                                    {"t": "c", "x0": 0.10, "x1": 0.12},
+                                    {"t": "o", "x0": 0.12, "x1": 0.14},
+                                    {"t": "m", "x0": 0.14, "x1": 0.16},
+                                    {"t": "p", "x0": 0.16, "x1": 0.18},
+                                    {"t": "u", "x0": 0.18, "x1": 0.20},
+                                    {"t": "t", "x0": 0.20, "x1": 0.22},
+                                    {"t": "-", "x0": 0.22, "x1": 0.24},
+                                ],
+                            },
+                            {
+                                "y0": 0.14,
+                                "y1": 0.16,
+                                "glyphs": [
+                                    {"t": "i", "x0": 0.10, "x1": 0.12},
+                                    {"t": "n", "x0": 0.12, "x1": 0.14},
+                                    {"t": "g", "x0": 0.14, "x1": 0.16},
+                                    {"t": " ", "x0": 0.16, "x1": 0.18},
+                                    {"t": "X", "x0": 0.20, "x1": 0.24},
+                                    {"t": "-", "x0": 0.24, "x1": 0.26},
+                                    {"t": "r", "x0": 0.26, "x1": 0.28},
+                                    {"t": "a", "x0": 0.28, "x1": 0.30},
+                                    {"t": "y", "x0": 0.30, "x1": 0.32},
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    assert content.text == "computing X-ray"
+    joined = boxes_for_range(content.lines, 0, len("computing"))
+    assert [(box.x0, box.x1, box.y0) for box in joined] == [
+        (0.10, 0.22, 0.10),
+        (0.10, 0.16, 0.14),
+    ]
+    hyphen = content.text.index("-")
+    kept = boxes_for_range(content.lines, hyphen, hyphen + 1)
+    assert len(kept) == 1
+    assert kept[0].x0 == pytest.approx(0.24)
+    assert kept[0].y0 == pytest.approx(0.14)
+
+
 def test_balanced_span_product_is_capped() -> None:
     cells = _cells_from_html('<table><tr><td rowspan="50" colspan="50">x</td></tr></table>')
     assert cells[0].rowspan * cells[0].colspan == HTML_CELL_MAX_OCCUPIED
