@@ -1,7 +1,8 @@
 """Copy MinerU 4.2.3 character boxes out before they are deleted.
 
 MinerU puts each native character on ``span.metadata["chars"]``, turns that list into the
-span text, and then deletes it. The line builder runs after the delete, so a line box is
+span text, and then deletes it. Basic and above can rebuild that text in Rust and skip
+the character list. The line builder runs after the delete, so a line box is
 all that remains. DocVortex 0.6.24 then deletes ``lines`` while it builds the public
 document. This rewrites those spots so the middle document gains
 ``extensions.bioparser_lines``. A span with no character list contributes no glyphs. It
@@ -62,6 +63,12 @@ _DELETE_PREBUILT_NEW = """            if text is not None:
                 span.content = text
             _bioparser_keep_glyphs(span)
             del span.metadata["chars"]
+"""
+
+_ASSIGN_OLD = """    assigned_span_indices = _owned_span_assignments(_native_text, spans, median_span_height) if native_contents is None else []
+"""
+
+_ASSIGN_NEW = """    assigned_span_indices = _owned_span_assignments(_native_text, spans, median_span_height)
 """
 
 _LINE_ITEMS_OLD = '''def _build_ocr_det_line_items(lines: list[_AnalyzeLine], page_size: tuple[float, float]) -> list[dict[str, Any]]:
@@ -309,6 +316,12 @@ def _patch_mineru(site_packages: Path) -> None:
         _DELETE_PREBUILT_OLD,
         _DELETE_PREBUILT_NEW,
         already='_bioparser_keep_glyphs(span)\n            del span.metadata["chars"]',
+    )
+    _replace(
+        native,
+        _ASSIGN_OLD,
+        _ASSIGN_NEW,
+        already="assigned_span_indices = _owned_span_assignments(_native_text, spans, median_span_height)\n",
     )
     _replace(content, _LINE_ITEMS_OLD, _LINE_ITEMS_NEW, already="def _bioparser_glyph")
 
