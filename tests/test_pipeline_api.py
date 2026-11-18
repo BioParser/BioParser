@@ -2,7 +2,6 @@ import asyncio
 import contextlib
 import dataclasses
 import importlib
-import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +12,7 @@ import pytest
 from conftest import TEST_API_KEY
 from fastapi.testclient import TestClient
 from httpx2 import ASGITransport
+from pydantic import BaseModel, ValidationError
 from stubs import (
     LOCATABLE_OBSERVATION,
     LOCATABLE_TEXT,
@@ -36,7 +36,7 @@ from bioparser.parser.errors import (
 )
 from bioparser.parser_names import DEFAULT_PARSER_NAME
 from bioparser.pipeline import PipelineError, PipelineOptions, run_pipeline
-from bioparser.services.vllm.vllm import VLLMError
+from bioparser.services.vllm.vllm import VLLMError, VLLMSchemaError
 
 # bioparser.api re-exports the FastAPI instance as `app`, which shadows the
 # submodule of the same name; import_module returns the module itself.
@@ -53,7 +53,6 @@ OPTIONS = PipelineOptions(
     mineru_base_url="http://127.0.0.1:9",
     mineru_tier="basic",
     char_budget=4000,
-    max_tokens=256,
 )
 
 
@@ -150,9 +149,14 @@ def test_an_artifact_the_extractor_worker_refuses_is_not_returned(
 
 
 class FreeTextUnitVLLM(StubVLLMService):
-    async def generate_json(
-        self, prompt: str, *, schema: dict[str, Any], system_prompt: str, max_tokens: int
-    ) -> str:
+    async def generate_model(
+        self,
+        prompt: str,
+        response_model: type[BaseModel],
+        *,
+        system_prompt: str,
+        max_tokens: int | None = None,
+    ) -> BaseModel:
         observation = {
             "taxon": "Mus musculus",
             "trait": "body_mass",
@@ -161,13 +165,21 @@ class FreeTextUnitVLLM(StubVLLMService):
             "evidence_block_id": "x",
             "quotation": "12.5 g",
         }
-        return json.dumps({"observations": [observation]})
+        try:
+            return response_model.model_validate({"observations": [observation]})
+        except ValidationError as exc:
+            raise VLLMSchemaError("response did not match the schema") from exc
 
 
 class UnreachableVLLM(StubVLLMService):
-    async def generate_json(
-        self, prompt: str, *, schema: dict[str, Any], system_prompt: str, max_tokens: int
-    ) -> str:
+    async def generate_model(
+        self,
+        prompt: str,
+        response_model: type[BaseModel],
+        *,
+        system_prompt: str,
+        max_tokens: int | None = None,
+    ) -> BaseModel:
         raise VLLMError("vLLM request failed: APIConnectionError")  # a separate, slow container
 
 

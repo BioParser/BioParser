@@ -2,10 +2,11 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Iterator
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
 import pytest
+from pydantic import BaseModel
 from stubs import (
     MemoryStorage,
     StubJobs,
@@ -154,7 +155,7 @@ def _real_extract(
 
     def extract(artifact: ParserArtifact) -> Awaitable[ExtractionArtifact]:
         async def run() -> ExtractionArtifact:
-            result = await extract_observations(service, artifact, char_budget=8000, max_tokens=256)
+            result = await extract_observations(service, artifact, char_budget=8000)
             return _artifact(cited_observations(result.output, artifact))
 
         return run()
@@ -184,14 +185,14 @@ class _FailingVLLM(StubVLLMService):
         super().__init__()
         self._error = error
 
-    async def generate_json(
+    async def generate_model(
         self,
         prompt: str,
+        response_model: type[BaseModel],
         *,
-        schema: dict[str, Any],
         system_prompt: str,
-        max_tokens: int,
-    ) -> str:
+        max_tokens: int | None = None,
+    ) -> BaseModel:
         raise self._error
 
 
@@ -201,7 +202,6 @@ def _registered(vllm: StubVLLMService) -> Callable[[str], Extractor]:
             name,
             vllm=cast(VLLMService, vllm),
             char_budget=8000,
-            max_tokens=256,
         )
 
     return extractor_factory
@@ -749,7 +749,6 @@ def test_registered_extractor_stores_the_resolved_version() -> None:
             name,
             vllm=cast(VLLMService, vllm),
             char_budget=8000,
-            max_tokens=256,
         )
 
     handler = ExtractJobHandler(

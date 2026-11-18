@@ -17,8 +17,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 
-from pydantic import ValidationError
-
 from bioparser.extract.backend.factory import get_extractor
 from bioparser.extract.checks import checked_artifact
 from bioparser.extract.errors import (
@@ -41,7 +39,11 @@ from bioparser.parser.models import ParserArtifact
 from bioparser.parser.pdf_bytes import parse_pdf_bytes
 from bioparser.services.mineru.client import MinerUTier
 from bioparser.services.vllm import VLLMService
-from bioparser.services.vllm.vllm import VLLMRequestRejectedError, VLLMTruncatedError
+from bioparser.services.vllm.vllm import (
+    VLLMRequestRejectedError,
+    VLLMSchemaError,
+    VLLMTruncatedError,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -60,7 +62,6 @@ class PipelineOptions:
     mineru_base_url: str
     mineru_tier: MinerUTier
     char_budget: int
-    max_tokens: int
 
 
 @contextmanager
@@ -134,7 +135,6 @@ async def _extract(artifact: ParserArtifact, options: PipelineOptions) -> Extrac
             options.extractor,
             vllm=vllm,
             char_budget=options.char_budget,
-            max_tokens=options.max_tokens,
         )
         return checked_artifact(
             await extractor.extract(artifact),
@@ -151,7 +151,7 @@ def _extraction_failure(exc: ExtractionFailedError) -> str:
         return "Extraction truncated"
     if isinstance(exc.__cause__, VLLMRequestRejectedError):
         return "Extraction request rejected"
-    if isinstance(exc.__cause__, ValidationError):
+    if isinstance(exc.__cause__, VLLMSchemaError):
         return "Extraction did not match the schema"
     # A wrong extractor name or version, or a range that is not the slice it names
     return "Extraction failed its checks"

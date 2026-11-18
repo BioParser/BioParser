@@ -4,7 +4,6 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# TODO: expand config
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(".env"),
@@ -16,16 +15,11 @@ class Settings(BaseSettings):
     vllm_base_url: str = "http://localhost:8000/v1"
     vllm_api_key: SecretStr = SecretStr("EMPTY")
 
-    model_discovery_timeout_seconds: float = Field(default=10.0, gt=0)
+    vllm_model_discovery_timeout_seconds: float = Field(default=10.0, gt=0)
 
-    request_timeout_seconds: float = Field(
+    vllm_request_timeout_seconds: float = Field(
         default=300.0,
         gt=0,
-    )
-
-    max_concurrency: int = Field(
-        default=4,
-        ge=1,
     )
 
     # --max-model-len is server-side cap e.g. 4096
@@ -33,8 +27,9 @@ class Settings(BaseSettings):
     #               CHAR_BUDGET (extract.py)  ~2400 ?
     #               and client side cap 1024  ~1024
     #
-    # So if this is raised, --max-model-len should be changed in docker-compose
-    max_tokens: int = Field(default=1024, ge=1)
+    # So if this is raised, --max-model-len should be changed in docker-compose.
+    # A caller may ask for fewer tokens. A larger request is capped here.
+    vllm_max_tokens: int = Field(default=1024, ge=1)
 
 
 @lru_cache(maxsize=1)

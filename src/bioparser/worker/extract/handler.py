@@ -97,7 +97,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         except ExtractionFailedError as exc:
             cause = exc.__cause__ or exc
             LOGGER.error(
-                f"extraction failed ({type(cause).__name__}). "
+                f"extraction failed ({type(cause).__name__}: {cause}). "
                 "Marking the job failed (extraction_failed)"
             )
             raise PermanentJobFailure("extraction_failed") from exc
