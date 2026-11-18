@@ -12,7 +12,7 @@ serves it now. One parse is one task:
 A task left unfinished, by the deadline, an error or a cancellation of the caller, is
 cancelled in mineru-api with ``POST /v1/tasks/{task_id}/cancel``.
 
-``MinerUClient`` is async. It is the one client for the parser and the API.
+``MinerUClient`` is async. The parser worker is the client that uses it.
 """
 
 from __future__ import annotations

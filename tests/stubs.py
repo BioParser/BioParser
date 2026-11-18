@@ -791,13 +791,3 @@ class StubParseQueue(JobSubmitter[ParseJobMessage]):
         if self.submit_error is not None:
             raise self.submit_error
         self.messages.append(message)
-
-
-@dataclass
-class InlinePipeline:
-    """What /extract and run_pipeline() get. Replace either field to change it for the test."""
-
-    parser: StubParser = field(default_factory=StubParser)
-    vllm: StubVLLMService = field(default_factory=StubVLLMService)
-    # (name, keyword arguments) of each get_parser() call
-    parser_requests: list[tuple[str, dict[str, Any]]] = field(default_factory=list)

@@ -423,20 +423,9 @@ def test_an_invalid_setting_at_import_is_logged_as_one_json_record(tmp_path: Pat
     assert "canary-redis-pass" not in result.stderr  # the traceback after it neither
 
 
-class _OfflineVLLM:
-    """The lifespan builds a VLLMService and probes its model; skip the network."""
-
-    async def get_model(self) -> str:
-        return "stub-model"
-
-    async def aclose(self) -> None:
-        return None
-
-
 def test_lifespan_sets_up_logging_once_across_restarts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(app_module, "VLLMService", _OfflineVLLM)
     monkeypatch.setenv("BIOPARSER_LOG_LEVEL", "DEBUG")
 
     monkeypatch.setattr(
@@ -451,7 +440,7 @@ def test_lifespan_sets_up_logging_once_across_restarts(
     )
 
     # The lifespan overwrites these; registering them lets monkeypatch restore them.
-    for name in ("mineru", "vllm", "parse_queue", "artifact_storage"):
+    for name in ("parse_queue", "artifact_storage"):
         monkeypatch.setattr(app.state, name, None, raising=False)
 
     for _ in range(2):  # every TestClient context runs the lifespan again
