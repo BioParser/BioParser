@@ -78,6 +78,7 @@ default-groups = "all"
 target-version = "py313"
 src = ["src"]
 line-length = 100
+extend-exclude = ["tests/parser/fixtures/glyph-patch"]
 
 [tool.ruff.lint]
 # ANN requires annotations. B is bugbear. UP rewrites syntax for Python 3.13.
@@ -95,11 +96,12 @@ ignore = [
 python_version = "3.13"
 strict = true
 files = ["src", "tests"]
+exclude = ["tests/parser/fixtures/glyph-patch/"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
 markers = [
   "integration: requires a real Redis or Postgres instance (see BIOPARSER_TEST_REDIS_URL and BIOPARSER_TEST_DATABASE_URL)",
-  "image: installs one image dependency group into a temporary environment",
+  "network: needs the network, for an image dependency install or a pinned wheel download",
 ]

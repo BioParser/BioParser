@@ -67,7 +67,7 @@ def test_api_image_starts_the_app_without_importing_it_at_build() -> None:
     assert "import bioparser" not in text
 
 
-@pytest.mark.image
+@pytest.mark.network
 @pytest.mark.skipif(sys.platform == "win32", reason="image installs are checked on linux")
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required")
 @pytest.mark.parametrize("group", _ENTRYPOINTS)

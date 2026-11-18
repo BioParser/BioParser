@@ -61,7 +61,7 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Run unit tests
-        run: uv run pytest -m "not integration and not image"
+        run: uv run pytest -m "not integration and not network"
 
   test-integration:
     name: Integration tests (${{ matrix.os }})
@@ -163,8 +163,8 @@ jobs:
       - name: Build
         run: npm run build
 
-  image-groups:
-    name: Image dependency groups
+  network:
+    name: Network
     runs-on: ubuntu-latest
 
     steps:
@@ -174,5 +174,5 @@ jobs:
       - name: Setup Python
         uses: ./.github/actions/setup
 
-      - name: Check each image group
-        run: uv run pytest -m image
+      - name: Run network tests
+        run: uv run pytest -m network
