@@ -63,7 +63,7 @@ jobs:
 
       - name: Run unit tests
         # The compose job below runs the compose tests.
-        run: uv run pytest -m "not integration and not image and not compose"
+        run: uv run pytest -m "not integration and not network and not compose"
 
   test-integration:
     name: Integration tests (${{ matrix.os }})
@@ -174,8 +174,8 @@ jobs:
       - name: Browser layout tests
         run: npm run test:e2e
 
-  image-groups:
-    name: Image dependency groups
+  network:
+    name: Network
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -186,8 +186,8 @@ jobs:
       - name: Setup Python
         uses: ./.github/actions/setup
 
-      - name: Check each image group
-        run: uv run pytest -m image
+      - name: Run network tests
+        run: uv run pytest -m network
 
   compose:
     name: Validate Compose

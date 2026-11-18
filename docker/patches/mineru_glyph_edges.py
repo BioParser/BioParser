@@ -259,6 +259,10 @@ _STRUCTURE_NOTE_NEW = """            output.append(block)
     return output
 """
 
+_DOC_IMPORT_OLD = "from .pages import model_json_to_pages\n"
+
+_DOC_IMPORT_NEW = "from .pages import bioparser_lines_var, model_json_to_pages\n"
+
 _DV_DOCUMENT_OLD = '''def model_json_to_middle_json(model_json: ModelJson) -> MiddleJson:
     """只执行确定性后处理，智能增强由调用方另行执行。"""
     extensions = deepcopy(model_json.extensions)
@@ -375,16 +379,7 @@ def _patch_docvortex(site_packages: Path) -> None:
         already="_bioparser_note_flat(trusted)",
     )
     _replace(document, _DV_DOCUMENT_OLD, _DV_DOCUMENT_NEW, already='extensions, "bioparser_lines"')
-    text = document.read_text(encoding="utf-8")
-    if "bioparser_lines_var" not in text.split("def model_json_to_middle_json", 1)[0]:
-        document.write_text(
-            text.replace(
-                "from .pages import model_json_to_pages\n",
-                "from .pages import bioparser_lines_var, model_json_to_pages\n",
-                1,
-            ),
-            encoding="utf-8",
-        )
+    _replace(document, _DOC_IMPORT_OLD, _DOC_IMPORT_NEW, already=_DOC_IMPORT_NEW)
 
 
 _NATIVE_FIELD_OLD = """    _graphic_numeric_features: tuple | None = field(compare=False, repr=False, default=None)
