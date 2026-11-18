@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -555,6 +556,33 @@ def test_a_done_job_whose_artifact_cannot_be_read(
     assert "gone" not in response.text
 
 
+def test_an_invalid_artifact_logs_a_capped_field_list(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    artifact_storage, jobs, _queue, _events = stub_api_adapters
+    state = _job("done")
+    jobs.states[str(state.job_id)] = state
+    payload = {
+        "schema_version": "2",
+        "extractor": "default",
+        "extractor_version": "2",
+        "observations": [{} for _ in range(25)],
+    }
+    _store(artifact_storage, state.extract_result_ref or "", json.dumps(payload).encode())
+
+    response = client.get(f"/api/jobs/{state.job_id}")
+
+    assert response.status_code == 500
+    [record] = [
+        item for item in caplog.records if item.getMessage() == "job artifact missing or invalid"
+    ]
+    logged = vars(record)
+    assert logged["invalid_field_count"] > 20
+    assert len(logged["invalid_fields"]) == 20
+
+
 def test_a_done_job_with_an_invalid_artifact_is_a_safe_error(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
@@ -760,6 +788,23 @@ def test_the_artifact_routes_are_documented_as_internal(kind: str, schema: str) 
     assert "can change" in operation["description"]
     body = operation["responses"]["200"]["content"]["application/json"]["schema"]
     assert body == {"$ref": f"#/components/schemas/{schema}"}
+
+
+def test_a_pdf_at_the_advertised_limit_is_accepted(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    _storage, jobs, _queue, _events = stub_api_adapters
+    limit = config.get_api_settings().max_upload_bytes
+    pdf = MINIMAL_PDF + b"%" * (limit - len(MINIMAL_PDF))
+
+    response = client.post(
+        "/api/extractions",
+        files={"file": ("a.pdf", pdf, "application/pdf")},
+    )
+
+    assert response.status_code == 202
+    assert jobs.states[response.json()["job_id"]].status == "queued"
 
 
 def test_the_body_limit_leaves_room_for_the_multipart_envelope() -> None:

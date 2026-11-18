@@ -45,9 +45,10 @@ def _raise_invalid(exc: ValueError, job_id: object) -> NoReturn:
     extra: dict[str, object] = {"job_id": str(job_id), "artifact": "extraction"}
     extra.update(error_fields(exc))
     if isinstance(exc, ValidationError):
+        errors = exc.errors(include_input=False)
+        extra["invalid_field_count"] = len(errors)
         extra["invalid_fields"] = [
-            ".".join(str(part) for part in error["loc"])
-            for error in exc.errors(include_input=False)
+            ".".join(str(part) for part in error["loc"]) for error in errors[:20]
         ]
     LOGGER.error("job artifact missing or invalid", extra=extra)
     raise _InvalidArtifact from exc
