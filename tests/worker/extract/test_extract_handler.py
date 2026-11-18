@@ -21,7 +21,7 @@ from bioparser.artifact_paths import (
     parse_result_path,
 )
 from bioparser.db.engine import DatabaseUnavailableError
-from bioparser.extract.backend.default.extractor import extract_observations
+from bioparser.extract.backend.default.extractor import extract_observations, render_prompt
 from bioparser.extract.backend.default.locate import cited_observations
 from bioparser.extract.backend.default.schema import Extraction, ModelObservation
 from bioparser.extract.backend.factory import get_extractor
@@ -57,7 +57,11 @@ from bioparser.parser.models import (
     TextContent,
 )
 from bioparser.services.vllm import VLLMService
-from bioparser.services.vllm.vllm import VLLMError, VLLMRequestRejectedError, VLLMTruncatedError
+from bioparser.services.vllm.vllm import (
+    VLLMError,
+    VLLMRequestRejectedError,
+    VLLMTruncatedError,
+)
 from bioparser.worker.extract.before_claim import vllm_before_claim
 from bioparser.worker.extract.config import DEFAULT_EXTRACT_MAX_RETRIES
 from bioparser.worker.extract.handler import ExtractJobHandler
@@ -155,7 +159,7 @@ def _real_extract(
 
     def extract(artifact: ParserArtifact) -> Awaitable[ExtractionArtifact]:
         async def run() -> ExtractionArtifact:
-            result = await extract_observations(service, artifact, char_budget=8000)
+            result = await extract_observations(service, artifact)
             return _artifact(cited_observations(result.output, artifact))
 
         return run()
@@ -201,7 +205,6 @@ def _registered(vllm: StubVLLMService) -> Callable[[str], Extractor]:
         return get_extractor(
             name,
             vllm=cast(VLLMService, vllm),
-            char_budget=8000,
         )
 
     return extractor_factory
@@ -341,6 +344,33 @@ def test_a_rejected_request_is_permanent() -> None:
     assert jobs.state.status == "failed"
     assert jobs.state.error_code == "extraction_failed"
     assert jobs.state.claims("extracting") == 1
+
+
+def test_a_long_paper_keeps_the_prefix_that_fits() -> None:
+    paper = _parser_artifact()
+    second = (
+        paper.pages[0]
+        .blocks[0]
+        .model_copy(update={"block_id": "b1", "order": 1, "content": TextContent(text="later")})
+    )
+    paper.pages[0].blocks.append(second)
+
+    class ShortFit(StubVLLMService):
+        async def fit_prefix(
+            self,
+            parts: list[str],
+            *,
+            system_prompt: str | None = None,
+            separator: str = "\n\n",
+            max_tokens: int | None = None,
+            enable_thinking: bool = False,
+        ) -> int:
+            return 1
+
+    prompt = asyncio.run(render_prompt(paper, vllm=cast(VLLMService, ShortFit())))
+
+    assert prompt.text == f"[b0] {QUOTE}"
+    assert prompt.blocks == {"b0": QUOTE}
 
 
 def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> None:
@@ -750,7 +780,6 @@ def test_registered_extractor_stores_the_resolved_version() -> None:
         return get_extractor(
             name,
             vllm=cast(VLLMService, vllm),
-            char_budget=8000,
         )
 
     handler = ExtractJobHandler(

@@ -347,6 +347,17 @@ class StubVLLMService:
     async def ping(self) -> bool:
         return self.up
 
+    async def fit_prefix(
+        self,
+        parts: list[str],
+        *,
+        system_prompt: str | None = None,
+        separator: str = "\n\n",
+        max_tokens: int | None = None,
+        enable_thinking: bool = False,
+    ) -> int:
+        return len(parts)
+
     async def generate_model(
         self,
         prompt: str,

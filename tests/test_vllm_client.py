@@ -15,6 +15,7 @@ from bioparser.logging_config import JsonFormatter
 from bioparser.services.vllm import config as vllm_config
 from bioparser.services.vllm import vllm as vllm_module
 from bioparser.services.vllm.vllm import (
+    VLLMContextLengthError,
     VLLMError,
     VLLMRequestRejectedError,
     VLLMSchemaError,
@@ -553,3 +554,148 @@ async def test_a_non_positive_token_count_is_rejected(
             await service.generate("hello", max_tokens=max_tokens)
     finally:
         await service.aclose()
+
+
+def _window(max_tokens: int, budget: int) -> VLLMService:
+    service = VLLMService()
+    service.model = "stub-model"
+    service._max_tokens = max_tokens
+    service._max_model_len = max_tokens + budget
+    return service
+
+
+@pytest.mark.anyio
+async def test_an_exact_prefix_is_kept_and_one_token_over_is_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def count(_self: VLLMService, prompt: str, **_kwargs: object) -> int:
+        return len(prompt)
+
+    monkeypatch.setattr(VLLMService, "count_chat_tokens", count)
+    service = _window(max_tokens=4, budget=8)
+    try:
+        kept = await service.fit_prefix(["aaaa", "bbbb", "c"], separator="")
+    finally:
+        await service.aclose()
+
+    assert kept == 2
+
+
+@pytest.mark.anyio
+async def test_a_part_past_the_byte_bound_is_measured_and_the_tail_is_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[str] = []
+
+    async def count(_self: VLLMService, prompt: str, **_kwargs: object) -> int:
+        seen.append(prompt)
+        return len(prompt)
+
+    monkeypatch.setattr(VLLMService, "count_chat_tokens", count)
+    service = _window(max_tokens=4, budget=6)
+    try:
+        kept = await service.fit_prefix(["x" * 14, "y" * 30], separator="")
+    finally:
+        await service.aclose()
+
+    assert seen == ["", "x" * 14]
+    assert kept == 0
+
+
+@pytest.mark.anyio
+async def test_doubling_then_binary_search_finds_the_longest_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[int] = []
+
+    async def count(_self: VLLMService, prompt: str, **_kwargs: object) -> int:
+        seen.append(len(prompt))
+        return len(prompt) // 4
+
+    monkeypatch.setattr(VLLMService, "count_chat_tokens", count)
+    service = _window(max_tokens=4, budget=8)
+    try:
+        kept = await service.fit_prefix(["a"] * 80, separator="")
+    finally:
+        await service.aclose()
+
+    assert kept == 35
+    assert seen == [0, 16, 32, 64, 48, 40, 36, 34, 35]
+
+
+@pytest.mark.anyio
+async def test_an_empty_part_list_still_checks_the_system_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def count(
+        _self: VLLMService,
+        prompt: str,
+        *,
+        system_prompt: str | None = None,
+        enable_thinking: bool = False,
+    ) -> int:
+        return len(system_prompt or "") + len(prompt)
+
+    monkeypatch.setattr(VLLMService, "count_chat_tokens", count)
+    service = _window(max_tokens=4, budget=6)
+    try:
+        with pytest.raises(VLLMContextLengthError, match="context window"):
+            await service.fit_prefix([], system_prompt="x" * 20)
+    finally:
+        await service.aclose()
+
+
+@pytest.mark.anyio
+async def test_tokenize_sends_the_chat_the_completion_would_send(
+    vllm_log: pytest.LogCaptureFixture,
+    make_service: Callable[[Handler], VLLMService],
+) -> None:
+    seen: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        return httpx2.Response(200, json={"count": 3, "max_model_len": 4096, "tokens": [1, 2, 3]})
+
+    service = make_service(handler)
+    service._max_model_len = 4096
+    service._max_tokens = 4093
+    try:
+        kept = await service.fit_prefix(["hello"], system_prompt="sys")
+    finally:
+        await service.aclose()
+
+    assert kept == 1
+    assert [request.url.path for request in seen] == ["/tokenize", "/tokenize"]
+    body = json.loads(seen[1].content)
+    assert body["model"] == "stub-model"
+    assert body["messages"] == [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "hello"},
+    ]
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert json.loads(seen[0].content)["messages"][1]["content"] == ""
+    assert "hello" not in json.dumps([record.getMessage() for record in vllm_log.records])
+
+
+@pytest.mark.anyio
+async def test_a_context_length_rejection_is_its_own_error(
+    make_service: Callable[[Handler], VLLMService],
+) -> None:
+    message = (
+        "This model's maximum context length is 4096 tokens. "
+        "However, you requested 5000 tokens (4000 in the messages, 1000 in the completion)."
+    )
+    service = make_service(
+        lambda _request: httpx2.Response(
+            400,
+            json={"error": {"message": message, "type": "invalid_request_error"}},
+        )
+    )
+    try:
+        with pytest.raises(VLLMContextLengthError, match="context window") as raised:
+            await service.generate("hello")
+    finally:
+        await service.aclose()
+
+    assert "4096" not in str(raised.value)
+    assert "4000" not in str(raised.value)

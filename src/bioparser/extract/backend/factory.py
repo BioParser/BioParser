@@ -11,14 +11,10 @@ def get_extractor(
     name: str,
     *,
     vllm: VLLMService,
-    char_budget: int,
 ) -> Extractor:
     """Return the extractor registered under `name`."""
     if name == DEFAULT_EXTRACTOR_NAME:
-        return DefaultExtractor(
-            vllm=vllm,
-            char_budget=char_budget,
-        )
+        return DefaultExtractor(vllm=vllm)
     raise ExtractorBackendUnavailableError(
         f"Unknown extractor {name!r}. Choose one of: {', '.join(EXTRACTORS)}."
     )
