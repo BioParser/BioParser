@@ -100,15 +100,16 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     assert set(dumped) == aliases
 
 
-def test_a_stored_name_stays_in_the_artifact() -> None:
-    """A taxonomy lookup publishes scientificName. The extractor's reading is not a column."""
+def test_a_stored_name_is_copied_and_not_verified() -> None:
+    """The model's name is the column until a taxonomy hit replaces it."""
     observation = _observation(scientificName=_read("Mus musculus", "M. musculus", start=0))
 
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
 
-    assert row.scientificName is None
+    assert row.scientificName == "Mus musculus"
     assert row.taxonID is None
     assert row.verbatimScientificName == "M. musculus"
+    assert row.warnings == "not_verified:scientificName"
 
 
 def test_a_stored_trait_part_does_not_fill_the_standardized_columns() -> None:

@@ -36,7 +36,7 @@ class EtsRow(BaseModel):
     traitName: str | None = None
     verbatimTraitName: str = Field(min_length=1)
 
-    # Accepted name. A taxonomy lookup fills scientificName and taxonID together.
+    # Accepted name. A taxonomy hit fills this with taxonID. A model reading fills it alone.
     scientificName: str | None = None
     verbatimScientificName: str = Field(min_length=1)
     taxonID: str | None = None
@@ -110,10 +110,10 @@ class EtsRow(BaseModel):
     occurrenceRemarks: str | None = None
 
     @model_validator(mode="after")
-    def _taxon_fields_are_one_resolution(self) -> Self:
-        """A taxonomy lookup fills the accepted name and the identifier together."""
-        if (self.scientificName is None) != (self.taxonID is None):
-            raise ValueError("scientificName and taxonID are filled together")
+    def _taxon_id_has_a_name(self) -> Self:
+        """A taxonomy identifier names the accepted taxon. A name can stand alone."""
+        if self.taxonID is not None and self.scientificName is None:
+            raise ValueError("taxonID needs a scientificName")
         return self
 
     @model_validator(mode="after")

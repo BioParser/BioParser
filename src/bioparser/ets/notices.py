@@ -78,6 +78,15 @@ class NotNumeric(BaseModel):
     field: NumericField
 
 
+class NotVerified(BaseModel):
+    """A scientific name the model read. A taxonomy hit has not confirmed it."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["not_verified"] = "not_verified"
+    field: Literal["scientificName"] = "scientificName"
+
+
 class NotInVocabulary(BaseModel):
     """A stored token outside the list for that field."""
 
@@ -121,7 +130,15 @@ class NotACalendarDay(BaseModel):
     field: Literal["year,month,day"] = "year,month,day"
 
 
-Notice = NotNumeric | OutOfRange | NotInVocabulary | NotADate | NotACalendarDay | BoundsReversed
+Notice = (
+    NotNumeric
+    | OutOfRange
+    | NotVerified
+    | NotInVocabulary
+    | NotADate
+    | NotACalendarDay
+    | BoundsReversed
+)
 
 
 def format_warning(notice: Notice) -> str:

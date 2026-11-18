@@ -41,11 +41,11 @@ An extractor may store `traitValue` and `traitUnit` as its own reading of the pr
 
 ### Name and taxon
 
-`verbatimScientificName` stays the printed span, including forms such as `M. musculus`. `scientificName`, when stored, is another name a taxonomy lookup can try.
+`verbatimScientificName` stays the printed span, including forms such as `M. musculus`.
 
-One confident hit becomes the ETS `scientificName` and `taxonID`. No hit, or more than one, leaves `taxonID` empty and adds a warning. The observation is not rewritten.
+A stored `scientificName` is the model's reading of the accepted name, such as `Mus musculus` for a printed `M. musculus`. The row copies it. `taxonID` stays empty, and the row warns `not_verified:scientificName`, because the name was not checked against a taxonomy. An empty reading leaves the column empty and does not warn.
 
-A taxonomy lookup fills `scientificName` and `taxonID` together. The extractor's reading of the name stays in the artifact and is not an ETS column. `verbatimScientificName` holds the printed name.
+One confident taxonomy hit replaces that name and fills `taxonID` with it. The warning is then absent. No hit, or more than one, keeps the model's name, leaves `taxonID` empty, and keeps the warning. The observation is not rewritten. There is no lookup yet, so every stored name warns.
 
 ### Trait value and unit
 

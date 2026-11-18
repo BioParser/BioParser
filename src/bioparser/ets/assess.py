@@ -15,6 +15,7 @@ from bioparser.ets.notices import (
     Notice,
     NotInVocabulary,
     NotNumeric,
+    NotVerified,
     NumericField,
     OutOfRange,
     TextField,
@@ -100,8 +101,13 @@ def assess(observation: Observation) -> Assessment:
     # Free-text columns. A correction contributes its interpretation. A citation contributes its text.
     cited = {ets_name: _cited(getattr(observation, name)) for name, ets_name in _CITED.items()}
 
-    # A taxonomy lookup publishes the accepted name and its rank.
-    scientific_name = None
+    # The model's name is the column until a taxonomy hit replaces it. A hit fills taxonID.
+    # There is no lookup yet, so a stored name stays and warns not_verified.
+    scientific_name = (
+        stored_text(observation.scientificName) if observation.scientificName is not None else None
+    )
+    if scientific_name is not None:
+        warnings.append(NotVerified())
     cited["taxonRank"] = None
 
     # A trait list publishes the standardized value and its unit.

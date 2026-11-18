@@ -90,9 +90,9 @@ class Observation(BaseModel):
 
     ``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations
     beside a verbatim citation. The interpretation is omitted when the printed
-    token is already the value. They stay empty until a taxonomy lookup or a
-    trait list standardizes them. ``scientificName`` is another name a later
-    taxonomy lookup can try.
+    token is already the value. ``scientificName`` is the model's reading of the
+    accepted name. ``traitValue`` and ``traitUnit`` stay empty until a trait
+    list standardizes them.
 
     The artifact does not enforce a closed set of values. An interpretation's
     ``value`` is any non-empty string, including ``traitCode``. An extractor may

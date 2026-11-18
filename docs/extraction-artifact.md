@@ -150,7 +150,7 @@ In the table below, the ETS term is the column the adapter fills from the field.
 | `traitCode` | interpreted | | - | Optional. The extractor's code for the measurement, such as `body_mass`. A measurement with no code is still an observation. It is not the printed name. A later trait list looks it up. |
 | `verbatimTraitName` | printed | yes | `verbatimTraitName` | An exact citation of the printed trait name. A row without it cannot be read. The trait code is what a later list standardizes. |
 | `verbatimScientificName` | printed | yes | `verbatimScientificName` | An exact citation of the printed name, such as `M. musculus`. |
-| `scientificName` | interpreted | | `scientificName` | Paired with `verbatimScientificName`. A name read from the printed citation, such as `Mus musculus`. |
+| `scientificName` | interpreted | | `scientificName` | Paired with `verbatimScientificName`. A name read from the printed citation, such as `Mus musculus`. The row copies it and warns `not_verified:scientificName` until a taxonomy hit replaces it. |
 | `verbatimTraitValue` | printed | | `verbatimTraitValue` | An exact citation of the printed value. Optional when the paper prints a minimum or a maximum and no single value. An observation needs this value or one of those bounds. |
 | `traitValue` | interpreted | | `traitValue` | Paired with `verbatimTraitValue`. A cleaned reading of the printed number, in the unit the paper printed. |
 | `verbatimTraitUnit` | printed | | `verbatimTraitUnit` | Optional. A measurement can be printed without a unit. |
