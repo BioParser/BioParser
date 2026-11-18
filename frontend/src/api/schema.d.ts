@@ -935,7 +935,7 @@ export interface components {
          *     ``x0[i]`` and ``x1[i]`` are the glyph edges of ``text[start + i]`` on the block
          *     that owns this line. A null pair is a stored character with no ink: a space
          *     inserted between words, a hyphen removed at a line join, or MinerU's ``^{}``
-         *     and ``_{}`` markers. A ligature repeats its edges on every character it covers.
+         *     and ``_{}`` markers. A glyph that covers several characters shares its box in equal slices.
          */
         TextLine: {
             /** Start */
