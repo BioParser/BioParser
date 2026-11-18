@@ -175,14 +175,14 @@ input {
   color: #d33;
 }
 
-.job-progress {
+.job-detail-progress {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem 2rem;
   padding-left: 1.5rem;
 }
 
-.job-progress [aria-current="step"] {
+.job-detail-progress [aria-current="step"] {
   font-weight: 700;
   text-decoration: underline;
   text-underline-offset: 0.25em;

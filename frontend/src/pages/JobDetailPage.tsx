@@ -110,7 +110,7 @@ function JobStatus({ job }: { job: JobStatusResponse }) {
       <section aria-labelledby="job-progress-heading">
         <h2 id="job-progress-heading">Progress</h2>
         <p role="status">Status: {job.status}</p>
-        <ol className="job-progress" aria-label="Job progress">
+        <ol className="job-detail-progress" aria-label="Job progress">
           {STAGES.map((status, index) => (
             <li key={status} aria-current={index === stage ? "step" : undefined}>
               {JOB_STATUS_LABELS[status]}
