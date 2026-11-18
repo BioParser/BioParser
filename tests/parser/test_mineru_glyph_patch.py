@@ -21,7 +21,10 @@ def _write_tree(tmp_path: Path) -> tuple[Path, Path]:
     native.parent.mkdir(parents=True)
     post.mkdir(parents=True)
     native.write_text(
-        _PATCH._KEEP_OLD + _PATCH._DELETE_CONTENT_OLD + _PATCH._DELETE_PREBUILT_OLD,
+        _PATCH._KEEP_OLD
+        + _PATCH._DELETE_CONTENT_OLD
+        + _PATCH._DELETE_PREBUILT_OLD
+        + _PATCH._ASSIGN_OLD,
         encoding="utf-8",
     )
     content.write_text(_PATCH._LINE_ITEMS_OLD, encoding="utf-8")
@@ -68,6 +71,8 @@ def test_patch_keeps_character_boxes_and_captures_lines(tmp_path: Path) -> None:
     kept = native.read_text(encoding="utf-8")
     assert kept.count("_bioparser_keep_glyphs(span)") == 2
     assert kept.index("_bioparser_keep_glyphs(span)") < kept.index('del span.metadata["chars"]')
+    assert "if native_contents is None else []" not in kept
+    assert "_owned_span_assignments(_native_text, spans, median_span_height)" in kept
     built = content.read_text(encoding="utf-8")
     assert "bioparser_glyphs" in built
     assert "span_bbox" not in built
