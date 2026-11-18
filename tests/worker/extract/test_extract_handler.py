@@ -58,6 +58,7 @@ from bioparser.parser.models import (
 )
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.vllm import (
+    VLLMContextLengthError,
     VLLMError,
     VLLMRequestRejectedError,
     VLLMTruncatedError,
@@ -371,6 +372,35 @@ def test_a_long_paper_keeps_the_prefix_that_fits() -> None:
 
     assert prompt.text == f"[b0] {QUOTE}"
     assert prompt.blocks == {"b0": QUOTE}
+
+
+def test_eligible_text_that_does_not_fit_is_a_context_length_error() -> None:
+    class NoneFit(StubVLLMService):
+        async def fit_prefix(
+            self,
+            parts: list[str],
+            *,
+            system_prompt: str | None = None,
+            separator: str = "\n\n",
+            max_tokens: int | None = None,
+            enable_thinking: bool = False,
+        ) -> int:
+            return 0
+
+    with pytest.raises(VLLMContextLengthError, match="context window"):
+        asyncio.run(render_prompt(_parser_artifact(), vllm=cast(VLLMService, NoneFit())))
+
+
+def test_a_paper_with_no_eligible_text_stays_empty() -> None:
+    paper = _parser_artifact()
+    paper.pages[0].blocks[0] = (
+        paper.pages[0].blocks[0].model_copy(update={"role": BlockRole.REFERENCE})
+    )
+
+    prompt = asyncio.run(render_prompt(paper, vllm=cast(VLLMService, StubVLLMService())))
+
+    assert prompt.text == ""
+    assert prompt.blocks == {}
 
 
 def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> None:

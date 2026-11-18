@@ -10,6 +10,7 @@ from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
 from bioparser.parser.models import BlockRole, ParserArtifact, TextContent
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.vllm import (
+    VLLMContextLengthError,
     VLLMError,
     VLLMRequestRejectedError,
     VLLMSchemaError,
@@ -63,8 +64,11 @@ async def render_prompt(artifact: ParserArtifact, *, vllm: VLLMService) -> Promp
 
     parts = [f"[{block_id}] {text}" for block_id, text in eligible]
     kept_count = await vllm.fit_prefix(parts, system_prompt=SYSTEM_PROMPT)
-    # TODO: A finished extractor covers the whole paper or fails. This one keeps
-    # the prefix that fits, because the current window rejects most papers.
+    # No eligible block fits. An empty extraction would look like a paper with
+    # no measurements. TODO: A finished extractor covers the whole paper or fails.
+    # This one keeps a shorter prefix, because the current window rejects most papers.
+    if eligible and kept_count == 0:
+        raise VLLMContextLengthError("the prompt does not fit in the context window")
     kept = eligible[:kept_count]
     return Prompt(
         text="\n\n".join(parts[:kept_count]),
