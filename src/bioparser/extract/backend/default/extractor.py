@@ -20,9 +20,14 @@ SKIP_ROLES = frozenset({BlockRole.REFERENCE, BlockRole.HEADER, BlockRole.FOOTER}
 # TODO: check render_prompt
 SYSTEM_PROMPT = """You extract mammal trait measurements from scientific text.
 
-Return only measurements stated explicitly in the text. For each one, set
-evidence_block_id to the [block_id] shown immediately before the sentence, and
-quotation to the exact substring of that block containing the measurement.
+Return only measurements stated explicitly in the text. For each one:
+- Set evidence_block_id to the block id shown in brackets before the block (without the brackets).
+- Set quotation to the exact sentence or passage from that block containing the measurement.
+- Set taxon to the printed scientific name as it appears in the text.
+- Set value to the exact printed number token from the text, keeping any thousands separators or decimal commas (e.g. "1,234" or "2,5"). Do not reformat as a float or use scientific notation.
+- Set unit to the exact printed unit token as it appears in the text (e.g. "g", "kg", "grams", "mm").
+- trait_code is optional and can be omitted or null.
+
 If the text contains no measurements, return an empty observations list."""
 
 

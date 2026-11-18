@@ -112,7 +112,7 @@ class Observation(BaseModel):
 
     model_config = _CONFIG
 
-    trait: Interpretation
+    trait: Interpretation | None = None
     verbatimTraitName: CitationOrCorrection | None = None
 
     scientificName: Interpretation | None = None

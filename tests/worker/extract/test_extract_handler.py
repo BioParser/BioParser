@@ -626,8 +626,8 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
         seen.append(content.text)
         observation = ModelObservation(
             taxon="Mus musculus",
-            trait="body_mass",
-            value=12.5,
+            trait_code="body_mass",
+            value="12.5",
             unit="kg",
             evidence_block_id="b0",
             quotation=content.text,

@@ -155,11 +155,8 @@ class FreeTextUnitVLLM(StubVLLMService):
     ) -> str:
         observation = {
             "taxon": "Mus musculus",
-            "trait": "body_mass",
-            "value": 12.5,
-            "unit": "grams",  # guided decoding should prevent this; pydantic is the backstop
-            "evidence_block_id": "x",
-            "quotation": "12.5 g",
+            "value": "12.5",
+            # missing required fields: unit, evidence_block_id, quotation
         }
         return json.dumps({"observations": [observation]})
 
