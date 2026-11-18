@@ -15,15 +15,16 @@ export type CreateJobRequest = Schemas["CreateJobRequest"];
 export type UploadLimitsResponse = Schemas["UploadLimitsResponse"];
 export type ParserArtifact = Schemas["ParserArtifact"];
 export type ExtractionArtifact = Schemas["ExtractionArtifact"];
-export type JobList = paths["/api/jobs"]["get"]["responses"][200]["content"]["application/json"];
+// The dashboard reads the stored record, which the list returns for detail=full.
+export type JobList = (Schemas["JobFullResponse"] | Schemas["FailedJobFullResponse"])[];
 export type JobStatus = JobList[number]["status"];
 
 export function listJobs(status: string, parser: string, signal?: AbortSignal): Promise<JobList> {
   const params = new URLSearchParams();
+  params.set("detail", "full");
   if (status) params.set("status", status);
   if (parser) params.set("parser", parser);
-  const query = params.toString();
-  return apiFetch(`/api/jobs${query ? `?${query}` : ""}`, { signal });
+  return apiFetch(`/api/jobs?${params}`, { signal });
 }
 
 export type Readiness = { unavailable: string[] };
@@ -135,8 +136,15 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return (await response.json()) as T;
 }
 
-export function getJob(jobId: string, signal?: AbortSignal): Promise<JobStatusResponse> {
-  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}`, { signal });
+export function getJob(
+  jobId: string,
+  signal?: AbortSignal,
+  detail?: "ets" | "full",
+): Promise<JobStatusResponse> {
+  const params = new URLSearchParams();
+  if (detail !== undefined) params.set("detail", detail);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}${query}`, { signal });
 }
 
 // The largest PDF the API accepts (BIOPARSER_MAX_UPLOAD_BYTES), so the browser checks

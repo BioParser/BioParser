@@ -1,17 +1,24 @@
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
+from bioparser.ets.models import EtsRow
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTORS
 from bioparser.hashing import Sha256Hex
 from bioparser.jobs import SafeError
 from bioparser.parser_names import DEFAULT_PARSER_NAME, ParserName
 
 
-class JobResponseBase(BaseModel):
-    job_id: UUID
+class JobRecord(BaseModel):
+    """Fields a `detail=full` body adds.
+
+    ``has_parse_result`` says the parser artifact was stored. ``timeout`` and
+    ``internal_error`` do not say which stage ended, so the flag tells a reader
+    that parsing finished.
+    """
+
     created_at: AwareDatetime
     display_name: str | None
     parser: str
@@ -69,27 +76,40 @@ class AcceptedJobResponse(BaseModel):
     status: Literal["queued"]
 
 
-class QueuedJobResponse(JobResponseBase):
-    status: Literal["queued"]
+class JobResponse(BaseModel):
+    """One job. Its ETS rows are on ``GET /api/jobs/{job_id}/ets``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: UUID
+    status: Literal["queued", "parsing", "parsed", "extracting", "done"]
 
 
-class RunningJobResponse(JobResponseBase):
-    status: Literal["parsing", "extracting"]
+class JobFullResponse(JobResponse, JobRecord):
+    """One job with the stored record."""
 
 
-class SucceededJobResponse(JobResponseBase):
-    status: Literal["parsed", "done"]
+class FailedJobResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-
-class FailedJobResponse(JobResponseBase):
+    job_id: UUID
     status: Literal["failed"]
     error: SafeError
 
 
-JobStatusResponse = Annotated[
-    QueuedJobResponse | RunningJobResponse | SucceededJobResponse | FailedJobResponse,
-    Field(discriminator="status"),
-]
+class FailedJobFullResponse(FailedJobResponse, JobRecord):
+    """A failed job with the stored record beside the error."""
+
+
+class EtsRowsResponse(BaseModel):
+    """The ETS rows for one done job, in observation order."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rows: list[EtsRow]
+
+
+JobStatusResponse = JobResponse | JobFullResponse | FailedJobResponse | FailedJobFullResponse
 
 
 class DocumentMetadataResponse(BaseModel):

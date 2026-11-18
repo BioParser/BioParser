@@ -1,6 +1,6 @@
 """Assemble ETS rows from assessments. The quality rules live in assess."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from bioparser.ets.assess import Assessment, assess
 from bioparser.ets.models import EtsRow
@@ -8,41 +8,29 @@ from bioparser.ets.notices import format_warning
 from bioparser.extract.models import ExtractionArtifact
 
 
-class MappedRow(BaseModel):
-    """One kept row and the observation it was built from."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    source_index: int = Field(ge=0)
-    row: EtsRow
-
-
 class EtsResult(BaseModel):
-    """One row per observation."""
+    """One row per observation, in the artifact's order."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    rows: list[MappedRow]
+    rows: list[EtsRow]
 
 
 def to_ets(artifact: ExtractionArtifact, *, references: str) -> EtsResult:
     """Map one stored artifact to ETS v0.10 rows.
 
-    ``source_index`` is the position in ``artifact.observations``. ``measurementID``
-    counts only the kept rows. The artifact is not modified.
+    ``measurementID`` counts the rows, starting at 1. The row's position is the
+    observation's position. The artifact is not modified.
     """
     if references == "":
         raise ValueError("references is empty")
-    rows: list[MappedRow] = []
-    for index, observation in enumerate(artifact.observations):
+    rows: list[EtsRow] = []
+    for observation in artifact.observations:
         rows.append(
-            MappedRow(
-                source_index=index,
-                row=_row(
-                    assess(observation),
-                    references=references,
-                    measurement_id=str(len(rows) + 1),
-                ),
+            _row(
+                assess(observation),
+                references=references,
+                measurement_id=str(len(rows) + 1),
             )
         )
     return EtsResult(rows=rows)

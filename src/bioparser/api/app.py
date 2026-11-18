@@ -11,14 +11,14 @@ from concurrent.futures import Executor, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from bioparser.artifact_paths import ArtifactPathError, pdf_checksum, pdf_path
+from bioparser.artifact_paths import pdf_path
 from bioparser.db import documents as document_queries
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
@@ -31,7 +31,6 @@ from bioparser.jobs import (
     CorruptJobStateError,
     JobState,
     JobStatus,
-    SafeError,
 )
 from bioparser.jobs.queue import (
     JobQueueError,
@@ -80,19 +79,22 @@ from .errors import (
     error_response,
     http_error,
 )
+from .job_responses import (
+    job_body,
+    job_body_full,
+    job_ets_rows,
+    job_pdf_checksum,
+)
 from .middleware import TypedRequestBodyLimitMiddleware
 from .schema import (
     AcceptedJobResponse,
     CreateJobRequest,
     DocumentMetadataResponse,
-    FailedJobResponse,
+    EtsRowsResponse,
     HealthResponse,
     JobStatusResponse,
-    QueuedJobResponse,
     ReadinessResponse,
     ReadinessUnavailableResponse,
-    RunningJobResponse,
-    SucceededJobResponse,
     UploadLimitsResponse,
 )
 from .ui import add_ui_routes
@@ -373,43 +375,6 @@ def _replace_pipeline_pool(app: FastAPI, broken: Executor) -> Executor:
     return pool
 
 
-def _job_state_response(state: JobState, display_name: str | None) -> JobStatusResponse:
-    """The public status. No storage paths: they are internal, and no route takes one."""
-    response_fields: dict[str, Any] = {
-        "job_id": state.job_id,
-        "created_at": state.created_at,
-        "display_name": display_name,
-        "parser": state.parser,
-        "extractor": state.extractor,
-        "document_checksum": _job_pdf_checksum(state),
-        "has_parse_result": state.parse_result_ref is not None,
-    }
-    match state.status:
-        case "queued":
-            return QueuedJobResponse(status="queued", **response_fields)
-        case "parsing" | "extracting":
-            return RunningJobResponse(status=state.status, **response_fields)
-        case "parsed" | "done":
-            return SucceededJobResponse(status=state.status, **response_fields)
-        case "failed":
-            if state.error_code is None:
-                raise ValueError("Failed job is missing error_code")
-            return FailedJobResponse(
-                status="failed",
-                error=SafeError(code=state.error_code),
-                **response_fields,
-            )
-
-
-def _job_pdf_checksum(state: JobState) -> str:
-    """Return a job's document checksum or the public corrupt-state error."""
-    try:
-        return pdf_checksum(state.pdf_ref)
-    except ArtifactPathError as exc:
-        LOGGER.error("job PDF reference unreadable", extra={"job_id": str(state.job_id)})
-        raise http_error(500, JOB_STATE_UNREADABLE) from exc
-
-
 def _parse_job_id(job_id: str) -> UUID:
     try:
         parsed_job_id = UUID(job_id)
@@ -501,6 +466,7 @@ async def _stored_artifact(request: Request, job: JobState, ref: str | None, kin
     "/api/extractions",
     status_code=202,
     dependencies=[Depends(require_api_key)],
+    response_model=AcceptedJobResponse,
     responses={
         400: error_response(MISSING_FILE, EMPTY_FILE, INVALID_PDF, INVALID_CONTENT_LENGTH),
         401: error_response(UNAUTHORIZED),
@@ -782,6 +748,7 @@ async def submit_document_job(
 async def list_document_jobs(
     request: Request,
     checksum: str,
+    detail: Literal["ets", "full"] = "ets",
 ) -> list[JobStatusResponse]:
     valid_checksum = _validate_checksum(checksum)
     try:
@@ -805,7 +772,9 @@ async def list_document_jobs(
         )
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
 
-    return [_job_state_response(j, doc.display_name) for j in jobs]
+    if detail == "full":
+        return [job_body_full(job, doc.display_name) for job in jobs]
+    return [job_body(job) for job in jobs]
 
 
 @app.get(
@@ -822,6 +791,7 @@ async def list_jobs(
     request: Request,
     status: JobStatus | None = None,
     parser: str | None = None,
+    detail: Literal["ets", "full"] = "ets",
 ) -> list[JobStatusResponse]:
     try:
         async with database.transaction() as connection:
@@ -830,8 +800,13 @@ async def list_jobs(
                 status=status,
                 parser=parser,
             )
-            checksums = {_job_pdf_checksum(job) for job in jobs}
-            display_names = await document_queries.get_display_names(connection, checksums)
+            display_names = (
+                await document_queries.get_display_names(
+                    connection, {job_pdf_checksum(job) for job in jobs}
+                )
+                if detail == "full"
+                else {}
+            )
     except CorruptJobStateError as exc:
         LOGGER.error("corrupt job state in list jobs", extra=error_fields(exc))
         raise http_error(500, JOB_STATE_UNREADABLE) from exc
@@ -839,7 +814,9 @@ async def list_jobs(
         LOGGER.warning("job store list failed", extra=error_fields(exc))
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
 
-    return [_job_state_response(job, display_names.get(_job_pdf_checksum(job))) for job in jobs]
+    if detail == "full":
+        return [job_body_full(job, display_names.get(job_pdf_checksum(job))) for job in jobs]
+    return [job_body(job) for job in jobs]
 
 
 @app.get(
@@ -853,19 +830,63 @@ async def list_jobs(
         503: error_response(DATABASE_UNAVAILABLE),
     },
 )
-async def job_status(request: Request, job_id: str) -> JobStatusResponse:
-    job = await _read_job(request, _parse_job_id(job_id))
-    checksum = _job_pdf_checksum(job)
+async def job_status(
+    request: Request,
+    job_id: str,
+    detail: Literal["ets", "full"] = "ets",
+) -> JobStatusResponse:
+    """The job.
+
+    `queued`, `parsing`, `parsed`, and `extracting` are `job_id` and `status`. `failed`
+    adds `error`. `done` is `job_id` and `status`. The ETS rows are
+    `GET /api/jobs/{job_id}/ets`. This route does not read the extraction artifact.
+
+    `?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,
+    `extractor`, `document_checksum`, and `has_parse_result`.
+    """
+    state = await _read_job(request, _parse_job_id(job_id))
+    if detail == "full":
+        return job_body_full(state, await _display_name(state))
+    return job_body(state)
+
+
+@app.get(
+    "/api/jobs/{job_id}/ets",
+    dependencies=[Depends(require_api_key)],
+    response_model=EtsRowsResponse,
+    responses={
+        401: error_response(UNAUTHORIZED),
+        404: error_response(JOB_NOT_FOUND),
+        409: error_response(ARTIFACT_NOT_AVAILABLE),
+        422: error_response(INVALID_JOB_ID),
+        500: error_response(JOB_STATE_UNREADABLE, ARTIFACT_INVALID),
+        503: error_response(DATABASE_UNAVAILABLE, STORAGE_UNAVAILABLE),
+    },
+)
+async def job_ets(request: Request, job_id: str) -> EtsRowsResponse:
+    """The ETS rows for a done job, in observation order.
+
+    A job that is not done has no rows yet.
+    """
+    state = await _read_job(request, _parse_job_id(job_id))
+    if state.status != "done":
+        raise http_error(409, ARTIFACT_NOT_AVAILABLE)
+    return await job_ets_rows(request, state)
+
+
+async def _display_name(state: JobState) -> str | None:
+    """The document's stored name, or None when the document row is gone."""
+    checksum = job_pdf_checksum(state)
     try:
         async with database.transaction() as connection:
-            display_names = await document_queries.get_display_names(connection, {checksum})
+            names = await document_queries.get_display_names(connection, {checksum})
     except DatabaseError as exc:
         LOGGER.warning(
             "document display name read failed",
-            extra={"job_id": str(job.job_id), **error_fields(exc)},
+            extra={"job_id": str(state.job_id), **error_fields(exc)},
         )
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
-    return _job_state_response(job, display_names.get(checksum))
+    return names.get(checksum)
 
 
 @app.get(

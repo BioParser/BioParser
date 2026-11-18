@@ -138,8 +138,40 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Job Status */
+        /**
+         * Job Status
+         * @description The job.
+         *
+         *     `queued`, `parsing`, `parsed`, and `extracting` are `job_id` and `status`. `failed`
+         *     adds `error`. `done` is `job_id` and `status`. The ETS rows are
+         *     `GET /api/jobs/{job_id}/ets`. This route does not read the extraction artifact.
+         *
+         *     `?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,
+         *     `extractor`, `document_checksum`, and `has_parse_result`.
+         */
         get: operations["job_status_api_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/ets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Job Ets
+         * @description The ETS rows for a done job, in observation order.
+         *
+         *     A job that is not done has no rows yet.
+         */
+        get: operations["job_ets_api_jobs__job_id__ets_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -410,6 +442,135 @@ export interface components {
             detail: components["schemas"]["ErrorDetail"];
         };
         /**
+         * EtsRow
+         * @description ETS v0.10 core, taxon, measurement-or-fact, and occurrence columns.
+         *
+         *     The order follows the stored observation. Columns the artifact does not
+         *     store sit beside the field they belong with.
+         */
+        EtsRow: {
+            /** Traitid */
+            traitID?: string | null;
+            /** Traitname */
+            traitName?: string | null;
+            /** Verbatimtraitname */
+            verbatimTraitName: string;
+            /** Scientificname */
+            scientificName?: string | null;
+            /** Verbatimscientificname */
+            verbatimScientificName: string;
+            /** Taxonid */
+            taxonID?: string | null;
+            /** Traitvalue */
+            traitValue?: string | null;
+            /** Verbatimtraitvalue */
+            verbatimTraitValue?: string | null;
+            /** Traitunit */
+            traitUnit?: string | null;
+            /** Verbatimtraitunit */
+            verbatimTraitUnit?: string | null;
+            /** Taxonrank */
+            taxonRank?: string | null;
+            /** Kingdom */
+            kingdom?: string | null;
+            /** Phylum */
+            phylum?: string | null;
+            /** Class */
+            class?: string | null;
+            /** Order */
+            order?: string | null;
+            /** Family */
+            family?: string | null;
+            /** Genus */
+            genus?: string | null;
+            /** Sex */
+            sex?: string | null;
+            /** Lifestage */
+            lifeStage?: string | null;
+            /** Age */
+            age?: string | null;
+            /** Morphotype */
+            morphotype?: string | null;
+            /** Basisofrecord */
+            basisOfRecord?: ("LivingSpecimen" | "PreservedSpecimen" | "FossilSpecimen" | "literatureData" | "traitDatabase" | "expertKnowledge") | null;
+            /** Basisofrecorddescription */
+            basisOfRecordDescription?: string | null;
+            /** Measurementmethod */
+            measurementMethod?: string | null;
+            /** Measurementresolution */
+            measurementResolution?: string | null;
+            /** Measurementremarks */
+            measurementRemarks?: string | null;
+            /** Measurementdeterminedby */
+            measurementDeterminedBy?: string | null;
+            /** Measurementdetermineddate */
+            measurementDeterminedDate?: string | null;
+            /** Aggregatemeasure */
+            aggregateMeasure?: boolean | null;
+            /** Statisticalmethod */
+            statisticalMethod?: string | null;
+            /** Individualcount */
+            individualCount?: string | null;
+            /** Dispersion */
+            dispersion?: string | null;
+            /** Measurementvalue Min */
+            measurementValue_min?: string | null;
+            /** Measurementvalue Max */
+            measurementValue_max?: string | null;
+            /** Measurementaccuracy */
+            measurementAccuracy?: string | null;
+            /** Measurementid */
+            measurementID: string;
+            /** Occurrenceid */
+            occurrenceID?: string | null;
+            /** Warnings */
+            warnings: string;
+            /** References */
+            references: string;
+            /** Eventid */
+            eventID?: string | null;
+            /** Preparations */
+            preparations?: string | null;
+            /** Samplingprotocol */
+            samplingProtocol?: string | null;
+            /** Year */
+            year?: string | null;
+            /** Month */
+            month?: string | null;
+            /** Day */
+            day?: string | null;
+            /** Eventdate */
+            eventDate?: string | null;
+            /** Locationid */
+            locationID?: string | null;
+            /** Habitat */
+            habitat?: string | null;
+            /** Decimallongitude */
+            decimalLongitude?: string | null;
+            /** Decimallatitude */
+            decimalLatitude?: string | null;
+            /** Elevation */
+            elevation?: string | null;
+            /** Geodeticdatum */
+            geodeticDatum?: string | null;
+            /** Verbatimlocality */
+            verbatimLocality?: string | null;
+            /** Country */
+            country?: string | null;
+            /** Countrycode */
+            countryCode?: string | null;
+            /** Occurrenceremarks */
+            occurrenceRemarks?: string | null;
+        };
+        /**
+         * EtsRowsResponse
+         * @description The ETS rows for one done job, in observation order.
+         */
+        EtsRowsResponse: {
+            /** Rows */
+            rows: components["schemas"]["EtsRow"][];
+        };
+        /**
          * ExtractionArtifact
          * @description Versioned extraction result stored for a job.
          */
@@ -427,13 +588,11 @@ export interface components {
             /** Observations */
             observations?: components["schemas"]["Observation"][];
         };
-        /** FailedJobResponse */
-        FailedJobResponse: {
-            /**
-             * Job Id
-             * Format: uuid
-             */
-            job_id: string;
+        /**
+         * FailedJobFullResponse
+         * @description A failed job with the stored record beside the error.
+         */
+        FailedJobFullResponse: {
             /**
              * Created At
              * Format: date-time
@@ -450,8 +609,27 @@ export interface components {
             /** Has Parse Result */
             has_parse_result: boolean;
             /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "failed";
+            error: components["schemas"]["SafeError"];
+        };
+        /** FailedJobResponse */
+        FailedJobResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @constant
              */
             status: "failed";
             error: components["schemas"]["SafeError"];
@@ -487,6 +665,53 @@ export interface components {
             /** Value */
             value: string;
             passage: components["schemas"]["Citation"];
+        };
+        /**
+         * JobFullResponse
+         * @description One job with the stored record.
+         */
+        JobFullResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Parser */
+            parser: string;
+            /** Extractor */
+            extractor: string;
+            /** Document Checksum */
+            document_checksum: string;
+            /** Has Parse Result */
+            has_parse_result: boolean;
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "parsing" | "parsed" | "extracting" | "done";
+        };
+        /**
+         * JobResponse
+         * @description One job. Its ETS rows are on ``GET /api/jobs/{job_id}/ets``.
+         */
+        JobResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "parsing" | "parsed" | "extracting" | "done";
         };
         /**
          * Observation
@@ -638,34 +863,6 @@ export interface components {
                 [key: string]: string | number | boolean;
             };
         };
-        /** QueuedJobResponse */
-        QueuedJobResponse: {
-            /**
-             * Job Id
-             * Format: uuid
-             */
-            job_id: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Display Name */
-            display_name: string | null;
-            /** Parser */
-            parser: string;
-            /** Extractor */
-            extractor: string;
-            /** Document Checksum */
-            document_checksum: string;
-            /** Has Parse Result */
-            has_parse_result: boolean;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            status: "queued";
-        };
         /**
          * ReadinessResponse
          * @example {
@@ -704,34 +901,6 @@ export interface components {
         ReadinessUnavailableResponse: {
             detail: components["schemas"]["ReadinessUnavailableDetail"];
         };
-        /** RunningJobResponse */
-        RunningJobResponse: {
-            /**
-             * Job Id
-             * Format: uuid
-             */
-            job_id: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Display Name */
-            display_name: string | null;
-            /** Parser */
-            parser: string;
-            /** Extractor */
-            extractor: string;
-            /** Document Checksum */
-            document_checksum: string;
-            /** Has Parse Result */
-            has_parse_result: boolean;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            status: "parsing" | "extracting";
-        };
         /**
          * SafeError
          * @description A short, non-sensitive description of why a job failed.
@@ -742,34 +911,6 @@ export interface components {
              * @enum {string}
              */
             code: "invalid_pdf" | "parse_failed" | "extraction_failed" | "timeout" | "internal_error";
-        };
-        /** SucceededJobResponse */
-        SucceededJobResponse: {
-            /**
-             * Job Id
-             * Format: uuid
-             */
-            job_id: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Display Name */
-            display_name: string | null;
-            /** Parser */
-            parser: string;
-            /** Extractor */
-            extractor: string;
-            /** Document Checksum */
-            document_checksum: string;
-            /** Has Parse Result */
-            has_parse_result: boolean;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            status: "parsed" | "done";
         };
         /** TableCell */
         TableCell: {
@@ -1246,7 +1387,9 @@ export interface operations {
     };
     list_document_jobs_api_documents__checksum__jobs_get: {
         parameters: {
-            query?: never;
+            query?: {
+                detail?: "ets" | "full";
+            };
             header?: never;
             path: {
                 checksum: string;
@@ -1261,7 +1404,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": (components["schemas"]["QueuedJobResponse"] | components["schemas"]["RunningJobResponse"] | components["schemas"]["SucceededJobResponse"] | components["schemas"]["FailedJobResponse"])[];
+                    "application/json": (components["schemas"]["JobResponse"] | components["schemas"]["JobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"])[];
                 };
             };
             /** @description Unauthorized */
@@ -1387,6 +1530,7 @@ export interface operations {
             query?: {
                 status?: ("queued" | "parsing" | "parsed" | "extracting" | "done" | "failed") | null;
                 parser?: string | null;
+                detail?: "ets" | "full";
             };
             header?: never;
             path?: never;
@@ -1400,7 +1544,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": (components["schemas"]["QueuedJobResponse"] | components["schemas"]["RunningJobResponse"] | components["schemas"]["SucceededJobResponse"] | components["schemas"]["FailedJobResponse"])[];
+                    "application/json": (components["schemas"]["JobResponse"] | components["schemas"]["JobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"])[];
                 };
             };
             /** @description Unauthorized */
@@ -1443,6 +1587,75 @@ export interface operations {
     };
     job_status_api_jobs__job_id__get: {
         parameters: {
+            query?: {
+                detail?: "ets" | "full";
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobResponse"] | components["schemas"]["JobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    job_ets_api_jobs__job_id__ets_get: {
+        parameters: {
             query?: never;
             header?: never;
             path: {
@@ -1458,7 +1671,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QueuedJobResponse"] | components["schemas"]["RunningJobResponse"] | components["schemas"]["SucceededJobResponse"] | components["schemas"]["FailedJobResponse"];
+                    "application/json": components["schemas"]["EtsRowsResponse"];
                 };
             };
             /** @description Unauthorized */
@@ -1472,6 +1685,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

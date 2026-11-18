@@ -278,9 +278,9 @@ describe("EvidenceView", () => {
     await screen.findByText(/^Page 2/);
     expect(fetchMock.mock.calls.map(([input]) => String(input)).sort()).toEqual([
       "/api/documents/abc/file",
-      "/api/jobs/job-1",
       "/api/jobs/job-1/artifacts/extraction",
       "/api/jobs/job-1/artifacts/parser",
+      "/api/jobs/job-1?detail=full",
     ]);
     expect(openPdf).toHaveBeenCalledTimes(1);
   });

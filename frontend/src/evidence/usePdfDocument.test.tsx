@@ -80,7 +80,10 @@ describe("usePdfDocument", () => {
     });
     await waitFor(() => expect(result.current.pdf.isSuccess).toBe(true));
     expect(result.current.pdf.data).toBe(PDF);
-    expect(paths(fetchMock)).toEqual(["/api/jobs/job-1", `/api/documents/${CHECKSUM}/file`]);
+    expect(paths(fetchMock)).toEqual([
+      "/api/jobs/job-1?detail=full",
+      `/api/documents/${CHECKSUM}/file`,
+    ]);
     expect([...new Uint8Array(openPdf.mock.calls[0]?.[0])]).toEqual([37, 80, 68, 70]);
   });
 
@@ -102,7 +105,7 @@ describe("usePdfDocument", () => {
       wrapper: wrapperFor(newQueryClient()),
     });
     await waitFor(() => expect(result.current.checksum.isError).toBe(true));
-    expect(paths(fetchMock)).toEqual(["/api/jobs/job-1"]);
+    expect(paths(fetchMock)).toEqual(["/api/jobs/job-1?detail=full"]);
     expect(result.current.pdf.fetchStatus).toBe("idle");
   });
 
