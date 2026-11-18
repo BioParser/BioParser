@@ -1,7 +1,8 @@
 """Place MinerU's glyph edges onto a block's stored text.
 
 MinerU's text can insert ``^{}`` and ``_{}`` around a superscript or subscript, and it can
-drop a line-end hyphen. The edges belong to the characters MinerU actually measured.
+drop a line-end hyphen when the next line continues the word. The edges belong to the
+characters MinerU actually measured. That removed hyphen is not given a box.
 """
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ from typing import Any
 from bioparser.parser.models import TextLine
 
 _MARKERS = ("^{", "_{")
+# The same hyphen characters MinerU treats as a line-end break, not an en or em dash.
+_LINE_END_HYPHENS = frozenset("-\u00ad\u2010\u2011\u2043")
 
 
 def _expand(glyphs: object) -> list[tuple[str, float, float]]:
@@ -57,6 +60,17 @@ def _unit(value: float) -> float:
     return min(1.0, max(0.0, value))
 
 
+def _dropped_line_break(char: str, previous: str, text: str, pos: int) -> bool:
+    """A line-end hyphen MinerU already removed because the next line continues the word."""
+    return (
+        char in _LINE_END_HYPHENS
+        and previous.isalpha()
+        and pos < len(text)
+        and text[pos].islower()
+        and text[pos] != char
+    )
+
+
 def text_lines_for_block(text: str, raw_lines: object) -> list[TextLine]:
     """Map one block's harvested lines onto ``text``. A line that cannot be placed is omitted."""
     if not isinstance(raw_lines, list) or not text:
@@ -79,8 +93,13 @@ def text_lines_for_block(text: str, raw_lines: object) -> list[TextLine]:
         bottom = _unit(float(y1))
         if bottom < top:
             continue
+        previous_glyph = ""
         for char, left, right in _expand(raw.get("glyphs")):
             pos = _skip_markers(text, pos)
+            if _dropped_line_break(char, previous_glyph, text, pos):
+                previous_glyph = char
+                continue
+            previous_glyph = char
             if pos < len(text) and text[pos] == char:
                 at = pos
                 pos += 1
