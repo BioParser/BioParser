@@ -14,7 +14,7 @@ from dramatiq.brokers.stub import StubBroker
 from dramatiq.middleware.time_limit import TimeLimit
 from stubs import MemoryStorage, StubJobs, bind_jobs, clear_jobs, failed_task, fake_mineru
 
-from bioparser.artifact_paths import parse_result_path
+from bioparser.artifact_paths import parse_result_path, pdf_path
 from bioparser.db.engine import DatabaseError, DatabaseUnavailableError
 from bioparser.jobs.queue import JobDeferred, JobTimeLimitExceeded
 from bioparser.jobs.queue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
@@ -46,9 +46,6 @@ from bioparser.worker.parse.config import DEFAULT_PARSE_MAX_RETRIES
 from bioparser.worker.parse.handler import ParseJobHandler
 
 JOB_ID = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
-PDF_REF = (
-    "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"  # kept as a UUID: the worker doesn't depend on its shape
-)
 PDF_BYTES = b"%PDF-1.4"
 PDF_CHECKSUM = hashlib.sha256(PDF_BYTES).hexdigest()
 RESULT_PATH = parse_result_path(PDF_CHECKSUM, "default", PARSER_VERSIONS["default"])
@@ -72,7 +69,7 @@ def _mineru_ready_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _storage() -> MemoryStorage:
-    return MemoryStorage({PDF_REF: PDF_BYTES})
+    return MemoryStorage({pdf_path(PDF_CHECKSUM): PDF_BYTES})
 
 
 class RecordingParser:
@@ -123,7 +120,7 @@ def _queued() -> JobState:
         status="queued",
         parser="default",
         extractor="default",
-        pdf_ref=PDF_REF,
+        document_checksum=PDF_CHECKSUM,
         created_at=CREATED_AT,
     )
 

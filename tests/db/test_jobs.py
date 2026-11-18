@@ -16,6 +16,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError, InterfaceError, Operation
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from bioparser.db import documents as document_queries
 from bioparser.db import engine as db_engine
 from bioparser.db import jobs as job_queries
 from bioparser.db.engine import (
@@ -28,6 +29,7 @@ from bioparser.db.migrate import upgrade
 from bioparser.jobs import CorruptJobStateError, JobState, JobStatus
 
 CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
+CHECKSUM = "ab" * 32
 
 
 def test_async_url_selects_asyncpg() -> None:
@@ -75,7 +77,7 @@ def _queued(job_id: uuid.UUID, **overrides: object) -> JobState:
         "status": "queued",
         "parser": "default",
         "extractor": "default",
-        "pdf_ref": str(uuid.uuid4()),
+        "document_checksum": CHECKSUM,
         "created_at": CREATED_AT,
     }
     fields.update(overrides)
@@ -84,6 +86,12 @@ def _queued(job_id: uuid.UUID, **overrides: object) -> JobState:
 
 async def _create(state: JobState) -> JobState:
     async with db_engine.transaction() as connection:
+        await document_queries.create(
+            connection,
+            checksum=state.document_checksum,
+            display_name=None,
+            size_bytes=0,
+        )
         return await job_queries.create(connection, state)
 
 
@@ -161,6 +169,59 @@ async def test_create_rejects_duplicate_job_id(database: str) -> None:
 
     with pytest.raises(DatabaseError, match="Postgres query failed"):
         await _create(state)
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_create_rejects_a_checksum_with_no_document(database: str) -> None:
+    state = _queued(uuid.uuid4(), document_checksum="11" * 32)
+    with pytest.raises(DatabaseError, match="Postgres query failed"):
+        async with db_engine.transaction() as connection:
+            await job_queries.create(connection, state)
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_job_reads_join_the_document_including_a_missing_name(database: str) -> None:
+    named_checksum = "ab" * 32
+    unnamed_checksum = "cd" * 32
+    named = _queued(uuid.uuid4(), document_checksum=named_checksum)
+    unnamed = _queued(uuid.uuid4(), document_checksum=unnamed_checksum)
+    async with db_engine.transaction() as connection:
+        await document_queries.create(
+            connection,
+            checksum=named_checksum,
+            display_name="paper.pdf",
+            size_bytes=4,
+        )
+        await document_queries.create(
+            connection,
+            checksum=unnamed_checksum,
+            display_name=None,
+            size_bytes=0,
+        )
+        await job_queries.create(connection, named)
+        await job_queries.create(connection, unnamed)
+
+    async with db_engine.transaction() as connection:
+        loaded_rows = await job_queries.list_jobs(connection, job_id=named.job_id)
+        missing_rows = await job_queries.list_jobs(connection, job_id=unnamed.job_id)
+        listed = await job_queries.list_jobs(connection)
+        named_jobs = await job_queries.list_jobs_for_document(connection, named_checksum)
+        absent = await job_queries.list_jobs_for_document(connection, "ef" * 32)
+
+    assert len(loaded_rows) == 1
+    loaded_state, loaded_name = loaded_rows[0]
+    assert loaded_state.document_checksum == named_checksum
+    assert loaded_name == "paper.pdf"
+    assert len(missing_rows) == 1
+    assert missing_rows[0][1] is None
+    names = {state.job_id: name for state, name in listed}
+    assert names[named.job_id] == "paper.pdf"
+    assert names[unnamed.job_id] is None
+    assert named_jobs is not None
+    assert [state.job_id for state, _name in named_jobs] == [named.job_id]
+    assert absent is None
 
 
 @pytest.mark.integration
@@ -362,10 +423,18 @@ async def test_a_write_does_not_require_a_valid_job_state(database: str) -> None
     with engine.begin() as connection:
         connection.execute(
             text(
-                "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
-                "VALUES (:job_id, 2, 'parsing', 'default', 'default', :pdf_ref)"
+                "INSERT INTO documents (checksum, display_name, size_bytes) "
+                "VALUES (:checksum, NULL, 0)"
             ),
-            {"job_id": job_id, "pdf_ref": str(uuid.uuid4())},
+            {"checksum": CHECKSUM},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, "
+                "document_checksum) "
+                "VALUES (:job_id, 1, 'parsing', 'default', 'default', :checksum)"
+            ),
+            {"job_id": job_id, "checksum": CHECKSUM},
         )
     engine.dispose()
 
@@ -438,10 +507,18 @@ async def test_corrupt_stored_state_raises(database: str) -> None:
     with engine.begin() as connection:
         connection.execute(
             text(
-                "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
-                "VALUES (:job_id, 2, 'queued', 'default', 'default', :pdf_ref)"
+                "INSERT INTO documents (checksum, display_name, size_bytes) "
+                "VALUES (:checksum, NULL, 0)"
             ),
-            {"job_id": job_id, "pdf_ref": str(uuid.uuid4())},
+            {"checksum": CHECKSUM},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, "
+                "document_checksum) "
+                "VALUES (:job_id, 1, 'queued', 'default', 'default', :checksum)"
+            ),
+            {"job_id": job_id, "checksum": CHECKSUM},
         )
     engine.dispose()
 
@@ -626,15 +703,27 @@ def test_job_columns_match_the_job_state_fields() -> None:
 async def test_migrated_status_check_accepts_exactly_the_job_statuses(database: str) -> None:
     """The migration lists the statuses by hand. This fails when the code adds one."""
     insert = text(
-        "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
-        "VALUES (:job_id, 1, :status, 'default', 'default', 'ref')"
+        "INSERT INTO documents (checksum, display_name, size_bytes) "
+        "VALUES (:checksum, NULL, 0) ON CONFLICT (checksum) DO NOTHING"
+    )
+    job_insert = text(
+        "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, document_checksum) "
+        "VALUES (:job_id, 2, :status, 'default', 'default', :checksum)"
     )
     engine = create_engine(sync_database_url(database))
     try:
+        with engine.begin() as connection:
+            connection.execute(insert, {"checksum": CHECKSUM})
         for status in get_args(JobStatus):
             with engine.begin() as connection:
-                connection.execute(insert, {"job_id": uuid.uuid4(), "status": status})
+                connection.execute(
+                    job_insert,
+                    {"job_id": uuid.uuid4(), "status": status, "checksum": CHECKSUM},
+                )
         with pytest.raises(IntegrityError), engine.begin() as connection:
-            connection.execute(insert, {"job_id": uuid.uuid4(), "status": "not_a_status"})
+            connection.execute(
+                job_insert,
+                {"job_id": uuid.uuid4(), "status": "not_a_status", "checksum": CHECKSUM},
+            )
     finally:
         engine.dispose()

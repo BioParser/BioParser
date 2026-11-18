@@ -514,6 +514,12 @@ class StubJobs:
         self.events.append("job_state.get")
         return self.states.get(str(job_id))
 
+    def _name(self, state: JobState) -> str | None:
+        document = self.documents.get(state.document_checksum)
+        if document is None:
+            return None
+        return document.display_name
+
     async def claim(
         self,
         connection: object,
@@ -587,29 +593,39 @@ class StubJobs:
         self,
         connection: object,
         *,
+        job_id: object = None,
         status: JobStatus | None = None,
         parser: str | None = None,
-    ) -> list[JobState]:
+    ) -> list[tuple[JobState, str | None]]:
         self.events.append("job_state.list")
         if self.get_error is not None:
             raise self.get_error
+        if self.doc_get_error is not None:
+            raise self.doc_get_error
         jobs = list(self.states.values())
+        if job_id is not None:
+            jobs = [j for j in jobs if str(j.job_id) == str(job_id)]
         if status is not None:
             jobs = [j for j in jobs if j.status == status]
         if parser is not None:
             jobs = [j for j in jobs if j.parser == parser]
-        return jobs
+        return [(job, self._name(job)) for job in jobs]
 
     async def list_jobs_for_document(
         self,
         connection: object,
         checksum: str,
-    ) -> list[JobState]:
+    ) -> list[tuple[JobState, str | None]] | None:
         self.events.append("job_state.list_for_document")
         if self.get_error is not None:
             raise self.get_error
-        target = f"pdf/{checksum}"
-        return [j for j in self.states.values() if j.pdf_ref == target]
+        if checksum not in self.documents:
+            return None
+        return [
+            (job, self._name(job))
+            for job in self.states.values()
+            if job.document_checksum == checksum
+        ]
 
     async def get_document(self, connection: object, checksum: str) -> DocumentRecord | None:
         self.events.append("document.get")
@@ -646,20 +662,6 @@ class StubJobs:
         docs = list(self.documents.values())
         docs.sort(key=lambda d: d.created_at, reverse=True)
         return docs
-
-    async def get_document_display_names(
-        self,
-        connection: object,
-        checksums: Collection[str],
-    ) -> dict[str, str | None]:
-        self.events.append("document.get_display_names")
-        if self.doc_get_error is not None:
-            raise self.doc_get_error
-        return {
-            checksum: self.documents[checksum].display_name
-            for checksum in checksums
-            if checksum in self.documents
-        }
 
 
 def bind_jobs(monkeypatch: Any) -> None:
@@ -706,15 +708,16 @@ def bind_jobs(monkeypatch: Any) -> None:
     async def list_jobs(
         connection: object,
         *,
+        job_id: object = None,
         status: JobStatus | None = None,
         parser: str | None = None,
-    ) -> list[JobState]:
-        return await tables[-1].list_jobs(connection, status=status, parser=parser)
+    ) -> list[tuple[JobState, str | None]]:
+        return await tables[-1].list_jobs(connection, job_id=job_id, status=status, parser=parser)
 
     async def list_jobs_for_document(
         connection: object,
         checksum: str,
-    ) -> list[JobState]:
+    ) -> list[tuple[JobState, str | None]] | None:
         return await tables[-1].list_jobs_for_document(connection, checksum)
 
     async def get_document(connection: object, checksum: str) -> DocumentRecord | None:
@@ -733,12 +736,6 @@ def bind_jobs(monkeypatch: Any) -> None:
 
     async def list_documents(connection: object) -> list[DocumentRecord]:
         return await tables[-1].list_documents(connection)
-
-    async def get_display_names(
-        connection: object,
-        checksums: Collection[str],
-    ) -> dict[str, str | None]:
-        return await tables[-1].get_document_display_names(connection, checksums)
 
     async def open_pool(url: str) -> None:
         return None
@@ -771,7 +768,6 @@ def bind_jobs(monkeypatch: Any) -> None:
     monkeypatch.setattr(document_queries, "get", get_document)
     monkeypatch.setattr(document_queries, "create", create_document)
     monkeypatch.setattr(document_queries, "list_documents", list_documents)
-    monkeypatch.setattr(document_queries, "get_display_names", get_display_names)
     monkeypatch.setattr(database, "open", open_pool)
     monkeypatch.setattr(database, "aclose", close_pool)
     monkeypatch.setattr(database, "transaction", _transaction)

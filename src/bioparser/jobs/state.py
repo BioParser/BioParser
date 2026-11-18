@@ -14,6 +14,7 @@ from pydantic import (
 
 from bioparser.artifact_paths import ArtifactPath
 from bioparser.extractor_names import EXTRACTORS
+from bioparser.hashing import Sha256Hex
 from bioparser.parser_names import PARSER_BACKENDS
 
 
@@ -57,7 +58,7 @@ SafeErrorCode = Literal[
 # Schema version for the JobState contract. Bump the version up when the shape of JobState
 # changes in a way that is not backward compatible, so a stored record from
 # an older version is recognized as such rather than silently misread.
-JOB_STATE_SCHEMA_VERSION: Literal[1] = 1
+JOB_STATE_SCHEMA_VERSION: Literal[2] = 2
 
 
 class SafeError(BaseModel):
@@ -72,12 +73,12 @@ class JobState(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    schema_version: Literal[1] = JOB_STATE_SCHEMA_VERSION
+    schema_version: Literal[2] = JOB_STATE_SCHEMA_VERSION
     job_id: UUID4
     status: JobStatus
     parser: str = Field(min_length=1)
     extractor: str = Field(min_length=1)
-    pdf_ref: ArtifactPath
+    document_checksum: Sha256Hex
     parse_result_ref: ArtifactPath | None = None
     extract_result_ref: ArtifactPath | None = None
     error_code: SafeErrorCode | None = None
