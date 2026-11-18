@@ -11,7 +11,7 @@ class WordBox:
     x1: float
     top: float
     bottom: float
-    # One entry per glyph in ``text``. Empty means the word box is split evenly.
+    # One glyph box. Its text may be longer than one character. Empty means the word box is split evenly.
     glyphs: tuple[tuple[str, float, float], ...] = ()
 
 
