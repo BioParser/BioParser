@@ -362,7 +362,7 @@ def test_a_range_without_a_central_value_stays_on_the_row() -> None:
         measurementValueMax=_cited("15", start=24),
     )
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0].row
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.verbatimTraitValue is None
     assert row.measurementValue_min == "10"
