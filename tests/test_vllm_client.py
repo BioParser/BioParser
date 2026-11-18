@@ -450,7 +450,7 @@ async def test_a_non_positive_token_count_is_rejected(
 ) -> None:
     service = make_service(lambda _request: httpx2.Response(500, json={"error": "unused"}))
     try:
-        with pytest.raises(ValueError, match="at least 1"):
+        with pytest.raises(VLLMError, match="at least 1"):
             await service.generate("hello", max_tokens=max_tokens)
     finally:
         await service.aclose()

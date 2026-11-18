@@ -60,7 +60,7 @@ class VLLMService:
         if max_tokens is None or max_tokens > self._max_tokens:
             return self._max_tokens
         if max_tokens < 1:
-            raise ValueError("max_tokens must be at least 1")
+            raise VLLMError("max_tokens must be at least 1")
         return max_tokens
 
     async def ping(self) -> bool:
