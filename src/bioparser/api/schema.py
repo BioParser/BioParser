@@ -4,7 +4,6 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
-from bioparser.ets.adapter import EtsSourceRow
 from bioparser.ets.models import EtsRow
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTORS
 from bioparser.hashing import Sha256Hex
@@ -77,21 +76,8 @@ class AcceptedJobResponse(BaseModel):
     status: Literal["queued"]
 
 
-class OpenJobResponse(BaseModel):
-    """A job that is not done and has not failed. It has no observations."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    job_id: UUID
-    status: Literal["queued", "parsing", "parsed", "extracting"]
-
-
-class OpenJobFullResponse(OpenJobResponse, JobRecord):
-    """An open job with the stored record beside the status."""
-
-
-class ListedJobResponse(BaseModel):
-    """One job in a list. A done job does not include its ETS rows."""
+class JobResponse(BaseModel):
+    """One job. Its ETS rows are on ``GET /api/jobs/{job_id}/ets``."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -99,29 +85,8 @@ class ListedJobResponse(BaseModel):
     status: Literal["queued", "parsing", "parsed", "extracting", "done"]
 
 
-class ListedJobFullResponse(ListedJobResponse, JobRecord):
-    """One listed job with the stored record. Still no ETS rows."""
-
-
-class _DoneJob(BaseModel):
-    """Fields shared by the two finished-job bodies. The row type differs."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    job_id: UUID
-    status: Literal["done"]
-
-
-class DoneJobResponse(_DoneJob):
-    """A finished job: the ETS rows built from its extraction artifact."""
-
-    rows: list[EtsRow]
-
-
-class DoneJobFullResponse(_DoneJob, JobRecord):
-    """A finished job with the record and the observation index."""
-
-    rows: list[EtsSourceRow]
+class JobFullResponse(JobResponse, JobRecord):
+    """One job with the stored record."""
 
 
 class FailedJobResponse(BaseModel):
@@ -136,13 +101,15 @@ class FailedJobFullResponse(FailedJobResponse, JobRecord):
     """A failed job with the stored record beside the error."""
 
 
-OpenJob = OpenJobResponse | OpenJobFullResponse
-DoneJob = DoneJobResponse | DoneJobFullResponse
-FailedJob = FailedJobResponse | FailedJobFullResponse
-ListedJob = ListedJobResponse | ListedJobFullResponse
+class EtsRowsResponse(BaseModel):
+    """The ETS rows for one done job, in observation order."""
 
-JobStatusResponse = OpenJob | DoneJob | FailedJob
-JobListResponse = ListedJob | FailedJob
+    model_config = ConfigDict(extra="forbid")
+
+    rows: list[EtsRow]
+
+
+JobStatusResponse = JobResponse | JobFullResponse | FailedJobResponse | FailedJobFullResponse
 
 
 class DocumentMetadataResponse(BaseModel):

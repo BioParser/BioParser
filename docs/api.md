@@ -7,11 +7,11 @@ module layout that implements it. The system context for these endpoints is in
 Status: **draft** — document and job management routes (`POST /api/documents`,
 `GET /api/documents`, `GET /api/documents/{checksum}`, `GET /api/documents/{checksum}/file`,
 `POST /api/extractions`, `POST /api/documents/{checksum}/jobs`, `GET /api/documents/{checksum}/jobs`, `GET /api/jobs`,
-`GET /api/jobs/{job_id}`, `GET /api/jobs/{job_id}/artifacts/parser`,
+`GET /api/jobs/{job_id}`, `GET /api/jobs/{job_id}/ets`, `GET /api/jobs/{job_id}/artifacts/parser`,
 `GET /api/jobs/{job_id}/artifacts/extraction`, `POST /extract`, `GET /health`, `GET /ready`)
 are implemented, along with upload validation and a configurable size limit. `POST /extract` is a dev route: it runs a queued job's pipeline
 (the same parser and extractor) in one request, without the queue and the workers. A done job's
-status response is the ETS rows for that paper.
+ETS rows are `GET /api/jobs/{job_id}/ets`.
 
 **Current API scope:**
 
@@ -27,9 +27,9 @@ status response is the ETS rows for that paper.
 - **`POST /extract` is a temporary dev route** that skips the queue and the workers.
   It runs the same parser and extractor as a queued job, in a child process, and returns
   the extraction artifact inline. Nothing is stored.
-- **A done job returns ETS rows.** `GET /api/jobs/{job_id}` loads the stored extraction
-  artifact and maps it. Other statuses do not. `?detail=full` adds the stored record,
-  and for a done job also each row's observation index.
+- **A done job returns ETS rows.** `GET /api/jobs/{job_id}/ets` loads the stored extraction
+  artifact and maps it. Other statuses do not. `?detail=full` on the job read adds the
+  stored record and does not include the rows.
 - **Readiness (`/ready`) is supported.** The readiness endpoint performs
   lightweight dependency checks only when corresponding environment variables are
   set (see *Readiness behaviour* below).
@@ -264,7 +264,7 @@ If omitted or `{}` is sent, parameters default to `parser: "default"` and `extra
 
 ### `GET /api/documents/{checksum}/jobs`
 
-List all jobs associated with a specific document. The default row is `job_id` and `status`. `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and `document_checksum`. A done job does not include its ETS rows here. Those are only on `GET /api/jobs/{job_id}`.
+List all jobs associated with a specific document. The default row is `job_id` and `status`. `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and `document_checksum`. A done job does not include its ETS rows here. Those are `GET /api/jobs/{job_id}/ets`.
 
 **Success — `200 OK`:**
 
@@ -324,13 +324,12 @@ Poll a job.
 
 - `queued`, `parsing`, `parsed`, and `extracting` return `job_id` and `status`.
 - `failed` adds `error`, a safe error code.
-- `done` adds the ETS rows.
+- `done` is `job_id` and `status`. The ETS rows are `GET /api/jobs/{job_id}/ets`, in
+  observation order. `references` on each row is the document checksum.
 - `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`,
   `document_checksum`, and `has_parse_result`. The flag is true when the parser
   artifact was stored. `timeout` and `internal_error` do not say which stage ended,
-  so a full read is what tells a reader that parsing finished.
-  A done job also adds `source_index` on each row. The index is the observation's
-  position in the extraction artifact. `references` on each row is the document checksum.
+  so a full read is what tells a reader that parsing finished. The full body has no rows.
 - The response holds no storage paths. The UI reads the internal artifacts from the
   [job artifact routes](#get-apijobsjob_idartifactsparser-and-artifactsextraction).
 
@@ -340,10 +339,34 @@ Poll a job.
 |--------|------|
 | 404 | no job with that id |
 | 422 | `job_id` is not a version 4 UUID |
-| 500 | stored job state is unreadable, or a done job's extraction artifact is missing or invalid (`artifact_invalid`) |
-| 503 | the database is unavailable, or artifact storage is unavailable while reading a done job |
+| 500 | stored job state is unreadable |
+| 503 | the database is unavailable |
 
-`queued`, `parsing`, `parsed`, `extracting`, and `failed` do not read the extraction artifact. A `done` job does. The file read and the mapping run off the event loop.
+The status read does not load the extraction artifact. A done job is `job_id` and `status`.
+
+### `GET /api/jobs/{job_id}/ets`
+
+The ETS rows for a done job, in observation order.
+
+**Success — `200 OK`:**
+
+```json
+{
+  "rows": []
+}
+```
+
+**Failure:**
+
+| Status | When |
+|--------|------|
+| 404 | no job with that id |
+| 409 | the job is not done (`artifact_not_available`) |
+| 422 | `job_id` is not a version 4 UUID |
+| 500 | stored job state is unreadable, or the extraction artifact is missing or invalid (`artifact_invalid`) |
+| 503 | the database is unavailable, or artifact storage is unavailable |
+
+The file read and the mapping run off the event loop.
 
 **Error body:**
 
@@ -512,7 +535,7 @@ not expose secrets in error messages.
 src/bioparser/api/
   __init__.py       # main() -> starts the app
   app.py            # FastAPI app, lifespan, and the route handlers
-  job_responses.py  # public job bodies: open, done, failed, and list
+  job_responses.py  # the short and full public job bodies
   auth.py           # API key authentication dependency (X-API-Key)
   config.py         # process configuration read from the environment
   errors.py         # named ErrorDetail constants, codes, and OpenAPI helpers
@@ -522,7 +545,7 @@ src/bioparser/api/
 ```
 
 No `ports/` or `adapters/` folders exist inside `api/` itself. Routes live
-directly in `app.py`. `job_responses.py` builds the open, done, failed, and list
+directly in `app.py`. `job_responses.py` builds the short and full public job
 bodies. Upload validation is in `uploads.py`. Response and error models are in
 `schema.py`.
 
@@ -549,9 +572,10 @@ pool are closed. Migrations stay on the sync psycopg driver.
   Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it is still
   being received. A missing or understated `Content-Length` is still capped while
   reading the file in chunks.
-- `GET /api/jobs/{job_id}` — reads the typed state from Postgres. A done job then
-  reads its extraction artifact off the event loop and returns the ETS rows. Other
-  statuses do not read it.
+- `GET /api/jobs/{job_id}` — reads the typed state from Postgres. It does not read the
+  extraction artifact. `?detail=full` adds the stored record.
+- `GET /api/jobs/{job_id}/ets` — for a done job, reads the extraction artifact off the
+  event loop and returns the ETS rows. Another status is `409`.
 - `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`
   when it has no such ref, then return the stored bytes via async storage (disk I/O runs
   on a thread inside the storage implementation).
@@ -592,15 +616,13 @@ object as its `detail` on failure, and returns normally on success.
 Pydantic models shared by the routes above, used both for response validation and
 for the OpenAPI docs' `responses=` examples:
 
-- `JobStatusResponse` — the shapes for `GET /api/jobs/{job_id}`. `OpenJobResponse` is
-  `queued`, `parsing`, `parsed`, or `extracting`. `DoneJobResponse` is the ETS body.
-  `DoneJobFullResponse` is that body plus `source_index` on each row, for `?detail=full`.
-  `FailedJobResponse` carries `error`. `POST /api/extractions` and
-  `POST /api/documents/{checksum}/jobs` return `AcceptedJobResponse`, which is `job_id`
-  and `status`. Lists use `JobListResponse`: the default row is `job_id` and `status`,
-  and `detail=full` adds `created_at`, `display_name`, `parser`, `extractor`,
-  `document_checksum`, and `has_parse_result`. A done job in a list has no ETS rows. The same `detail=full` on
-  one job adds that record, and for a done job also `source_index` on each row.
+- `JobStatusResponse` — the shapes for one job, on `GET /api/jobs/{job_id}` and in a
+  list. `JobResponse` is `job_id` and `status`. `JobFullResponse` adds the stored
+  record for `?detail=full`. `FailedJobResponse` carries `error`, and
+  `FailedJobFullResponse` adds the record. None of these include ETS rows.
+  `EtsRowsResponse` is `GET /api/jobs/{job_id}/ets`.
+  `POST /api/extractions` and `POST /api/documents/{checksum}/jobs` return
+  `AcceptedJobResponse`, which is `job_id` and `status`.
 - `HealthResponse` — `{status: Literal["ok"]}`, returned by `GET /health`.
 
 ### `errors.py`

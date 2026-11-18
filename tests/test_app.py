@@ -18,15 +18,13 @@ from bioparser.api.app import app as api_app
 from bioparser.api.errors import ErrorResponse
 from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import (
-    DoneJobFullResponse,
-    DoneJobResponse,
-    JobListResponse,
+    EtsRowsResponse,
+    JobFullResponse,
     JobStatusResponse,
 )
 from bioparser.api.uploads import max_body_bytes
 from bioparser.db.engine import DatabaseError
 from bioparser.ets.adapter import to_ets
-from bioparser.ets.models import EtsRow
 from bioparser.extract.models import (
     Citation,
     ExtractionArtifact,
@@ -50,7 +48,7 @@ from bioparser.storage import (
 # A minimal byte string that passes the PDF upload checks.
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
 JOB_STATUS_ADAPTER: TypeAdapter[JobStatusResponse] = TypeAdapter(JobStatusResponse)
-JOB_LIST_ADAPTER: TypeAdapter[list[JobListResponse]] = TypeAdapter(list[JobListResponse])
+JOB_LIST_ADAPTER: TypeAdapter[list[JobStatusResponse]] = TypeAdapter(list[JobStatusResponse])
 DOCUMENT_CHECKSUM = "a" * 64
 PDF_REF = f"pdf/{DOCUMENT_CHECKSUM}"
 PARSE_REF = f"{PDF_REF}/parsed/default/1"
@@ -324,22 +322,32 @@ def test_job_status_openapi_schema() -> None:
     response_schema = schema["paths"]["/api/jobs/{job_id}"]["get"]["responses"]["200"]["content"][
         "application/json"
     ]["schema"]
-    done = schema["components"]["schemas"]["DoneJobResponse"]
-    full = schema["components"]["schemas"]["DoneJobFullResponse"]
-
-    assert response_schema["anyOf"] == [
-        {"$ref": "#/components/schemas/OpenJobResponse"},
-        {"$ref": "#/components/schemas/OpenJobFullResponse"},
-        {"$ref": "#/components/schemas/DoneJobResponse"},
-        {"$ref": "#/components/schemas/DoneJobFullResponse"},
+    done = schema["components"]["schemas"]["JobResponse"]
+    full = schema["components"]["schemas"]["JobFullResponse"]
+    job_shapes = [
+        {"$ref": "#/components/schemas/JobResponse"},
+        {"$ref": "#/components/schemas/JobFullResponse"},
         {"$ref": "#/components/schemas/FailedJobResponse"},
         {"$ref": "#/components/schemas/FailedJobFullResponse"},
     ]
+
+    assert response_schema["anyOf"] == job_shapes
+    listed = schema["paths"]["/api/jobs"]["get"]["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]
+    assert listed["items"]["anyOf"] == job_shapes
+    assert "rows" not in done["properties"]
+    assert "rows" not in full["properties"]
+    ets = schema["paths"]["/api/jobs/{job_id}/ets"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    assert ets["$ref"] == "#/components/schemas/EtsRowsResponse"
+    assert (
+        schema["components"]["schemas"]["EtsRowsResponse"]["properties"]["rows"]["items"]["$ref"]
+        == "#/components/schemas/EtsRow"
+    )
     assert "drops" not in done["properties"]
-    assert done["properties"]["rows"]["items"]["$ref"] == "#/components/schemas/EtsRow"
-    assert full["properties"]["rows"]["items"]["$ref"] == "#/components/schemas/EtsSourceRow"
     assert "drops" not in full["properties"]
-    assert "source_index" in schema["components"]["schemas"]["EtsSourceRow"]["properties"]
     assert "traitlist" not in done["properties"]
     assert "traitlist" not in full["properties"]
     assert "created_at" not in done["properties"]
@@ -351,8 +359,6 @@ def test_job_status_openapi_schema() -> None:
     assert (
         "has_parse_result" not in schema["components"]["schemas"]["FailedJobResponse"]["properties"]
     )
-    assert "rows" not in schema["components"]["schemas"]["ListedJobResponse"]["properties"]
-    assert "created_at" in schema["components"]["schemas"]["ListedJobFullResponse"]["properties"]
 
 
 def test_unknown_job_returns_404(client: TestClient) -> None:
@@ -472,23 +478,26 @@ def test_a_done_job_returns_its_ets_rows(
     references = state.pdf_ref.rsplit("/", 1)[-1]
     expected = to_ets(artifact, references=references)
 
-    response = client.get(f"/api/jobs/{state.job_id}")
+    status = client.get(f"/api/jobs/{state.job_id}")
+
+    assert status.status_code == 200
+    assert status.json() == _job_json(state)
+    assert "artifact.retrieve" not in events
+
+    response = client.get(f"/api/jobs/{state.job_id}/ets")
 
     assert response.status_code == 200
-    body = DoneJobResponse.model_validate(response.json())
-    assert body.rows == [
-        EtsRow.model_validate(row.model_dump(exclude={"source_index"})) for row in expected.rows
-    ]
+    body = EtsRowsResponse.model_validate(response.json())
+    assert body.rows == expected.rows
     assert response.json()["rows"][0]["verbatimTraitName"] == "M. musculus"
     assert response.json()["rows"][0]["traitName"] is None
-    assert "source_index" not in response.json()["rows"][0]
     assert "drops" not in response.json()
     assert "artifact.retrieve" in events
     assert state.extract_result_ref is not None
     assert state.extract_result_ref not in response.text
 
 
-def test_a_done_job_can_include_the_observation_index(
+def test_a_done_job_record_has_no_rows(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
@@ -508,10 +517,27 @@ def test_a_done_job_can_include_the_observation_index(
     response = client.get(f"/api/jobs/{state.job_id}?detail=full")
 
     assert response.status_code == 200
-    body = DoneJobFullResponse.model_validate(response.json())
-    assert body.rows == expected.rows
-    assert [row.source_index for row in body.rows] == [0, 1]
-    assert "drops" not in response.json()
+    body = JobFullResponse.model_validate(response.json())
+    assert body.document_checksum == references
+    assert "rows" not in response.json()
+    rows = client.get(f"/api/jobs/{state.job_id}/ets")
+    assert rows.status_code == 200
+    assert [row["measurementID"] for row in rows.json()["rows"]] == ["1", "2"]
+    assert rows.json()["rows"] == [row.model_dump(by_alias=True) for row in expected.rows]
+
+
+def test_ets_rows_wait_until_the_job_is_done(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    jobs = stub_api_adapters[1]
+    state = _job("extracting")
+    jobs.states[str(state.job_id)] = state
+
+    response = client.get(f"/api/jobs/{state.job_id}/ets")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "artifact_not_available"
 
 
 def test_a_done_job_with_a_missing_artifact_is_a_safe_error(
@@ -522,8 +548,11 @@ def test_a_done_job_with_a_missing_artifact_is_a_safe_error(
     state = _job("done")
     jobs.states[str(state.job_id)] = state
 
-    response = client.get(f"/api/jobs/{state.job_id}")
+    status = client.get(f"/api/jobs/{state.job_id}")
+    response = client.get(f"/api/jobs/{state.job_id}/ets")
 
+    assert status.status_code == 200
+    assert status.json() == _job_json(state)
     assert response.status_code == 500
     assert response.json()["detail"]["code"] == "artifact_invalid"
 
@@ -548,7 +577,7 @@ def test_a_done_job_whose_artifact_cannot_be_read(
     jobs.states[str(state.job_id)] = state
     artifact_storage.retrieve_error = error
 
-    response = client.get(f"/api/jobs/{state.job_id}")
+    response = client.get(f"/api/jobs/{state.job_id}/ets")
 
     assert response.status_code == status_code
     assert response.json()["detail"]["code"] == code
@@ -572,7 +601,7 @@ def test_an_invalid_artifact_logs_a_capped_field_list(
     }
     _store(artifact_storage, state.extract_result_ref or "", json.dumps(payload).encode())
 
-    response = client.get(f"/api/jobs/{state.job_id}")
+    response = client.get(f"/api/jobs/{state.job_id}/ets")
 
     assert response.status_code == 500
     [record] = [
@@ -592,7 +621,7 @@ def test_a_done_job_with_an_invalid_artifact_is_a_safe_error(
     jobs.states[str(state.job_id)] = state
     _store(artifact_storage, state.extract_result_ref or "", b"not-json")
 
-    response = client.get(f"/api/jobs/{state.job_id}")
+    response = client.get(f"/api/jobs/{state.job_id}/ets")
 
     assert response.status_code == 500
     assert response.json()["detail"]["code"] == "artifact_invalid"

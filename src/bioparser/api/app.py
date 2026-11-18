@@ -80,22 +80,18 @@ from .errors import (
     http_error,
 )
 from .job_responses import (
-    done_job,
-    failed_job,
-    failed_job_full,
+    job_body,
+    job_body_full,
+    job_ets_rows,
     job_pdf_checksum,
-    listed_job,
-    listed_job_full,
-    open_job,
-    open_job_full,
 )
 from .middleware import TypedRequestBodyLimitMiddleware
 from .schema import (
     AcceptedJobResponse,
     CreateJobRequest,
     DocumentMetadataResponse,
+    EtsRowsResponse,
     HealthResponse,
-    JobListResponse,
     JobStatusResponse,
     ReadinessResponse,
     ReadinessUnavailableResponse,
@@ -740,7 +736,7 @@ async def submit_document_job(
 @app.get(
     "/api/documents/{checksum}/jobs",
     dependencies=[Depends(require_api_key)],
-    response_model=list[JobListResponse],
+    response_model=list[JobStatusResponse],
     responses={
         401: error_response(UNAUTHORIZED),
         404: error_response(DOCUMENT_NOT_FOUND),
@@ -753,7 +749,7 @@ async def list_document_jobs(
     request: Request,
     checksum: str,
     detail: Literal["ets", "full"] = "ets",
-) -> list[JobListResponse]:
+) -> list[JobStatusResponse]:
     valid_checksum = _validate_checksum(checksum)
     try:
         async with database.transaction() as connection:
@@ -777,14 +773,14 @@ async def list_document_jobs(
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
 
     if detail == "full":
-        return [listed_job_full(job, doc.display_name) for job in jobs]
-    return [listed_job(job) for job in jobs]
+        return [job_body_full(job, doc.display_name) for job in jobs]
+    return [job_body(job) for job in jobs]
 
 
 @app.get(
     "/api/jobs",
     dependencies=[Depends(require_api_key)],
-    response_model=list[JobListResponse],
+    response_model=list[JobStatusResponse],
     responses={
         401: error_response(UNAUTHORIZED),
         500: error_response(JOB_STATE_UNREADABLE),
@@ -796,7 +792,7 @@ async def list_jobs(
     status: JobStatus | None = None,
     parser: str | None = None,
     detail: Literal["ets", "full"] = "ets",
-) -> list[JobListResponse]:
+) -> list[JobStatusResponse]:
     try:
         async with database.transaction() as connection:
             jobs: list[JobState] = await job_queries.list_jobs(
@@ -819,8 +815,8 @@ async def list_jobs(
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
 
     if detail == "full":
-        return [listed_job_full(job, display_names.get(job_pdf_checksum(job))) for job in jobs]
-    return [listed_job(job) for job in jobs]
+        return [job_body_full(job, display_names.get(job_pdf_checksum(job))) for job in jobs]
+    return [job_body(job) for job in jobs]
 
 
 @app.get(
@@ -830,8 +826,8 @@ async def list_jobs(
         401: error_response(UNAUTHORIZED),
         404: error_response(JOB_NOT_FOUND),
         422: error_response(INVALID_JOB_ID),
-        500: error_response(JOB_STATE_UNREADABLE, ARTIFACT_INVALID),
-        503: error_response(DATABASE_UNAVAILABLE, STORAGE_UNAVAILABLE),
+        500: error_response(JOB_STATE_UNREADABLE),
+        503: error_response(DATABASE_UNAVAILABLE),
     },
 )
 async def job_status(
@@ -842,25 +838,40 @@ async def job_status(
     """The job.
 
     `queued`, `parsing`, `parsed`, and `extracting` are `job_id` and `status`. `failed`
-    adds `error`. `done` adds the ETS rows. Open and failed jobs do not read the
-    extraction artifact.
+    adds `error`. `done` is `job_id` and `status`. The ETS rows are
+    `GET /api/jobs/{job_id}/ets`. This route does not read the extraction artifact.
 
     `?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,
-    `extractor`, and `document_checksum`. A done job then also adds each row's observation
-    index.
+    `extractor`, `document_checksum`, and `has_parse_result`.
     """
     state = await _read_job(request, _parse_job_id(job_id))
-    if state.status == "done":
-        display_name = await _display_name(state) if detail == "full" else None
-        return await done_job(request, state, detail=detail, display_name=display_name)
     if detail == "full":
-        display_name = await _display_name(state)
-        if state.status == "failed":
-            return failed_job_full(state, display_name)
-        return open_job_full(state, display_name)
-    if state.status == "failed":
-        return failed_job(state)
-    return open_job(state)
+        return job_body_full(state, await _display_name(state))
+    return job_body(state)
+
+
+@app.get(
+    "/api/jobs/{job_id}/ets",
+    dependencies=[Depends(require_api_key)],
+    response_model=EtsRowsResponse,
+    responses={
+        401: error_response(UNAUTHORIZED),
+        404: error_response(JOB_NOT_FOUND),
+        409: error_response(ARTIFACT_NOT_AVAILABLE),
+        422: error_response(INVALID_JOB_ID),
+        500: error_response(JOB_STATE_UNREADABLE, ARTIFACT_INVALID),
+        503: error_response(DATABASE_UNAVAILABLE, STORAGE_UNAVAILABLE),
+    },
+)
+async def job_ets(request: Request, job_id: str) -> EtsRowsResponse:
+    """The ETS rows for a done job, in observation order.
+
+    A job that is not done has no rows yet.
+    """
+    state = await _read_job(request, _parse_job_id(job_id))
+    if state.status != "done":
+        raise http_error(409, ARTIFACT_NOT_AVAILABLE)
+    return await job_ets_rows(request, state)
 
 
 async def _display_name(state: JobState) -> str | None:

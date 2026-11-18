@@ -74,7 +74,6 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
 
     assert artifact.model_dump() == before
     assert len(result.rows) == 1
-    assert result.rows[0].source_index == 0
     row = result.rows[0]
     dumped = row.model_dump()
     assert dumped["traitValue"] is None
@@ -97,7 +96,7 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     assert "evidence" not in dumped
     assert "trait" not in dumped
     aliases = {field.alias or name for name, field in EtsRow.model_fields.items()}
-    assert set(dumped) == aliases | {"source_index"}
+    assert set(dumped) == aliases
 
 
 def test_a_stored_name_is_copied_and_not_verified() -> None:
@@ -336,7 +335,6 @@ def test_a_unit_that_does_not_match_the_trait_is_still_a_row() -> None:
 
     assert odd.model_dump() == before
     assert isinstance(verdict, Assessment)
-    assert [row.source_index for row in result.rows] == [0, 1]
     assert result.rows[0].verbatimTraitUnit == "mm"
     assert result.rows[0].measurementID == "1"
     assert result.rows[1].measurementID == "2"
@@ -445,11 +443,10 @@ def test_a_negative_age_is_parsed_and_reversed_bounds_are_kept() -> None:
     assert not any(
         isinstance(warning, NotNumeric) and warning.field == "age" for warning in verdict.warnings
     )
-    assert result.rows[0].source_index == 0
     assert result.rows[0].measurementValue_min == "4"
     assert result.rows[0].measurementValue_max == "2"
     assert "bounds_reversed:measurementValue_min,measurementValue_max" in result.rows[0].warnings
-    assert result.rows[1].source_index == 1
+    assert result.rows[1].measurementID == "2"
 
 
 def test_a_printed_token_stays_when_it_fails_its_check() -> None:
@@ -486,10 +483,10 @@ def test_a_long_number_does_not_fail_the_other_rows() -> None:
 
     assert result.rows[0].month == "1" * 40
     assert "not_numeric:month" in result.rows[0].warnings
-    assert result.rows[1].source_index == 1
+    assert result.rows[1].measurementID == "2"
     assert result.rows[1].verbatimTraitValue == "8" * 40
     assert result.rows[1].traitValue is None
-    assert result.rows[2].source_index == 2
+    assert result.rows[2].measurementID == "3"
 
 
 def test_an_impossible_day_stays_and_a_leap_day_is_kept() -> None:

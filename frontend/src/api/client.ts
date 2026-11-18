@@ -16,7 +16,7 @@ export type UploadLimitsResponse = Schemas["UploadLimitsResponse"];
 export type ParserArtifact = Schemas["ParserArtifact"];
 export type ExtractionArtifact = Schemas["ExtractionArtifact"];
 // The dashboard reads the stored record, which the list returns for detail=full.
-export type JobList = (Schemas["ListedJobFullResponse"] | Schemas["FailedJobFullResponse"])[];
+export type JobList = (Schemas["JobFullResponse"] | Schemas["FailedJobFullResponse"])[];
 export type JobStatus = JobList[number]["status"];
 
 export function listJobs(status: string, parser: string, signal?: AbortSignal): Promise<JobList> {

@@ -2,14 +2,13 @@
 
 import asyncio
 import logging
-from typing import Any, Literal, NoReturn, cast
+from typing import Any, NoReturn, cast
 
 from fastapi import Request
 from pydantic import ValidationError
 
 from bioparser.artifact_paths import ArtifactPathError, pdf_checksum
 from bioparser.ets.adapter import to_ets
-from bioparser.ets.models import EtsRow
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.jobs import JobState, SafeError
 from bioparser.logging_config import error_fields
@@ -20,17 +19,19 @@ from bioparser.storage import (
     StoragePayloadError,
 )
 
-from .errors import ARTIFACT_INVALID, JOB_STATE_UNREADABLE, STORAGE_UNAVAILABLE, http_error
+from .errors import (
+    ARTIFACT_INVALID,
+    JOB_STATE_UNREADABLE,
+    STORAGE_UNAVAILABLE,
+    http_error,
+)
 from .schema import (
-    DoneJobFullResponse,
-    DoneJobResponse,
+    EtsRowsResponse,
     FailedJobFullResponse,
     FailedJobResponse,
-    JobListResponse,
-    ListedJobFullResponse,
-    ListedJobResponse,
-    OpenJobFullResponse,
-    OpenJobResponse,
+    JobFullResponse,
+    JobResponse,
+    JobStatusResponse,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -76,96 +77,41 @@ def _record(state: JobState, display_name: str | None) -> dict[str, Any]:
     }
 
 
-def failed_job(state: JobState) -> FailedJobResponse:
+def _error(state: JobState) -> SafeError:
     if state.error_code is None:
         raise ValueError("Failed job is missing error_code")
-    return FailedJobResponse(
-        job_id=state.job_id,
-        status="failed",
-        error=SafeError(code=state.error_code),
-    )
+    return SafeError(code=state.error_code)
 
 
-def failed_job_full(state: JobState, display_name: str | None) -> FailedJobFullResponse:
-    if state.error_code is None:
-        raise ValueError("Failed job is missing error_code")
-    return FailedJobFullResponse(
-        status="failed",
-        error=SafeError(code=state.error_code),
-        **_record(state, display_name),
-    )
-
-
-def listed_job(state: JobState) -> JobListResponse:
-    """The public status for a list. No record fields, and no ETS rows."""
+def job_body(state: JobState) -> JobStatusResponse:
+    """The public status. No record fields, and no ETS rows."""
     if state.status == "failed":
-        return failed_job(state)
-    return ListedJobResponse(job_id=state.job_id, status=state.status)
+        return FailedJobResponse(job_id=state.job_id, status="failed", error=_error(state))
+    return JobResponse(job_id=state.job_id, status=state.status)
 
 
-def listed_job_full(state: JobState, display_name: str | None) -> JobListResponse:
-    """A list row with the stored record. Still no ETS rows."""
+def job_body_full(state: JobState, display_name: str | None) -> JobStatusResponse:
+    """The public status with the stored record. Still no ETS rows."""
     if state.status == "failed":
-        return failed_job_full(state, display_name)
-    return ListedJobFullResponse(status=state.status, **_record(state, display_name))
+        return FailedJobFullResponse(
+            status="failed", error=_error(state), **_record(state, display_name)
+        )
+    return JobFullResponse(status=state.status, **_record(state, display_name))
 
 
-def open_job(state: JobState) -> OpenJobResponse:
-    if state.status not in ("queued", "parsing", "parsed", "extracting"):
-        raise ValueError(f"Job {state.job_id} is {state.status}, not open")
-    return OpenJobResponse(job_id=state.job_id, status=state.status)
-
-
-def open_job_full(state: JobState, display_name: str | None) -> OpenJobFullResponse:
-    if state.status not in ("queued", "parsing", "parsed", "extracting"):
-        raise ValueError(f"Job {state.job_id} is {state.status}, not open")
-    return OpenJobFullResponse(status=state.status, **_record(state, display_name))
-
-
-def _done_body(
-    payload: bytes,
-    references: str,
-    detail: Literal["ets", "full"],
-    fields: dict[str, Any],
-) -> DoneJobResponse | DoneJobFullResponse:
-    """Map one stored artifact into the public done-job body."""
+def _ets_rows(payload: bytes, references: str, job_id: object) -> EtsRowsResponse:
+    """Map one stored artifact into the public ETS body."""
     try:
         artifact = ExtractionArtifact.model_validate_json(payload)
         result = to_ets(artifact, references=references)
     except ValueError as exc:
-        _raise_invalid(exc, fields["job_id"])
-    if detail == "full":
-        return DoneJobFullResponse(
-            status="done",
-            rows=result.rows,
-            **fields,
-        )
-    try:
-        rows = [
-            EtsRow.model_validate(row.model_dump(exclude={"source_index"})) for row in result.rows
-        ]
-    except ValidationError as exc:
-        _raise_invalid(exc, fields["job_id"])
-    return DoneJobResponse(
-        status="done",
-        rows=rows,
-        **fields,
-    )
+        _raise_invalid(exc, job_id)
+    return EtsRowsResponse(rows=result.rows)
 
 
-async def done_job(
-    request: Request,
-    state: JobState,
-    *,
-    detail: Literal["ets", "full"],
-    display_name: str | None,
-) -> DoneJobResponse | DoneJobFullResponse:
-    """The ETS body of a done job. A missing or invalid artifact is a safe 500.
-
-    ``detail="full"`` adds the stored record and each row's observation index.
-    """
+async def job_ets_rows(request: Request, state: JobState) -> EtsRowsResponse:
+    """The ETS rows of a done job. A missing or invalid artifact is a safe 500."""
     checksum = job_pdf_checksum(state)
-    fields = _record(state, display_name) if detail == "full" else {"job_id": state.job_id}
     ref = state.extract_result_ref
     if ref is None:
         LOGGER.error("done job has no extraction artifact", extra={"job_id": str(state.job_id)})
@@ -174,7 +120,7 @@ async def done_job(
     storage = cast(ArtifactStorage, request.app.state.artifact_storage)
     try:
         payload = await storage.retrieve(ref)
-        return await asyncio.to_thread(_done_body, payload, checksum, detail, fields)
+        return await asyncio.to_thread(_ets_rows, payload, checksum, state.job_id)
     except (ArtifactNotFoundError, StoragePayloadError) as exc:
         LOGGER.error("job artifact missing or invalid", extra=log_fields | error_fields(exc))
         raise http_error(500, ARTIFACT_INVALID) from exc
