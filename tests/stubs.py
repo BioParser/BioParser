@@ -8,6 +8,7 @@ import threading
 import zipfile
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
