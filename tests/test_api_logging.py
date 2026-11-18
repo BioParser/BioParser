@@ -16,9 +16,15 @@ def _rendered(records: list[logging.LogRecord]) -> str:
     return "\n".join(JsonFormatter().format(record) for record in records)
 
 
-def _app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path | None = None) -> TestClient:
-    """TestClient whose lifespan-built clients are dropped again after the test."""
-    monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/15")
+def _app(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path | None = None, *, redis_url: str
+) -> TestClient:
+    """TestClient whose lifespan-built clients are dropped again after the test.
+
+    This sets the Redis URL, the database URL and the storage path, then reads the
+    settings. get_api_settings() caches them, so set other env vars before the call.
+    """
+    monkeypatch.setenv("BIOPARSER_REDIS_URL", redis_url)
     monkeypatch.setenv("BIOPARSER_DATABASE_URL", "postgresql://bioparser@127.0.0.1:1/bioparser")
     monkeypatch.setenv(
         "BIOPARSER_ARTIFACT_STORAGE_PATH",
@@ -37,13 +43,17 @@ def test_the_redis_password_never_appears_in_logs(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     password = "canary-redis-pass"
-    monkeypatch.setenv("BIOPARSER_REDIS_URL", f"redis://:{password}@127.0.0.1:1/0")
     monkeypatch.setenv("BIOPARSER_LOG_LEVEL", "DEBUG")
     caplog.set_level(logging.DEBUG)
 
-    with _app(monkeypatch) as client:
-        assert client.get("/ready").status_code == 503  # port 1 refuses the connection
+    # Port 1 refuses the connection, also when a local Redis listens on 6379.
+    with _app(monkeypatch, redis_url=f"redis://:{password}@127.0.0.1:1/0") as client:
+        response = client.get("/ready")
 
+    # The app read this URL, so the checks below have a password to find.
+    assert config.get_api_settings().redis_url.password == password
+    assert response.status_code == 503
+    assert "redis" in response.json()["detail"]["unavailable"]
     assert password not in _rendered(caplog.records) + capsys.readouterr().err
     assert password not in repr(config.get_api_settings())
 
