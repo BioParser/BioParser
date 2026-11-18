@@ -55,7 +55,6 @@ OPTIONS = PipelineOptions(
     mineru_base_url="http://127.0.0.1:9",
     mineru_tier="basic",
     char_budget=4000,
-    max_tokens=256,
 )
 API_KEY = "sk-canary-api-key-7f3a"
 MODELS = {"object": "list", "data": [{"id": "stub-model"}]}

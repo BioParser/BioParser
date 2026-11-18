@@ -62,8 +62,6 @@ class PipelineOptions:
     mineru_base_url: str
     mineru_tier: MinerUTier
     char_budget: int
-    # None uses the vLLM client's token ceiling. A number may be smaller than that ceiling.
-    max_tokens: int | None = None
 
 
 @contextmanager
@@ -137,7 +135,6 @@ async def _extract(artifact: ParserArtifact, options: PipelineOptions) -> Extrac
             options.extractor,
             vllm=vllm,
             char_budget=options.char_budget,
-            max_tokens=options.max_tokens,
         )
         return checked_artifact(
             await extractor.extract(artifact),
