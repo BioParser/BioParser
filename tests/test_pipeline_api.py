@@ -90,7 +90,7 @@ def test_extract_runs_the_parser_and_extractor_of_a_queued_job(
     assert inline_pipeline.parser.pdfs == [PDF]
     # The response is the artifact the extractor worker stores for the job
     assert ExtractionArtifact.model_validate(body).model_dump(mode="json") == body
-    assert body["schema_version"] == "1"
+    assert body["schema_version"] == "2"
 
 
 def _citation(text: str, start: int) -> dict[str, Any]:
@@ -106,7 +106,7 @@ def test_a_located_observation_is_returned_with_its_ranges(
 
     [observation] = _extract(client)["observations"]
 
-    assert observation["trait"]["value"] == "body_mass"
+    assert observation["traitCode"]["value"] == "body_mass"
     assert observation["verbatimScientificName"] == _citation("Mus musculus", 0)
     assert observation["verbatimTraitValue"] == _citation("12.5", 30)
     assert observation["verbatimTraitUnit"] == _citation("g", 35)
@@ -159,7 +159,7 @@ class FreeTextUnitVLLM(StubVLLMService):
     ) -> BaseModel:
         observation = {
             "taxon": "Mus musculus",
-            "trait": "body_mass",
+            "trait_code": "body_mass",
             "value": 12.5,
             "unit": "grams",  # guided decoding should prevent this; pydantic is the backstop
             "evidence_block_id": "x",

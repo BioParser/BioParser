@@ -39,7 +39,10 @@ def _observation(
     if passage is None or name is None or value is None or unit is None:
         return None
     return Observation(
-        trait=Interpretation(value=observation.trait, passage=passage),
+        traitCode=Interpretation(value=observation.trait_code, passage=passage),
+        # The model reports a trait code, not the printed name, so the quotation
+        # stands in until an extractor records the printed trait name.
+        verbatimTraitName=passage,
         verbatimScientificName=name,
         verbatimTraitValue=value,
         verbatimTraitUnit=unit,

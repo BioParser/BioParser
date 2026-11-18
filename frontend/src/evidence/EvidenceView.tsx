@@ -106,17 +106,48 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
 
 // The printed value and unit, from the extraction artifact alone, so they stay when the
 // parser artifact cannot be loaded. The labels say which mark is which without color.
+function Bound({ label, value }: { label: string; value: Observation["measurementValueMin"] }) {
+  if (value == null) {
+    return null;
+  }
+  return (
+    <>
+      <dt>{label}</dt>
+      <dd>
+        <mark className="evidence-value">{printedText(value)}</mark>
+      </dd>
+    </>
+  );
+}
+
+function printedText(value: NonNullable<Observation["measurementValueMin"]>): string {
+  return value.kind === "citation" ? value.text : value.value;
+}
+
 function ValueAndUnit({ observation }: { observation: Observation }) {
   return (
     <dl className="evidence-legend">
-      <dt>Value</dt>
-      <dd>
-        <mark className="evidence-value">{observation.verbatimTraitValue.text}</mark>
-      </dd>
-      <dt>Unit</dt>
-      <dd>
-        <mark className="evidence-unit">{observation.verbatimTraitUnit.text}</mark>
-      </dd>
+      {observation.verbatimTraitValue != null ? (
+        <>
+          <dt>Value</dt>
+          <dd>
+            <mark className="evidence-value">{observation.verbatimTraitValue.text}</mark>
+          </dd>
+        </>
+      ) : (
+        <>
+          <Bound label="Minimum" value={observation.measurementValueMin} />
+          <Bound label="Maximum" value={observation.measurementValueMax} />
+        </>
+      )}
+      {observation.verbatimTraitUnit != null && (
+        <>
+          <dt>Unit</dt>
+          <dd>
+            <mark className="evidence-unit">{observation.verbatimTraitUnit.text}</mark>
+          </dd>
+        </>
+      )}
     </dl>
   );
 }

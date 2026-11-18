@@ -49,7 +49,8 @@ function observation(
   unit: ReturnType<typeof citation>,
 ): Observation {
   return {
-    trait: { kind: "interpretation", value: "body_mass", passage: value },
+    traitCode: { kind: "interpretation", value: "body_mass", passage: value },
+    verbatimTraitName: value,
     verbatimScientificName: value,
     verbatimTraitValue: value,
     verbatimTraitUnit: unit,
@@ -87,7 +88,7 @@ const PARSER: ParserArtifact = {
 };
 
 const EXTRACTION: ExtractionArtifact = {
-  schema_version: "1",
+  schema_version: "2",
   extractor: "default",
   extractor_version: "1",
   observations: [

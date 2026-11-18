@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from bioparser.ets.assess import Dropped, DropReason, Kept, assess
+from bioparser.ets.assess import Assessment, assess
 from bioparser.ets.models import EtsRow
 from bioparser.ets.notices import format_warning
 from bioparser.extract.models import ExtractionArtifact
@@ -17,22 +17,12 @@ class MappedRow(BaseModel):
     row: EtsRow
 
 
-class Drop(BaseModel):
-    """One observation that did not become a row."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    source_index: int = Field(ge=0)
-    reason: DropReason
-
-
 class EtsResult(BaseModel):
-    """Rows for the observations that were kept, and a reason for each one that was not."""
+    """One row per observation."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     rows: list[MappedRow]
-    drops: list[Drop]
 
 
 def to_ets(artifact: ExtractionArtifact, *, references: str) -> EtsResult:
@@ -44,23 +34,22 @@ def to_ets(artifact: ExtractionArtifact, *, references: str) -> EtsResult:
     if references == "":
         raise ValueError("references is empty")
     rows: list[MappedRow] = []
-    drops: list[Drop] = []
     for index, observation in enumerate(artifact.observations):
-        verdict = assess(observation)
-        if isinstance(verdict, Dropped):
-            drops.append(Drop(source_index=index, reason=verdict.drop))
-            continue
         rows.append(
             MappedRow(
                 source_index=index,
-                row=_row(verdict, references=references, measurement_id=str(len(rows) + 1)),
+                row=_row(
+                    assess(observation),
+                    references=references,
+                    measurement_id=str(len(rows) + 1),
+                ),
             )
         )
-    return EtsResult(rows=rows, drops=drops)
+    return EtsResult(rows=rows)
 
 
 def _row(
-    verdict: Kept,
+    verdict: Assessment,
     *,
     references: str,
     measurement_id: str,
@@ -99,7 +88,7 @@ def _row(
             "measurementValue_min": verdict.measurement_value_min,
             "measurementValue_max": verdict.measurement_value_max,
             "measurementAccuracy": verdict.cited["measurementAccuracy"],
-            "occurrenceID": verdict.cited["occurrenceID"],
+            "occurrenceID": verdict.occurrence_id,
             "eventID": verdict.cited["eventID"],
             "preparations": verdict.cited["preparations"],
             "samplingProtocol": verdict.cited["samplingProtocol"],

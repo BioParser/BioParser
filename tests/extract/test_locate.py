@@ -53,7 +53,7 @@ def _locate(
     observation = ModelObservation.model_validate(
         {
             "taxon": taxon,
-            "trait": "body_mass",
+            "trait_code": "body_mass",
             "value": value,
             "unit": unit,
             "evidence_block_id": block_id,
@@ -77,6 +77,7 @@ def test_a_value_inside_a_unique_sentence_gets_its_range() -> None:
 
     value = _locate(paper).verbatimTraitValue
 
+    assert value is not None
     assert value.text == "12.5"
     assert _slice(paper, value) == "12.5"
 
@@ -87,7 +88,7 @@ def test_the_range_is_in_the_whole_block_not_the_sentence() -> None:
 
     value = _locate(paper).verbatimTraitValue
 
-    assert value.evidence is not None
+    assert value is not None
     assert value.evidence[0].start == text.index("12.5")
 
 
@@ -95,7 +96,7 @@ def _locate_all(paper: ParserArtifact, **changes: object) -> list[Observation]:
     observation = ModelObservation.model_validate(
         {
             "taxon": "Mus musculus",
-            "trait": "body_mass",
+            "trait_code": "body_mass",
             "value": 12.5,
             "unit": "kg",
             "evidence_block_id": "b0",
@@ -133,8 +134,11 @@ def test_each_field_is_located_on_its_own() -> None:
     paper = _paper(sentence)
 
     located = _locate(paper, quotation=sentence, unit="mm")
+    assert located is not None
+    assert located.verbatimTraitUnit is not None
 
     assert _slice(paper, located.verbatimScientificName) == "Mus musculus"
+    assert located.verbatimTraitValue is not None
     assert _slice(paper, located.verbatimTraitValue) == "12.5"
     assert _slice(paper, located.verbatimTraitUnit) == "mm"
 

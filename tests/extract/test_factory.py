@@ -18,7 +18,7 @@ def test_default_is_the_registered_extractor() -> None:
     )
 
     assert isinstance(extractor, DefaultExtractor)
-    assert EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME] == "1"
+    assert EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME] == "2"
 
 
 @pytest.mark.parametrize("name", EXTRACTORS)
