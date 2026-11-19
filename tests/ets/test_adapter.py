@@ -209,7 +209,7 @@ def test_an_occurrence_id_can_be_read_from_a_wider_phrase() -> None:
     row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
 
     assert row.occurrenceID == "145732"
-    assert row.taxonRank is None
+    assert row.taxonRank == "species"
 
 
 def test_a_vocabulary_miss_leaves_the_column_empty() -> None:
@@ -588,3 +588,43 @@ def test_an_empty_maximum_stays_empty() -> None:
 def test_an_empty_document_id_is_rejected() -> None:
     with pytest.raises(ValueError, match="references is empty"):
         to_ets(_artifact(_observation()), references="")
+
+
+@pytest.mark.parametrize(
+    ("name", "expected_rank"),
+    [
+        ("Muroidea", "superfamily"),
+        ("Muridae", "family"),
+        ("Murinae", "subfamily"),
+        ("Murini", "tribe"),
+        ("Murina", "subtribe"),
+        ("Mus", "genus"),
+        ("Mus musculus", "species"),
+        ("M. musculus", "species"),
+        ("Mus musculus domesticus", "subspecies"),
+        ("Mus musculus domesticus extra", None),
+        ("Martes foina", "species"),
+        ("Macaca nemestrina", "species"),
+        ("Marmosa murina", "species"),
+        ("Sicista betulina", "species"),
+        ("MURIDAE", "family"),
+        ("Muridae ", "family"),
+        ("Mus sp.", None),
+        ("Mus spp.", None),
+        ("Myotis cf. myotis", None),
+        ("Myotis aff. myotis", None),
+        ("Microtus (Terricola) subterraneus", None),
+        ("Mus musculus L.", None),
+    ],
+)
+def test_taxon_rank_is_inferred_from_the_printed_name(name: str, expected_rank: str | None) -> None:
+    observation = _observation(
+        verbatimScientificName=_cited(name),
+    )
+    before = observation.model_dump()
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+
+    assert row.taxonRank == expected_rank
+    assert row.verbatimScientificName == name
+    assert observation.model_dump() == before

@@ -36,6 +36,40 @@ def to_ets(artifact: ExtractionArtifact, *, references: str) -> EtsResult:
     return EtsResult(rows=rows)
 
 
+def _infer_taxon_rank(name: str | None) -> str | None:
+    if name is None:
+        return None
+
+    normalized = name.strip().lower()
+    words = normalized.split()
+    word_count = len(words)
+    if any(word in {"sp.", "spp.", "cf.", "aff."} for word in words):
+        return None
+
+    if "(" in normalized or ")" in normalized:
+        return None
+    if word_count >= 2 and words[-1].endswith("."):
+        return None
+    if word_count == 1:
+        if normalized.endswith("oidea"):
+            return "superfamily"
+        if normalized.endswith("idae"):
+            return "family"
+        if normalized.endswith("inae"):
+            return "subfamily"
+        if normalized.endswith("ini"):
+            return "tribe"
+        if normalized.endswith("ina"):
+            return "subtribe"
+        return "genus"
+
+    if word_count == 2:
+        return "species"
+    if word_count == 3:
+        return "subspecies"
+    return None
+
+
 def _row(
     verdict: Assessment,
     *,
@@ -51,7 +85,7 @@ def _row(
             "verbatimTraitValue": verdict.cited["verbatimTraitValue"],
             "traitUnit": verdict.trait_unit,
             "verbatimTraitUnit": verdict.cited["verbatimTraitUnit"],
-            "taxonRank": verdict.cited["taxonRank"],
+            "taxonRank": _infer_taxon_rank(verdict.cited["verbatimScientificName"]),
             "kingdom": verdict.cited["kingdom"],
             "phylum": verdict.cited["phylum"],
             "class": verdict.cited["class"],
