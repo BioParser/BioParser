@@ -1,14 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
-import { ApiError, getJob, type JobStatusResponse } from "../api/client";
+import { ApiError, getJob, type JobStatusFullResponse } from "../api/client";
 import { EvidenceView } from "../evidence/EvidenceView";
 import { JOB_STATUS_LABELS } from "../jobStatus";
 
 const OBSERVATION_PARAM = "observation";
 
 const STAGES = ["queued", "parsing", "parsed", "extracting", "done"] as const;
-type FailureCode = Extract<JobStatusResponse, { status: "failed" }>["error"]["code"];
+type FailureCode = Extract<JobStatusFullResponse, { status: "failed" }>["error"]["code"];
 const FAILURE_MESSAGES: Record<FailureCode, string> = {
   invalid_pdf: "The file could not be read as a valid PDF.",
   parse_failed: "The PDF could not be parsed.",
@@ -47,8 +47,10 @@ export function JobDetailPage() {
   }, []);
 
   const job = useQuery({
+    // detail=full: the page shows the stored record, and usePdfDocument reads the document
+    // checksum from the same cache entry.
     queryKey: ["job", jobId],
-    queryFn: ({ signal }) => getJob(jobId, signal),
+    queryFn: ({ signal }) => getJob(jobId, signal, "full"),
     enabled: visible,
     // Polling is also the retry schedule, so transient failures remain visible.
     retry: false,
@@ -87,7 +89,7 @@ export function JobDetailPage() {
   );
 }
 
-function JobStatus({ job }: { job: JobStatusResponse }) {
+function JobStatus({ job }: { job: JobStatusFullResponse }) {
   const stage =
     job.status === "failed"
       ? STAGES.indexOf(job.has_parse_result ? "extracting" : "parsing")
