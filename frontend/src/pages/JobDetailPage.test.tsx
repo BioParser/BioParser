@@ -81,6 +81,22 @@ describe("JobDetailPage", () => {
     expect(document.querySelector("time")?.dateTime).toBe(metadata.created_at);
   });
 
+  it("asks for the stored record with detail=full", async () => {
+    // Without detail=full the API answers only the job ID and the status.
+    const fetchMock = vi.fn<typeof fetch>(async (path) =>
+      Response.json(
+        path === "/api/jobs/abc?detail=full"
+          ? { ...metadata, status: "queued" }
+          : { job_id: "abc", status: "queued" },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+    await screen.findByText("Status: queued");
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(["/api/jobs/abc?detail=full"]);
+    expect(screen.getByRole("heading", { name: "study.pdf" })).toBeDefined();
+  });
+
   it("handles an unnamed PDF and a retained parse result after a timeout", async () => {
     vi.stubGlobal(
       "fetch",
@@ -102,7 +118,7 @@ describe("JobDetailPage", () => {
   it("loads the next job and cancels an outstanding request when navigating", async () => {
     let firstSignal: AbortSignal | null | undefined;
     const fetchMock = vi.fn<typeof fetch>(async (path, init) => {
-      if (path === "/api/jobs/abc") {
+      if (path === "/api/jobs/abc?detail=full") {
         firstSignal = init?.signal;
         return new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () =>
