@@ -53,3 +53,12 @@ jobs:
             -t "$IMAGE:${{ github.sha }}" \
             -t "$IMAGE:latest" \
               .
+      # migrate
+      - name: Build and push migrate image
+        run: |
+          IMAGE=ghcr.io/bioparser/bioparser/migrate
+          docker buildx build --push \
+            -f docker/migrate.Dockerfile \
+            -t "$IMAGE:${{ github.sha }}" \
+            -t "$IMAGE:latest" \
+              .
