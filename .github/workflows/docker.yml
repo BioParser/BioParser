@@ -35,3 +35,12 @@ jobs:
             -t "$IMAGE:${{ github.sha }}" \
             -t "$IMAGE:latest" \
               .
+      # parser-worker
+      - name: Build and push parser-worker image
+        run: |
+          IMAGE=ghcr.io/bioparser/bioparser/parser-worker
+          docker buildx build --push \
+            -f docker/parser-worker.Dockerfile \
+            -t "$IMAGE:${{ github.sha }}" \
+            -t "$IMAGE:latest" \
+              .
