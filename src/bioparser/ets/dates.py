@@ -75,6 +75,18 @@ def parse_date(text: str) -> str | None:
         return None
 
 
+def is_ambiguous_date(text: str) -> bool:
+    match = _NUMERIC_DAY_MONTH.fullmatch(_prepare(text))
+    if match is None:
+        return False
+
+    first = int(match.group(1))
+    second = int(match.group(3))
+    year = int(match.group(4))
+
+    return 1 <= first <= 12 and 1 <= second <= 12 and year >= 1
+
+
 def _prepare(text: str) -> str:
     """Turn printed punctuation and prose into a form strptime accepts."""
     text = text.strip().translate(_DASHES)
