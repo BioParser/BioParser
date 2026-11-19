@@ -40,6 +40,7 @@ dev = [
   "mypy>=2.3.1",
   "pre-commit>=4.6.2",
   "pytest>=9.1.1",
+  "pytest-timeout>=2.4.0",
   "ruff>=0.16.5",
 ]
 queue = [
@@ -101,3 +102,4 @@ markers = [
   "integration: requires a real Redis or Postgres instance (see BIOPARSER_TEST_REDIS_URL and BIOPARSER_TEST_DATABASE_URL)",
   "image: installs one image dependency group into a temporary environment",
 ]
+timeout = 60
