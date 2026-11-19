@@ -78,7 +78,6 @@ default-groups = "all"
 target-version = "py313"
 src = ["src"]
 line-length = 100
-extend-exclude = ["tests/parser/fixtures/glyph-patch"]
 
 [tool.ruff.lint]
 # ANN requires annotations. B is bugbear. UP rewrites syntax for Python 3.13.
@@ -96,7 +95,6 @@ ignore = [
 python_version = "3.13"
 strict = true
 files = ["src", "tests"]
-exclude = ["tests/parser/fixtures/glyph-patch/"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
