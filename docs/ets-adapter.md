@@ -87,7 +87,7 @@ A minimum greater than the maximum is kept as printed, and the row warns `bounds
 
 A warning means the row was built with something missing or doubtful.
 
-Each row keeps the source index of its observation in the artifact, so a row can be traced back.
+Rows come in the artifact's observation order. A row's position in the response is its observation's index in the artifact, and `measurementID` is that index plus one, so a row can be traced back. The web UI opens a row's evidence with that index (`?observation=`).
 
 ## Open decisions
 

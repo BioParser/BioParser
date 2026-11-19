@@ -6,7 +6,7 @@
 
 BioParser extracts mammal trait data (for example body length and weight) from born-digital scientific PDFs. Everything runs locally: a PDF parser (pdfplumber or MinerU) splits the article into traceable blocks, and a local LLM served by vLLM extracts observations with evidence.
 
-> **Status: early development.** `POST /api/extractions` stores a PDF and creates a job. The parser and extractor workers advance it. When the job is `done`, `GET /api/jobs/{job_id}` returns the ETS rows. Details: [docs/api.md](docs/api.md).
+> **Status: early development.** `POST /api/extractions` stores a PDF and creates a job. The parser and extractor workers advance it. When the job is `done`, `GET /api/jobs/{job_id}/ets` returns the ETS rows, and the web UI shows them at `/ui/jobs/{job_id}` with CSV and JSON downloads. Details: [docs/api.md](docs/api.md).
 
 ## Quick start (Docker Compose)
 

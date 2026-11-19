@@ -40,8 +40,13 @@ function renderPage() {
   return router;
 }
 
+// A done job's page also loads its results, so /ets answers with an empty result.
+function answer(path: RequestInfo | URL, job: object): Response {
+  return String(path).endsWith("/ets") ? Response.json({ rows: [] }) : Response.json(job);
+}
+
 function stubJob(status: JobStatusResponse["status"]) {
-  const fetchMock = vi.fn(async () => Response.json({ ...metadata, status }));
+  const fetchMock = vi.fn(async (path: RequestInfo | URL) => answer(path, { ...metadata, status }));
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
@@ -67,7 +72,8 @@ describe("JobDetailPage", () => {
         stages.find((li) => li.getAttribute("aria-current") === "step")?.textContent?.toLowerCase(),
       ).toBe(status);
       expect(screen.queryByRole("region", { name: "Results" }) !== null).toBe(status === "done");
-      expect(fetchMock.mock.calls.length).toBe(1);
+      // The job, and for a done job its results.
+      expect(fetchMock.mock.calls.length).toBe(status === "done" ? 2 : 1);
     },
   );
 
@@ -126,7 +132,7 @@ describe("JobDetailPage", () => {
           );
         });
       }
-      return Response.json({
+      return answer(path, {
         ...metadata,
         job_id: "second",
         display_name: "second.pdf",
@@ -210,13 +216,13 @@ describe("JobDetailPage", () => {
   it.each(["done", "failed"])("polls until %s and then stops", async (status) => {
     vi.useFakeTimers();
     let response = { ...metadata, status: "queued", error: { code: "parse_failed" } };
-    const fetchMock = vi.fn(async () => Response.json(response));
+    const fetchMock = vi.fn(async (path: RequestInfo | URL) => answer(path, response));
     vi.stubGlobal("fetch", fetchMock);
     renderPage();
     await tick();
     response = { ...response, status };
     await tick(3000);
-    expect(screen.getByRole("status").textContent).toBe(`Status: ${status}`);
+    expect(screen.getByText(`Status: ${status}`).getAttribute("role")).toBe("status");
     const calls = fetchMock.mock.calls.length;
     await tick(12000);
     expect(fetchMock.mock.calls.length).toBe(calls);
