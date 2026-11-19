@@ -44,3 +44,12 @@ jobs:
             -t "$IMAGE:${{ github.sha }}" \
             -t "$IMAGE:latest" \
               .
+      # extractor-worker
+      - name: Build and push extractor-worker image
+        run: |
+          IMAGE=ghcr.io/bioparser/bioparser/extractor-worker
+          docker buildx build --push \
+            -f docker/extractor-worker.Dockerfile \
+            -t "$IMAGE:${{ github.sha }}" \
+            -t "$IMAGE:latest" \
+              .
