@@ -71,6 +71,7 @@ const PARSER: ParserArtifact = {
   schema_version: "1",
   checksum: "abc",
   parser: { name: "default", version: "1", configuration: {} },
+  unmapped_symbol_count: 0,
   pages: [
     {
       page_number: 1,
@@ -289,6 +290,28 @@ describe("EvidenceView", () => {
     renderView(0);
     await screen.findByRole("blockquote");
     expect(await screen.findByRole("img", { name: "Page 1 of the PDF" })).toBeDefined();
+  });
+
+  it("does not warn when every symbol was matched", async () => {
+    renderView(0);
+    await screen.findByRole("blockquote");
+    expect(screen.queryByText(/Advent fonts/)).toBeNull();
+  });
+
+  it("warns when the parser replaced symbols it could not match", async () => {
+    stubArtifacts(() => Response.json({ ...PARSER, unmapped_symbol_count: 2 }));
+    renderView(0);
+    expect((await screen.findByText(/Advent fonts/)).textContent).toBe(
+      "This paper uses Advent fonts, whose names start with Adv. 2 symbols have no known character and are shown as \uFFFD. The symbol printed on the page may be different.",
+    );
+  });
+
+  it("names a single unmatched Advent symbol", async () => {
+    stubArtifacts(() => Response.json({ ...PARSER, unmapped_symbol_count: 1 }));
+    renderView(0);
+    expect((await screen.findByText(/Advent fonts/)).textContent).toBe(
+      "This paper uses Advent fonts, whose names start with Adv. 1 symbol has no known character and is shown as \uFFFD. The symbol printed on the page may be different.",
+    );
   });
 
   it("keeps the quotation when the PDF is missing", async () => {

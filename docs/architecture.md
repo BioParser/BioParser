@@ -208,7 +208,7 @@ are addressed by stable artifact paths using typed Pydantic models:
   - `media_type`: MIME media type (`application/pdf`, `application/json`, etc.).
   - `creation_info`: timestamp (`created_at` in UTC) and creator identifier (`created_by`).
   - `content_schema_version`: explicit schema version of structured content where applicable
-    (e.g., `"1"` for parser artifacts; omitted for raw PDFs).
+    (e.g., `"2"` for parser artifacts; omitted for raw PDFs).
   - `size_bytes`: payload size in bytes.
 - `StoredArtifact`: composite container bundling raw `content` (`bytes`) and `metadata` (`ArtifactMetadata`).
 
@@ -247,7 +247,7 @@ Convention:
   a new path, so results from the old version are not reused.
 - `<configuration>` is the backend setting that also changes the output, as one readable
   segment. Today only MinerU has one: its tier (`basic`, `standard`, …), so a MinerU result is
-  stored at `pdf/<pdf-checksum>/parsed/mineru/4/standard`. A different tier never reuses
+  stored at `pdf/<pdf-checksum>/parsed/mineru/5/standard`. A different tier never reuses
   another tier's result. The configuration is not part of the version.
 - The extraction path starts from the job's `parse_result_ref`, so it keeps every segment
   of that parse, including a MinerU tier. The extractor worker runs the extractor named

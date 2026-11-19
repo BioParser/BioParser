@@ -231,3 +231,6 @@ class ParserArtifact(BaseModel):
     checksum: Sha256Hex
     parser: ParserInfo
     pages: list[Page]
+    # Glyphs the symbol-font repair replaced with U+FFFD. Zero when the field is absent
+    # on an older artifact.
+    unmapped_symbol_count: int = Field(default=0, ge=0)

@@ -20,7 +20,8 @@ interface EvidenceViewProps {
 // Where a value came from: the quotation from the parser block, with the value and the unit
 // marked. Shown only once an observation is selected, so nothing loads before that.
 export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewProps) {
-  const { blocks, observations } = useEvidenceArtifacts(jobId, true);
+  const { blocks, observations, unmappedSymbols } = useEvidenceArtifacts(jobId, true);
+  const unmapped = unmappedSymbols.data ?? 0;
   const panelRef = useRef<HTMLElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -80,6 +81,7 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
           Close
         </button>
       </div>
+      {unmapped > 0 && <p role="status">{unmappedSymbolWarning(unmapped)}</p>}
       {observations.isPending ? (
         <p role="status">Loading the evidence…</p>
       ) : observations.isError ? (
@@ -102,6 +104,17 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
       )}
     </section>
   );
+}
+
+// A small Adv font glyph with no saved row. The count is how many times the parser
+// inserted U+FFFD for one of those glyphs.
+function unmappedSymbolWarning(count: number): string {
+  const lead = "This paper uses Advent fonts, whose names start with Adv.";
+  const tail = "The symbol printed on the page may be different.";
+  if (count === 1) {
+    return `${lead} 1 symbol has no known character and is shown as \uFFFD. ${tail}`;
+  }
+  return `${lead} ${count} symbols have no known character and are shown as \uFFFD. ${tail}`;
 }
 
 // The printed value and unit, from the extraction artifact alone, so they stay when the

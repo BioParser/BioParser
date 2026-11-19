@@ -823,6 +823,11 @@ export interface components {
             parser: components["schemas"]["ParserInfo"];
             /** Pages */
             pages: components["schemas"]["Page"][];
+            /**
+             * Unmapped Symbol Count
+             * @default 0
+             */
+            unmapped_symbol_count: number;
         };
         /** ParserInfo */
         ParserInfo: {

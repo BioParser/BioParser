@@ -4,6 +4,7 @@ import {
   type ExtractionArtifact,
   getExtractionArtifact,
   getParserArtifact,
+  type ParserArtifact,
 } from "../api/client";
 import { shouldRetry } from "../api/queryClient";
 import { indexTextBlocks, type Observation } from "./quotation";
@@ -37,6 +38,14 @@ export function useEvidenceArtifacts(jobId: string, enabled: boolean) {
     retry: retryArtifact,
     enabled,
   });
+  const unmappedSymbols = useQuery({
+    queryKey: artifactQueryKey("parser", jobId),
+    queryFn: ({ signal }) => getParserArtifact(jobId, signal),
+    select: (artifact: ParserArtifact) => artifact.unmapped_symbol_count ?? 0,
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: retryArtifact,
+    enabled,
+  });
   const observations = useQuery({
     queryKey: artifactQueryKey("extraction", jobId),
     queryFn: ({ signal }) => getExtractionArtifact(jobId, signal),
@@ -45,5 +54,5 @@ export function useEvidenceArtifacts(jobId: string, enabled: boolean) {
     retry: retryArtifact,
     enabled,
   });
-  return { blocks, observations };
+  return { blocks, observations, unmappedSymbols };
 }

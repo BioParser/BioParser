@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import sys
 from importlib.metadata import version
@@ -32,6 +33,7 @@ from bioparser.parser.models import (
     TextContent,
     TextLine,
 )
+from bioparser.parser.symbol_fonts import repair_pdf
 from bioparser.parser_names import DEFAULT_PARSER_NAME, PARSER_VERSIONS
 
 DEFAULT_PARSER_VERSION = PARSER_VERSIONS[DEFAULT_PARSER_NAME]
@@ -109,13 +111,16 @@ def _words_from_page(page: PdfPlumberPage) -> list[WordBox]:
     for item in raw_words:
         glyphs: list[tuple[str, float, float]] = []
         for char in item.get("chars") or []:
-            text = str(char.get("text") or "")
+            text = str(char.get("text") or "").replace("\u0000", "")
             if not text:
                 continue
             glyphs.append((text, float(char["x0"]), float(char["x1"])))
+        text = "".join(glyph for glyph, _left, _right in glyphs)
+        if not text:
+            continue
         words.append(
             WordBox(
-                text=str(item["text"]),
+                text=text,
                 x0=float(item["x0"]),
                 x1=float(item["x1"]),
                 top=float(item["top"]),
@@ -164,12 +169,14 @@ class DefaultParser:
         if not pdf_path.is_file():
             raise FileNotFoundError("PDF not found")
 
+        original = pdf_path.read_bytes()
         checksum = sha256_file(pdf_path)
+        repaired, unmapped_symbol_count = repair_pdf(original)
         pages: list[Page] = []
         extracted_any = False
 
         try:
-            with pdfplumber.open(pdf_path) as pdf:
+            with pdfplumber.open(io.BytesIO(repaired)) as pdf:
                 for index, page in enumerate(pdf.pages):
                     page_number = index + 1
                     width = float(page.width)
@@ -245,6 +252,7 @@ class DefaultParser:
                 },
             ),
             pages=pages,
+            unmapped_symbol_count=unmapped_symbol_count,
         )
 
 

@@ -4453,6 +4453,12 @@
             },
             "type": "array",
             "title": "Pages"
+          },
+          "unmapped_symbol_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Unmapped Symbol Count",
+            "default": 0
           }
         },
         "additionalProperties": false,
