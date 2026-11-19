@@ -4,15 +4,15 @@
 #
 # cpu: mineru with ONNX small models, serving the Basic tier (layout, OCR, formula and table
 # models, no VLM). gpu: mineru[full], torch small models plus MinerU's VLM on vLLM, serving
-# the Standard tier and below (Advanced included). Each target builds its venv in a throwaway
+# the Advanced tier and below (Standard included). Each target builds its venv in a throwaway
 # stage, so uv's cache never lands in an image layer, and bakes in the models its tier needs:
 # the service sits on an internal network and cannot fetch weights at runtime.
 
 # uv 0.13.7, the same pin as CI. Index digest so amd64 and arm64 both resolve.
-FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
 # python 3.13.16-slim-trixie; index digest so amd64 and arm64 both resolve.
-FROM python:3.13-slim@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f AS base
+FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90 AS base
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tini \
@@ -36,10 +36,12 @@ ENV UV_CACHE_DIR=/root/.cache/uv \
 
 FROM build AS cpu-build
 
-# The mineru pin is checked against MINERU_VERSION.
+# The mineru and docvortex pins are checked against MINERU_VERSION and DOCVORTEX_VERSION.
+# mineru takes any docvortex 0.6.x, the library that builds its middle.json: pinned so a new
+# build gives the output the fixtures were made with.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /opt/mineru \
-    && uv pip install --python /opt/mineru/bin/python "mineru==4.0.12"
+    && uv pip install --python /opt/mineru/bin/python "mineru==4.2.3" "docvortex==0.6.24"
 
 # g=u gives OpenShift's random UID (group 0) the owner's access.
 RUN /opt/mineru/bin/mineru-models-download --tier basic --small-backend onnx -s huggingface \
@@ -49,10 +51,10 @@ RUN /opt/mineru/bin/mineru-models-download --tier basic --small-backend onnx -s 
 FROM build AS gpu-build
 
 # full = torch and vLLM. vLLM pins its torch, so no torch index is chosen here: the PyPI
-# wheels (vLLM 0.28, torch 2.13) are CUDA 13 builds and need an NVIDIA driver for CUDA 13.
+# wheels (vLLM 0.30, torch 2.13) are CUDA 13 builds and need an NVIDIA driver for CUDA 13.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /opt/mineru \
-    && uv pip install --python /opt/mineru/bin/python "mineru[full]==4.0.12"
+    && uv pip install --python /opt/mineru/bin/python "mineru[full]==4.2.3" "docvortex==0.6.24"
 
 # Fail the build if torch is not a CUDA build or vLLM does not import.
 RUN /opt/mineru/bin/python -c "import torch, vllm; assert torch.version.cuda, torch.__version__"
@@ -73,9 +75,13 @@ RUN groupadd --system --gid 10001 mineru \
         --shell /usr/sbin/nologin mineru \
     && install -d -o 10001 -g 0 -m 0770 /home/mineru
 
-# Uploads and results are kept for an hour, not MinerU's default day: callers read the
-# result inline. The interactive API docs are off. MINERU_API_CONCURRENCY is how many parse
-# jobs run at once; more wait in MinerU's queue. Each running job needs its own host memory.
+# Uploads and results are kept for an hour, not MinerU's default day: callers download the
+# result as soon as the task ends. The interactive API docs are off. MINERU_API_CONCURRENCY is
+# how many parse jobs run at once; more wait in MinerU's queue. Each running job needs its own
+# host memory. MINERU_API_TASK_TIMEOUT stops one parse after that many seconds of parsing (queue
+# time not counted). A parse that reaches it makes mineru-api refuse all work (503 on
+# /v1/health) until the container restarts, so it is above the BioParser client's longest
+# wait (3600 s, queue time included): the client cancels its task first.
 ENV PATH="/opt/mineru/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     HOME=/home/mineru \
@@ -83,7 +89,8 @@ ENV PATH="/opt/mineru/bin:$PATH" \
     HF_HUB_OFFLINE=1 \
     MINERU_API_RETENTION_SECONDS=3600 \
     MINERU_API_ENABLE_FASTAPI_DOCS=0 \
-    MINERU_API_CONCURRENCY=1
+    MINERU_API_CONCURRENCY=1 \
+    MINERU_API_TASK_TIMEOUT=3900
 
 WORKDIR /home/mineru
 USER 10001:10001
@@ -94,10 +101,10 @@ EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=120s --retries=5 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health', timeout=3)"]
 
-# mineru-api reads no variable for --concurrency, so sh passes it, quoted: the value stays one
-# argument. exec replaces sh with mineru-api, and "$@" is the CMD.
+# mineru-api reads no variable for --concurrency or --task-timeout, so sh passes them, quoted:
+# each value stays one argument. exec replaces sh with mineru-api, and "$@" is the CMD.
 ENTRYPOINT ["/usr/bin/tini", "--", "/bin/sh", "-c", \
-    "exec mineru-api --host 0.0.0.0 --port 8000 --preload-models --concurrency \"$MINERU_API_CONCURRENCY\" \"$@\"", \
+    "exec mineru-api --host 0.0.0.0 --port 8000 --preload-models --concurrency \"$MINERU_API_CONCURRENCY\" --task-timeout \"$MINERU_API_TASK_TIMEOUT\" \"$@\"", \
     "mineru-api"]
 
 #-------------------------------------------
@@ -131,18 +138,23 @@ RUN mineru-kit models verify --tier standard \
 HEALTHCHECK --interval=10s --timeout=5s --start-period=600s --retries=5 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health', timeout=3)"]
 
-# The tier the service serves (Standard also serves Advanced, Basic and Flash).
-CMD ["--tier", "standard"]
+# The tier ceiling the service serves: Advanced and every tier below it. Since MinerU 4.1 a
+# Standard ceiling no longer serves Advanced. Advanced runs on Standard's models, the ones
+# verified above.
+CMD ["--tier", "advanced"]
 
 FROM runtime AS cpu
 
 COPY --chown=10001:0 --from=cpu-build /home/mineru /home/mineru
 COPY --from=cpu-build /opt/mineru /opt/mineru
 
-ENV MINERU_MODEL_SMALL_BACKEND=onnx
+# ONNX runs on the CPU. Without MINERU_MODEL_ONNX_DEVICE, MinerU 4.1+ probes for a GPU at the
+# first parse, may time a calibration run on one, and writes its choice to its config file.
+ENV MINERU_MODEL_SMALL_BACKEND=onnx \
+    MINERU_MODEL_ONNX_DEVICE=cpu
 
 # Runs as uid 10001, after the trees are copied together.
 RUN mineru-kit models verify --tier basic
 
-# The tier the service serves (Basic also serves Flash).
+# The tier ceiling the service serves: Basic, and Flash below it.
 CMD ["--tier", "basic"]

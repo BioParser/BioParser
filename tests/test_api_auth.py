@@ -39,9 +39,8 @@ def auth_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_unauthenticated_request_returns_401(auth_enabled: None) -> None:
     client = TestClient(app)
 
-    # /api/extractions
     response = client.post(
-        "/api/extractions",
+        "/api/documents",
         files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
     )
     assert response.status_code == 401
@@ -53,18 +52,6 @@ def test_unauthenticated_request_returns_401(auth_enabled: None) -> None:
 
     # /api/jobs/{job_id}
     response = client.get(f"/api/jobs/{uuid4()}")
-    assert response.status_code == 401
-    assert response.headers.get("www-authenticate") == "ApiKey"
-    ErrorResponse.model_validate(response.json())
-    assert response.json() == {
-        "detail": {"code": "unauthorized", "message": "Invalid or missing API key"}
-    }
-
-    # /extract
-    response = client.post(
-        "/extract",
-        files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
-    )
     assert response.status_code == 401
     assert response.headers.get("www-authenticate") == "ApiKey"
     ErrorResponse.model_validate(response.json())
@@ -96,12 +83,11 @@ def test_valid_api_key_succeeds(
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "job_not_found"
 
-    # Should submit successfully
     response = client.post(
-        "/api/extractions",
+        "/api/documents",
         files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
     )
-    assert response.status_code == 202
+    assert response.status_code == 201
 
 
 def test_health_and_ready_accessible_without_api_key(auth_enabled: None) -> None:
@@ -158,7 +144,7 @@ def test_startup_logs_warning_when_auth_disabled(
     monkeypatch.delenv("BIOPARSER_API_KEY", raising=False)
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://localhost:6379/15")
     monkeypatch.setenv("BIOPARSER_ARTIFACT_STORAGE_PATH", str(tmp_path / "artifacts"))
-    for name in ("mineru", "vllm", "parse_queue", "artifact_storage"):
+    for name in ("parse_queue", "artifact_storage"):
         monkeypatch.setattr(app.state, name, None, raising=False)
 
     with TestClient(app):
@@ -204,7 +190,7 @@ def test_openapi_declares_security_scheme() -> None:
         "type": "apiKey",
         "in": "header",
         "name": "X-API-Key",
-        "description": "Shared API key required for all /api/* and /extract operations.",
+        "description": "Shared API key required for all /api/* operations.",
     }
 
     # Every operation outside PUBLIC_PATHS must declare ApiKeyAuth
@@ -219,7 +205,7 @@ def test_openapi_declares_security_scheme() -> None:
                     )
 
 
-@pytest.mark.parametrize("path", ["/api/extractions", "/extract"])
+@pytest.mark.parametrize("path", ["/api/documents", "/api/extractions"])
 def test_a_request_without_the_key_is_refused_before_its_body_is_read(
     auth_enabled: None, path: str
 ) -> None:

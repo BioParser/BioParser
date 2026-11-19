@@ -3,7 +3,10 @@ import { clearApiKey, getApiKey, getRemovedReason, setApiKey } from "./apiKey";
 import {
   ApiError,
   apiFetch,
+  getDocumentFile,
+  getExtractionArtifact,
   getJob,
+  getParserArtifact,
   getReadiness,
   startDocumentJob,
   uploadDocument,
@@ -241,6 +244,58 @@ describe("apiFetch and the API key", () => {
       expect(init.method).toBe("POST");
       expect(sentHeaders(fetchMock).get("Content-Type")).toBe("application/json");
       expect(JSON.parse(String(init.body))).toEqual({ parser: "mineru", extractor: "default" });
+    });
+  });
+
+  describe("job artifacts", () => {
+    it("gets the parser artifact of the job", async () => {
+      const fetchMock = stubFetch(Response.json({ pages: [] }));
+      await expect(getParserArtifact("job/1")).resolves.toEqual({ pages: [] });
+      expect(sentRequest(fetchMock).path).toBe("/api/jobs/job%2F1/artifacts/parser");
+    });
+
+    it("gets the extraction artifact of the job", async () => {
+      const fetchMock = stubFetch(Response.json({ observations: [] }));
+      await expect(getExtractionArtifact("job/1")).resolves.toEqual({ observations: [] });
+      expect(sentRequest(fetchMock).path).toBe("/api/jobs/job%2F1/artifacts/extraction");
+    });
+
+    it("passes the abort signal on", async () => {
+      const fetchMock = stubFetch(Response.json({ pages: [] }));
+      const controller = new AbortController();
+      await getParserArtifact("job-1", controller.signal);
+      expect(sentRequest(fetchMock).init.signal).toBe(controller.signal);
+    });
+
+    describe("getDocumentFile", () => {
+      it("returns the PDF's bytes and sends the key", async () => {
+        setApiKey("the-key", false);
+        const fetchMock = stubFetch(new Response(new Uint8Array([37, 80, 68, 70])));
+        const bytes = await getDocumentFile("abc");
+        expect([...new Uint8Array(bytes)]).toEqual([37, 80, 68, 70]);
+        expect(sentRequest(fetchMock).path).toBe("/api/documents/abc/file");
+        expect(sentHeaders(fetchMock).get("X-API-Key")).toBe("the-key");
+      });
+
+      it("throws ApiError for a missing document", async () => {
+        stubFetch(
+          Response.json(
+            { detail: { code: "document_not_found", message: "Document not found" } },
+            { status: 404 },
+          ),
+        );
+        await expect(getDocumentFile("abc")).rejects.toMatchObject({
+          status: 404,
+          code: "document_not_found",
+        });
+      });
+
+      it("forgets a rejected key", async () => {
+        setApiKey("the-key", false);
+        stubFetch(unauthorized());
+        await expect(getDocumentFile("abc")).rejects.toMatchObject({ status: 401 });
+        expect(getApiKey()).toBeNull();
+      });
     });
   });
 });

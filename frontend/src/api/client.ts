@@ -13,15 +13,18 @@ export type JobStatusResponse =
 export type DocumentMetadataResponse = Schemas["DocumentMetadataResponse"];
 export type CreateJobRequest = Schemas["CreateJobRequest"];
 export type UploadLimitsResponse = Schemas["UploadLimitsResponse"];
-export type JobList = paths["/api/jobs"]["get"]["responses"][200]["content"]["application/json"];
+export type ParserArtifact = Schemas["ParserArtifact"];
+export type ExtractionArtifact = Schemas["ExtractionArtifact"];
+// The dashboard reads the stored record, which the list returns for detail=full.
+export type JobList = (Schemas["JobFullResponse"] | Schemas["FailedJobFullResponse"])[];
 export type JobStatus = JobList[number]["status"];
 
 export function listJobs(status: string, parser: string, signal?: AbortSignal): Promise<JobList> {
   const params = new URLSearchParams();
+  params.set("detail", "full");
   if (status) params.set("status", status);
   if (parser) params.set("parser", parser);
-  const query = params.toString();
-  return apiFetch(`/api/jobs${query ? `?${query}` : ""}`, { signal });
+  return apiFetch(`/api/jobs?${params}`, { signal });
 }
 
 export type Readiness = { unavailable: string[] };
@@ -109,7 +112,7 @@ async function toApiError(response: Response): Promise<ApiError> {
 
 // The one place the UI calls the API. A network failure rejects with fetch's own TypeError,
 // and an aborted request (init.signal) with a DOMException named AbortError.
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function apiRequest(path: string, init?: RequestInit): Promise<Response> {
   // Read the key on every call, so a key entered or forgotten since the last call is used.
   const headers = new Headers(init?.headers);
   const apiKey = getApiKey();
@@ -125,11 +128,23 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   if (!response.ok) {
     throw await toApiError(response);
   }
+  return response;
+}
+
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await apiRequest(path, init);
   return (await response.json()) as T;
 }
 
-export function getJob(jobId: string): Promise<JobStatusResponse> {
-  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+export function getJob(
+  jobId: string,
+  signal?: AbortSignal,
+  detail?: "ets" | "full",
+): Promise<JobStatusResponse> {
+  const params = new URLSearchParams();
+  if (detail !== undefined) params.set("detail", detail);
+  const query = params.size > 0 ? `?${params}` : "";
+  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}${query}`, { signal });
 }
 
 // The largest PDF the API accepts (BIOPARSER_MAX_UPLOAD_BYTES), so the browser checks
@@ -161,4 +176,28 @@ export function startDocumentJob(
     body: JSON.stringify(request),
     signal,
   });
+}
+
+// The parser artifact, from the job's `parsed` state on. 409 until then.
+export function getParserArtifact(jobId: string, signal?: AbortSignal): Promise<ParserArtifact> {
+  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/artifacts/parser`, { signal });
+}
+
+// The extraction artifact of a `done` job. 409 until then.
+export function getExtractionArtifact(
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<ExtractionArtifact> {
+  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/artifacts/extraction`, { signal });
+}
+
+// The stored PDF, as bytes: the route needs X-API-Key, so it cannot be a plain link.
+export async function getDocumentFile(
+  checksum: string,
+  signal?: AbortSignal,
+): Promise<ArrayBuffer> {
+  const response = await apiRequest(`/api/documents/${encodeURIComponent(checksum)}/file`, {
+    signal,
+  });
+  return response.arrayBuffer();
 }

@@ -12,5 +12,5 @@ DEFAULT_EXTRACTOR_NAME = "default"
 
 # Bump the version when the extractor's output changes. A new version gets a new
 # extraction path, so results from the old version are not reused.
-EXTRACTOR_VERSIONS: Mapping[str, str] = MappingProxyType({DEFAULT_EXTRACTOR_NAME: "1"})
+EXTRACTOR_VERSIONS: Mapping[str, str] = MappingProxyType({DEFAULT_EXTRACTOR_NAME: "2"})
 EXTRACTORS = tuple(EXTRACTOR_VERSIONS)

@@ -12,8 +12,8 @@ services:
     <<: *gpu
     build:
       target: gpu
-    # Standard: small models plus MinerU's VLM; it also serves Advanced. The tier is the
-    # image's CMD.
+    # Serves up to Advanced, Standard (small models plus MinerU's VLM) included. The tier
+    # ceiling is the image's CMD.
     image: bioparser-mineru:gpu
     # Both vLLM engines size their memory from what is free on the card: profile one at a time.
     depends_on:
@@ -33,10 +33,6 @@ services:
     # needs as much again.
     mem_limit: 16g
     memswap_limit: 16g
-
-  bioparser:
-    environment:
-      BIOPARSER_MINERU_TIER: "${BIOPARSER_MINERU_TIER:-standard}"
 
   parser-worker:
     environment:

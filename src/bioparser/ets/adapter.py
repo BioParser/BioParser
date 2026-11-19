@@ -1,66 +1,43 @@
 """Assemble ETS rows from assessments. The quality rules live in assess."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
-from bioparser.ets.assess import Dropped, DropReason, Kept, assess
+from bioparser.ets.assess import Assessment, assess
 from bioparser.ets.models import EtsRow
 from bioparser.ets.notices import format_warning
 from bioparser.extract.models import ExtractionArtifact
 
 
-class MappedRow(BaseModel):
-    """One kept row and the observation it was built from."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    source_index: int = Field(ge=0)
-    row: EtsRow
-
-
-class Drop(BaseModel):
-    """One observation that did not become a row."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    source_index: int = Field(ge=0)
-    reason: DropReason
-
-
 class EtsResult(BaseModel):
-    """Rows for the observations that were kept, and a reason for each one that was not."""
+    """One row per observation, in the artifact's order."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    rows: list[MappedRow]
-    drops: list[Drop]
+    rows: list[EtsRow]
 
 
 def to_ets(artifact: ExtractionArtifact, *, references: str) -> EtsResult:
     """Map one stored artifact to ETS v0.10 rows.
 
-    ``source_index`` is the position in ``artifact.observations``. ``measurementID``
-    counts only the kept rows. The artifact is not modified.
+    ``measurementID`` counts the rows, starting at 1. The row's position is the
+    observation's position. The artifact is not modified.
     """
     if references == "":
         raise ValueError("references is empty")
-    rows: list[MappedRow] = []
-    drops: list[Drop] = []
-    for index, observation in enumerate(artifact.observations):
-        verdict = assess(observation)
-        if isinstance(verdict, Dropped):
-            drops.append(Drop(source_index=index, reason=verdict.drop))
-            continue
+    rows: list[EtsRow] = []
+    for observation in artifact.observations:
         rows.append(
-            MappedRow(
-                source_index=index,
-                row=_row(verdict, references=references, measurement_id=str(len(rows) + 1)),
+            _row(
+                assess(observation),
+                references=references,
+                measurement_id=str(len(rows) + 1),
             )
         )
-    return EtsResult(rows=rows, drops=drops)
+    return EtsResult(rows=rows)
 
 
 def _row(
-    verdict: Kept,
+    verdict: Assessment,
     *,
     references: str,
     measurement_id: str,
@@ -99,7 +76,7 @@ def _row(
             "measurementValue_min": verdict.measurement_value_min,
             "measurementValue_max": verdict.measurement_value_max,
             "measurementAccuracy": verdict.cited["measurementAccuracy"],
-            "occurrenceID": verdict.cited["occurrenceID"],
+            "occurrenceID": verdict.occurrence_id,
             "eventID": verdict.cited["eventID"],
             "preparations": verdict.cited["preparations"],
             "samplingProtocol": verdict.cited["samplingProtocol"],

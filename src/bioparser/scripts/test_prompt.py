@@ -6,6 +6,7 @@ from openai import APIConnectionError, APITimeoutError
 
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.config import get_settings
+from bioparser.services.vllm.vllm import VLLMError
 
 
 def vllm_unreachable_message(base_url: str) -> str:
@@ -22,7 +23,9 @@ async def run_prompt(
     *,
     system_prompt: str | None = None,
     temperature: float = 0.0,
-    max_tokens: int = 1024,
+    max_tokens: int | None = None,
+    enable_thinking: bool = False,
+    timeout: float | None = None,
 ) -> str:
     service = VLLMService()
     try:
@@ -32,6 +35,8 @@ async def run_prompt(
             system_prompt=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
+            enable_thinking=enable_thinking,
+            timeout=timeout,
         )
     finally:
         await service.aclose()
@@ -42,7 +47,16 @@ def main() -> None:
     parser.add_argument("prompt")
     parser.add_argument("--system-prompt")
     parser.add_argument("--temperature", type=float, default=0.0)
-    parser.add_argument("--max-tokens", type=int, default=1024)
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help="Fewer generation tokens than BIOPARSER_VLLM_MAX_TOKENS. A larger value is capped.",
+    )
+    parser.add_argument(
+        "--thinking", action="store_true", help="Enable Qwen thinking for this prompt."
+    )
+    parser.add_argument("--timeout", type=float, default=None, help="Seconds for this request.")
     args = parser.parse_args()
 
     try:
@@ -52,9 +66,13 @@ def main() -> None:
                 system_prompt=args.system_prompt,
                 temperature=args.temperature,
                 max_tokens=args.max_tokens,
+                enable_thinking=args.thinking,
+                timeout=args.timeout,
             )
         )
-    except (APIConnectionError, APITimeoutError):
+    except VLLMError as exc:
+        if not isinstance(exc.__cause__, (APIConnectionError, APITimeoutError)):
+            raise
         print(vllm_unreachable_message(get_settings().vllm_base_url), file=sys.stderr)
         raise SystemExit(1) from None
 

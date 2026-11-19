@@ -11,7 +11,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from bioparser.ets.numbers import canonical_decimal
-from bioparser.ets.vocab import BasisOfRecord, Sex
+from bioparser.ets.vocab import BasisOfRecord
 
 _MEASUREMENT_ID = re.compile(r"^[1-9]\d*$")
 
@@ -32,20 +32,20 @@ class EtsRow(BaseModel):
 
     # Optional thesaurus identifier.
     traitID: str | None = None
-    # TODO: None allowed until a trait thesaurus exists. ETS requires a character value.
+    # A trait list fills this.
     traitName: str | None = None
-    verbatimTraitName: str | None = None
+    verbatimTraitName: str = Field(min_length=1)
 
-    # Accepted name. taxonID is the optional taxonomy identifier.
-    scientificName: str = Field(min_length=1)
+    # Accepted name. A taxonomy hit fills this with taxonID. A model reading fills it alone.
+    scientificName: str | None = None
     verbatimScientificName: str = Field(min_length=1)
     taxonID: str | None = None
 
-    # Standardized value beside the printed one.
-    traitValue: str
-    verbatimTraitValue: str = Field(min_length=1)
-    traitUnit: str = Field(min_length=1)
-    verbatimTraitUnit: str = Field(min_length=1)
+    # The trait list fills the value and the unit. The verbatim fields are printed.
+    traitValue: str | None = None
+    verbatimTraitValue: str | None = None
+    traitUnit: str | None = None
+    verbatimTraitUnit: str | None = None
 
     # Classification.
     taxonRank: str | None = None
@@ -57,13 +57,13 @@ class EtsRow(BaseModel):
     genus: str | None = None
 
     # The organism.
-    sex: Sex | None = None
+    sex: str | None = None
     lifeStage: str | None = None
-    age: float | None = Field(default=None, allow_inf_nan=False)
+    age: str | None = None
     morphotype: str | None = None
 
     # Where the measurement came from.
-    basisOfRecord: BasisOfRecord
+    basisOfRecord: BasisOfRecord | None = None
     basisOfRecordDescription: str | None = None
 
     # How the value was measured.
@@ -76,10 +76,12 @@ class EtsRow(BaseModel):
     # Repeated or grouped measurements.
     aggregateMeasure: bool | None = None
     statisticalMethod: str | None = None
-    individualCount: int | None = Field(default=None, ge=1)
-    dispersion: float | None = Field(default=None, ge=0, allow_inf_nan=False)
-    measurementValue_min: float | None = Field(default=None, allow_inf_nan=False)
-    measurementValue_max: float | None = Field(default=None, allow_inf_nan=False)
+    # No default. ETS says "Defaults to 1" and "Defaults to 0". A missing value is
+    # empty, because a default would state something the paper did not say.
+    individualCount: str | None = None
+    dispersion: str | None = None
+    measurementValue_min: str | None = None
+    measurementValue_max: str | None = None
     measurementAccuracy: str | None = None
 
     # measurementID is assigned for this response.
@@ -92,27 +94,43 @@ class EtsRow(BaseModel):
     eventID: str | None = None
     preparations: str | None = None
     samplingProtocol: str | None = None
-    year: int | None = None
-    month: int | None = None
-    day: int | None = None
+    year: str | None = None
+    month: str | None = None
+    day: str | None = None
     eventDate: str | None = None
     locationID: str | None = None
     habitat: str | None = None
-    decimalLongitude: float | None = Field(default=None, allow_inf_nan=False)
-    decimalLatitude: float | None = Field(default=None, allow_inf_nan=False)
-    elevation: float | None = Field(default=None, allow_inf_nan=False)
+    decimalLongitude: str | None = None
+    decimalLatitude: str | None = None
+    elevation: str | None = None
     geodeticDatum: str | None = None
     verbatimLocality: str | None = None
     country: str | None = None
     countryCode: str | None = None
     occurrenceRemarks: str | None = None
 
-    @field_validator("traitValue")
-    @classmethod
-    def _trait_value_is_a_positive_decimal(cls, value: str) -> str:
-        if canonical_decimal(value) != value:
-            raise ValueError("traitValue is not a positive decimal in canonical form")
-        return value
+    @model_validator(mode="after")
+    def _taxon_id_has_a_name(self) -> Self:
+        """A taxonomy identifier names the accepted taxon. A name can stand alone."""
+        if self.taxonID is not None and self.scientificName is None:
+            raise ValueError("taxonID needs a scientificName")
+        return self
+
+    @model_validator(mode="after")
+    def _trait_fields_are_one_standardization(self) -> Self:
+        """A trait list fills the name, the identifier, and the value together.
+
+        A unit belongs to that value, and the value is then a number. A level has
+        a value and no unit.
+        """
+        named = (self.traitID, self.traitName, self.traitValue)
+        filled = [field is not None for field in named]
+        if any(filled) and not all(filled):
+            raise ValueError("traitID, traitName, and traitValue are filled together")
+        value = self.traitValue
+        if self.traitUnit is not None and (value is None or canonical_decimal(value) != value):
+            raise ValueError("traitValue is not a positive decimal in the trait unit")
+        return self
 
     @field_validator("measurementID")
     @classmethod
@@ -120,11 +138,3 @@ class EtsRow(BaseModel):
         if _MEASUREMENT_ID.fullmatch(value) is None:
             raise ValueError("measurementID is not a decimal integer string")
         return value
-
-    @model_validator(mode="after")
-    def _bounds_are_ordered(self) -> Self:
-        lower = self.measurementValue_min
-        upper = self.measurementValue_max
-        if lower is not None and upper is not None and lower > upper:
-            raise ValueError("measurementValue_min is greater than measurementValue_max")
-        return self

@@ -3,7 +3,7 @@
 Compose runs eight services:
 
 - `vllm` is a local OpenAI-compatible model server on host port `VLLM_PORT` (default 8000).  
-- `mineru` is the PDF parser service (MinerU 4 `mineru-api`: Basic tier on the CPU stack, Standard with its VLM on the GPU stack) on internal network port 8000. It is only on that internal network, so it is never published to the host; the host scripts use a separately run container (see [parser.md](parser.md)). The CPU stack builds `bioparser-mineru:cpu`, the GPU stack `bioparser-mineru:gpu`, from the same Dockerfile.  
+- `mineru` is the PDF parser service (MinerU 4.2 `mineru-api`: Basic tier on the CPU stack; Standard with its VLM on the GPU stack, which also serves Advanced) on internal network port 8000. It is only on that internal network, so it is never published to the host; the host scripts use a separately run container (see [parser.md](parser.md)). The CPU stack builds `bioparser-mineru:cpu`, the GPU stack `bioparser-mineru:gpu`, from the same Dockerfile.  
 - `redis` is the job queue on port 6379 (accessed inside the Docker network using `redis:6379`).  
 - `postgres` is a Postgres 18 database on the internal network (`postgres:5432`), with its data on the `postgres-data` volume. It is not published to the host. Job records live here.  
 - `migrate` runs `bioparser-migrate` from its own image (`bioparser-migrate`). It logs in as the `bioparser` superuser, upgrades the schema, creates the `bioparser_app` login with `POSTGRES_APP_PASSWORD`, and grants that login use of the tables. It then exits. `docker compose up` runs it again on the next start. An already current database is left as it is, and an existing `postgres-data` volume gains `bioparser_app` on that run. Removing the volume recreates the cluster. `POSTGRES_USER` stays `bioparser`.  
@@ -38,18 +38,16 @@ Required:
 `VLLM_MODEL`: Hugging Face repo id, for example `Qwen/Qwen3-0.6B` (already set in `.env.example`).  
 `VLLM_PORT`: host port for vLLM (default `8000`).  
 `BIOPARSER_PORT`: host port for the API (default `8080`).  
-`BIOPARSER_API_KEY`: the key clients send in `X-API-Key` (at least 32 visible ASCII characters, see [docs/api.md](api.md#authentication)). The API does not start without it, unless `BIOPARSER_AUTH_DISABLED=true`.
+`BIOPARSER_API_KEY`: the key clients send in `X-API-Key` (at least 32 visible ASCII characters, see [docs/api.md](api.md#authentication)). The API does not start without it, unless `BIOPARSER_AUTH_DISABLED=true`.  
+`POSTGRES_PASSWORD`: password of the `bioparser` superuser. Compose puts it in the `migrate` database URL. `migrate` logs in as `bioparser`. Keep it URL-safe (`@`, `:`, `/`, `#` and `%` break that URL). The image applies this password only when `postgres-data` is empty.  
+`POSTGRES_APP_PASSWORD`: password of the `bioparser_app` login. It must differ from `POSTGRES_PASSWORD`. Compose puts it in the API and worker database URLs, and `migrate` sets it on the role after upgrading. `migrate` resets it from this value on every start. The same URL-safe rule applies.
 
 Optional:
 
 `HF_TOKEN`: needed for gated or private Hugging Face models.  
-`BIOPARSER_MINERU_TIER`: MinerU parse tier for the API and the worker (CPU stack `basic`; GPU stack default `standard`, or `advanced`). See [docs/parser.md](parser.md).  
+`BIOPARSER_MINERU_TIER`: MinerU parse tier for the parser worker (CPU stack `basic`; GPU stack default `standard`, or `advanced`). See [docs/parser.md](parser.md).  
 `BIOPARSER_PARSE_TIME_LIMIT_SECONDS`: the worker's limit for one parse (default `1800`, at most `3600`).  
-`BIOPARSER_MINERU_TIMEOUT_SECONDS`: how long `POST /extract` waits for MinerU (default `600`, at most `3600`).  
 `MINERU_API_CONCURRENCY`: how many parse jobs the `mineru` service runs at once (default `1`); more wait in its queue. Each running job needs its own memory, so raise the `mineru` `mem_limit` in the overlay with it.  
-`POSTGRES_PASSWORD` (required): password of the `bioparser` superuser. Compose puts it in the `migrate` database URL. `migrate` logs in as `bioparser`. Keep it URL-safe (`@`, `:`, `/`, `#` and `%` break that URL). The image applies this password only when `postgres-data` is empty.
-
-`POSTGRES_APP_PASSWORD` (required): password of the `bioparser_app` login. It must differ from `POSTGRES_PASSWORD`. Compose puts it in the API and worker database URLs, and `migrate` sets it on the role after upgrading. `migrate` resets it from this value on every start. The same URL-safe rule applies.  
 
 With `docker-compose.logging.yml`:
 
@@ -64,13 +62,13 @@ With `docker-compose.traefik.yml`:
 `TRAEFIK_LOG_LEVEL`: log verbosity for Traefik (default `INFO`).  
 `TRAEFIK_USERS_FILE`: required. Path to the Basic Auth users file you made (see below). Compose refuses to start Traefik while it is empty.  
 
-Inside Compose, the API and the extractor worker use `BIOPARSER_VLLM_BASE_URL=http://vllm:8000/v1`, and the API and the parser worker use `BIOPARSER_MINERU_BASE_URL=http://mineru:8000`. On the host, `test_prompt` should use `http://localhost:8000/v1` (the default in `.env.example`).
+Inside Compose, the extractor worker uses `BIOPARSER_VLLM_BASE_URL=http://vllm:8000/v1`, and the parser worker uses `BIOPARSER_MINERU_BASE_URL=http://mineru:8000`. On the host, `test_prompt` should use `http://localhost:8000/v1` (the default in `.env.example`).
 
 Weights cache on the host at `~/.cache/huggingface`.
 
 ## Start
 
-All services are included in the Compose stack. `migrate` starts after `postgres` is healthy, upgrades the database, creates `bioparser_app`, and exits. The API container starts only after that exit and after `vllm`, `mineru`, and `redis` health checks pass. The parser worker starts after `mineru`, `redis`, `postgres`, and `migrate`. The extractor worker starts after `vllm`, `redis`, `postgres`, and `migrate`. MinerU's check passes once its models are loaded. The first model download can take several minutes (vLLM's health-check `start_period` is 180s for GPU and 600s for CPU).
+All services are included in the Compose stack. `migrate` starts after `postgres` is healthy, upgrades the database, creates `bioparser_app`, and exits. The API container starts only after that exit and after `redis` and `postgres` are healthy. The parser worker starts after `mineru`, `redis`, `postgres`, and `migrate`. The extractor worker starts after `vllm`, `redis`, `postgres`, and `migrate`. MinerU's check passes once its models are loaded. The first model download can take several minutes (vLLM's health-check `start_period` is 180s for GPU and 600s for CPU).
 
 ```sh
 docker compose up --build
@@ -126,7 +124,7 @@ When started:
 - All requests require HTTP Basic Authentication. Traefik reads the users from the Compose secret `traefik_users` (`/run/secrets/traefik_users`), which comes from `TRAEFIK_USERS_FILE` (format: `name:bcrypt_hash`, one line per user). Add a user with `htpasswd -nbB <name> '<password>' >> docker/traefik/users`, then run `docker compose up -d --force-recreate traefik`.
 - HTTPS connections are encrypted with TLS and routed internally across the `edge` network to `http://bioparser:8080`.
 - Direct plain HTTP to the API remains accessible on loopback (`http://127.0.0.1:8080`).
-- Through Traefik, `/api/*` and `/extract` need both the Traefik user and the `X-API-Key` header. The default Traefik user is public, so the API key is the lock that matters on a LAN.
+- Through Traefik, `/api/*` needs both the Traefik user and the `X-API-Key` header. The default Traefik user is public, so the API key is the lock that matters on a LAN.
 - By default, Traefik generates an internal self-signed TLS certificate (`TRAEFIK DEFAULT CERT`) regenerated on restart, so encrypted connections work immediately without external domain setup. To use custom certificates, define a `tls.certificates` block in `docker/traefik/bioparser.yml` and mount your cert files.
 - Note: On rootless Docker hosts, binding privileged host ports below 1024 requires setting `TRAEFIK_HTTPS_PORT=8443` in `.env` (or configuring `net.ipv4.ip_unprivileged_port_start=0`).
 - On Docker Desktop for Windows, dynamic file watcher changes may require running `docker compose restart traefik` after modifying `docker/traefik/bioparser.yml`.

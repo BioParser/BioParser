@@ -138,8 +138,40 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Job Status */
+        /**
+         * Job Status
+         * @description The job.
+         *
+         *     `queued`, `parsing`, `parsed`, and `extracting` are `job_id` and `status`. `failed`
+         *     adds `error`. `done` is `job_id` and `status`. The ETS rows are
+         *     `GET /api/jobs/{job_id}/ets`. This route does not read the extraction artifact.
+         *
+         *     `?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,
+         *     `extractor`, `document_checksum`, and `has_parse_result`.
+         */
         get: operations["job_status_api_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/ets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Job Ets
+         * @description The ETS rows for a done job, in observation order.
+         *
+         *     A job that is not done has no rows yet.
+         */
+        get: operations["job_ets_api_jobs__job_id__ets_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -182,29 +214,6 @@ export interface paths {
         get: operations["job_extraction_artifact_api_jobs__job_id__artifacts_extraction_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/extract": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Extract
-         * @description Dev route: a queued job's pipeline in one request, without the queue and the workers.
-         *
-         *     The same parser, extractor and settings as a job from `POST /api/extractions`. Nothing is
-         *     stored. The response is the extraction artifact that the job stores.
-         */
-        post: operations["extract_extract_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -275,11 +284,6 @@ export interface components {
          * @enum {string}
          */
         BlockRole: "title" | "heading" | "body" | "list" | "caption" | "footnote" | "header" | "footer" | "reference";
-        /** Body_extract_extract_post */
-        Body_extract_extract_post: {
-            /** File */
-            file?: string | null;
-        };
         /** Body_upload_document_and_submit_job_api_extractions_post */
         Body_upload_document_and_submit_job_api_extractions_post: {
             /** File */
@@ -340,8 +344,7 @@ export interface components {
          * @description A narrow citation kept beside an interpretation.
          *
          *     ``citation`` is the narrow printed token. The interpretation's passage is
-         *     the wider text its value was read from. The adapter uses the
-         *     interpretation value. The citation stays for tracing and highlighting.
+         *     the wider text its value was read from.
          */
         Correction: {
             /**
@@ -411,16 +414,145 @@ export interface components {
             detail: components["schemas"]["ErrorDetail"];
         };
         /**
+         * EtsRow
+         * @description ETS v0.10 core, taxon, measurement-or-fact, and occurrence columns.
+         *
+         *     The order follows the stored observation. Columns the artifact does not
+         *     store sit beside the field they belong with.
+         */
+        EtsRow: {
+            /** Traitid */
+            traitID?: string | null;
+            /** Traitname */
+            traitName?: string | null;
+            /** Verbatimtraitname */
+            verbatimTraitName: string;
+            /** Scientificname */
+            scientificName?: string | null;
+            /** Verbatimscientificname */
+            verbatimScientificName: string;
+            /** Taxonid */
+            taxonID?: string | null;
+            /** Traitvalue */
+            traitValue?: string | null;
+            /** Verbatimtraitvalue */
+            verbatimTraitValue?: string | null;
+            /** Traitunit */
+            traitUnit?: string | null;
+            /** Verbatimtraitunit */
+            verbatimTraitUnit?: string | null;
+            /** Taxonrank */
+            taxonRank?: string | null;
+            /** Kingdom */
+            kingdom?: string | null;
+            /** Phylum */
+            phylum?: string | null;
+            /** Class */
+            class?: string | null;
+            /** Order */
+            order?: string | null;
+            /** Family */
+            family?: string | null;
+            /** Genus */
+            genus?: string | null;
+            /** Sex */
+            sex?: string | null;
+            /** Lifestage */
+            lifeStage?: string | null;
+            /** Age */
+            age?: string | null;
+            /** Morphotype */
+            morphotype?: string | null;
+            /** Basisofrecord */
+            basisOfRecord?: ("LivingSpecimen" | "PreservedSpecimen" | "FossilSpecimen" | "literatureData" | "traitDatabase" | "expertKnowledge") | null;
+            /** Basisofrecorddescription */
+            basisOfRecordDescription?: string | null;
+            /** Measurementmethod */
+            measurementMethod?: string | null;
+            /** Measurementresolution */
+            measurementResolution?: string | null;
+            /** Measurementremarks */
+            measurementRemarks?: string | null;
+            /** Measurementdeterminedby */
+            measurementDeterminedBy?: string | null;
+            /** Measurementdetermineddate */
+            measurementDeterminedDate?: string | null;
+            /** Aggregatemeasure */
+            aggregateMeasure?: boolean | null;
+            /** Statisticalmethod */
+            statisticalMethod?: string | null;
+            /** Individualcount */
+            individualCount?: string | null;
+            /** Dispersion */
+            dispersion?: string | null;
+            /** Measurementvalue Min */
+            measurementValue_min?: string | null;
+            /** Measurementvalue Max */
+            measurementValue_max?: string | null;
+            /** Measurementaccuracy */
+            measurementAccuracy?: string | null;
+            /** Measurementid */
+            measurementID: string;
+            /** Occurrenceid */
+            occurrenceID?: string | null;
+            /** Warnings */
+            warnings: string;
+            /** References */
+            references: string;
+            /** Eventid */
+            eventID?: string | null;
+            /** Preparations */
+            preparations?: string | null;
+            /** Samplingprotocol */
+            samplingProtocol?: string | null;
+            /** Year */
+            year?: string | null;
+            /** Month */
+            month?: string | null;
+            /** Day */
+            day?: string | null;
+            /** Eventdate */
+            eventDate?: string | null;
+            /** Locationid */
+            locationID?: string | null;
+            /** Habitat */
+            habitat?: string | null;
+            /** Decimallongitude */
+            decimalLongitude?: string | null;
+            /** Decimallatitude */
+            decimalLatitude?: string | null;
+            /** Elevation */
+            elevation?: string | null;
+            /** Geodeticdatum */
+            geodeticDatum?: string | null;
+            /** Verbatimlocality */
+            verbatimLocality?: string | null;
+            /** Country */
+            country?: string | null;
+            /** Countrycode */
+            countryCode?: string | null;
+            /** Occurrenceremarks */
+            occurrenceRemarks?: string | null;
+        };
+        /**
+         * EtsRowsResponse
+         * @description The ETS rows for one done job, in observation order.
+         */
+        EtsRowsResponse: {
+            /** Rows */
+            rows: components["schemas"]["EtsRow"][];
+        };
+        /**
          * ExtractionArtifact
          * @description Versioned extraction result stored for a job.
          */
         ExtractionArtifact: {
             /**
              * Schema Version
-             * @default 1
+             * @default 2
              * @constant
              */
-            schema_version: "1";
+            schema_version: "2";
             /** Extractor */
             extractor: string;
             /** Extractor Version */
@@ -428,13 +560,11 @@ export interface components {
             /** Observations */
             observations?: components["schemas"]["Observation"][];
         };
-        /** FailedJobResponse */
-        FailedJobResponse: {
-            /**
-             * Job Id
-             * Format: uuid
-             */
-            job_id: string;
+        /**
+         * FailedJobFullResponse
+         * @description A failed job with the stored record beside the error.
+         */
+        FailedJobFullResponse: {
             /**
              * Created At
              * Format: date-time
@@ -451,8 +581,27 @@ export interface components {
             /** Has Parse Result */
             has_parse_result: boolean;
             /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "failed";
+            error: components["schemas"]["SafeError"];
+        };
+        /** FailedJobResponse */
+        FailedJobResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @constant
              */
             status: "failed";
             error: components["schemas"]["SafeError"];
@@ -490,45 +639,87 @@ export interface components {
             passage: components["schemas"]["Citation"];
         };
         /**
+         * JobFullResponse
+         * @description One job with the stored record.
+         */
+        JobFullResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Parser */
+            parser: string;
+            /** Extractor */
+            extractor: string;
+            /** Document Checksum */
+            document_checksum: string;
+            /** Has Parse Result */
+            has_parse_result: boolean;
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "parsing" | "parsed" | "extracting" | "done";
+        };
+        /**
+         * JobResponse
+         * @description One job. Its ETS rows are on ``GET /api/jobs/{job_id}/ets``.
+         */
+        JobResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "parsing" | "parsed" | "extracting" | "done";
+        };
+        /**
          * Observation
          * @description One measurement.
          *
-         *     A citation-only field is printed text. A citation or correction is that citation, or a
-         *     correction that keeps the narrow citation beside an interpretation. A citation
-         *     or interpretation has no verbatim sibling. Its check can reject the printed
-         *     text, so it is a citation or an interpretation of one passage. The passage
-         *     fails that check, so it is not a usable column value. ``basisOfRecord``,
-         *     ``aggregateMeasure``, ``centralKind``, and ``dispersionKind``
-         *     are interpretations only. A paper does not print those tokens. The adapter
-         *     uses ``centralKind`` and ``dispersionKind`` to write ``statisticalMethod``
-         *     when no phrase was stored, and ``dispersionKind`` to convert the dispersion.
-         *     The minimum and the maximum use the same factor as the trait value. One
-         *     unit covers the measurement.
+         *     A citation-only field is the printed token. A citation or correction is that
+         *     token, or the token kept beside a reading of a wider phrase. A citation or
+         *     interpretation is the printed token, or a value read from a wider phrase.
+         *     ``basisOfRecord`` and ``aggregateMeasure`` are interpretations only. A paper
+         *     does not print those tokens.
+         *
+         *     The minimum, the maximum, and the dispersion are the numbers the paper
+         *     printed, read with ``verbatimTraitUnit``. ``statisticalMethod`` is the
+         *     phrase the paper printed, or empty.
          *
          *     ``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations
-         *     beside a required verbatim citation. The interpretation is omitted when the
-         *     printed token is already the value. ``traitValue`` and ``traitUnit`` are
-         *     that printed number and unit, cleaned up, not a converted pair.
-         *     ``scientificName`` is another name a later taxonomy lookup can try.
+         *     beside a verbatim citation. The interpretation is omitted when the printed
+         *     token is already the value. ``scientificName`` is the model's reading of the
+         *     accepted name. ``traitValue`` and ``traitUnit`` stay empty until a trait
+         *     list standardizes them.
          *
          *     The artifact does not enforce a closed set of values. An interpretation's
-         *     ``value`` is any non-empty string, including ``trait``. An extractor may
+         *     ``value`` is any non-empty string, including ``traitCode``. An extractor may
          *     constrain it, and the adapter decides what a value means.
          *
          *     Every other column a paper can state is optional. An extractor leaves it null.
          */
         Observation: {
-            trait: components["schemas"]["Interpretation"];
-            /** Verbatimtraitname */
-            verbatimTraitName?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            traitCode?: components["schemas"]["Interpretation"] | null;
+            verbatimTraitName: components["schemas"]["Citation"];
             scientificName?: components["schemas"]["Interpretation"] | null;
             verbatimScientificName: components["schemas"]["Citation"];
             traitValue?: components["schemas"]["Interpretation"] | null;
-            verbatimTraitValue: components["schemas"]["Citation"];
+            verbatimTraitValue?: components["schemas"]["Citation"] | null;
             traitUnit?: components["schemas"]["Interpretation"] | null;
-            verbatimTraitUnit: components["schemas"]["Citation"];
-            /** Taxonrank */
-            taxonRank?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            verbatimTraitUnit?: components["schemas"]["Citation"] | null;
             /** Kingdom */
             kingdom?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Phylum */
@@ -542,7 +733,7 @@ export interface components {
             /** Genus */
             genus?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Sex */
-            sex?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
+            sex?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Lifestage */
             lifeStage?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Age */
@@ -565,8 +756,6 @@ export interface components {
             aggregateMeasure?: components["schemas"]["Interpretation"] | null;
             /** Statisticalmethod */
             statisticalMethod?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
-            centralKind?: components["schemas"]["Interpretation"] | null;
-            dispersionKind?: components["schemas"]["Interpretation"] | null;
             /** Individualcount */
             individualCount?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
             /** Dispersion */
@@ -578,7 +767,7 @@ export interface components {
             /** Measurementaccuracy */
             measurementAccuracy?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Occurrenceid */
-            occurrenceID?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
+            occurrenceID?: (components["schemas"]["Citation"] | components["schemas"]["Interpretation"]) | null;
             /** Eventid */
             eventID?: (components["schemas"]["Citation"] | components["schemas"]["Correction"]) | null;
             /** Preparations */
@@ -646,34 +835,6 @@ export interface components {
                 [key: string]: string | number | boolean;
             };
         };
-        /** QueuedJobResponse */
-        QueuedJobResponse: {
-            /**
-             * Job Id
-             * Format: uuid
-             */
-            job_id: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Display Name */
-            display_name: string | null;
-            /** Parser */
-            parser: string;
-            /** Extractor */
-            extractor: string;
-            /** Document Checksum */
-            document_checksum: string;
-            /** Has Parse Result */
-            has_parse_result: boolean;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            status: "queued";
-        };
         /**
          * ReadinessResponse
          * @example {
@@ -712,34 +873,6 @@ export interface components {
         ReadinessUnavailableResponse: {
             detail: components["schemas"]["ReadinessUnavailableDetail"];
         };
-        /** RunningJobResponse */
-        RunningJobResponse: {
-            /**
-             * Job Id
-             * Format: uuid
-             */
-            job_id: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Display Name */
-            display_name: string | null;
-            /** Parser */
-            parser: string;
-            /** Extractor */
-            extractor: string;
-            /** Document Checksum */
-            document_checksum: string;
-            /** Has Parse Result */
-            has_parse_result: boolean;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            status: "parsing" | "extracting";
-        };
         /**
          * SafeError
          * @description A short, non-sensitive description of why a job failed.
@@ -750,34 +883,6 @@ export interface components {
              * @enum {string}
              */
             code: "invalid_pdf" | "parse_failed" | "extraction_failed" | "timeout" | "internal_error";
-        };
-        /** SucceededJobResponse */
-        SucceededJobResponse: {
-            /**
-             * Job Id
-             * Format: uuid
-             */
-            job_id: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Display Name */
-            display_name: string | null;
-            /** Parser */
-            parser: string;
-            /** Extractor */
-            extractor: string;
-            /** Document Checksum */
-            document_checksum: string;
-            /** Has Parse Result */
-            has_parse_result: boolean;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            status: "parsed" | "done";
         };
         /** TableCell */
         TableCell: {
@@ -1254,7 +1359,9 @@ export interface operations {
     };
     list_document_jobs_api_documents__checksum__jobs_get: {
         parameters: {
-            query?: never;
+            query?: {
+                detail?: "ets" | "full";
+            };
             header?: never;
             path: {
                 checksum: string;
@@ -1269,7 +1376,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": (components["schemas"]["QueuedJobResponse"] | components["schemas"]["RunningJobResponse"] | components["schemas"]["SucceededJobResponse"] | components["schemas"]["FailedJobResponse"])[];
+                    "application/json": (components["schemas"]["JobResponse"] | components["schemas"]["JobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"])[];
                 };
             };
             /** @description Unauthorized */
@@ -1395,6 +1502,7 @@ export interface operations {
             query?: {
                 status?: ("queued" | "parsing" | "parsed" | "extracting" | "done" | "failed") | null;
                 parser?: string | null;
+                detail?: "ets" | "full";
             };
             header?: never;
             path?: never;
@@ -1408,7 +1516,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": (components["schemas"]["QueuedJobResponse"] | components["schemas"]["RunningJobResponse"] | components["schemas"]["SucceededJobResponse"] | components["schemas"]["FailedJobResponse"])[];
+                    "application/json": (components["schemas"]["JobResponse"] | components["schemas"]["JobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"])[];
                 };
             };
             /** @description Unauthorized */
@@ -1451,6 +1559,75 @@ export interface operations {
     };
     job_status_api_jobs__job_id__get: {
         parameters: {
+            query?: {
+                detail?: "ets" | "full";
+            };
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobResponse"] | components["schemas"]["JobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    job_ets_api_jobs__job_id__ets_get: {
+        parameters: {
             query?: never;
             header?: never;
             path: {
@@ -1466,7 +1643,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QueuedJobResponse"] | components["schemas"]["RunningJobResponse"] | components["schemas"]["SucceededJobResponse"] | components["schemas"]["FailedJobResponse"];
+                    "application/json": components["schemas"]["EtsRowsResponse"];
                 };
             };
             /** @description Unauthorized */
@@ -1480,6 +1657,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1665,62 +1851,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
-            };
-        };
-    };
-    extract_extract_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_extract_extract_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExtractionArtifact"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description The pipeline gave no result. `detail` names the failed step. */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Every pipeline process is busy. Retry after `Retry-After`. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };

@@ -6,7 +6,6 @@ from pydantic import AnyUrl, Field, PostgresDsn, SecretStr, ValidationError, fie
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from bioparser.logging_config import parse_level
-from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 
 DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MiB
 API_KEY_MIN_LENGTH = 32
@@ -25,19 +24,10 @@ class ApiSettings(BaseSettings):
     log_level: int = logging.INFO
 
     max_upload_bytes: int = Field(default=DEFAULT_MAX_UPLOAD_BYTES, ge=1)
-    mineru_base_url: str = "http://mineru:8000"
-    mineru_timeout_seconds: float = Field(default=600.0, gt=0)
-    mineru_tier: MinerUTier = DEFAULT_TIER
-    extract_concurrency: int = Field(default=2, ge=1)
-    extract_queue_timeout_seconds: float = Field(default=5.0, gt=0)
     dependency_check_timeout_seconds: float = Field(default=1.0, gt=0)
     artifact_storage_path: str
     # The built UI (frontend/dist). None: the API serves no UI and /ui returns 404.
     ui_dist_path: str | None = None
-    # NOTE: char budget not token budget
-    # --max-model-len is cap for all tokens
-    extraction_char_budget: int = Field(default=8000, ge=50)
-    extraction_max_tokens: int = Field(default=1024, ge=64)
 
     # redis. repr=False: the URL can hold the password.
     redis_url: AnyUrl = Field(repr=False)
