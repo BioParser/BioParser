@@ -226,6 +226,21 @@ async def test_job_reads_join_the_document_including_a_missing_name(database: st
 
 @pytest.mark.integration
 @pytest.mark.anyio
+async def test_a_document_with_no_jobs_lists_nothing(database: str) -> None:
+    checksum = "ef" * 32
+    async with db_engine.transaction() as connection:
+        await document_queries.create(
+            connection,
+            checksum=checksum,
+            display_name="empty.pdf",
+            size_bytes=1,
+        )
+        jobs = await job_queries.list_jobs_for_document(connection, checksum)
+    assert jobs == []
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
 async def test_claim_counts_a_start_and_record_parsed_keeps_the_count(database: str) -> None:
     state = _queued(uuid.uuid4())
     await _create(state)
