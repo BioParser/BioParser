@@ -245,7 +245,7 @@ Convention:
   a new path, so results from the old version are not reused.
 - `<configuration>` is the backend setting that also changes the output, as one readable
   segment. Today only MinerU has one: its tier (`basic`, `standard`, …), so a MinerU result is
-  stored at `pdf/<pdf-checksum>/parsed/mineru/3/standard`. A different tier never reuses
+  stored at `pdf/<pdf-checksum>/parsed/mineru/4/standard`. A different tier never reuses
   another tier's result. The configuration is not part of the version.
 - The extraction path starts from the job's `parse_result_ref`, so it keeps every segment
   of that parse, including a MinerU tier. The extractor worker runs the extractor named

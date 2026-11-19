@@ -39,6 +39,7 @@ from bioparser.parser.models import (
     TextContent,
 )
 from bioparser.parser.protocol import PdfParser
+from bioparser.parser_names import PARSER_VERSIONS
 from bioparser.services.mineru.client import MinerUClient
 from bioparser.worker.parse.before_claim import mineru_before_claim
 from bioparser.worker.parse.config import DEFAULT_PARSE_MAX_RETRIES
@@ -50,7 +51,7 @@ PDF_REF = (
 )
 PDF_BYTES = b"%PDF-1.4"
 PDF_CHECKSUM = hashlib.sha256(PDF_BYTES).hexdigest()
-RESULT_PATH = parse_result_path(PDF_CHECKSUM, "default", "1")
+RESULT_PATH = parse_result_path(PDF_CHECKSUM, "default", PARSER_VERSIONS["default"])
 CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -821,7 +822,9 @@ def test_the_mineru_result_path_has_the_tier_as_its_last_segment() -> None:
     asyncio.run(handler.aclose())
 
     assert jobs.state is not None
-    assert jobs.state.parse_result_ref == f"pdf/{PDF_CHECKSUM}/parsed/mineru/3/standard"
+    assert jobs.state.parse_result_ref == (
+        f"pdf/{PDF_CHECKSUM}/parsed/mineru/{PARSER_VERSIONS['mineru']}/standard"
+    )
 
 
 def test_each_backend_gets_its_own_result_path() -> None:
@@ -834,7 +837,9 @@ def test_each_backend_gets_its_own_result_path() -> None:
 
     assert jobs.state is not None
     # Without a tier the handler names the default tier's path
-    assert jobs.state.parse_result_ref == parse_result_path(PDF_CHECKSUM, "mineru", "3", "basic")
+    assert jobs.state.parse_result_ref == parse_result_path(
+        PDF_CHECKSUM, "mineru", PARSER_VERSIONS["mineru"], "basic"
+    )
 
 
 def test_the_parser_reads_a_closed_temp_file_that_is_removed_afterwards(
