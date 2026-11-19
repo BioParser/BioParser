@@ -6,6 +6,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from bioparser.hashing import Sha256Hex
 
 PARSER_ARTIFACT_SCHEMA_VERSION = "2"
+_EDGE_PLACES = 4
+
+
+def _round_page_coord(value: float) -> float:
+    return round(value, _EDGE_PLACES)
 
 
 class BlockKind(StrEnum):
@@ -61,6 +66,7 @@ class TextLine(BaseModel):
     that owns this line. A null pair is a stored character with no ink: a space
     inserted between words, a hyphen removed at a line join, or MinerU's ``^{}``
     and ``_{}`` markers. A glyph that covers several characters shares its box in equal slices.
+    Coordinates are stored to four decimal places.
     """
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
@@ -94,6 +100,22 @@ class TextLine(BaseModel):
                 raise ValueError("glyph edges must be in [0, 1]")
             if right < left:
                 raise ValueError("x1 must be greater than or equal to x0")
+        # Four decimal places. Full floats make the stored artifact much larger.
+        self.y0 = _round_page_coord(self.y0)
+        self.y1 = max(_round_page_coord(self.y1), self.y0)
+        rounded_x0: list[float | None] = []
+        rounded_x1: list[float | None] = []
+        for left, right in zip(self.x0, self.x1, strict=True):
+            if left is None or right is None:
+                rounded_x0.append(left)
+                rounded_x1.append(right)
+                continue
+            left = _round_page_coord(left)
+            right = max(_round_page_coord(right), left)
+            rounded_x0.append(left)
+            rounded_x1.append(right)
+        self.x0 = rounded_x0
+        self.x1 = rounded_x1
         return self
 
 
