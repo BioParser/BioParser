@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from bioparser.extract.backend.default.locate import cited_observations
@@ -16,6 +17,8 @@ from bioparser.services.vllm.vllm import (
     VLLMSchemaError,
     VLLMTruncatedError,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 # Dropping references to cut tokens
 SKIP_ROLES = frozenset({BlockRole.REFERENCE, BlockRole.HEADER, BlockRole.FOOTER})
@@ -69,6 +72,11 @@ async def render_prompt(artifact: ParserArtifact, *, vllm: VLLMService) -> Promp
     # This one keeps a shorter prefix, because the current window rejects most papers.
     if eligible and kept_count == 0:
         raise VLLMContextLengthError("the prompt does not fit in the context window")
+    if kept_count < len(eligible):
+        LOGGER.warning(
+            "extraction prompt kept a prefix",
+            extra={"kept_blocks": kept_count, "eligible_blocks": len(eligible)},
+        )
     kept = eligible[:kept_count]
     return Prompt(
         text="\n\n".join(parts[:kept_count]),

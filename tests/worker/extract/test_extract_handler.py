@@ -374,6 +374,38 @@ def test_a_long_paper_keeps_the_prefix_that_fits() -> None:
     assert prompt.blocks == {"b0": QUOTE}
 
 
+def test_a_short_prefix_is_logged_without_the_text(caplog: pytest.LogCaptureFixture) -> None:
+    paper = _parser_artifact()
+    second = (
+        paper.pages[0]
+        .blocks[0]
+        .model_copy(update={"block_id": "b1", "order": 1, "content": TextContent(text="later")})
+    )
+    paper.pages[0].blocks.append(second)
+
+    class ShortFit(StubVLLMService):
+        async def fit_prefix(
+            self,
+            parts: list[str],
+            *,
+            system_prompt: str | None = None,
+            separator: str = "\n\n",
+            max_tokens: int | None = None,
+            enable_thinking: bool = False,
+        ) -> int:
+            return 1
+
+    with caplog.at_level(logging.WARNING, logger="bioparser.extract.backend.default.extractor"):
+        asyncio.run(render_prompt(paper, vllm=cast(VLLMService, ShortFit())))
+
+    assert len(caplog.records) == 1
+    record = caplog.records[0]
+    assert getattr(record, "kept_blocks") == 1
+    assert getattr(record, "eligible_blocks") == 2
+    assert QUOTE not in caplog.text
+    assert "later" not in caplog.text
+
+
 def test_eligible_text_that_does_not_fit_is_a_context_length_error() -> None:
     class NoneFit(StubVLLMService):
         async def fit_prefix(
