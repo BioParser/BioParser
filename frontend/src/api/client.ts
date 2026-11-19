@@ -15,8 +15,10 @@ export type CreateJobRequest = Schemas["CreateJobRequest"];
 export type UploadLimitsResponse = Schemas["UploadLimitsResponse"];
 export type ParserArtifact = Schemas["ParserArtifact"];
 export type ExtractionArtifact = Schemas["ExtractionArtifact"];
+// One job with the stored record, which the API returns for detail=full.
+export type JobStatusFullResponse = Schemas["JobFullResponse"] | Schemas["FailedJobFullResponse"];
 // The dashboard reads the stored record, which the list returns for detail=full.
-export type JobList = (Schemas["JobFullResponse"] | Schemas["FailedJobFullResponse"])[];
+export type JobList = JobStatusFullResponse[];
 export type JobStatus = JobList[number]["status"];
 
 export function listJobs(status: string, parser: string, signal?: AbortSignal): Promise<JobList> {
@@ -136,6 +138,18 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return (await response.json()) as T;
 }
 
+// Without detail=full the API answers only the job ID, the status and the error of a failed
+// job. detail=full adds the stored record.
+export function getJob(
+  jobId: string,
+  signal: AbortSignal | undefined,
+  detail: "full",
+): Promise<JobStatusFullResponse>;
+export function getJob(
+  jobId: string,
+  signal?: AbortSignal,
+  detail?: "ets" | "full",
+): Promise<JobStatusResponse>;
 export function getJob(
   jobId: string,
   signal?: AbortSignal,
