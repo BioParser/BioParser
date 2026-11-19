@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
@@ -60,6 +61,9 @@ function stubApi({
     if (path === "/api/upload-limits") {
       return Response.json({ max_upload_bytes: maxUploadBytes });
     }
+    if (path.startsWith("/api/jobs/")) {
+      return new Response(null, { status: 404 });
+    }
     if (path === "/api/documents") {
       const file = uploadedFile(init);
       return (
@@ -100,7 +104,12 @@ function errorBody(status: number, code: string, message: string): Response {
 
 function renderPage(): ReturnType<typeof createMemoryRouter> {
   const router = createMemoryRouter(routes, { initialEntries: ["/jobs/new"] });
-  render(<RouterProvider router={router} />);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
   return router;
 }
 
@@ -318,7 +327,8 @@ describe("StartJobPage", () => {
     expect(uploadedNames(fetchMock)).toEqual(["a.pdf"]);
     // An aborted request is never sent, so only the ones that were not aborted count.
     const jobStarts = fetchMock.mock.calls.filter(
-      ([path, init]) => String(path).endsWith("/jobs") && !init?.signal?.aborted,
+      ([path, init]) =>
+        String(path).endsWith("/jobs") && init?.method === "POST" && !init.signal?.aborted,
     );
     expect(jobStarts).toEqual([]);
   });

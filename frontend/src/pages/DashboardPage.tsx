@@ -2,19 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 import { ApiError, getReadiness, type JobList, type JobStatus, listJobs } from "../api/client";
 import { shouldRetry } from "../api/queryClient";
+import { JOB_STATUS_LABELS } from "../jobStatus";
 
 const INTERVAL = 5000;
 const IDLE_INTERVAL = 30000;
 const PAGE_SIZE = 10;
 const STATUSES: JobStatus[] = ["queued", "parsing", "parsed", "extracting", "done", "failed"];
-const LABELS: Record<JobStatus, string> = {
-  queued: "Queued",
-  parsing: "Parsing",
-  parsed: "Parsed",
-  extracting: "Extracting",
-  done: "Done",
-  failed: "Failed",
-};
 
 function Progress({ job }: { job: JobList[number] }) {
   const parseCompleted =
@@ -24,7 +17,7 @@ function Progress({ job }: { job: JobList[number] }) {
   const completed = job.status === "done" ? 3 : parseCompleted ? 1 : 0;
   const active = job.status === "parsing" ? 0 : job.status === "extracting" ? 1 : -1;
   return (
-    <ol className="job-progress" aria-label={`Progress: ${LABELS[job.status]}`}>
+    <ol className="job-progress" aria-label={`Progress: ${JOB_STATUS_LABELS[job.status]}`}>
       {["Parse", "Extract", "Done"].map((step, index) => (
         <li
           key={step}
@@ -120,7 +113,7 @@ export function DashboardPage() {
                 {invalidStatus && <option value={status}>{status}</option>}
                 {STATUSES.map((value) => (
                   <option key={value} value={value}>
-                    {LABELS[value]}
+                    {JOB_STATUS_LABELS[value]}
                   </option>
                 ))}
               </select>
@@ -188,7 +181,7 @@ export function DashboardPage() {
                         </td>
                         <td>
                           <span className={`job-status status-${job.status}`}>
-                            {LABELS[job.status]}
+                            {JOB_STATUS_LABELS[job.status]}
                           </span>
                           {job.status === "failed" && (
                             <code className="job-error">{job.error.code}</code>
