@@ -398,10 +398,9 @@ def test_a_short_prefix_is_logged_without_the_text(caplog: pytest.LogCaptureFixt
     with caplog.at_level(logging.WARNING, logger="bioparser.extract.backend.default.extractor"):
         asyncio.run(render_prompt(paper, vllm=cast(VLLMService, ShortFit())))
 
-    assert len(caplog.records) == 1
-    record = caplog.records[0]
-    assert getattr(record, "kept_blocks") == 1
-    assert getattr(record, "eligible_blocks") == 2
+    assert [record.getMessage() for record in caplog.records] == [
+        "extraction prompt kept 1 of 2 eligible blocks"
+    ]
     assert QUOTE not in caplog.text
     assert "later" not in caplog.text
 

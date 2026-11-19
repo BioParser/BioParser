@@ -74,8 +74,9 @@ async def render_prompt(artifact: ParserArtifact, *, vllm: VLLMService) -> Promp
         raise VLLMContextLengthError("the prompt does not fit in the context window")
     if kept_count < len(eligible):
         LOGGER.warning(
-            "extraction prompt kept a prefix",
-            extra={"kept_blocks": kept_count, "eligible_blocks": len(eligible)},
+            "extraction prompt kept %s of %s eligible blocks",
+            kept_count,
+            len(eligible),
         )
     kept = eligible[:kept_count]
     return Prompt(
