@@ -62,3 +62,12 @@ jobs:
             -t "$IMAGE:${{ github.sha }}" \
             -t "$IMAGE:latest" \
               .
+      # mineru cpu
+      - name: Build and push mineru cpu image
+        run: |
+          IMAGE=ghcr.io/bioparser/bioparser/mineru
+          docker buildx build --target cpu --push \
+            -f docker/mineru.Dockerfile \
+            -t "$IMAGE:${{ github.sha }}" \
+            -t "$IMAGE:latest" \
+              .
