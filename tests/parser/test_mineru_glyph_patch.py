@@ -1,7 +1,6 @@
-"""The glyph patch rewrites the published MinerU 4.2.3 and DocVortex 0.6.24 sources.
+"""The glyph patch rewrites the published MinerU and DocVortex sources.
 
-Those files live in ``tests/parser/fixtures/glyph-patch``. They come from the wheels, not
-from the text this patch searches for.
+The files come from the wheels named by ``MINERU_VERSION`` and ``DOCVORTEX_VERSION``.
 """
 
 import importlib.util
@@ -14,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.network
+
 _SPEC = importlib.util.spec_from_file_location(
     "mineru_glyph_edges",
     Path(__file__).resolve().parents[2] / "docker" / "patches" / "mineru_glyph_edges.py",
@@ -22,7 +23,6 @@ assert _SPEC is not None and _SPEC.loader is not None
 _PATCH = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_PATCH)
 
-_SOURCES = Path(__file__).resolve().parent / "fixtures" / "glyph-patch"
 _NATIVE = "mineru/backend/analysis/pdf/text/native.py"
 _CONTENT = "mineru/backend/analysis/pdf/text/content.py"
 _PAGES = "docvortex/postprocess/pages.py"
@@ -55,10 +55,10 @@ _ANCHORS: tuple[tuple[str, str], ...] = (
 )
 
 
-def _install(tmp_path: Path) -> Path:
+def _install(tmp_path: Path, sources: Path) -> Path:
     site = tmp_path / "site-packages"
     for package in ("mineru", "docvortex"):
-        shutil.copytree(_SOURCES / package, site / package)
+        shutil.copytree(sources / package, site / package)
     return site
 
 
@@ -138,11 +138,12 @@ def _wheel_bytes(project: str, version: str) -> bytes:
     return downloaded
 
 
-@pytest.mark.network
-def test_published_sources_match_the_pinned_wheels() -> None:
-    """A pin change fails here until these files are copied from the new wheels."""
+@pytest.fixture(scope="module")
+def published_sources(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The published files the patch rewrites, taken from the pinned wheels."""
     from bioparser.parser.backend.mineru.schema import DOCVORTEX_VERSION, MINERU_VERSION
 
+    root = tmp_path_factory.mktemp("published-sources")
     wheels = {
         "mineru": _wheel_bytes("mineru", MINERU_VERSION),
         "docvortex": _wheel_bytes("docvortex", DOCVORTEX_VERSION),
@@ -150,18 +151,21 @@ def test_published_sources_match_the_pinned_wheels() -> None:
     for relative in dict.fromkeys(path for path, _anchor in _ANCHORS):
         project = relative.split("/", 1)[0]
         with zipfile.ZipFile(io.BytesIO(wheels[project])) as archive:
-            assert (_SOURCES / relative).read_bytes() == archive.read(relative)
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive.read(relative))
+    return root
 
 
-def test_published_sources_contain_every_anchor() -> None:
+def test_published_sources_contain_every_anchor(published_sources: Path) -> None:
     for relative, anchor in _ANCHORS:
-        assert anchor in (_SOURCES / relative).read_text(encoding="utf-8")
-    for path in _SOURCES.rglob("*.py"):
+        assert anchor in (published_sources / relative).read_text(encoding="utf-8")
+    for path in published_sources.rglob("*.py"):
         assert "_bioparser_" not in path.read_text(encoding="utf-8")
 
 
-def test_patch_rewrites_published_sources_once(tmp_path: Path) -> None:
-    site = _install(tmp_path)
+def test_patch_rewrites_published_sources_once(tmp_path: Path, published_sources: Path) -> None:
+    site = _install(tmp_path, published_sources)
     _PATCH.apply(site)
     _assert_rewritten(site)
     snapshot = {relative: _text(site, relative) for relative, _anchor in _ANCHORS}
@@ -169,8 +173,8 @@ def test_patch_rewrites_published_sources_once(tmp_path: Path) -> None:
     assert snapshot == {relative: _text(site, relative) for relative in snapshot}
 
 
-def test_patch_refuses_moved_mineru_text(tmp_path: Path) -> None:
-    site = _install(tmp_path)
+def test_patch_refuses_moved_mineru_text(tmp_path: Path, published_sources: Path) -> None:
+    site = _install(tmp_path, published_sources)
     native = site / _NATIVE
     text = native.read_text(encoding="utf-8")
     needle = "def chars_to_content(\n"
@@ -180,8 +184,8 @@ def test_patch_refuses_moved_mineru_text(tmp_path: Path) -> None:
         _PATCH.apply(site)
 
 
-def test_patch_refuses_a_moved_docvortex_import(tmp_path: Path) -> None:
-    site = _install(tmp_path)
+def test_patch_refuses_a_moved_docvortex_import(tmp_path: Path, published_sources: Path) -> None:
+    site = _install(tmp_path, published_sources)
     document = site / _DOCUMENT
     text = document.read_text(encoding="utf-8")
     assert text.count(_PATCH._DOC_IMPORT_OLD) == 1
@@ -197,8 +201,10 @@ def test_patch_refuses_a_moved_docvortex_import(tmp_path: Path) -> None:
         _PATCH.apply(site)
 
 
-def test_patch_refuses_docvortex_without_the_structure_argument(tmp_path: Path) -> None:
-    site = _install(tmp_path)
+def test_patch_refuses_docvortex_without_the_structure_argument(
+    tmp_path: Path, published_sources: Path
+) -> None:
+    site = _install(tmp_path, published_sources)
     document = site / _DOCUMENT
     text = document.read_text(encoding="utf-8")
     needle = 'structure_extension=extensions.get("docvortex_pdf_structure")'
