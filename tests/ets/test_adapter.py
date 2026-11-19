@@ -603,6 +603,18 @@ def test_an_empty_document_id_is_rejected() -> None:
         ("M. musculus", "species"),
         ("Mus musculus domesticus", "subspecies"),
         ("Mus musculus domesticus extra", None),
+        ("Martes foina", "species"),
+        ("Macaca nemestrina", "species"),
+        ("Marmosa murina", "species"),
+        ("Sicista betulina", "species"),
+        ("MURIDAE", "family"),
+        ("Muridae ", "family"),
+        ("Mus sp.", None),
+        ("Mus spp.", None),
+        ("Myotis cf. myotis", None),
+        ("Myotis aff. myotis", None),
+        ("Microtus (Terricola) subterraneus", None),
+        ("Mus musculus L.", None),
     ],
 )
 def test_taxon_rank_is_inferred_from_the_printed_name(name: str, expected_rank: str | None) -> None:

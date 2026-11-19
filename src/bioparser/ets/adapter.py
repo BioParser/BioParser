@@ -40,22 +40,29 @@ def _infer_taxon_rank(name: str | None) -> str | None:
     if name is None:
         return None
 
-    if name.endswith("oidea"):
-        return "superfamily"
-    if name.endswith("idae"):
-        return "family"
-    if name.endswith("inae"):
-        return "subfamily"
-    if name.endswith("ini"):
-        return "tribe"
-    if name.endswith("ina"):
-        return "subtribe"
-
-    words = name.split()
+    normalized = name.strip().lower()
+    words = normalized.split()
     word_count = len(words)
+    if any(word in {"sp.", "spp.", "cf.", "aff."} for word in words):
+        return None
 
+    if "(" in normalized or ")" in normalized:
+        return None
+    if word_count >= 2 and words[-1].endswith("."):
+        return None
     if word_count == 1:
+        if normalized.endswith("oidea"):
+            return "superfamily"
+        if normalized.endswith("idae"):
+            return "family"
+        if normalized.endswith("inae"):
+            return "subfamily"
+        if normalized.endswith("ini"):
+            return "tribe"
+        if normalized.endswith("ina"):
+            return "subtribe"
         return "genus"
+
     if word_count == 2:
         return "species"
     if word_count == 3:
