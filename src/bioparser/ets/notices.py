@@ -130,12 +130,22 @@ class NotACalendarDay(BaseModel):
     field: Literal["year,month,day"] = "year,month,day"
 
 
+class AmbiguousDate(BaseModel):
+    """A numeric date whose day and month order is ambiguous."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["ambiguous_date"] = "ambiguous_date"
+    field: DateField
+
+
 Notice = (
     NotNumeric
     | OutOfRange
     | NotVerified
     | NotInVocabulary
     | NotADate
+    | AmbiguousDate
     | NotACalendarDay
     | BoundsReversed
 )
