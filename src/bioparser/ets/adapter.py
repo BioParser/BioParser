@@ -36,6 +36,33 @@ def to_ets(artifact: ExtractionArtifact, *, references: str) -> EtsResult:
     return EtsResult(rows=rows)
 
 
+def _infer_taxon_rank(name: str | None) -> str | None:
+    if name is None:
+        return None
+
+    if name.endswith("oidea"):
+        return "superfamily"
+    if name.endswith("idae"):
+        return "family"
+    if name.endswith("inae"):
+        return "subfamily"
+    if name.endswith("ini"):
+        return "tribe"
+    if name.endswith("ina"):
+        return "subtribe"
+
+    words = name.split()
+    word_count = len(words)
+
+    if word_count == 1:
+        return "genus"
+    if word_count == 2:
+        return "species"
+    if word_count == 3:
+        return "subspecies"
+    return None
+
+
 def _row(
     verdict: Assessment,
     *,
@@ -51,7 +78,7 @@ def _row(
             "verbatimTraitValue": verdict.cited["verbatimTraitValue"],
             "traitUnit": verdict.trait_unit,
             "verbatimTraitUnit": verdict.cited["verbatimTraitUnit"],
-            "taxonRank": verdict.cited["taxonRank"],
+            "taxonRank": _infer_taxon_rank(verdict.cited["verbatimScientificName"]),
             "kingdom": verdict.cited["kingdom"],
             "phylum": verdict.cited["phylum"],
             "class": verdict.cited["class"],

@@ -80,7 +80,8 @@ A minimum greater than the maximum is kept as printed, and the row warns `bounds
 - `references` comes from the job's document. The API writes the document checksum, the last segment of `pdf_ref`, until a bibliographic citation exists.
 - `warnings` collects what the adapter found while building the row.
 - `occurrenceID` is the printed token, or a value read from a wider phrase, when the observation stored one.
-- `taxonRank` stays empty. A taxonomy lookup fills it with `taxonID`. A printed kingdom, phylum, class, order, family, or genus is copied, and a later lookup fills one of those columns only when the observation left it empty.
+- `taxonRank` is inferred from `verbatimScientificName` in lowercase. Suffixes take precedence: `oidea` → `superfamily`, `idae` → `family`, `inae` → `subfamily`, `ini` → `tribe`, and `ina` → `subtribe`. Otherwise, one, two, or three words give `genus`, `species`, or `subspecies`. Names matching neither rule leave the column empty. The observation is not rewritten. A future confident taxonomy hit replaces the inferred rank.
+- A printed kingdom, phylum, class, order, family, or genus is copied, and a later lookup fills one of those columns only when the observation left it empty.
 - `traitName`, `traitID`, `traitValue`, and `traitUnit` stay empty until the trait list exists.
 
 ## Warnings
