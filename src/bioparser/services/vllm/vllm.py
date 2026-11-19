@@ -116,7 +116,10 @@ class VLLMService:
         system_prompt: str | None = None,
         enable_thinking: bool = False,
     ) -> int:
-        """Token count of the chat the completion would send. The tokenizer only."""
+        """Token count of the chat the completion would send. The tokenizer only.
+
+        A 404 forgets the model id that was sent, as a chat completion does.
+        """
         model = await self.get_model()
         try:
             response = await self._http.post(
@@ -129,6 +132,11 @@ class VLLMService:
             )
         except HTTPError as exc:
             raise VLLMError(f"vLLM tokenize failed: {type(exc).__name__}") from exc
+        if response.status_code == 404:
+            async with self._lock:
+                if self.model == model:
+                    self._forget_model()
+            raise VLLMError("vLLM tokenize failed: 404")
         if response.status_code >= 400:
             raise VLLMError(f"vLLM tokenize failed: {response.status_code}")
         try:

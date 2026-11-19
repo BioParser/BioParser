@@ -646,6 +646,42 @@ async def test_an_empty_part_list_still_checks_the_system_prompt(
 
 
 @pytest.mark.anyio
+async def test_a_tokenize_404_clears_the_cached_model_and_rediscovers_it(
+    vllm_transport: Callable[[Handler], None],
+) -> None:
+    discoveries = 0
+    requested: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal discoveries
+        if request.url.path.endswith("/models"):
+            discoveries += 1
+            model = "old-model" if discoveries == 1 else "new-model"
+            return httpx2.Response(
+                200,
+                json=_model_list({"id": model, "max_model_len": 4096}),
+            )
+        body = json.loads(request.content)
+        requested.append(body["model"])
+        if body["model"] == "old-model":
+            return httpx2.Response(404, json={"error": {"message": "model not found"}})
+        return httpx2.Response(200, json={"count": 3, "tokens": [1, 2, 3]})
+
+    vllm_transport(handler)
+    service = VLLMService()
+    try:
+        with pytest.raises(VLLMError, match="404"):
+            await service.fit_prefix(["hello"])
+        assert service.model is None
+        assert await service.fit_prefix(["hello"]) == 1
+    finally:
+        await service.aclose()
+
+    assert discoveries == 2
+    assert requested == ["old-model", "new-model"]
+
+
+@pytest.mark.anyio
 async def test_tokenize_sends_the_chat_the_completion_would_send(
     vllm_log: pytest.LogCaptureFixture,
     make_service: Callable[[Handler], VLLMService],
