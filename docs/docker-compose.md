@@ -20,7 +20,7 @@ Compose runs eight services:
 
 `docker-compose.traefik.yml` adds an encrypted reverse proxy with HTTP Basic Authentication in front of the API:
 
-- `traefik` terminates TLS/HTTPS on host port `TRAEFIK_HTTPS_PORT` (default 443), enforces Basic Authentication (users from the file in `TRAEFIK_USERS_FILE`, which you make; the repository ships none), and routes internally to `http://bioparser:8080`. Plain HTTP is disabled so credentials never travel unencrypted. It runs as unprivileged user `65534:65534` (`nobody`), uses file-based configuration (`docker/traefik/bioparser.yml`), and requires no Docker socket access.
+- `traefik` terminates TLS/HTTPS on host port `TRAEFIK_HTTPS_PORT` (default 443), limits the request rate of each client IP address, enforces Basic Authentication (users from the file in `TRAEFIK_USERS_FILE`, which you make; the repository ships none), and routes internally to `http://bioparser:8080`. Plain HTTP is disabled so credentials never travel unencrypted. It runs as unprivileged user `65534:65534` (`nobody`), uses file-based configuration (`docker/traefik/bioparser.yml`), and requires no Docker socket access.
 
 The README has the default install and start commands. This page covers env vars, networking, logs, HTTPS, and `test_prompt`.
 
@@ -122,8 +122,10 @@ When started:
 
 - Traefik binds to `TRAEFIK_BIND_ADDRESS` (default `127.0.0.1` for loopback security) on HTTPS port `TRAEFIK_HTTPS_PORT` (default 443). Plain HTTP is disabled so credentials are never transmitted unencrypted.
 - All requests require HTTP Basic Authentication. Traefik reads the users from the Compose secret `traefik_users` (`/run/secrets/traefik_users`), which comes from `TRAEFIK_USERS_FILE` (format: `name:bcrypt_hash`, one line per user). Add a user with `htpasswd -nbB <name> '<password>' >> docker/traefik/users`, then run `docker compose up -d --force-recreate traefik`.
+- Traefik limits the requests from each client IP address. A client can send 20 requests at one time. After that, Traefik accepts 20 requests each second. It answers the other requests with `429 Too Many Requests` and a `Retry-After` header (in seconds). The limit runs before Basic Authentication, and it also limits password tries. The values are `burst`, `average` and `period` of the `bioparser-ratelimit` middleware in `docker/traefik/bioparser.yml`. Traefik loads a changed file without a restart.
+- Traefik takes the client address from the TCP connection, not from `X-Forwarded-For`. If a proxy or a NAT in front of Traefik hides the client addresses, these clients share one limit. With the default `TRAEFIK_BIND_ADDRESS=127.0.0.1`, Docker forwards all local connections from one address. By default, rootless Docker also does not keep the client addresses. In these two cases, all clients share one limit. Traefik keeps the counters in memory, and a restart of Traefik clears them.
 - HTTPS connections are encrypted with TLS and routed internally across the `edge` network to `http://bioparser:8080`.
-- Direct plain HTTP to the API remains accessible on loopback (`http://127.0.0.1:8080`).
+- Direct plain HTTP to the API remains accessible on loopback (`http://127.0.0.1:8080`), without the rate limit.
 - Through Traefik, `/api/*` needs both the Traefik user and the `X-API-Key` header. The default Traefik user is public, so the API key is the lock that matters on a LAN.
 - By default, Traefik generates an internal self-signed TLS certificate (`TRAEFIK DEFAULT CERT`) regenerated on restart, so encrypted connections work immediately without external domain setup. To use custom certificates, define a `tls.certificates` block in `docker/traefik/bioparser.yml` and mount your cert files.
 - Note: On rootless Docker hosts, binding privileged host ports below 1024 requires setting `TRAEFIK_HTTPS_PORT=8443` in `.env` (or configuring `net.ipv4.ip_unprivileged_port_start=0`).
