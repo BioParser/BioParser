@@ -936,6 +936,7 @@ export interface components {
          *     that owns this line. A null pair is a stored character with no ink: a space
          *     inserted between words, a hyphen removed at a line join, or MinerU's ``^{}``
          *     and ``_{}`` markers. A glyph that covers several characters shares its box in equal slices.
+         *     Coordinates are stored to four decimal places.
          */
         TextLine: {
             /** Start */
