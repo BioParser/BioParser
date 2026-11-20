@@ -72,7 +72,9 @@ def test_the_reply_is_mapped_with_the_pdf_checksum_and_settings(pdf: Path) -> No
 
 def test_the_tier_is_asked_for_and_recorded(pdf: Path) -> None:
     with fake_mineru(parsed_task()) as mineru:
-        artifact = asyncio.run(MinerUParser(mineru.url, tier="standard").parse(pdf))
+        parser = MinerUParser(mineru.url, tier="standard")
+        assert parser.configuration == "standard"
+        artifact = asyncio.run(parser.parse(pdf))
 
     assert mineru.created[0]["tier"] == "standard"
     assert artifact.parser.version == "3"

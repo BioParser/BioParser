@@ -12,6 +12,8 @@ Convention (build paths with the functions below, never by string formatting):
 - ``<parse-result-path>/extracted/<extractor>/<extractor-version>``: the extraction
   artifact made from that parser artifact. It keeps every segment of the parse path,
   including a backend configuration such as a MinerU tier.
+- ``<parse-result-path>/extracted/<extractor>/<extractor-version>/<configuration>``: the same,
+  for an extractor whose output also depends on its configuration.
 
 This module only defines what a well-formed path looks like and how to build one. It has no
 dependency on storage, so the job modules can use it without importing the storage package.
@@ -23,6 +25,8 @@ import re
 from typing import Annotated
 
 from pydantic import AfterValidator
+
+from bioparser.hashing import sha256_bytes
 
 ARTIFACT_PATH_MAX_LENGTH = 512
 
@@ -117,33 +121,53 @@ def pdf_checksum(path: str) -> str:
     return checksum
 
 
+def _append_configuration(path: str, configuration: str | None) -> str:
+    if configuration is None:
+        return validate_artifact_path(path)
+    if not isinstance(configuration, str):
+        raise ArtifactPathError("Artifact path segment must be a string")
+    segment = (
+        sha256_bytes(configuration.encode("utf-8"))
+        if len(configuration) > ARTIFACT_PATH_MAX_SEGMENT_LENGTH
+        else validate_path_segment(configuration)
+    )
+    return validate_artifact_path(f"{path}/{segment}")
+
+
 def parse_result_path(
     checksum: str, backend: str, version: str, configuration: str | None = None
 ) -> str:
     """Return the path of the parser artifact for a PDF:
     ``pdf/<checksum>/parsed/<backend>/<version>``, then ``/<configuration>`` if given.
 
-    ``configuration`` names the backend setting that changes the output, as one readable
-    segment (MinerU: the tier). Backends without such a setting leave it out.
+    ``configuration`` names the backend setting that changes the output. Values up to
+    ``ARTIFACT_PATH_MAX_SEGMENT_LENGTH`` characters are stored unchanged; longer values are
+    stored as their sha256 hex digest. Backends without such a setting leave it out.
     """
     path = (
         f"{pdf_path(checksum)}/parsed/"
         f"{validate_path_segment(backend)}/{validate_path_segment(version)}"
     )
-    if configuration is not None:
-        path = f"{path}/{validate_path_segment(configuration)}"
-    return validate_artifact_path(path)
+    return _append_configuration(path, configuration)
 
 
-def extract_result_path(parse_result_ref: str, extractor: str, extractor_version: str) -> str:
+def extract_result_path(
+    parse_result_ref: str,
+    extractor: str,
+    extractor_version: str,
+    configuration: str | None = None,
+) -> str:
     """Return the path of the extraction artifact for one parser artifact:
-    ``<parse_result_ref>/extracted/<extractor>/<extractor-version>``.
+    ``<parse_result_ref>/extracted/<extractor>/<extractor-version>``, then
+    ``/<configuration>`` if given.
 
     The parse path is kept whole, so a later segment on it, such as a MinerU tier,
-    is part of the extraction path too.
+    is part of the extraction path too. Values up to ``ARTIFACT_PATH_MAX_SEGMENT_LENGTH``
+    characters are stored unchanged; longer values are stored as their sha256 hex digest.
     """
     parsed = validate_artifact_path(parse_result_ref)
-    return validate_artifact_path(
+    path = (
         f"{parsed}/extracted/"
         f"{validate_path_segment(extractor)}/{validate_path_segment(extractor_version)}"
     )
+    return _append_configuration(path, configuration)

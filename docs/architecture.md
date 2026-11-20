@@ -238,15 +238,19 @@ Convention:
 | Parser artifact | `pdf/<pdf-checksum>/parsed/<backend>/<version>` | `parse_result_path(checksum, backend, version)` |
 | Parser artifact of a configured backend | `pdf/<pdf-checksum>/parsed/<backend>/<version>/<configuration>` | `parse_result_path(checksum, backend, version, configuration)` |
 | Extraction artifact | `<parse-result-path>/extracted/<extractor>/<extractor-version>` | `extract_result_path(parse_result_ref, extractor, extractor_version)` |
+| Extraction artifact of a configured extractor | `<parse-result-path>/extracted/<extractor>/<extractor-version>/<configuration>` | `extract_result_path(parse_result_ref, extractor, extractor_version, configuration)` |
 
 - `<pdf-checksum>` is the sha256 of the PDF bytes, from `bioparser.hashing`.
 - `<backend>` is the parser backend name and `<version>` its version from
   `bioparser.parser_names.PARSER_VERSIONS`. Bumping a backend's version gives new results
   a new path, so results from the old version are not reused.
-- `<configuration>` is the backend setting that also changes the output, as one readable
-  segment. Today only MinerU has one: its tier (`basic`, `standard`, …), so a MinerU result is
-  stored at `pdf/<pdf-checksum>/parsed/mineru/3/standard`. A different tier never reuses
-  another tier's result. The configuration is not part of the version.
+- `<configuration>` is the backend setting that also changes the output, reported by the
+  parser or extractor for that run (`None` when the version alone identifies the output).
+  Values up to 200 valid segment characters stay readable (MinerU reports its tier such as
+  `standard`, so a MinerU result is stored at
+  `pdf/<pdf-checksum>/parsed/mineru/3/standard`); values over 200 characters are stored as
+  their sha256 hex digest. A different configuration never reuses another configuration's
+  result. The configuration is not part of the version.
 - The extraction path starts from the job's `parse_result_ref`, so it keeps every segment
   of that parse, including a MinerU tier. The extractor worker runs the extractor named
   on the job and takes its version from `bioparser.extractor_names.EXTRACTOR_VERSIONS` when

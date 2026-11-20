@@ -14,6 +14,7 @@ from bioparser.artifact_paths import (
     validate_artifact_path,
     validate_path_segment,
 )
+from bioparser.hashing import sha256_bytes
 
 CHECKSUM = "f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2"
 
@@ -174,6 +175,30 @@ def test_extract_result_path_keeps_the_parse_path() -> None:
     assert path == f"{parsed}/extracted/default/0"
 
 
+def test_extract_result_path_appends_short_configuration_unchanged() -> None:
+    parsed = parse_result_path(CHECKSUM, "mineru", "2", "standard")
+    path = extract_result_path(parsed, "custom", "1", "prompt-v2")
+    assert path == f"{parsed}/extracted/custom/1/prompt-v2"
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        "a" * (ARTIFACT_PATH_MAX_SEGMENT_LENGTH + 1),
+        '{"model": "Qwen/Qwen3-0.6B", "prompt": "' + ("x" * 200) + '"}',
+    ],
+)
+def test_long_configuration_is_stored_as_its_sha256_hex_digest(config: str) -> None:
+    digest = sha256_bytes(config.encode("utf-8"))
+    parsed = parse_result_path(CHECKSUM, "custom", "1", config)
+    extracted = extract_result_path(
+        parse_result_path(CHECKSUM, "default", "1"), "custom", "1", config
+    )
+
+    assert parsed == f"pdf/{CHECKSUM}/parsed/custom/1/{digest}"
+    assert extracted == f"pdf/{CHECKSUM}/parsed/default/1/extracted/custom/1/{digest}"
+
+
 @pytest.mark.parametrize(
     "bad", ["", "a/b", "/a", "has space", "a" * (ARTIFACT_PATH_MAX_SEGMENT_LENGTH + 1)]
 )
@@ -184,8 +209,6 @@ def test_builders_reject_a_value_that_is_not_one_segment(bad: str) -> None:
         parse_result_path(CHECKSUM, bad, "1")
     with pytest.raises(ArtifactPathError):
         parse_result_path(CHECKSUM, "default", bad)
-    with pytest.raises(ArtifactPathError):
-        parse_result_path(CHECKSUM, "mineru", "2", bad)
     parsed = parse_result_path(CHECKSUM, "mineru", "2", "standard")
     # The parse ref is a whole path, so a value with a slash can be one.
     if bad != "a/b":
@@ -195,6 +218,15 @@ def test_builders_reject_a_value_that_is_not_one_segment(bad: str) -> None:
         extract_result_path(parsed, bad, "1")
     with pytest.raises(ArtifactPathError):
         extract_result_path(parsed, "default", bad)
+
+
+@pytest.mark.parametrize("bad", ["", "a/b", "/a", "has space", "bad:char"])
+def test_builders_reject_short_illegal_configuration_without_hashing(bad: str) -> None:
+    parsed = parse_result_path(CHECKSUM, "default", "1")
+    with pytest.raises(ArtifactPathError):
+        parse_result_path(CHECKSUM, "mineru", "2", bad)
+    with pytest.raises(ArtifactPathError):
+        extract_result_path(parsed, "custom", "1", bad)
 
 
 @pytest.mark.parametrize("bad", [".", ".."])
@@ -208,6 +240,8 @@ def test_builders_reject_dot_segments(bad: str) -> None:
         extract_result_path(bad, "default", "1")
     with pytest.raises(ArtifactPathTraversalError):
         extract_result_path(parsed, bad, "1")
+    with pytest.raises(ArtifactPathTraversalError):
+        extract_result_path(parsed, "custom", "1", bad)
 
 
 @pytest.mark.parametrize("segment", ["a", CHECKSUM, "doc_123.v1-final", "..."])

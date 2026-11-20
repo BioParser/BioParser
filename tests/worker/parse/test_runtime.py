@@ -80,4 +80,5 @@ def test_one_tier_setting_names_the_request_and_the_result_path(tmp_path: Path) 
         asyncio.run(handler.aclose())
 
     assert mineru.created[0]["tier"] == "standard"
-    assert artifact.parser.configuration["tier"] == handler._mineru_tier == "standard"
+    parser = handler._parser_factory("mineru")
+    assert artifact.parser.configuration["tier"] == parser.configuration == "standard"

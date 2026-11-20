@@ -80,9 +80,11 @@ class RecordingParser:
         artifact: ParserArtifact,
         *,
         error: BaseException | None = None,
+        configuration: str | None = None,
     ) -> None:
         self.artifact = artifact
         self.error = error
+        self.configuration = configuration
         self.paths: list[bytes] = []
 
     async def parse(self, path: Path) -> ParserArtifact:
@@ -501,6 +503,8 @@ def test_parser_timeout_fails_with_timeout_without_retry(error: BaseException) -
     """Both the parser's own limit and the queue's cancellation at its time limit end the job as a timeout."""
 
     class _SlowParser:
+        configuration: str | None = None
+
         async def parse(self, path: Path) -> ParserArtifact:
             raise error
 
@@ -664,6 +668,8 @@ def test_records_logged_while_a_job_runs_carry_its_job_id(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     class _LoggingParser:
+        configuration: str | None = None
+
         async def parse(self, path: Path) -> ParserArtifact:
             logging.getLogger("bioparser.parser.test").info("parsing")
             return _artifact()
@@ -768,6 +774,7 @@ def test_claim_cap_stops_retries_that_the_queue_would_still_allow() -> None:
 def test_queue_time_limit_fails_the_job_as_timeout_without_retry() -> None:
     class _HangingParser:
         calls = 0
+        configuration: str | None = None
 
         async def parse(self, path: Path) -> ParserArtifact:
             _HangingParser.calls += 1
@@ -809,13 +816,12 @@ def test_second_job_with_the_same_pdf_reuses_the_artifact() -> None:
 
 def test_the_mineru_result_path_has_the_tier_as_its_last_segment() -> None:
     jobs = StubJobs(_queued().with_changes(parser="mineru"))
-    parser = RecordingParser(_artifact())
+    parser = RecordingParser(_artifact(), configuration="standard")
     handler = ParseJobHandler(
         database_url="postgresql://unused",
         storage=_storage(),
         parser_factory=lambda _name: parser,
         max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
-        mineru_tier="standard",
     )
     asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
@@ -827,14 +833,41 @@ def test_the_mineru_result_path_has_the_tier_as_its_last_segment() -> None:
 def test_each_backend_gets_its_own_result_path() -> None:
     jobs = StubJobs(_queued().with_changes(parser="mineru"))
     storage = _storage()
-    parser = RecordingParser(_artifact())
+    parser = RecordingParser(_artifact(), configuration="basic")
     handler = _handler(jobs, storage, parser, factory=lambda _name: parser)
     asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
 
     assert jobs.state is not None
-    # Without a tier the handler names the default tier's path
     assert jobs.state.parse_result_ref == parse_result_path(PDF_CHECKSUM, "mineru", "3", "basic")
+
+
+def test_too_long_parser_configuration_is_hashed_on_the_path() -> None:
+    config = "option=" + ("x" * 210)
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
+    storage = _storage()
+    parser = RecordingParser(_artifact(), configuration=config)
+    handler = _handler(jobs, storage, parser, factory=lambda _name: parser)
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.parse_result_ref == parse_result_path(PDF_CHECKSUM, "mineru", "3", config)
+
+
+def test_short_illegal_parser_configuration_is_internal_error() -> None:
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
+    storage = _storage()
+    parser = RecordingParser(_artifact(), configuration="bad segment")
+    handler = _handler(jobs, storage, parser, factory=lambda _name: parser)
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert parser.paths == []
+    assert storage.stores == 0
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "internal_error"
 
 
 def test_the_parser_reads_a_closed_temp_file_that_is_removed_afterwards(

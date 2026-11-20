@@ -23,7 +23,9 @@ trailer<< /Root 1 0 R >>
 
 
 def test_fixture_pdf_to_artifact() -> None:
-    artifact = asyncio.run(DefaultParser().parse(FIXTURE))
+    parser = DefaultParser()
+    assert parser.configuration is None
+    artifact = asyncio.run(parser.parse(FIXTURE))
     restored = ParserArtifact.model_validate_json(artifact.model_dump_json())
     assert restored == artifact
     assert artifact.parser.name == DEFAULT_PARSER_NAME

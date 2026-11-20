@@ -98,6 +98,10 @@ def _child_environment() -> dict[str, str]:
 class DefaultParser:
     """Default digital-born PDF backend. Text currently uses pdfplumber."""
 
+    @property
+    def configuration(self) -> str | None:
+        return None
+
     async def parse(self, path: Path) -> ParserArtifact:
         """Parse the PDF in a child process."""
         child = await asyncio.create_subprocess_exec(

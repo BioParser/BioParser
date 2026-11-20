@@ -9,4 +9,7 @@ from bioparser.parser.models import ParserArtifact
 class Extractor(Protocol):
     """Shared contract for extractors that produce an `ExtractionArtifact`."""
 
+    @property
+    def configuration(self) -> str | None: ...
+
     async def extract(self, artifact: ParserArtifact) -> ExtractionArtifact: ...

@@ -41,6 +41,10 @@ class MinerUParser:
         self._timeout_s = timeout_s
         self._tier: MinerUTier = tier
 
+    @property
+    def configuration(self) -> str | None:
+        return self._tier
+
     async def parse(self, path: Path) -> ParserArtifact:
         pdf_path = path.expanduser().resolve()
         if not pdf_path.is_file():

@@ -74,7 +74,8 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         if ref is None:
             LOGGER.error("job has no parser artifact. Marking the job failed (internal_error)")
             raise PermanentJobFailure("internal_error")
-        artifact_path = _extraction_artifact_path(ref, state.extractor)
+        extractor = self._build_extractor(state.extractor)
+        artifact_path = _extraction_artifact_path(ref, state.extractor, extractor.configuration)
         parser_artifact = await self._load_parser_artifact(ref)
         stored = await _retrieve_or_none(self._storage, artifact_path)
         if stored is not None and _is_extraction_artifact(stored):
@@ -84,7 +85,6 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             LOGGER.error("stored extraction artifact is invalid and cannot be replaced")
             raise PermanentJobFailure("internal_error")
         try:
-            extractor = self._extractor_factory(state.extractor)
             artifact = checked_artifact(
                 await extractor.extract(parser_artifact),
                 parser_artifact,
@@ -112,6 +112,13 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             kind="extraction artifact",
         )
 
+    def _build_extractor(self, extractor_name: str) -> Extractor:
+        try:
+            return self._extractor_factory(extractor_name)
+        except ExtractorBackendUnavailableError as exc:
+            LOGGER.error(f"extractor {extractor_name!r} cannot run: {exc}")
+            raise PermanentJobFailure("internal_error") from exc
+
     async def _load_parser_artifact(self, ref: str) -> ParserArtifact:
         try:
             raw = await self._storage.retrieve(ref)
@@ -125,12 +132,15 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             raise PermanentJobFailure("internal_error") from exc
 
 
-def _extraction_artifact_path(parse_result_ref: str, extractor: str) -> str:
+def _extraction_artifact_path(
+    parse_result_ref: str, extractor: str, configuration: str | None = None
+) -> str:
     """The conventional path for this parser artifact's extraction result.
 
-    The path is the parser artifact's own path plus the extractor, so two parses of one
-    PDF, such as two MinerU tiers, do not share a result. The version is whatever
-    ``EXTRACTOR_VERSIONS`` says for this extractor when the job runs.
+    The path is the parser artifact's own path plus the extractor (and its
+    configuration when reported), so two parses of one PDF, such as two MinerU
+    tiers, do not share a result. The version is whatever ``EXTRACTOR_VERSIONS``
+    says for this extractor when the job runs.
     """
     try:
         version = EXTRACTOR_VERSIONS[extractor]
@@ -138,7 +148,7 @@ def _extraction_artifact_path(parse_result_ref: str, extractor: str) -> str:
         LOGGER.error(f"extractor {extractor!r} has no version")
         raise PermanentJobFailure("internal_error") from exc
     try:
-        return extract_result_path(parse_result_ref, extractor, version)
+        return extract_result_path(parse_result_ref, extractor, version, configuration)
     except ArtifactPathError as exc:
         LOGGER.error("parser artifact path cannot form an extraction path")
         raise PermanentJobFailure("internal_error") from exc

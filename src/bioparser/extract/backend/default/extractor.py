@@ -101,6 +101,10 @@ class DefaultExtractor:
     vllm: VLLMService
     char_budget: int
 
+    @property
+    def configuration(self) -> str | None:
+        return None
+
     async def extract(self, artifact: ParserArtifact) -> ExtractionArtifact:
         try:
             result = await extract_observations(

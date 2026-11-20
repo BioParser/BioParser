@@ -164,8 +164,14 @@ def _real_extract(
 
 
 class _CallableExtractor:
-    def __init__(self, extract: Callable[[ParserArtifact], Awaitable[ExtractionArtifact]]) -> None:
+    def __init__(
+        self,
+        extract: Callable[[ParserArtifact], Awaitable[ExtractionArtifact]],
+        *,
+        configuration: str | None = None,
+    ) -> None:
         self._extract = extract
+        self.configuration = configuration
 
     async def extract(self, artifact: ParserArtifact) -> ExtractionArtifact:
         return await self._extract(artifact)
@@ -819,6 +825,8 @@ def test_an_extractor_that_cannot_run_is_internal_error() -> None:
     storage = _storage()
 
     class _Down:
+        configuration: str | None = None
+
         async def extract(self, artifact: ParserArtifact) -> ExtractionArtifact:
             raise ExtractorBackendUnavailableError("cannot run")
 
@@ -869,3 +877,70 @@ def test_malformed_message_cannot_fail_a_parsed_job() -> None:
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
     assert jobs.state.error_code is None
+
+
+def test_extractor_configuration_is_appended_to_result_path() -> None:
+    jobs = StubJobs(_parsed())
+    storage = _storage()
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        return _artifact([])
+
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=storage,
+        extractor_factory=lambda _name: _CallableExtractor(extract, configuration="prompt-v2"),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "done"
+    assert jobs.state.extract_result_ref == f"{RESULT_PATH}/prompt-v2"
+
+
+def test_too_long_extractor_configuration_is_hashed_on_result_path() -> None:
+    config = "prompt=" + ("x" * 210)
+    jobs = StubJobs(_parsed())
+    storage = _storage()
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        return _artifact([])
+
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=storage,
+        extractor_factory=lambda _name: _CallableExtractor(extract, configuration=config),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "done"
+    assert jobs.state.extract_result_ref == extract_result_path(
+        PARSE_REF, DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME], config
+    )
+
+
+def test_short_illegal_extractor_configuration_is_internal_error() -> None:
+    jobs = StubJobs(_parsed())
+    storage = _storage()
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        raise AssertionError("model was called")
+
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=storage,
+        extractor_factory=lambda _name: _CallableExtractor(extract, configuration="bad segment"),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert storage.stores == 0
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "internal_error"

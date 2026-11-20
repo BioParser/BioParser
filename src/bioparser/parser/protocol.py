@@ -9,4 +9,7 @@ from bioparser.parser.models import ParserArtifact
 class PdfParser(Protocol):
     """Shared contract for PDF backends that produce a `ParserArtifact`."""
 
+    @property
+    def configuration(self) -> str | None: ...
+
     async def parse(self, path: Path) -> ParserArtifact: ...

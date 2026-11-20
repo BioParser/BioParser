@@ -320,10 +320,12 @@ class StubParser:
         *,
         error: Exception | None = None,
         delay_s: float = 0.0,
+        configuration: str | None = None,
     ) -> None:
         self.artifact = artifact if artifact is not None else stub_parser_artifact()
         self.error = error
         self.delay_s = delay_s
+        self.configuration = configuration
         self.pdfs: list[bytes] = []
 
     async def parse(self, path: Path) -> ParserArtifact:
