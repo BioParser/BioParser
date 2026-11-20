@@ -561,6 +561,13 @@ def _window(max_tokens: int, budget: int) -> VLLMService:
     service.model = "stub-model"
     service._max_tokens = max_tokens
     service._max_model_len = max_tokens + budget
+
+    async def cached_window() -> int:
+        if service._max_model_len is None:
+            raise VLLMError("vLLM did not report max_model_len")
+        return service._max_model_len
+
+    service.get_max_model_len = cached_window  # type: ignore[method-assign]
     return service
 
 
@@ -682,6 +689,30 @@ async def test_a_tokenize_404_clears_the_cached_model_and_rediscovers_it(
 
 
 @pytest.mark.anyio
+async def test_a_restarted_server_reports_a_new_context_window(
+    vllm_transport: Callable[[Handler], None],
+) -> None:
+    windows = iter((4096, 28672))
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/models"):
+            return httpx2.Response(
+                200,
+                json=_model_list({"id": "served-model", "max_model_len": next(windows)}),
+            )
+        return httpx2.Response(200, json={"count": 1, "tokens": [1]})
+
+    vllm_transport(handler)
+    service = VLLMService()
+    try:
+        assert await service.get_max_model_len() == 4096
+        assert await service.get_max_model_len() == 28672
+        assert service.model == "served-model"
+    finally:
+        await service.aclose()
+
+
+@pytest.mark.anyio
 async def test_tokenize_sends_the_chat_the_completion_would_send(
     vllm_log: pytest.LogCaptureFixture,
     make_service: Callable[[Handler], VLLMService],
@@ -690,6 +721,11 @@ async def test_tokenize_sends_the_chat_the_completion_would_send(
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         seen.append(request)
+        if request.url.path.endswith("/models"):
+            return httpx2.Response(
+                200,
+                json=_model_list({"id": "stub-model", "max_model_len": 4096}),
+            )
         return httpx2.Response(200, json={"count": 3, "max_model_len": 4096, "tokens": [1, 2, 3]})
 
     service = make_service(handler)
@@ -701,15 +737,15 @@ async def test_tokenize_sends_the_chat_the_completion_would_send(
         await service.aclose()
 
     assert kept == 1
-    assert [request.url.path for request in seen] == ["/tokenize", "/tokenize"]
-    body = json.loads(seen[1].content)
+    assert [request.url.path for request in seen] == ["/v1/models", "/tokenize", "/tokenize"]
+    body = json.loads(seen[2].content)
     assert body["model"] == "stub-model"
     assert body["messages"] == [
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "hello"},
     ]
     assert body["chat_template_kwargs"] == {"enable_thinking": False}
-    assert json.loads(seen[0].content)["messages"][1]["content"] == ""
+    assert json.loads(seen[1].content)["messages"][1]["content"] == ""
     assert "hello" not in json.dumps([record.getMessage() for record in vllm_log.records])
 
 

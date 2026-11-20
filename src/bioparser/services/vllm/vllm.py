@@ -14,6 +14,7 @@ from openai import (
     omit,
 )
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
+from openai.types.model import Model
 from openai.types.shared_params.response_format_json_schema import ResponseFormatJSONSchema
 from pydantic import BaseModel, ValidationError
 
@@ -84,6 +85,16 @@ class VLLMService:
             return False
         return True
 
+    async def _first_model_card(self) -> Model:
+        """The first model the server lists."""
+        try:
+            response = await self.client.models.list(timeout=self._discovery_timeout)
+        except APIError as exc:
+            raise VLLMError(f"vLLM unreachable: {type(exc).__name__}") from exc
+        if not response.data:
+            raise VLLMError("vLLM exposes no models")
+        return response.data[0]
+
     async def get_model(self) -> str:
         """Discover the served model id. The first id the server lists, cached for this process."""
         if self.model is not None:
@@ -91,23 +102,27 @@ class VLLMService:
 
         async with self._lock:
             if self.model is None:
-                try:
-                    response = await self.client.models.list(timeout=self._discovery_timeout)
-                except APIError as exc:
-                    raise VLLMError(f"vLLM unreachable: {type(exc).__name__}") from exc
-                if not response.data:
-                    raise VLLMError("vLLM exposes no models")
-                card = response.data[0]
+                card = await self._first_model_card()
                 self.model = card.id
                 self._max_model_len = _reported_max_model_len(card)
             return self.model
 
     async def get_max_model_len(self) -> int:
-        """The served model's context window. vLLM sends this as max_model_len."""
-        await self.get_model()
-        if self._max_model_len is None:
-            raise VLLMError("vLLM did not report max_model_len")
-        return self._max_model_len
+        """The served context window, read from the server on every call.
+
+        A restarted vLLM can keep the same model id and change ``--max-model-len``.
+        That does not 404, so the window cannot stay cached with the id. The id
+        stays cached until a 404.
+        """
+        async with self._lock:
+            card = await self._first_model_card()
+            if self.model is None:
+                self.model = card.id
+            reported = _reported_max_model_len(card)
+            if reported is None:
+                raise VLLMError("vLLM did not report max_model_len")
+            self._max_model_len = reported
+            return reported
 
     async def count_chat_tokens(
         self,
