@@ -94,6 +94,10 @@ _ROWS: dict[tuple[str, str], str | None] = {
     ("AdvT377", "C223"): "\u00a9",
     # Biology 2014, Genetics 2008.
     ("AdvP3F206A", "period"): "\u2609",
+    # Biology 2014, Genetics 2008. The drawing is the circled cross that marks
+    # a current address, beside the author and again before the note.
+    ("AdvP41461E", "currency"): "\u2297",
+    ("AdvP403A40", "currency"): "\u2297",
     # ONE 2014.
     ("AdvP3EAA99", "a"): "\u03b1",
     # Genetics 2008.

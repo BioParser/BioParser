@@ -59,6 +59,8 @@ def test_the_2014_biology_paper_recovers_the_symbol_glyphs() -> None:
     assert "(>10 g)" in text
     assert "GI<1.47" in text
     assert "1.36\u00b10.16" in text
+    assert "\u2297" in text
+    assert "\u00a4" not in text
     assert "\u221a" in text
     assert "\ufb03" not in text
     assert "\x00" not in text
@@ -86,6 +88,8 @@ def test_the_2008_genetics_paper_reuses_the_same_glyphs() -> None:
     assert "\u03b2-tubulin" in text
     assert "\u03b3H2AX" in text
     assert "\u00b5m" in text
+    assert "\u2297" in text
+    assert "\u00a4" not in text
     assert count == 0
     assert "\ufffd" not in text
 
