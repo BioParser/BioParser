@@ -33,7 +33,7 @@ def test_base_compose_has_no_dev_services() -> None:
 
 
 def test_compose_wrapper_appends_the_overlay_and_does_not_edit_env() -> None:
-    script = (_ROOT / "bioparser").read_text(encoding="utf-8")
+    script = (_ROOT / "bioparser-compose").read_text(encoding="utf-8")
     assert "exec docker compose up --build" in script
     assert "exec docker compose" in script
     assert "docker-compose.dev.yml" in script
@@ -65,32 +65,29 @@ def test_dev_overlay_reloads_edited_code_only() -> None:
     assert "./frontend:/frontend" in ui["volumes"]
     assert "ui-node-modules:/frontend/node_modules" in ui["volumes"]
 
-    api = services["bioparser"]["command"]
-    assert api == [
-        "uvicorn",
-        "bioparser.api.app:app",
-        "--reload",
-        "--reload-dir",
-        "/src",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "8080",
-    ]
-    assert services["bioparser"]["environment"]["PYTHONPATH"] == "/src"
-    assert "./src:/src:ro" in services["bioparser"]["volumes"]
+    assert "command" not in services["bioparser"]
+    assert "environment" not in services["bioparser"]
+    assert services["bioparser"]["build"]["target"] == "api-dev"
+    assert services["bioparser"]["image"] == "bioparser-api-dev"
+    assert services["bioparser"]["volumes"] == ["./src:/src:ro"]
+    api_stages = _stage_names(api_dockerfile)
+    assert api_stages[-1] == "runtime"
+    assert api_stages.index("api-dev") < api_stages.index("runtime")
+    api_dev = api_dockerfile.split("FROM base AS api-dev\n", 1)[1].split(
+        "FROM base AS runtime\n", 1
+    )[0]
+    assert "PYTHONPATH=/src" in api_dev
+    assert '--reload-dir", "/src"' in api_dev
 
     for name, module in (
         ("parser-worker", "python -m bioparser.worker.parse"),
         ("extractor-worker", "python -m bioparser.worker.extract"),
     ):
-        command = services[name]["command"]
-        assert command[1:3] == ["-m", "watchfiles"]
-        assert module in command
-        assert command[-1] == "/src"
-        assert services[name]["environment"]["PYTHONPATH"] == "/src"
+        assert "command" not in services[name]
+        assert "environment" not in services[name]
         assert services[name]["volumes"] == ["./src:/src:ro"]
         assert services[name]["build"]["target"] == f"{name}-dev"
+        assert services[name]["image"] == f"bioparser-{name}-dev"
         dockerfile = (_ROOT / "docker" / f"{name}.Dockerfile").read_text(encoding="utf-8")
         stages = _stage_names(dockerfile)
         assert stages[-1] == "runtime"
@@ -98,10 +95,27 @@ def test_dev_overlay_reloads_edited_code_only() -> None:
         prod, dev = dockerfile.split("FROM base AS build-dev\n", 1)
         assert "--group dev-reload" not in prod
         assert "--group dev-reload" in dev
+        assert "PYTHONPATH=/src" in dev
+        assert "watchfiles" in dev
+        assert module in dev
+        runtime = dev.split("FROM base AS runtime\n", 1)[1]
+        assert "PYTHONPATH" not in runtime
+        assert "watchfiles" not in runtime
 
     assert "command" not in services["migrate"]
-    assert services["migrate"]["environment"]["PYTHONPATH"] == "/src"
-    assert "./src:/src:ro" in services["migrate"]["volumes"]
+    assert "environment" not in services["migrate"]
+    assert services["migrate"]["build"]["target"] == "migrate-dev"
+    assert services["migrate"]["image"] == "bioparser-migrate-dev"
+    assert services["migrate"]["volumes"] == ["./src:/src:ro"]
+    migrate = (_ROOT / "docker" / "migrate.Dockerfile").read_text(encoding="utf-8")
+    migrate_stages = _stage_names(migrate)
+    assert migrate_stages[-1] == "runtime"
+    assert migrate_stages.index("migrate-dev") < migrate_stages.index("runtime")
+    migrate_dev = migrate.split("FROM base AS migrate-dev\n", 1)[1].split(
+        "FROM base AS runtime\n", 1
+    )[0]
+    assert "PYTHONPATH=/src" in migrate_dev
+    assert "watchfiles" not in migrate_dev
     assert "install-watchfiles" not in services
 
     lock = (_ROOT / "uv.lock").read_text(encoding="utf-8")

@@ -1,4 +1,4 @@
-# Hot reload for code we edit. `bash bioparser compose` appends this file for one run.
+# Hot reload for code we edit. `bash bioparser-compose` appends this file for one run.
 # Port 8080 still serves the UI built into the API image. That copy does not pick up frontend edits. 
 # http://localhost:5173/ui/ for UI work.
 
@@ -27,70 +27,33 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
 
+  # Dev stages read /src ahead of the installed package and reload from that mount.
+  # They are not the last stage, and they are not the images OKD runs.
   bioparser:
-    environment:
-      # The image installs BioParser into the virtualenv and does not keep src.
-      # /src is first, so it wins over that install. No bytecode on the read-only mount.
-      PYTHONPATH: /src
-      PYTHONDONTWRITEBYTECODE: "1"
+    image: bioparser-api-dev
+    build:
+      target: api-dev
     volumes:
       - ./src:/src:ro
-    # The image CMD has no --reload. The working directory is /app, which has
-    # no source tree, so the reloader watches the mount.
-    command:
-      - uvicorn
-      - bioparser.api.app:app
-      - --reload
-      - --reload-dir
-      - /src
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8080"
 
-  # Dev stages in the worker Dockerfiles. They add dev-reload (watchfiles),
-  # they are not the last stage, and they are not the images OKD runs.
   parser-worker:
     image: bioparser-parser-worker-dev
     build:
       target: parser-worker-dev
-    environment:
-      PYTHONPATH: /src
-      PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - ./src:/src:ro
-    command:
-      - python
-      - -m
-      - watchfiles
-      - --target-type
-      - command
-      - python -m bioparser.worker.parse
-      - /src
 
   extractor-worker:
     image: bioparser-extractor-worker-dev
     build:
       target: extractor-worker-dev
-    environment:
-      PYTHONPATH: /src
-      PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - ./src:/src:ro
-    command:
-      - python
-      - -m
-      - watchfiles
-      - --target-type
-      - command
-      - python -m bioparser.worker.extract
-      - /src
 
-  # Runs once and exits, on the current source. No watcher.
   migrate:
-    environment:
-      PYTHONPATH: /src
-      PYTHONDONTWRITEBYTECODE: "1"
+    image: bioparser-migrate-dev
+    build:
+      target: migrate-dev
     volumes:
       - ./src:/src:ro
 

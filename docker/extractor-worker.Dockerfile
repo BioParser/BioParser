@@ -74,6 +74,8 @@ RUN groupadd --system --gid 10001 app \
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/src \
     HOME=/home/app
 
 WORKDIR /app
@@ -88,7 +90,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('BIOPARSER_LIVENESS_PORT', '8081') + '/health', timeout=3)"]
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["python", "-m", "bioparser.worker.extract"]
+CMD ["python", "-m", "watchfiles", "--target-type", "command", "python -m bioparser.worker.extract", "/src"]
 
 #-------------------------------------------
 

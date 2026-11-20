@@ -39,6 +39,33 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 #-------------------------------------------
 
+# Dev stage for the Compose overlay. Not the last stage, so the default build
+# stays the production image. Compose mounts the source on /src. No watcher.
+
+FROM base AS migrate-dev
+
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid 10001 --home-dir /home/app --no-create-home \
+        --shell /usr/sbin/nologin app \
+    && install -d -o 10001 -g 0 -m 0770 /home/app
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/src \
+    HOME=/home/app
+
+WORKDIR /app
+
+COPY --from=build /app/.venv /app/.venv
+
+USER 10001:10001
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["bioparser-migrate"]
+
+#-------------------------------------------
+
 FROM base AS runtime
 
 # Numeric user: OpenShift runs the container as a random UID in group 0.
