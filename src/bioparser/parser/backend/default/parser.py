@@ -11,7 +11,7 @@ import pdfplumber
 from pdfplumber.page import Page as PdfPlumberPage
 from pydantic import ValidationError
 
-from bioparser.hashing import sha256_file
+from bioparser.hashing import sha256_bytes
 from bioparser.parser.backend.default.child import EXIT_NOT_FOUND, EXIT_UNSUPPORTED
 from bioparser.parser.backend.default.grouping import (
     SPAN_WIDTH_FACTOR,
@@ -170,7 +170,7 @@ class DefaultParser:
             raise FileNotFoundError("PDF not found")
 
         original = pdf_path.read_bytes()
-        checksum = sha256_file(pdf_path)
+        checksum = sha256_bytes(original)
         repaired, unmapped_symbol_count = repair_pdf(original)
         pages: list[Page] = []
         extracted_any = False

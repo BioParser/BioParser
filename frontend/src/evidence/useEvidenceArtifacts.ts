@@ -30,18 +30,13 @@ function observationsOf(artifact: ExtractionArtifact): Observation[] {
 // as immutable. Nothing is fetched while `enabled` is false, so the view loads them only once
 // an observation is selected. Each query fails on its own, so the view can keep what loaded.
 export function useEvidenceArtifacts(jobId: string, enabled: boolean) {
-  const blocks = useQuery({
+  const parser = useQuery({
     queryKey: artifactQueryKey("parser", jobId),
     queryFn: ({ signal }) => getParserArtifact(jobId, signal),
-    select: indexTextBlocks,
-    staleTime: Number.POSITIVE_INFINITY,
-    retry: retryArtifact,
-    enabled,
-  });
-  const unmappedSymbols = useQuery({
-    queryKey: artifactQueryKey("parser", jobId),
-    queryFn: ({ signal }) => getParserArtifact(jobId, signal),
-    select: (artifact: ParserArtifact) => artifact.unmapped_symbol_count ?? 0,
+    select: (artifact: ParserArtifact) => ({
+      blocks: indexTextBlocks(artifact),
+      unmappedSymbols: artifact.unmapped_symbol_count ?? 0,
+    }),
     staleTime: Number.POSITIVE_INFINITY,
     retry: retryArtifact,
     enabled,
@@ -54,5 +49,9 @@ export function useEvidenceArtifacts(jobId: string, enabled: boolean) {
     retry: retryArtifact,
     enabled,
   });
-  return { blocks, observations, unmappedSymbols };
+  return {
+    blocks: { ...parser, data: parser.data?.blocks },
+    unmappedSymbols: { ...parser, data: parser.data?.unmappedSymbols },
+    observations,
+  };
 }

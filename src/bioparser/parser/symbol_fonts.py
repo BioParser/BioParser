@@ -11,23 +11,27 @@ from __future__ import annotations
 
 import io
 import logging
-import re
 from collections import defaultdict
 from dataclasses import dataclass
 
 import pdfplumber
+import pikepdf
+from pdfminer.cmapdb import CMapParser, FileUnicodeMap
 from pdfminer.encodingdb import name2unicode
 from pdfminer.latin_enc import ENCODING
 from pdfminer.pdfdocument import PDFDocument
 from pdfminer.pdfpage import PDFPage
-from pdfminer.pdfparser import PDFParser, PDFSyntaxError
+from pdfminer.pdfparser import PDFParser
 from pdfminer.pdftypes import resolve1
 
 LOGGER = logging.getLogger(__name__)
 
-# A small Adv font has at most this many glyphs. Body text is larger.
-# The number is ours. 3B2 does not mark these fonts.
+# A small Adv symbol font has at most this many glyphs with ink.
+# The number is ours. 3B2 does not mark these fonts. The span of character
+# codes is not the count: a WinAnsi font lists every code between the first
+# and the last, including ones with no drawing.
 _SMALL_FONT = 8
+_TEXT_ENCODINGS = frozenset({"WinAnsiEncoding", "MacRomanEncoding", "StandardEncoding"})
 _REPLACEMENT = "\ufffd"
 # A dropped drawing (the square-root bar) becomes U+0000,
 # which the parser can replace or handle as needed.
@@ -244,19 +248,32 @@ class _Sample:
 class _Font:
     base: str
     objid: int
-    tounicode_id: int | None
-    raw: bytes | None
+    # Characters the font's own unicode map already names. Empty when it has none.
+    cmap: dict[int, str]
+    # Glyphs with a nonzero width. None when the font does not say.
+    ink: int | None
+    # A standard text encoding and no unicode map of its own. Not a symbol font.
+    plain: bool
     slots: list[_Slot]
     samples: dict[int, _Sample]
     counts: dict[int, int]
 
 
 def repair_pdf(data: bytes) -> tuple[bytes, int]:
-    """Return the PDF with repaired symbol labels, and how many glyphs became U+FFFD."""
+    """Return the PDF with repaired symbol labels, and how many glyphs became U+FFFD.
+
+    Any failure leaves the original bytes. A PDF that the parsers can already
+    read must not become unreadable because the repair could not finish.
+    """
     try:
-        fonts = _fonts(data)
-    except PDFSyntaxError:
+        return _repair(data)
+    except Exception:
+        LOGGER.warning("symbol font repair left the PDF unchanged", exc_info=True)
         return data, 0
+
+
+def _repair(data: bytes) -> tuple[bytes, int]:
+    fonts = _fonts(data)
     interesting = [font for font in fonts if _interesting(font)]
     if not interesting:
         return data, 0
@@ -265,7 +282,7 @@ def repair_pdf(data: bytes) -> tuple[bytes, int]:
     unmapped: dict[tuple[str, str, str, int], int] = defaultdict(int)
     for font in interesting:
         changed: dict[int, str] = {}
-        small = len(font.slots) <= _SMALL_FONT
+        small = _is_small(font)
         for slot in font.slots:
             sample = font.samples.get(slot.code)
             if sample is None:
@@ -282,7 +299,7 @@ def repair_pdf(data: bytes) -> tuple[bytes, int]:
             replacements.append((font, changed))
     for (base, glyph, claimed, page), count in sorted(unmapped.items()):
         LOGGER.warning(
-            "unmapped symbol font glyph %s %s on page %s claimed %s (%s times)",
+            "unmapped symbol font glyph %s %s first seen on page %s claimed %s (%s times)",
             base,
             glyph,
             page,
@@ -298,10 +315,19 @@ def _is_advent(base: str) -> bool:
     return base.startswith("Adv")
 
 
+def _is_small(font: _Font) -> bool:
+    # A standard text subset stays as the PDF labels it. Listing every such
+    # subset is not possible, and these glyphs are the characters they name.
+    if font.plain:
+        return False
+    count = font.ink if font.ink is not None else len(font.slots)
+    return count <= _SMALL_FONT
+
+
 def _interesting(font: _Font) -> bool:
     if not _is_advent(font.base):
         return False
-    if len(font.slots) <= _SMALL_FONT:
+    if _is_small(font):
         return True
     return any((font.base, slot.name) in _ROWS for slot in font.slots)
 
@@ -312,6 +338,8 @@ def _decide(base: str, slot: _Slot, *, small: bool) -> str:
     if (base, slot.name) in _ROWS:
         row = _ROWS[(base, slot.name)]
         return _DROP if row is None else row
+    if slot.claimed.startswith("(cid:"):
+        return _REPLACEMENT
     if small:
         return _REPLACEMENT
     return slot.claimed
@@ -336,16 +364,16 @@ def _fonts(data: bytes) -> list[_Font]:
             if not isinstance(font, dict):
                 continue
             base = _base_name(resolve1(font.get("BaseFont")))
-            slots = _slots(font)
+            cmap = _cmap_of(font)
+            slots = _slots(font, cmap)
             if not slots:
                 continue
-            tounicode = font.get("ToUnicode")
-            tounicode_id = getattr(tounicode, "objid", None)
             found[objid] = _Font(
                 base=base,
                 objid=objid,
-                tounicode_id=tounicode_id if isinstance(tounicode_id, int) else None,
-                raw=_object_bytes(data, document, objid),
+                cmap=cmap,
+                ink=_ink_count(font),
+                plain=_plain_text(font),
                 slots=slots,
                 samples={},
                 counts={},
@@ -362,7 +390,7 @@ def _base_name(value: object) -> str:
     return text.split("+")[-1]
 
 
-def _slots(font: dict[str, object]) -> list[_Slot]:
+def _slots(font: dict[str, object], cmap: dict[int, str]) -> list[_Slot]:
     first = resolve1(font.get("FirstChar"))
     last = resolve1(font.get("LastChar"))
     if not isinstance(first, int) or not isinstance(last, int):
@@ -373,8 +401,46 @@ def _slots(font: dict[str, object]) -> list[_Slot]:
         name = names.get(code)
         if name is None:
             continue
-        slots.append(_Slot(code=code, name=name, claimed=_claimed(name, code)))
+        slots.append(_Slot(code=code, name=name, claimed=cmap.get(code, _from_name(name, code))))
     return slots
+
+
+def _ink_count(font: dict[str, object]) -> int | None:
+    widths = resolve1(font.get("Widths"))
+    if not isinstance(widths, list):
+        return None
+    return sum(1 for width in widths if isinstance(width, int | float) and width != 0)
+
+
+def _plain_text(font: dict[str, object]) -> bool:
+    # No unicode map, and the encoding is a standard one with no renames.
+    # The character the PDF gives is the glyph name. Symbol fonts bring a map
+    # or a Differences array, and those are the ones the rows cover.
+    if font.get("ToUnicode") is not None:
+        return False
+    encoding = resolve1(font.get("Encoding"))
+    if encoding is None or _literal_name(encoding) in _TEXT_ENCODINGS:
+        return True
+    if not isinstance(encoding, dict):
+        return False
+    differences = resolve1(encoding.get("Differences"))
+    if isinstance(differences, list) and differences:
+        return False
+    base = _literal_name(resolve1(encoding.get("BaseEncoding")))
+    return base is None or base in _TEXT_ENCODINGS
+
+
+def _cmap_of(font: dict[str, object]) -> dict[int, str]:
+    stream = resolve1(font.get("ToUnicode"))
+    read = getattr(stream, "get_data", None)
+    if not callable(read):
+        return {}
+    raw = read()
+    if not isinstance(raw, bytes) or not raw:
+        return {}
+    parsed = FileUnicodeMap()
+    CMapParser(parsed, io.BytesIO(raw)).run()
+    return dict(parsed.cid2unichr)
 
 
 def _encoding_names(font: dict[str, object]) -> dict[int, str]:
@@ -408,7 +474,7 @@ def _literal_name(value: object) -> str | None:
     return None
 
 
-def _claimed(name: str, code: int) -> str:
+def _from_name(name: str, code: int) -> str:
     try:
         return name2unicode(name)
     except KeyError:
@@ -422,7 +488,11 @@ def _attach_samples(data: bytes, fonts: list[_Font]) -> None:
     claimed = {(font.base, slot.claimed): slot.code for font in fonts for slot in font.slots}
     with pdfplumber.open(io.BytesIO(data)) as pdf:
         for index, page in enumerate(pdf.pages):
-            for char in page.chars:
+            try:
+                chars = page.chars
+            finally:
+                page.close()
+            for char in chars:
                 base = _base_name(char.get("fontname"))
                 text = str(char.get("text", ""))
                 code = claimed.get((base, text))
@@ -438,26 +508,28 @@ def _attach_samples(data: bytes, fonts: list[_Font]) -> None:
 
 
 def _rewrite(data: bytes, replacements: list[tuple[_Font, dict[int, str]]]) -> bytes:
-    root, prev, size = _catalog(data)
-    if not root:
-        return data
-    next_id = size
-    objects: dict[int, bytes] = {}
+    # pikepdf keeps encryption, object streams, and nested dictionaries.
+    # The hand-written trailer update dropped those and blanked the pages.
+    pdf = pikepdf.open(io.BytesIO(data))
+    wrote = False
     for font, changed in replacements:
-        mapping = {slot.code: slot.claimed for slot in font.slots}
+        mapping = dict(font.cmap)
+        if not mapping:
+            mapping = {slot.code: slot.claimed for slot in font.slots}
         mapping.update(changed)
-        cmap = _cmap(mapping)
-        if font.tounicode_id is not None:
-            objects[font.tounicode_id] = _stream_object(font.tounicode_id, cmap)
-            continue
-        if font.raw is None:
-            continue
-        objects[next_id] = _stream_object(next_id, cmap)
-        objects[font.objid] = _with_tounicode(font.raw, next_id)
-        next_id += 1
-    if not objects:
+        pdf.get_object(font.objid, 0)["/ToUnicode"] = pikepdf.Stream(pdf, _cmap(mapping))
+        wrote = True
+    if not wrote:
         return data
-    return _incremental(data, objects, root, prev, max(size, next_id))
+    out = io.BytesIO()
+    try:
+        # True keeps the encryption the file already has. Older RC4 cannot
+        # be written back, so the parser reads a decrypted copy instead.
+        pdf.save(out, encryption=pdf.is_encrypted)
+    except ValueError:
+        out = io.BytesIO()
+        pdf.save(out)
+    return out.getvalue()
 
 
 def _cmap(mapping: dict[int, str]) -> bytes:
@@ -488,92 +560,3 @@ def _cmap(mapping: dict[int, str]) -> bytes:
         ]
     )
     return "\n".join(lines).encode("ascii")
-
-
-def _stream_object(objid: int, payload: bytes) -> bytes:
-    header = f"{objid} 0 obj\n<< /Length {len(payload)} >>\nstream\n".encode()
-    return header + payload + b"endstream\nendobj\n"
-
-
-def _with_tounicode(raw: bytes, tounicode_id: int) -> bytes:
-    pointer = f"/ToUnicode {tounicode_id} 0 R".encode()
-    if b"/ToUnicode" in raw:
-        body = re.sub(rb"/ToUnicode\s+\d+\s+\d+\s+R", pointer, raw, count=1)
-    else:
-        body = raw.replace(b">>", pointer + b">>", 1)
-    if not body.endswith(b"\n"):
-        body += b"\n"
-    return body
-
-
-def _object_bytes(data: bytes, document: PDFDocument, objid: int) -> bytes | None:
-    for xref in document.xrefs:
-        try:
-            stream, offset, _generation = xref.get_pos(objid)
-        except KeyError:
-            continue
-        if stream is not None or not isinstance(offset, int):
-            continue
-        end = data.find(b"endobj", offset)
-        if end < 0:
-            return None
-        return data[offset : end + len(b"endobj")] + b"\n"
-    return None
-
-
-def _catalog(data: bytes) -> tuple[bytes, int, int]:
-    """The catalog reference, the latest xref offset, and the highest object id."""
-    starts = [match.start() for match in re.finditer(rb"startxref", data)]
-    if not starts:
-        return b"", 0, 1
-    prev = int(data[starts[-1] :].split()[1])
-    root = b""
-    size = 1
-    for at in starts:
-        window = data[max(0, at - 500) : at]
-        found = re.search(rb"/Root\s+\d+\s+\d+\s+R", window)
-        if found is not None:
-            root = found.group(0)
-        size_match = re.search(rb"/Size\s+(\d+)", window)
-        if size_match is not None:
-            size = max(size, int(size_match.group(1)))
-    return root, prev, size
-
-
-def _incremental(
-    data: bytes,
-    objects: dict[int, bytes],
-    root: bytes,
-    prev: int,
-    size: int,
-) -> bytes:
-    out = bytearray(data)
-    if not out.endswith(b"\n"):
-        out += b"\n"
-    positions: dict[int, int] = {}
-    for objid in sorted(objects):
-        positions[objid] = len(out)
-        out += objects[objid]
-    xref_at = len(out)
-    out += _xref(positions)
-    out += (
-        f"trailer\n<< /Size {size} {root.decode('ascii')} /Prev {prev} >>\n"
-        f"startxref\n{xref_at}\n%%EOF\n"
-    ).encode()
-    return bytes(out)
-
-
-def _xref(positions: dict[int, int]) -> bytes:
-    ids = sorted(positions)
-    runs: list[list[int]] = []
-    for objid in ids:
-        if runs and objid == runs[-1][-1] + 1:
-            runs[-1].append(objid)
-        else:
-            runs.append([objid])
-    parts = [b"xref\n"]
-    for run in runs:
-        parts.append(f"{run[0]} {len(run)}\n".encode())
-        for objid in run:
-            parts.append(f"{positions[objid]:010d} 00000 n \n".encode())
-    return b"".join(parts)

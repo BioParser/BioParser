@@ -109,12 +109,11 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
 // A small Adv font glyph with no saved row. The count is how many times the parser
 // inserted U+FFFD for one of those glyphs.
 function unmappedSymbolWarning(count: number): string {
-  const lead = "This paper uses Advent fonts, whose names start with Adv.";
   const tail = "The symbol printed on the page may be different.";
   if (count === 1) {
-    return `${lead} 1 symbol has no known character and is shown as \uFFFD. ${tail}`;
+    return `1 symbol in this paper could not be read and is shown as \uFFFD. ${tail}`;
   }
-  return `${lead} ${count} symbols have no known character and are shown as \uFFFD. ${tail}`;
+  return `${count} symbols in this paper could not be read and are shown as \uFFFD. ${tail}`;
 }
 
 // The printed value and unit, from the extraction artifact alone, so they stay when the

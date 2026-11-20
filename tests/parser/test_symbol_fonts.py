@@ -6,14 +6,23 @@ import io
 from pathlib import Path
 
 import pdfplumber
+import pikepdf
 import pytest
 
 from bioparser.parser.backend.default.parser import DefaultParser
 from bioparser.parser.backend.mineru import parser as mineru_parser
 from bioparser.parser.backend.mineru.parser import MinerUParser
-from bioparser.parser.errors import ParserProcessError
+from bioparser.parser.errors import ParserProcessError, UnsupportedDocumentError
 from bioparser.parser.models import ParserArtifact
-from bioparser.parser.symbol_fonts import _DROP, _REPLACEMENT, _decide, _Slot, repair_pdf
+from bioparser.parser.symbol_fonts import (
+    _DROP,
+    _REPLACEMENT,
+    _decide,
+    _Font,
+    _is_small,
+    _Slot,
+    repair_pdf,
+)
 from bioparser.services.mineru.client import MinerUError
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -130,6 +139,39 @@ def test_a_small_font_that_is_not_advent_is_kept() -> None:
     assert _decide("20", slot, small=True) == "\u2013"
 
 
+def test_a_wide_code_range_with_few_drawings_is_small() -> None:
+    font = _Font(
+        base="AdvP3D3256",
+        objid=1,
+        cmap={},
+        ink=2,
+        plain=False,
+        slots=[_Slot(code, "A", "A") for code in range(45, 55)],
+        samples={},
+        counts={},
+    )
+    assert _is_small(font)
+
+
+def test_a_standard_text_subset_is_not_a_symbol_font() -> None:
+    font = _Font(
+        base="AdvP497E2",
+        objid=1,
+        cmap={},
+        ink=6,
+        plain=True,
+        slots=[_Slot(code, "zero", "0") for code in range(40, 52)],
+        samples={},
+        counts={},
+    )
+    assert not _is_small(font)
+
+
+def test_an_unnamed_glyph_in_a_large_font_is_refused() -> None:
+    slot = _Slot(code=1, name="C14", claimed="(cid:1)")
+    assert _decide("AdvP49811", slot, small=False) == _REPLACEMENT
+
+
 def test_a_large_advent_font_without_a_row_is_kept() -> None:
     slot = _Slot(code=65, name="A", claimed="A")
     assert _decide("AdvP49811", slot, small=False) == "A"
@@ -138,6 +180,119 @@ def test_a_large_advent_font_without_a_row_is_kept() -> None:
 def test_a_pdf_without_a_catalog_is_left_unchanged() -> None:
     original = b"%PDF-1.4\n%%EOF\n"
     assert repair_pdf(original) == (original, 0)
+
+
+def _advent_font(pdf: pikepdf.Pdf, base: str) -> pikepdf.Object:
+    for page in pdf.pages:
+        fonts = page.Resources.get("/Font")
+        if fonts is None:
+            continue
+        for font in fonts.values():
+            name = str(font.get("/BaseFont", ""))
+            if name.endswith(base):
+                return font
+    raise AssertionError(base)
+
+
+def test_an_encrypted_pdf_keeps_its_text() -> None:
+    source = pikepdf.open(BIOLOGY)
+    for encryption in (
+        pikepdf.Encryption(owner="owner-secret", user="", R=4, aes=True),
+        pikepdf.Encryption(owner="owner-secret", user="", R=3, aes=False, metadata=False),
+    ):
+        encrypted = io.BytesIO()
+        source.save(encrypted, encryption=encryption)
+        repaired, _count = repair_pdf(encrypted.getvalue())
+        assert "1.36\u00b10.16" in _text(repaired)
+        opened = pikepdf.open(io.BytesIO(repaired))
+        assert len(opened.pages) > 0
+        if encryption.R >= 4:
+            assert opened.is_encrypted
+
+
+def test_a_correct_tounicode_entry_is_not_rebuilt_from_the_glyph_name() -> None:
+    pdf = pikepdf.open(BIOLOGY)
+    font = _advent_font(pdf, "AdvP7DA6")
+    # The glyph `two` is already the minus sign. The other slots stay as their names,
+    # so the repair still has work to do and must not put `two` back to the digit.
+    font["/ToUnicode"] = pikepdf.Stream(
+        pdf,
+        b"""/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<00> <FF>
+endcodespacerange
+4 beginbfchar
+<23> <0023>
+<2C> <002C>
+<2E> <002E>
+<32> <2212>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+""",
+    )
+    edited = io.BytesIO()
+    pdf.save(edited)
+    repaired, _count = repair_pdf(edited.getvalue())
+    twos = []
+    with pdfplumber.open(io.BytesIO(repaired)) as opened:
+        for page in opened.pages:
+            for char in page.chars:
+                if "AdvP7DA6" in str(char.get("fontname")):
+                    twos.append(char["text"])
+            page.close()
+    assert "2" not in twos
+    assert "\u2212" in twos
+    assert "<" in twos
+
+
+def test_tounicode_is_set_on_the_font_not_inside_its_encoding() -> None:
+    repaired, _count = repair_pdf(BIOLOGY.read_bytes())
+    pdf = pikepdf.open(io.BytesIO(repaired))
+    font = _advent_font(pdf, "AdvP7DA6")
+    assert "/ToUnicode" in font
+    assert "/ToUnicode" not in font["/Encoding"]
+
+
+def test_a_truncated_pdf_is_left_unchanged(tmp_path: Path) -> None:
+    original = BIOLOGY.read_bytes()[: len(BIOLOGY.read_bytes()) // 2]
+    assert repair_pdf(original) == (original, 0)
+    path = tmp_path / "truncated.pdf"
+    path.write_bytes(original)
+    with pytest.raises(UnsupportedDocumentError):
+        DefaultParser().parse_in_this_process(path)
+
+
+def test_mineru_is_sent_a_truncated_pdf_unchanged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    original = BIOLOGY.read_bytes()[: len(BIOLOGY.read_bytes()) // 2]
+    uploaded: list[bytes] = []
+
+    class Client:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def parse(self, *, filename: str, content: bytes) -> dict[str, object]:
+            uploaded.append(content)
+            raise MinerUError(filename)
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr(mineru_parser, "MinerUClient", Client)
+    path = tmp_path / "truncated.pdf"
+    path.write_bytes(original)
+    with pytest.raises(ParserProcessError):
+        asyncio.run(MinerUParser("http://127.0.0.1:9").parse(path))
+    assert uploaded == [original]
 
 
 def test_mineru_is_sent_the_repaired_pdf(monkeypatch: pytest.MonkeyPatch) -> None:

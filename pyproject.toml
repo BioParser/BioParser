@@ -48,7 +48,10 @@ queue = [
   "dramatiq[redis]>=2.2.1",
   "redis>=8.1.0",
 ]
-pdf = ["pdfplumber>=0.11.10"]
+pdf = [
+    "pdfplumber>=0.11.10",
+    "pikepdf>=9",
+]
 llm = ["openai>=3.8.0"]
 api = [
   "fastapi>=0.141.1",
