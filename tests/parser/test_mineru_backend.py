@@ -442,6 +442,52 @@ def test_glyph_edges_highlight_inside_a_superscript() -> None:
     assert boxes[0].y0 == pytest.approx(0.30)
 
 
+def test_an_unmeasured_span_does_not_take_the_next_glyphs() -> None:
+    # catapult had no character boxes, so the harvest stored one glyph for its span box.
+    middle = _middle([_block("text", 0, "catapult catalog")])
+    middle["extensions"]["bioparser_lines"] = {
+        "version": 1,
+        "pages": [
+            {
+                "page_idx": 0,
+                "blocks": [
+                    {
+                        "index": 0,
+                        "lines": [
+                            {
+                                "y0": 0.20,
+                                "y1": 0.22,
+                                "glyphs": [
+                                    {"t": "catapult", "x0": 0.10, "x1": 0.45},
+                                    {"t": " ", "x0": 0.45, "x1": 0.48},
+                                    {"t": "c", "x0": 0.50, "x1": 0.54},
+                                    {"t": "a", "x0": 0.54, "x1": 0.58},
+                                    {"t": "t", "x0": 0.58, "x1": 0.62},
+                                    {"t": "a", "x0": 0.62, "x1": 0.66},
+                                    {"t": "l", "x0": 0.66, "x1": 0.70},
+                                    {"t": "o", "x0": 0.70, "x1": 0.74},
+                                    {"t": "g", "x0": 0.74, "x1": 0.78},
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    assert content.text == "catapult catalog"
+    gap = boxes_for_range(content.lines, 0, len("catapult"))
+    assert len(gap) == 1
+    assert gap[0].x0 == pytest.approx(0.10)
+    assert gap[0].x1 == pytest.approx(0.45)
+    word = content.text.index("catalog")
+    measured = boxes_for_range(content.lines, word, word + len("catalog"))
+    assert len(measured) == 1
+    assert measured[0].x0 == pytest.approx(0.50)
+    assert measured[0].x1 == pytest.approx(0.78)
+
+
 def test_a_removed_line_end_hyphen_does_not_take_a_later_hyphen() -> None:
     middle = _middle([_block("text", 0, "computing X-ray")])
     middle["extensions"]["bioparser_lines"] = {

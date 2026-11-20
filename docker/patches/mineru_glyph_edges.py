@@ -5,7 +5,9 @@ span text, and then deletes it. Basic and above can rebuild that text in Rust an
 the character list. The line builder runs after the delete, so a line box is
 all that remains. DocVortex 0.6.24 then deletes ``lines`` while it builds the public
 document. This rewrites those spots so the middle document gains
-``extensions.bioparser_lines``. A span with no character list contributes no glyphs. It
+``extensions.bioparser_lines``. A span with no character boxes keeps that span's box as one
+glyph. BioParser then shares the box evenly across the span text. MinerU can rebuild the
+text without character boxes, and the assigner still leaves some spans empty. It
 refuses to edit a file that does not still contain the functions it was written against.
 """
 
@@ -112,10 +114,22 @@ def _build_ocr_det_line_items(lines: list[_AnalyzeLine], page_size: tuple[float,
             saved = span.metadata.get("bioparser_glyphs") if isinstance(span.metadata, dict) else None
             if not isinstance(saved, list):
                 continue
-            for char in saved:
-                glyph = _bioparser_glyph(char, page_size)
-                if glyph is not None:
-                    glyphs.append(glyph)
+            if saved:
+                for char in saved:
+                    glyph = _bioparser_glyph(char, page_size)
+                    if glyph is not None:
+                        glyphs.append(glyph)
+                continue
+            text = span.content if isinstance(getattr(span, "content", None), str) else ""
+            if text == "":
+                continue
+            try:
+                box = _page_bbox_to_unit_bbox(span.bbox, page_size)
+            except (TypeError, ValueError):
+                box = None
+            if box is None:
+                continue
+            glyphs.append({"t": text, "x0": box[0], "x1": box[2]})
         line_items.append({"bbox": normalized_bbox, "glyphs": glyphs})
     return line_items
 '''
