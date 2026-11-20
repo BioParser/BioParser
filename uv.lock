@@ -125,6 +125,7 @@ api = [
     { name = "dramatiq", extra = ["redis"] },
     { name = "fastapi" },
     { name = "openai" },
+    { name = "pdfminer-six" },
     { name = "pdfplumber" },
     { name = "pikepdf" },
     { name = "python-multipart" },
@@ -153,11 +154,13 @@ migrate = [
 ]
 parser-worker = [
     { name = "dramatiq", extra = ["redis"] },
+    { name = "pdfminer-six" },
     { name = "pdfplumber" },
     { name = "pikepdf" },
     { name = "redis" },
 ]
 pdf = [
+    { name = "pdfminer-six" },
     { name = "pdfplumber" },
     { name = "pikepdf" },
 ]
@@ -180,6 +183,7 @@ api = [
     { name = "dramatiq", extras = ["redis"], specifier = ">=2.2.1" },
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "openai", specifier = ">=3.8.0" },
+    { name = "pdfminer-six", specifier = ">=20260107" },
     { name = "pdfplumber", specifier = ">=0.11.10" },
     { name = "pikepdf", specifier = ">=9" },
     { name = "python-multipart", specifier = ">=0.0.32" },
@@ -206,11 +210,13 @@ migrate = [
 ]
 parser-worker = [
     { name = "dramatiq", extras = ["redis"], specifier = ">=2.2.1" },
+    { name = "pdfminer-six", specifier = ">=20260107" },
     { name = "pdfplumber", specifier = ">=0.11.10" },
     { name = "pikepdf", specifier = ">=9" },
     { name = "redis", specifier = ">=8.1.0" },
 ]
 pdf = [
+    { name = "pdfminer-six", specifier = ">=20260107" },
     { name = "pdfplumber", specifier = ">=0.11.10" },
     { name = "pikepdf", specifier = ">=9" },
 ]

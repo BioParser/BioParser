@@ -14,9 +14,12 @@ from bioparser.parser.advent_repair import symbol_child
 from bioparser.parser.advent_repair.symbol_fonts import (
     _DROP,
     _REPLACEMENT,
+    _TEXT_FONTS,
+    _cmap,
     _decide,
     _encoding_names,
     _Font,
+    _interesting,
     _is_small,
     _Slot,
     repair_pdf,
@@ -175,8 +178,19 @@ def test_a_small_text_subset_keeps_the_characters_it_names() -> None:
         counts={},
     )
     assert _is_small(font)
+    assert "AdvP497E2" in _TEXT_FONTS
     slot = _Slot(code=48, name="parenleft", claimed="(")
     assert _decide("AdvP497E2", slot, small=True) == "("
+    letter = _Slot(code=80, name="P", claimed="P")
+    assert _decide("AdvP4041BD", letter, small=True) == "P"
+    assert _decide("AdvTT3978f921.BI", letter, small=True) == "P"
+
+
+def test_an_unseen_small_face_becomes_the_replacement_character() -> None:
+    letter = _Slot(code=80, name="P", claimed="P")
+    assert _decide("AdvUnseen", letter, small=True) == _REPLACEMENT
+    unnamed = _Slot(code=1, name="C14", claimed="(cid:1)")
+    assert _decide("AdvP4041BD", unnamed, small=True) == _REPLACEMENT
 
 
 class _EncodingName:
@@ -195,7 +209,24 @@ def test_macroman_and_standard_encodings_name_their_glyphs() -> None:
 
 def test_an_unnamed_glyph_in_a_large_font_is_refused() -> None:
     slot = _Slot(code=1, name="C14", claimed="(cid:1)")
+    font = _Font(
+        base="AdvP49811",
+        objid=1,
+        cmap={},
+        ink=40,
+        slots=[slot],
+        samples={},
+        counts={},
+    )
+    assert _interesting(font)
     assert _decide("AdvP49811", slot, small=False) == _REPLACEMENT
+
+
+def test_a_long_cmap_uses_blocks_of_at_most_100() -> None:
+    text = _cmap({code: "A" for code in range(101)}).decode("ascii")
+    assert text.count("beginbfchar") == 2
+    assert "100 beginbfchar" in text
+    assert "\n1 beginbfchar" in text
 
 
 def test_a_large_advent_font_without_a_row_is_kept() -> None:
@@ -357,6 +388,20 @@ def test_a_font_used_only_inside_a_form_is_repaired() -> None:
     assert repaired.status is RepairStatus.SUCCESS
     assert "GI<1.47" in text
     assert "1.36\u00b10.16" in text
+
+
+def test_the_unrepaired_count_matches_the_glyphs_pdfplumber_reads() -> None:
+    # Only the base name changes, so pdfplumber still prints the descriptor name.
+    # The replacement characters are what the count is for.
+    edited = _with_base_font(BIOLOGY.read_bytes(), "AdvP7DA6", "AdvUnknown", font_name=False)
+    repaired = repair_pdf(edited)
+    seen = 0
+    with pdfplumber.open(io.BytesIO(repaired.data)) as pdf:
+        for page in pdf.pages:
+            seen += sum(1 for char in page.chars or [] if char.get("text") == "\ufffd")
+            page.close()
+    assert repaired.count == seen
+    assert seen > 0
 
 
 def test_an_unlisted_adv_font_becomes_the_replacement_character() -> None:

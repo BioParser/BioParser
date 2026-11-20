@@ -3,8 +3,9 @@
 The font's glyph name and its unicode map name the slot as an ordinary character.
 The drawing is the operator. Only fonts whose base name starts with Adv are
 considered. A row is that name plus the glyph name, and the pair is applied as
-written. A small Adv font glyph with no row becomes U+FFFD, so it is not passed
-on as a different character.
+written. A known text face keeps the character the map claims, even when the
+face is small. Any other small Adv glyph with no row becomes U+FFFD. A missing
+character is safer than a wrong one.
 """
 
 from __future__ import annotations
@@ -34,6 +35,29 @@ LOGGER = logging.getLogger(__name__)
 # codes is not the count: a WinAnsi font lists every code between the first
 # and the last, including ones with no drawing.
 _SMALL_FONT = 8
+# These Adv names are text. A small one keeps the character the map claims.
+# A glyph row still overrides that. A small Adv name that is not listed becomes
+# U+FFFD. A large Adv font is not affected by this list.
+_TEXT_FONTS = frozenset(
+    {
+        # Biology 2014, Genetics 2008, ONE 2014. Letters and punctuation.
+        "AdvP4041BD",
+        # Biology 2014 and ONE 2014. Digits and punctuation, and letters in ONE.
+        "AdvP497E2",
+        # Biology 2014 and ONE 2014. Letters.
+        "AdvP497E3",
+        # Client 062. The hyphen in "Extant-only".
+        "AdvTimes",
+        # Client 062. The digits in "Biology 34".
+        "AdvPSHN-MI",
+        # Client 074. Bold italic letters.
+        "AdvOT45bf69de.BI",
+        # Client 135. Bold italic letters.
+        "AdvTT3978f921.BI",
+        # Client 170. Bold italic letters.
+        "AdvOTd72d62f3.BI",
+    }
+)
 _REPLACEMENT = "\ufffd"
 # A dropped drawing (the square-root bar) becomes U+0000,
 # which the parser can replace or handle as needed.
@@ -99,19 +123,6 @@ _ROWS: dict[tuple[str, str], str | None] = {
     # a current address, beside the author and again before the note.
     ("AdvP41461E", "currency"): "\u2297",
     ("AdvP403A40", "currency"): "\u2297",
-    # Biology 2014. A small text subset. Each glyph is the character it names.
-    ("AdvP497E2", "parenleft"): "(",
-    ("AdvP497E2", "parenright"): ")",
-    ("AdvP497E2", "asterisk"): "*",
-    ("AdvP497E2", "plus"): "+",
-    ("AdvP497E2", "comma"): ",",
-    ("AdvP497E2", "hyphen"): "-",
-    ("AdvP497E2", "period"): ".",
-    ("AdvP497E2", "slash"): "/",
-    ("AdvP497E2", "zero"): "0",
-    ("AdvP497E2", "one"): "1",
-    ("AdvP497E2", "two"): "2",
-    ("AdvP497E2", "three"): "3",
     # ONE 2014.
     ("AdvP3EAA99", "a"): "\u03b1",
     # Genetics 2008.
@@ -186,10 +197,18 @@ _ROWS: dict[tuple[str, str], str | None] = {
     ("AdvPS3FDD77", "w"): "\u223c",
     # Client 008. The drawing is alpha.
     ("AdvPS3F4C13", "a"): "\u03b1",
+    # Client 062. The drawing is capital delta.
+    ("AdvPS3F4C13", "D"): "\u0394",
+    # Client 062. The drawing is mu.
+    ("AdvPS3F4C13", "m"): "\u03bc",
+    # Client 062. The drawing is sigma.
+    ("AdvPS3F4C13", "s"): "\u03c3",
     # Client 008. The drawing is greater-than.
     ("AdvP4C4E51", "greater"): ">",
     # Client 008 and 063. The drawing is less-than.
     ("AdvP4C4E51", "less"): "<",
+    # Client 048. The drawing is a dot on the baseline.
+    ("AdvP4C4E51", "colon"): ".",
     # Client 008. The drawing is plus-minus.
     ("AdvP4C4E74", "C6"): "\u00b1",
     # Client 008. The drawing is the dagger after a table note.
@@ -204,25 +223,30 @@ _ROWS: dict[tuple[str, str], str | None] = {
     ("AdvP4C4E74", "C14"): "\u00b0",
     # Client 135. The drawing is a bullet.
     ("AdvP4C4E74", "C15"): "\u2022",
+    # Client 063. The drawing is a tilde.
+    ("AdvP4C4E74", "C24"): "\u223c",
     # Client 048. The drawing is the vertical bar in the formula.
     ("AdvP4C4E74", "j"): "|",
     # Client 048. The drawing is the summation sign.
     ("AdvP4C4E46", "P"): "\u2211",
     # Client 062, 063, and 146. The acute follows its letter.
     ("AdvP4C4E59", "C19"): "\u0301",
-    # Client 062. The drawing is the hyphen in "Extant-only".
-    ("AdvTimes", "hyphen"): "-",
-    # Client 062. The digits in "Biology 34".
-    ("AdvPSHN-MI", "three"): "3",
-    ("AdvPSHN-MI", "four"): "4",
     # Client 062. The drawing is a list bullet.
     ("AdvPSMPi6", "d"): "\u2022",
+    # Client 062. The drawing is a filled star.
+    ("AdvPS480274", "plus"): "\u2605",
+    # Client 062. The drawing is a hollow circle.
+    ("AdvPS480274", "B"): "\u25cb",
     # Client 063. The drawing is the registered sign.
     ("AdvP80516", "V"): "\u00ae",
     # Client 113. The drawing is the multiplication sign.
     ("AdvTT9f665322", "multiply"): "\u00d7",
     # Client 146. The drawing is beta.
     ("AdvPSMP13", "b"): "\u03b2",
+    # Client 063. The drawing is capital gamma.
+    ("AdvPSMP13", "C"): "\u0393",
+    # Client 063. The drawing is mu.
+    ("AdvPSMP13", "l"): "\u03bc",
     # Client 146. The drawing is the minus before a negative number.
     ("AdvP7DED", "two"): "\u2212",
     # Client 146. The drawing is the equals sign in "n = 51".
@@ -366,7 +390,7 @@ def _is_advent(base: str) -> bool:
 
 def _is_small(font: _Font) -> bool:
     # A standard encoding does not make a font body text. One-glyph symbol
-    # fonts use that encoding too. A known text subset has a row for each glyph.
+    # fonts use that encoding too. A known text face is listed by name.
     count = font.ink if font.ink is not None else len(font.slots)
     return count <= _SMALL_FONT
 
@@ -375,6 +399,8 @@ def _interesting(font: _Font) -> bool:
     if not _is_advent(font.base):
         return False
     if _is_small(font):
+        return True
+    if any(slot.claimed.startswith("(cid:") for slot in font.slots):
         return True
     return any((font.base, slot.name) in _ROWS for slot in font.slots)
 
@@ -387,6 +413,8 @@ def _decide(base: str, slot: _Slot, *, small: bool) -> str:
         return _DROP if row is None else row
     if slot.claimed.startswith("(cid:"):
         return _REPLACEMENT
+    if base in _TEXT_FONTS:
+        return slot.claimed
     if small:
         return _REPLACEMENT
     return slot.claimed
@@ -547,7 +575,7 @@ def _count_uses(pdf: pikepdf.Pdf, fonts: list[_Font]) -> None:
     # at one object.
     by_id = {font.objid: font for font in fonts}
     for index, page in enumerate(pdf.pages):
-        _count_container(page, page.get("/Resources"), index, by_id, set())
+        _count_container(page, page.get("/Resources"), index, by_id, set(), None)
 
 
 def _count_container(
@@ -556,6 +584,7 @@ def _count_container(
     page_index: int,
     by_id: dict[int, _Font],
     stack: set[tuple[int, int]],
+    font: int | None,
 ) -> None:
     objgen = getattr(container, "objgen", None)
     if objgen in stack:
@@ -563,7 +592,7 @@ def _count_container(
     if objgen is not None:
         stack.add(objgen)
     try:
-        _count_operators(container, resources, page_index, by_id, stack)
+        _count_operators(container, resources, page_index, by_id, stack, font)
     finally:
         if objgen is not None:
             stack.discard(objgen)
@@ -575,9 +604,13 @@ def _count_operators(
     page_index: int,
     by_id: dict[int, _Font],
     stack: set[tuple[int, int]],
+    font: int | None,
 ) -> None:
+    # q and Q save and restore the font with the rest of the graphics state.
+    # A form starts from the font that was current at Do, and Do restores it.
     font_ids = _resource_fonts(resources, by_id)
-    current: int | None = None
+    current = font
+    saved: list[int | None] = []
     try:
         operations = pikepdf.parse_content_stream(container)
     except Exception:
@@ -587,22 +620,29 @@ def _count_operators(
         operands = getattr(instruction, "operands", ())
         operator = getattr(instruction, "operator", "")
         op = str(operator)
+        if op == "q":
+            saved.append(current)
+            continue
+        if op == "Q":
+            if saved:
+                current = saved.pop()
+            continue
         if op == "Do" and operands and resources is not None:
-            _count_xobject(operands[0], resources, page_index, by_id, stack)
+            _count_xobject(operands[0], resources, page_index, by_id, stack, current)
             continue
         if op == "Tf" and operands:
             current = font_ids.get(str(operands[0]).lstrip("/"))
             continue
         if current is None or current not in by_id or not operands:
             continue
-        font = by_id[current]
+        active = by_id[current]
         if op in {"Tj", "'"}:
-            _count_codes(operands[0], font, page_index)
+            _count_codes(operands[0], active, page_index)
         elif op == '"':
-            _count_codes(operands[-1], font, page_index)
+            _count_codes(operands[-1], active, page_index)
         elif op == "TJ":
             for piece in _pieces(operands[0]):
-                _count_codes(piece, font, page_index)
+                _count_codes(piece, active, page_index)
 
 
 def _resource_fonts(resources: pikepdf.Object | None, by_id: dict[int, _Font]) -> dict[str, int]:
@@ -626,6 +666,7 @@ def _count_xobject(
     page_index: int,
     by_id: dict[int, _Font],
     stack: set[tuple[int, int]],
+    font: int | None,
 ) -> None:
     xobjects = resources.get("/XObject")
     if xobjects is None:
@@ -634,7 +675,8 @@ def _count_xobject(
     if xobject is None or str(xobject.get("/Subtype")) != "/Form":
         return
     nested = xobject.get("/Resources")
-    _count_container(xobject, nested if nested is not None else resources, page_index, by_id, stack)
+    chosen = nested if nested is not None else resources
+    _count_container(xobject, chosen, page_index, by_id, stack, font)
 
 
 def _pieces(value: object) -> Iterable[object]:
@@ -688,6 +730,7 @@ def _rewrite(pdf: pikepdf.Pdf, replacements: list[tuple[_Font, dict[int, str]]])
 
 
 def _cmap(mapping: dict[int, str]) -> bytes:
+    # A bfchar block holds at most 100 entries.
     items = [(code, text) for code, text in sorted(mapping.items()) if text]
     lines = [
         "/CIDInit /ProcSet findresource begin",
@@ -699,14 +742,16 @@ def _cmap(mapping: dict[int, str]) -> bytes:
         "1 begincodespacerange",
         "<00> <FF>",
         "endcodespacerange",
-        f"{len(items)} beginbfchar",
     ]
-    for code, text in items:
-        encoded = text.encode("utf-16-be").hex().upper()
-        lines.append(f"<{code:02X}> <{encoded}>")
+    for start in range(0, len(items), 100):
+        block = items[start : start + 100]
+        lines.append(f"{len(block)} beginbfchar")
+        for code, text in block:
+            encoded = text.encode("utf-16-be").hex().upper()
+            lines.append(f"<{code:02X}> <{encoded}>")
+        lines.append("endbfchar")
     lines.extend(
         [
-            "endbfchar",
             "endcmap",
             "CMapName currentdict /CMap defineresource pop",
             "end",
