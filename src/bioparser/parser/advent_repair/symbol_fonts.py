@@ -170,7 +170,7 @@ def _decide(base: str, slot: _Slot, *, small: bool) -> str:
         return _REPLACEMENT
     if base in _TEXT_FONTS:
         return slot.claimed
-    # A face the table already knows draws symbols. Size does not make it text.
+    # A listed symbol face. Size does not make it text.
     if base in _SYMBOL_FONTS or small:
         return _REPLACEMENT
     return slot.claimed

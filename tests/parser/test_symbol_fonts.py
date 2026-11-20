@@ -23,7 +23,7 @@ from bioparser.parser.advent_repair.symbol_fonts import (
     _Slot,
     repair_pdf,
 )
-from bioparser.parser.advent_repair.table import _SYMBOL_FONTS, _TEXT_FONTS
+from bioparser.parser.advent_repair.table import _ROWS, _SYMBOL_FONTS, _TEXT_FONTS
 from bioparser.parser.backend.default.parser import DefaultParser
 from bioparser.parser.backend.mineru import parser as mineru_parser
 from bioparser.parser.backend.mineru.parser import MinerUParser
@@ -140,8 +140,8 @@ def test_a_row_in_a_large_font_is_applied() -> None:
 
 
 def test_a_row_that_matches_the_claim_is_kept() -> None:
-    slot = _Slot(code=45, name="hyphen", claimed="-")
-    assert _decide("AdvTimes", slot, small=True) == "-"
+    slot = _Slot(code=37, name="percent", claimed="%")
+    assert _decide("AdvP4C4E59", slot, small=True) == "%"
 
 
 def test_an_accent_stored_before_its_letter_is_dropped() -> None:
@@ -232,6 +232,40 @@ def test_a_long_cmap_uses_blocks_of_at_most_100() -> None:
 def test_a_large_advent_font_without_a_row_is_kept() -> None:
     slot = _Slot(code=65, name="A", claimed="A")
     assert _decide("AdvP49811", slot, small=False) == "A"
+
+
+def test_every_face_with_a_row_is_on_exactly_one_list() -> None:
+    rowed = {base for base, _name in _ROWS}
+    assert _TEXT_FONTS.isdisjoint(_SYMBOL_FONTS)
+    assert rowed <= _TEXT_FONTS | _SYMBOL_FONTS
+
+
+def test_a_large_known_symbol_font_is_rewritten() -> None:
+    # A through I are not rows of this face. Nine drawings makes it large.
+    pdf = pikepdf.Pdf.new()
+    first, last = 65, 73
+    font = pdf.make_indirect(
+        pikepdf.Dictionary(
+            Type=pikepdf.Name.Font,
+            Subtype=pikepdf.Name.Type1,
+            BaseFont=pikepdf.Name("/AdvP3EAA99"),
+            Encoding=pikepdf.Name.WinAnsiEncoding,
+            FirstChar=first,
+            LastChar=last,
+            Widths=[500] * (last - first + 1),
+        )
+    )
+    page = pdf.add_blank_page(page_size=(400, 200))
+    page.Resources = pikepdf.Dictionary(Font=pikepdf.Dictionary(FAdv=font))
+    page.Contents = pikepdf.Stream(pdf, b"BT /FAdv 12 Tf 72 100 Td (ABCDEFGHI) Tj ET\n")
+    raw = io.BytesIO()
+    pdf.save(raw)
+    repaired = repair_pdf(raw.getvalue())
+    text = _text(repaired.data)
+    assert repaired.status is RepairStatus.SUCCESS
+    assert repaired.count == 9
+    assert text.count("\ufffd") == 9
+    assert "A" not in text
 
 
 def test_a_known_symbol_font_refuses_an_unlisted_glyph_when_large() -> None:

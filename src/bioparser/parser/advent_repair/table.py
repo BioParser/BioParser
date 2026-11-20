@@ -238,7 +238,82 @@ _ROWS: dict[tuple[str, str], str | None] = {
     ("AdvP4C4E46", "C19"): None,
 }
 
-# A face with a row is a symbol face, unless it is on the text list.
-# An unlisted glyph in one of these faces becomes U+FFFD at any size.
-# The size cutoff applies only to an Adv name that is in neither list.
-_SYMBOL_FONTS = frozenset(base for base, _name in _ROWS if base not in _TEXT_FONTS)
+# These Adv names draw symbols. An unlisted glyph becomes U+FFFD at any size.
+# A new glyph row does not add a face here. Put the name on this list, or on
+# the text list, when the face is first seen.
+_SYMBOL_FONTS = frozenset(
+    {
+        # Biology 2014, Genetics 2008, ONE 2014. Comparisons and a minus.
+        "AdvP7DA6",
+        # Biology 2014, Genetics 2008, ONE 2014. Plus-minus and a closing quote.
+        "AdvP3D3256",
+        # Biology 2014, Genetics 2008, ONE 2014. A multiplication sign.
+        "AdvPi1",
+        # ONE 2014. A degree sign.
+        "AdvP4072C",
+        # Genetics 2008, ONE 2014. A degree sign.
+        "AdvP44E6F4",
+        # ONE 2014. Plus-minus.
+        "AdvP4C9F3E",
+        # Biology 2014, Genetics 2008, ONE 2014, NAR 2007. Greek and copyright.
+        "AdvP697C",
+        # Biology 2014, Genetics 2008, ONE 2014. A tilde and a radical.
+        "AdvP7DB7",
+        # Biology 2014, ONE 2014. Operators.
+        "AdvP40798",
+        # Biology 2014, ONE 2014. An arrow.
+        "AdvP7CAC",
+        # Biology 2014, Genetics 2008, ONE 2014. A copyright sign.
+        "AdvT377",
+        # Biology 2014, Genetics 2008. A sun.
+        "AdvP3F206A",
+        # Biology 2014, Genetics 2008, ONE 2014. Greek letters.
+        "AdvP3EAA99",
+        # Biology 2014. Greek letters.
+        "AdvP43B38B",
+        # Genetics 2008, ONE 2014. Greek letters.
+        "AdvP43A417",
+        # Biology 2014, Costa 2013, and client papers. Formula glyphs.
+        "AdvP4C4E74",
+        # Biology 2014, Costa 2013, and a client paper. A radical and a sum.
+        "AdvP4C4E46",
+        # Costa 2013. A bullet.
+        "AdvP0005",
+        # ONE 2014, Costa 2013, and client papers. A slash and comparisons.
+        "AdvP4C4E51",
+        # ONE 2014 and client papers. A percent sign and accents.
+        "AdvP4C4E59",
+        # ONE 2014. A dot.
+        "AdvP7CA8",
+        # Costa 2013. A copyright sign.
+        "AdvPi3",
+        # Costa 2013. An envelope.
+        "AdvTT4ff65459",
+        # Client 008. An en dash.
+        "AdvPS44A44B",
+        # Client 001, 008, and 062. A copyright sign.
+        "AdvPSSym",
+        # Client 001 and 109. An asterisk.
+        "AdvCORRESAST",
+        # Client 008. A tilde.
+        "AdvPS3FDD77",
+        # Client 008 and 062. Greek letters.
+        "AdvPS3F4C13",
+        # Client 062. A bullet.
+        "AdvPSMPi6",
+        # Client 062. A star and a circle.
+        "AdvPS480274",
+        # Client 063. A registered sign.
+        "AdvP80516",
+        # Client 113. A multiplication sign.
+        "AdvTT9f665322",
+        # Client 063 and 146. Greek letters.
+        "AdvPSMP13",
+        # Client 146. A minus and an equals sign.
+        "AdvP7DED",
+        # Client 147. A degree sign.
+        "AdvOT310e2d14",
+        # Client 001. A cedilla stored before its letter.
+        "AdvSPSASORT",
+    }
+)
