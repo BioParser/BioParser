@@ -3,10 +3,10 @@ import { ApiError, type EtsRow, type EtsRowsResponse } from "../api/client";
 import { shouldRetry } from "../api/queryClient";
 import { toCsv } from "./csv";
 import { downloadName } from "./fileName";
-import { normalizedText, reportedText, taxonText } from "./format";
+import { reportedText, taxonText } from "./format";
 import { saveFile } from "./saveFile";
 import { useJobResults } from "./useJobResults";
-import { parseWarnings, warningText } from "./warnings";
+import { flagsRow, informationalLabel, parseWarnings, warningText } from "./warnings";
 
 interface JobResultsProps {
   jobId: string;
@@ -48,13 +48,12 @@ export function JobResults({ jobId, displayName, selectedIndex, onSelect }: JobR
   const body = results.data;
   // The position in the response is the observation's index in the extraction artifact:
   // the API returns the rows in observation order. It stays the same when rows are hidden.
-  const entries = body.rows.map((row, index) => ({
-    row,
-    index,
-    codes: parseWarnings(row.warnings),
-  }));
-  const flaggedCount = entries.filter((entry) => entry.codes.length > 0).length;
-  const shown = hideFlagged ? entries.filter((entry) => entry.codes.length === 0) : entries;
+  const entries = body.rows.map((row, index) => {
+    const codes = parseWarnings(row.warnings);
+    return { row, index, codes, flagged: codes.some(flagsRow) };
+  });
+  const flaggedCount = entries.filter((entry) => entry.flagged).length;
+  const shown = hideFlagged ? entries.filter((entry) => !entry.flagged) : entries;
 
   return (
     <div className="results">
@@ -123,6 +122,8 @@ interface Entry {
   row: EtsRow;
   index: number;
   codes: string[];
+  // At least one code flags the row (see INFORMATIONAL in warnings.ts).
+  flagged: boolean;
 }
 
 function ResultsTable({
@@ -149,20 +150,17 @@ function ResultsTable({
         <caption>Observations, in extraction order</caption>
         <thead>
           <tr>
-            {["No.", "Taxon", "Trait", "Reported value", "Normalized value", "Flag"].map(
-              (heading) => (
-                <th key={heading} scope="col">
-                  {heading}
-                </th>
-              ),
-            )}
+            {["No.", "Taxon", "Trait", "Reported value", "Flag"].map((heading) => (
+              <th key={heading} scope="col">
+                {heading}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
-          {entries.map(({ row, index, codes }) => {
+          {entries.map(({ row, index, codes, flagged }) => {
             const selected = index === selectedIndex;
             const reported = reportedText(row);
-            const normalized = normalizedText(row);
             return (
               <tr
                 key={row.measurementID}
@@ -181,17 +179,10 @@ function ResultsTable({
                   </button>
                 </td>
                 <td className="results-taxon">{taxonText(row)}</td>
-                <td className="results-trait">
-                  {row.traitName ?? (
-                    <>
-                      {row.verbatimTraitName} <span className="results-unmapped">(unmapped)</span>
-                    </>
-                  )}
-                </td>
+                <td className="results-trait">{row.verbatimTraitName}</td>
                 <td>{reported ?? <span className="results-empty">Not reported</span>}</td>
-                <td>{normalized ?? <span className="results-empty">Not standardized</span>}</td>
                 <td>
-                  <Flag codes={codes} />
+                  <Flag codes={codes} flagged={flagged} />
                 </td>
               </tr>
             );
@@ -203,15 +194,23 @@ function ResultsTable({
 }
 
 // A disclosure, so the warnings open by click, Enter, or Space, and are not hover-only.
-function Flag({ codes }: { codes: string[] }) {
+// A row with only informational codes is not flagged: its summary names them without the
+// flag mark, and the list still explains each code.
+function Flag({ codes, flagged }: { codes: string[]; flagged: boolean }) {
   if (codes.length === 0) {
     return <span className="results-empty">None</span>;
   }
   return (
-    <details className="results-flag">
+    <details className={flagged ? "results-flag" : "results-flag results-note"}>
       <summary>
-        <span aria-hidden="true">⚑ </span>
-        {codes.length === 1 ? "1 warning" : `${codes.length} warnings`}
+        {flagged ? (
+          <>
+            <span aria-hidden="true">⚑ </span>
+            {codes.length === 1 ? "1 warning" : `${codes.length} warnings`}
+          </>
+        ) : (
+          [...new Set(codes.map((code) => informationalLabel(code)))].join(", ")
+        )}
       </summary>
       <ul>
         {codes.map((code, position) => {

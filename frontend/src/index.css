@@ -570,7 +570,6 @@ mark.evidence-unit {
   font-style: italic;
 }
 
-.results-unmapped,
 .results-empty {
   font-size: 0.85rem;
   opacity: 0.75;
@@ -581,6 +580,11 @@ mark.evidence-unit {
   white-space: nowrap;
   color: light-dark(#8a4b00, #ffc680);
   font-weight: 600;
+}
+
+.results-note summary {
+  color: inherit;
+  font-weight: normal;
 }
 
 .results-flag ul {

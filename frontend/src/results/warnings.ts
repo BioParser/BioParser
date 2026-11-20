@@ -74,7 +74,30 @@ const KINDS: Record<string, { fields: readonly string[]; text: (label: string) =
     fields: ["measurementDeterminedDate", "eventDate"],
     text: (label) => `${label} is not a calendar day. The printed text is kept.`,
   },
+  ambiguous_date: {
+    fields: ["measurementDeterminedDate", "eventDate"],
+    text: (label) => `${label} can be read day first or month first. The printed text is kept.`,
+  },
 };
+
+// Codes that are listed under a row but do not flag it, each with the short text the Flag
+// column shows when a row has no other warning. The adapter writes not_verified on every
+// stored name until a taxonomy lookup exists, so as a flag it would mark almost every row.
+// Every other code flags a row, including a code this table does not know yet. Severity
+// levels for the whole catalogue are #290.
+const INFORMATIONAL: Record<string, string> = {
+  "not_verified:scientificName": "Name not verified",
+};
+
+// Whether this code makes its row flagged.
+export function flagsRow(code: string): boolean {
+  return !Object.hasOwn(INFORMATIONAL, code);
+}
+
+// The short text for an informational code, or null for a code that flags its row.
+export function informationalLabel(code: string): string | null {
+  return Object.hasOwn(INFORMATIONAL, code) ? INFORMATIONAL[code] : null;
+}
 
 // Codes whose field names several columns.
 const COMBINED: Record<string, string> = {

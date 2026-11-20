@@ -90,7 +90,7 @@ afterEach(() => {
 });
 
 describe("JobDetailPage results", () => {
-  it("shows one row per ETS row with taxon, trait, reported and normalized values", async () => {
+  it("shows one row per ETS row with taxon, trait, reported value and flag", async () => {
     stubRows([
       etsRow(),
       etsRow({ measurementID: "2", scientificName: null, verbatimScientificName: "Sorex sp." }),
@@ -101,43 +101,27 @@ describe("JobDetailPage results", () => {
     const cells = within(rows[0])
       .getAllByRole("cell")
       .map((cell) => cell.textContent);
-    expect(cells).toEqual([
-      "1",
-      "Mus musculus",
-      "body mass (unmapped)",
-      "21.5 g",
-      "Not standardized",
-      "None",
-    ]);
+    expect(cells).toEqual(["1", "Mus musculus", "body mass", "21.5 g", "None"]);
     // No scientificName: the printed name is shown.
     expect(within(rows[1]).getByText("Sorex sp.")).toBeDefined();
     expect(fetchMock).toHaveBeenCalledWith(`/api/jobs/${JOB_ID}/ets`, expect.anything());
   });
 
-  it("shows a standardized trait, and a categorical level without a unit", async () => {
+  it("shows the printed trait and value, not a trait list's standardized ones", async () => {
     stubRows([
       etsRow({ traitID: "T1", traitName: "Body mass", traitValue: "0.0215", traitUnit: "kg" }),
-      etsRow({
-        measurementID: "2",
-        verbatimTraitName: "diet",
-        verbatimTraitValue: "plants",
-        verbatimTraitUnit: null,
-        traitID: "T2",
-        traitName: "Diet",
-        traitValue: "herbivore",
-      }),
     ]);
     renderPage();
-    const [numeric, categorical] = await bodyRows();
-    expect(within(numeric).getByText("Body mass")).toBeDefined();
-    expect(within(numeric).queryByText("(unmapped)")).toBeNull();
-    expect(within(numeric).getByText("0.0215 kg")).toBeDefined();
-    expect(within(categorical).getByText("plants")).toBeDefined();
-    expect(within(categorical).getByText("herbivore")).toBeDefined();
+    const [row] = await bodyRows();
+    expect(within(row).getByText("body mass")).toBeDefined();
+    expect(within(row).getByText("21.5 g")).toBeDefined();
+    expect(within(row).queryByText("Body mass")).toBeNull();
+    expect(within(row).queryByText("0.0215 kg")).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "Normalized value" })).toBeNull();
   });
 
   it("flags a row with one warning and explains the code", async () => {
-    stubRows([etsRow({ warnings: "not_verified:scientificName" })]);
+    stubRows([etsRow({ warnings: "not_numeric:age" })]);
     renderPage();
     const [row] = await bodyRows();
     const summary = within(row).getByText("1 warning").closest("summary");
@@ -145,8 +129,38 @@ describe("JobDetailPage results", () => {
     const items = within(row).getAllByRole("listitem");
     expect(items).toHaveLength(1);
     expect(items[0].textContent).toBe(
+      "not_numeric:age — The age is not a number. The printed text is kept.",
+    );
+    expect(screen.getByText("1 row of 1 flagged.")).toBeDefined();
+  });
+
+  it("lists an unverified name without flagging the row", async () => {
+    stubRows([
+      etsRow({ warnings: "not_verified:scientificName" }),
+      etsRow({ measurementID: "2", warnings: "not_numeric:age" }),
+    ]);
+    renderPage();
+    const [row] = await bodyRows();
+    const summary = within(row).getByText("Name not verified");
+    expect(summary.tagName).toBe("SUMMARY");
+    expect(within(row).queryByText("⚑", { exact: false })).toBeNull();
+    expect(within(row).getAllByRole("listitem")[0].textContent).toBe(
       "not_verified:scientificName — The scientific name is the model's reading. No taxonomy lookup has confirmed it.",
     );
+    expect(screen.getByText("1 row of 2 flagged.")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Hide flagged rows" }));
+    const visible = await bodyRows();
+    expect(visible).toHaveLength(1);
+    expect(within(visible[0]).getByRole("button").textContent).toBe("1");
+  });
+
+  it("flags a row for a code the UI does not know", async () => {
+    stubRows([etsRow({ warnings: "not_verified:scientificName | new_kind:age" })]);
+    renderPage();
+    const [row] = await bodyRows();
+    expect(within(row).getByText("2 warnings")).toBeDefined();
+    expect(screen.getByText("1 row of 1 flagged.")).toBeDefined();
   });
 
   it("lists several warnings, and an unknown code as it is", async () => {

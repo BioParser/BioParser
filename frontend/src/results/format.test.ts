@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EtsRow } from "../api/client";
-import { normalizedText, reportedText, taxonText } from "./format";
+import { reportedText, taxonText } from "./format";
 
 function row(overrides: Partial<EtsRow> = {}): EtsRow {
   return {
@@ -40,25 +40,5 @@ describe("reportedText", () => {
 
   it("is null when nothing was printed", () => {
     expect(reportedText(row())).toBeNull();
-  });
-});
-
-describe("normalizedText", () => {
-  it("is null for a row that did not standardize", () => {
-    expect(normalizedText(row({ verbatimTraitValue: "21.5", verbatimTraitUnit: "g" }))).toBeNull();
-  });
-
-  it("joins a standardized number and its unit", () => {
-    expect(
-      normalizedText(
-        row({ traitID: "T1", traitName: "body mass", traitValue: "0.0215", traitUnit: "kg" }),
-      ),
-    ).toBe("0.0215 kg");
-  });
-
-  it("shows a categorical level without a unit", () => {
-    expect(normalizedText(row({ traitID: "T2", traitName: "diet", traitValue: "herbivore" }))).toBe(
-      "herbivore",
-    );
   });
 });

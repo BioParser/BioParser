@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseWarnings, warningText } from "./warnings";
+import { flagsRow, informationalLabel, parseWarnings, warningText } from "./warnings";
 
 describe("parseWarnings", () => {
   it("reads no codes from an empty string", () => {
@@ -32,6 +32,8 @@ describe("warningText", () => {
     ["not_in_vocabulary:sex", "The sex is not one of the accepted values."],
     ["not_a_date:eventDate", "The event date is not a calendar day."],
     ["not_a_date:year,month,day", "The year, month, and day together are not a calendar day."],
+    ["ambiguous_date:eventDate", "The event date can be read day first or month first."],
+    ["ambiguous_date:measurementDeterminedDate", "The measurement date can be read day first"],
     [
       "bounds_reversed:measurementValue_min,measurementValue_max",
       "The minimum is greater than the maximum.",
@@ -49,5 +51,27 @@ describe("warningText", () => {
     "",
   ])("has no text for the unknown code %j", (code) => {
     expect(warningText(code)).toBeNull();
+  });
+});
+
+describe("flagsRow", () => {
+  it("does not flag a row for an unverified name", () => {
+    expect(flagsRow("not_verified:scientificName")).toBe(false);
+    expect(informationalLabel("not_verified:scientificName")).toBe("Name not verified");
+  });
+
+  it.each([
+    "not_numeric:age",
+    "out_of_range:month",
+    "not_in_vocabulary:sex",
+    "not_a_date:eventDate",
+    "ambiguous_date:eventDate",
+    "not_a_date:year,month,day",
+    "bounds_reversed:measurementValue_min,measurementValue_max",
+    "a_new_kind:age", // an unknown code flags, so a new backend code is not hidden
+    "toString", // not an own property of the table
+  ])("flags a row for %j", (code) => {
+    expect(flagsRow(code)).toBe(true);
+    expect(informationalLabel(code)).toBeNull();
   });
 });

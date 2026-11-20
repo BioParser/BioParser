@@ -13,12 +13,6 @@ export function reportedText(row: EtsRow): string | null {
   return withUnit(value, row.verbatimTraitUnit);
 }
 
-// The standardized value, filled only when a trait list standardized the row (#248).
-// A categorical trait has a level and no unit.
-export function normalizedText(row: EtsRow): string | null {
-  return withUnit(row.traitValue ?? null, row.traitUnit);
-}
-
 function rangeText(min: string | null | undefined, max: string | null | undefined): string | null {
   if (min != null && max != null) return `${min}–${max}`;
   if (min != null) return `min ${min}`;
