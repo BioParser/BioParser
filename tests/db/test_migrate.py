@@ -20,7 +20,7 @@ _COLUMNS = {
     "status": ("NO", "text", None),
     "parser": ("NO", "text", None),
     "extractor": ("NO", "text", None),
-    "pdf_ref": ("NO", "character varying", 512),
+    "document_checksum": ("NO", "character varying", 64),
     "parse_result_ref": ("YES", "character varying", 512),
     "extract_result_ref": ("YES", "character varying", 512),
     "error_code": ("YES", "text", None),
@@ -31,7 +31,6 @@ _COLUMNS = {
 }
 _CHECKS = {
     "jobs_status_check",
-    "jobs_pdf_ref_check",
     "jobs_parse_result_ref_check",
     "jobs_extract_result_ref_check",
     "jobs_parsing_claims_check",
@@ -263,6 +262,8 @@ def _drop_database(admin_url: str, name: str) -> None:
 def _assert_jobs_table(admin_url: str, name: str) -> None:
     assert _columns(admin_url, name, table_name="jobs") == _COLUMNS
     assert _check_names(admin_url, name, table_name="jobs") == _CHECKS
+    assert _foreign_key_names(admin_url, name) == {"jobs_document_checksum_fkey"}
+    assert "jobs_document_checksum_idx" in _index_names(admin_url, name)
     assert _trigger_names(admin_url, name) == {"jobs_set_updated_at"}
     assert _columns(admin_url, name, table_name="documents") == _DOCUMENTS_COLUMNS
     assert _check_names(admin_url, name, table_name="documents") == _DOCUMENTS_CHECKS
@@ -300,6 +301,35 @@ def _check_names(admin_url: str, name: str, table_name: str = "jobs") -> set[str
             )
         )
         found = {str(constraint) for (constraint,) in rows}
+    engine.dispose()
+    return found
+
+
+def _foreign_key_names(admin_url: str, name: str) -> set[str]:
+    url = make_url(admin_url).set(database=name)
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT conname FROM pg_constraint "
+                "WHERE conrelid = 'public.jobs'::regclass AND contype = 'f'"
+            )
+        )
+        found = {str(constraint) for (constraint,) in rows}
+    engine.dispose()
+    return found
+
+
+def _index_names(admin_url: str, name: str) -> set[str]:
+    url = make_url(admin_url).set(database=name)
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'jobs'"
+            )
+        )
+        found = {str(index) for (index,) in rows}
     engine.dispose()
     return found
 

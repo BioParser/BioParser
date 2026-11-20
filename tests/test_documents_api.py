@@ -288,8 +288,8 @@ def test_extract_stores_the_document_and_queues_a_job(
     state = job_store.states[body["job_id"]]
     assert state.parser == "default"
     assert state.extractor == "default"
-    assert state.pdf_ref == f"pdf/{MINIMAL_PDF_HASH}"
-    assert artifact_storage.artifacts[state.pdf_ref][0] == MINIMAL_PDF
+    assert state.document_checksum == MINIMAL_PDF_HASH
+    assert artifact_storage.artifacts[f"pdf/{MINIMAL_PDF_HASH}"][0] == MINIMAL_PDF
     assert parse_queue.messages[0].job_id == UUID(body["job_id"])
     stored = client.get(f"/api/documents/{MINIMAL_PDF_HASH}")
     assert stored.status_code == 200
@@ -386,7 +386,7 @@ def test_submit_document_job_success(
     state = job_store.states[str(job_id)]
     assert state.parser == "mineru"
     assert state.extractor == "default"
-    assert state.pdf_ref == f"pdf/{MINIMAL_PDF_HASH}"
+    assert state.document_checksum == MINIMAL_PDF_HASH
 
     # Parse message queued
     assert len(parse_queue.messages) == 1

@@ -127,7 +127,7 @@ def _parsed() -> JobState:
         status="parsed",
         parser="default",
         extractor="default",
-        pdf_ref="pdf/abc",
+        document_checksum="ab" * 32,
         parse_result_ref=PARSE_REF,
         created_at=CREATED_AT,
     )
@@ -505,7 +505,7 @@ def test_a_job_still_parsing_is_left_alone() -> None:
         status="parsing",
         parser="default",
         extractor="default",
-        pdf_ref="pdf/abc",
+        document_checksum="ab" * 32,
         created_at=CREATED_AT,
     )
     jobs = StubJobs(state)

@@ -46,8 +46,10 @@ flowchart TB
 ```
 
 Redis is the job queue. Queue messages carry only a job ID and a schema version.
-Postgres holds one `jobs` row per job, including that job's artifact paths
-(`pdf_ref`, `parse_result_ref`, `extract_result_ref`). The API and both workers
+Postgres holds one `jobs` row per job. The row points at its document with
+`document_checksum` and stores the later artifact paths (`parse_result_ref`,
+`extract_result_ref`). The uploaded PDF is `pdf/<document_checksum>`, built with
+`pdf_path`. The API and both workers
 read and write those rows. Neither Redis nor Postgres holds PDF bytes or model
 results; those stay in artifact storage.
 
@@ -256,14 +258,14 @@ Convention:
 - Build paths with the builders, never by string formatting. Each builder argument must be
   a single valid segment, so a value like `a/b` cannot change the shape of the path.
 
-Job state holds artifact paths, typed `ArtifactPath`:
+Job state holds the document checksum and the artifact paths, typed `ArtifactPath`:
 
 | Field | Type | Set |
 |---|---|---|
-| `pdf_ref` | `ArtifactPath` | Always. The uploaded PDF, set when the job is created. |
+| `document_checksum` | sha256 hex | Always. The document this job belongs to. The PDF is `pdf_path(document_checksum)`. |
 | `parse_result_ref` | `ArtifactPath \| None` | In `parsed`, `extracting` and `done`. `None` in `queued`, `parsing` and `failed`. |
 
-Queue messages carry only `job_id`. Workers read the paths from job state.
+Queue messages carry only `job_id`. Workers read the checksum and the result paths from job state.
 
 ### Artifact storage interface
 

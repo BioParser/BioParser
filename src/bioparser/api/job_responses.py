@@ -7,7 +7,6 @@ from typing import Any, NoReturn, cast
 from fastapi import Request
 from pydantic import ValidationError
 
-from bioparser.artifact_paths import ArtifactPathError, pdf_checksum
 from bioparser.ets.adapter import to_ets
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.jobs import JobState, SafeError
@@ -21,7 +20,6 @@ from bioparser.storage import (
 
 from .errors import (
     ARTIFACT_INVALID,
-    JOB_STATE_UNREADABLE,
     STORAGE_UNAVAILABLE,
     http_error,
 )
@@ -55,15 +53,6 @@ def _raise_invalid(exc: ValueError, job_id: object) -> NoReturn:
     raise _InvalidArtifact from exc
 
 
-def job_pdf_checksum(state: JobState) -> str:
-    """Return a job's document checksum or the public corrupt-state error."""
-    try:
-        return pdf_checksum(state.pdf_ref)
-    except ArtifactPathError as exc:
-        LOGGER.error("job PDF reference unreadable", extra={"job_id": str(state.job_id)})
-        raise http_error(500, JOB_STATE_UNREADABLE) from exc
-
-
 def _record(state: JobState, display_name: str | None) -> dict[str, Any]:
     """The stored record. No storage paths."""
     return {
@@ -72,7 +61,7 @@ def _record(state: JobState, display_name: str | None) -> dict[str, Any]:
         "display_name": display_name,
         "parser": state.parser,
         "extractor": state.extractor,
-        "document_checksum": job_pdf_checksum(state),
+        "document_checksum": state.document_checksum,
         "has_parse_result": state.parse_result_ref is not None,
     }
 
@@ -111,7 +100,7 @@ def _ets_rows(payload: bytes, references: str, job_id: object) -> EtsRowsRespons
 
 async def job_ets_rows(request: Request, state: JobState) -> EtsRowsResponse:
     """The ETS rows of a done job. A missing or invalid artifact is a safe 500."""
-    checksum = job_pdf_checksum(state)
+    checksum = state.document_checksum
     ref = state.extract_result_ref
     if ref is None:
         LOGGER.error("done job has no extraction artifact", extra={"job_id": str(state.job_id)})
