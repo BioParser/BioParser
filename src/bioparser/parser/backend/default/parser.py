@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 import io
-import os
-import sys
 from importlib.metadata import version
 from pathlib import Path
 
@@ -12,6 +9,7 @@ from pdfplumber.page import Page as PdfPlumberPage
 from pydantic import ValidationError
 
 from bioparser.hashing import sha256_bytes
+from bioparser.parser.advent_repair.symbol_fonts import repair_pdf
 from bioparser.parser.backend.default.child import EXIT_NOT_FOUND, EXIT_UNSUPPORTED
 from bioparser.parser.backend.default.grouping import (
     SPAN_WIDTH_FACTOR,
@@ -20,6 +18,7 @@ from bioparser.parser.backend.default.grouping import (
     group_words_into_text_blocks,
 )
 from bioparser.parser.checksum import block_id
+from bioparser.parser.child import run_child
 from bioparser.parser.errors import ParserProcessError, UnsupportedDocumentError
 from bioparser.parser.models import (
     PARSER_ARTIFACT_SCHEMA_VERSION,
@@ -33,7 +32,6 @@ from bioparser.parser.models import (
     TextContent,
     TextLine,
 )
-from bioparser.parser.symbol_fonts import repair_pdf
 from bioparser.parser_names import DEFAULT_PARSER_NAME, PARSER_VERSIONS
 
 DEFAULT_PARSER_VERSION = PARSER_VERSIONS[DEFAULT_PARSER_NAME]
@@ -131,38 +129,13 @@ def _words_from_page(page: PdfPlumberPage) -> list[WordBox]:
     return words
 
 
-# Names a child needs to start. The child must not inherit the database and Redis
-# passwords. This is not a sandbox: code in the child runs as the same user and can
-# still read them from /proc/<pid>/environ. #286 limits what a stolen password can do.
-_CHILD_ENV = ("PATH", "LANG", "LC_ALL", "SYSTEMROOT", "PATHEXT", "TEMP", "TMP", "TMPDIR")
-
-
-def _child_environment() -> dict[str, str]:
-    return {name: os.environ[name] for name in _CHILD_ENV if name in os.environ}
-
-
 class DefaultParser:
     """Default digital-born PDF backend. Text currently uses pdfplumber."""
 
     async def parse(self, path: Path) -> ParserArtifact:
         """Parse the PDF in a child process."""
-        child = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "bioparser.parser.backend.default.child",
-            str(path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-            env=_child_environment(),
-        )
-        try:
-            out, _ = await child.communicate()
-        except asyncio.CancelledError:
-            if child.returncode is None:
-                child.kill()
-            await child.wait()
-            raise
-        return _artifact_from_child(child.returncode, out)
+        returncode, out = await run_child("bioparser.parser.backend.default.child", str(path))
+        return _artifact_from_child(returncode, out)
 
     def parse_in_this_process(self, path: Path) -> ParserArtifact:
         pdf_path = path.expanduser().resolve()

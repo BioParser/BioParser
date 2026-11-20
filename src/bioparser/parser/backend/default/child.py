@@ -14,7 +14,10 @@ EXIT_NOT_FOUND = 4
 def main(argv: list[str] | None = None) -> None:
     """Parse the PDF named on the command line. The artifact JSON goes to stdout."""
     from bioparser.parser.backend.default.parser import DefaultParser
+    from bioparser.parser.child import configure_child_logging
     from bioparser.parser.errors import UnsupportedDocumentError
+
+    configure_child_logging()
 
     args = sys.argv[1:] if argv is None else argv
     if len(args) != 1:

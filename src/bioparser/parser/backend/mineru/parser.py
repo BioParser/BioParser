@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 
 from bioparser.hashing import sha256_bytes
+from bioparser.parser.advent_repair.symbol_child import repair_pdf_in_child
 from bioparser.parser.backend.mineru.mapper import (
     MiddleJsonContractError,
     artifact_from_middle_json,
@@ -16,7 +17,6 @@ from bioparser.parser.errors import (
     UnsupportedDocumentError,
 )
 from bioparser.parser.models import ParserArtifact
-from bioparser.parser.symbol_fonts import repair_pdf
 from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 from bioparser.services.mineru.client import (
     DEFAULT_TIER,
@@ -48,7 +48,7 @@ class MinerUParser:
             raise FileNotFoundError("PDF not found")
         content = await asyncio.to_thread(pdf_path.read_bytes)
         checksum = await asyncio.to_thread(sha256_bytes, content)
-        repaired, unmapped_symbol_count = await asyncio.to_thread(repair_pdf, content)
+        repaired, unmapped_symbol_count = await repair_pdf_in_child(pdf_path)
         wait_s = MAX_WAIT_SECONDS if self._timeout_s is None else self._timeout_s
 
         try:

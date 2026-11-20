@@ -3,18 +3,15 @@
 import asyncio
 import hashlib
 import io
+import logging
 from pathlib import Path
 
 import pdfplumber
 import pikepdf
 import pytest
 
-from bioparser.parser.backend.default.parser import DefaultParser
-from bioparser.parser.backend.mineru import parser as mineru_parser
-from bioparser.parser.backend.mineru.parser import MinerUParser
-from bioparser.parser.errors import ParserProcessError, UnsupportedDocumentError
-from bioparser.parser.models import ParserArtifact
-from bioparser.parser.symbol_fonts import (
+from bioparser.parser.advent_repair import symbol_child
+from bioparser.parser.advent_repair.symbol_fonts import (
     _DROP,
     _REPLACEMENT,
     _decide,
@@ -23,6 +20,11 @@ from bioparser.parser.symbol_fonts import (
     _Slot,
     repair_pdf,
 )
+from bioparser.parser.backend.default.parser import DefaultParser
+from bioparser.parser.backend.mineru import parser as mineru_parser
+from bioparser.parser.backend.mineru.parser import MinerUParser
+from bioparser.parser.errors import ParserProcessError, UnsupportedDocumentError
+from bioparser.parser.models import ParserArtifact
 from bioparser.services.mineru.client import MinerUError
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -268,6 +270,110 @@ def test_a_truncated_pdf_is_left_unchanged(tmp_path: Path) -> None:
     path.write_bytes(original)
     with pytest.raises(UnsupportedDocumentError):
         DefaultParser().parse_in_this_process(path)
+
+
+def _with_base_font(source: bytes, old: str, new: str, *, font_name: bool) -> bytes:
+    pdf = pikepdf.open(io.BytesIO(source))
+    for page in pdf.pages:
+        resources = page.get("/Resources")
+        if resources is None:
+            continue
+        fonts = resources.get("/Font")
+        if fonts is None:
+            continue
+        for font in fonts.values():
+            if not str(font.get("/BaseFont", "")).endswith(old):
+                continue
+            font["/BaseFont"] = pikepdf.Name(f"/{new}")
+            if font_name and font.get("/FontDescriptor") is not None:
+                font.FontDescriptor["/FontName"] = pikepdf.Name(f"/{new}")
+    out = io.BytesIO()
+    pdf.save(out)
+    return out.getvalue()
+
+
+def test_an_unlisted_adv_font_becomes_the_replacement_character() -> None:
+    original = BIOLOGY.read_bytes()
+    for also_font_name in (False, True):
+        edited = _with_base_font(original, "AdvP7DA6", "AdvUnknown", font_name=also_font_name)
+        repaired, count = repair_pdf(edited)
+        assert count > 0
+        assert "\ufffd" in _text(repaired)
+
+
+def test_the_parser_child_keeps_the_unmapped_log(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    path = tmp_path / "renamed.pdf"
+    path.write_bytes(
+        _with_base_font(BIOLOGY.read_bytes(), "AdvP7DA6", "AdvUnknown", font_name=False)
+    )
+    with caplog.at_level(logging.WARNING):
+        artifact = asyncio.run(DefaultParser().parse(path))
+    assert artifact.unmapped_symbol_count > 0
+    assert "unmapped symbol font glyph" in caplog.text
+    assert "AdvUnknown" in caplog.text
+
+
+def test_cancelling_the_repair_kills_its_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    killed: list[object] = []
+
+    class Proc:
+        def __init__(self) -> None:
+            self.returncode: int | None = None
+
+        def kill(self) -> None:
+            killed.append(self)
+            self.returncode = -9
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            await asyncio.sleep(30)
+            return b"", b""
+
+        async def wait(self) -> int:
+            return -9
+
+    async def spawn(*_args: object, **_kwargs: object) -> Proc:
+        return Proc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+
+    async def run() -> None:
+        task = asyncio.create_task(symbol_child.repair_pdf_in_child(BIOLOGY))
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run())
+    assert killed
+
+
+def test_a_failed_repair_child_returns_the_original(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class Proc:
+        returncode = 1
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return b"", b"boom"
+
+        def kill(self) -> None:
+            return None
+
+        async def wait(self) -> int:
+            return 1
+
+    async def spawn(*_args: object, **_kwargs: object) -> Proc:
+        return Proc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    original = BIOLOGY.read_bytes()
+    with caplog.at_level(logging.WARNING):
+        repaired, count = asyncio.run(symbol_child.repair_pdf_in_child(BIOLOGY))
+    assert repaired == original
+    assert count == 0
+    assert "left the PDF unchanged" in caplog.text
 
 
 def test_mineru_is_sent_a_truncated_pdf_unchanged(

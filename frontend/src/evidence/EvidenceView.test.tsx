@@ -68,7 +68,7 @@ function textBlock(block_id: string, text: string) {
 }
 
 const PARSER: ParserArtifact = {
-  schema_version: "1",
+  schema_version: "2",
   checksum: "abc",
   parser: { name: "default", version: "1", configuration: {} },
   unmapped_symbol_count: 0,

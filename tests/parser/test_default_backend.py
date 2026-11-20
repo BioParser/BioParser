@@ -6,8 +6,9 @@ import pytest
 from bioparser.hashing import sha256_file
 from bioparser.parser import ParserBackendUnavailableError, UnsupportedDocumentError
 from bioparser.parser.backend.default.grouping import WordBox, group_words_into_text_blocks
-from bioparser.parser.backend.default.parser import _CHILD_ENV, DefaultParser, _child_environment
+from bioparser.parser.backend.default.parser import DefaultParser
 from bioparser.parser.backend.factory import get_parser
+from bioparser.parser.child import CHILD_ENV, child_environment
 from bioparser.parser.models import ParserArtifact
 from bioparser.parser_names import DEFAULT_PARSER_NAME
 
@@ -77,9 +78,9 @@ def test_the_parser_child_gets_no_secrets(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://:secret@redis:6379/0")
     monkeypatch.setenv("POSTGRES_PASSWORD", "secret")
 
-    env = _child_environment()
+    env = child_environment()
 
-    assert set(env) <= set(_CHILD_ENV)
+    assert set(env) <= set(CHILD_ENV)
     assert "secret" not in "".join(env.values())
 
 

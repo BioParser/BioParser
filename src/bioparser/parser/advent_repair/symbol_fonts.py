@@ -12,9 +12,10 @@ from __future__ import annotations
 import io
 import logging
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
+from decimal import Decimal
 
-import pdfplumber
 import pikepdf
 from pdfminer.cmapdb import CMapParser, FileUnicodeMap
 from pdfminer.encodingdb import name2unicode
@@ -277,24 +278,37 @@ def _repair(data: bytes) -> tuple[bytes, int]:
     interesting = [font for font in fonts if _interesting(font)]
     if not interesting:
         return data, 0
-    _attach_samples(data, interesting)
+    pdf = pikepdf.open(io.BytesIO(data))
+    try:
+        _count_uses(pdf, interesting)
+        replaced, unmapped = _replacements(interesting)
+        if not replaced:
+            return data, sum(unmapped.values())
+        return _rewrite(pdf, replaced), sum(unmapped.values())
+    finally:
+        pdf.close()
+
+
+def _replacements(
+    fonts: list[_Font],
+) -> tuple[list[tuple[_Font, dict[int, str]]], dict[tuple[str, str, str, int], int]]:
+    # Every slot is decided from the font dictionary. A glyph the content
+    # stream did not show is still rewritten, so a missed count cannot leave
+    # the wrong character in place.
     replacements: list[tuple[_Font, dict[int, str]]] = []
     unmapped: dict[tuple[str, str, str, int], int] = defaultdict(int)
-    for font in interesting:
+    for font in fonts:
         changed: dict[int, str] = {}
         small = _is_small(font)
         for slot in font.slots:
-            sample = font.samples.get(slot.code)
-            if sample is None:
-                continue
             decided = _decide(font.base, slot, small=small)
             if decided == slot.claimed:
                 continue
             changed[slot.code] = decided
-            if decided == _REPLACEMENT:
-                unmapped[(font.base, slot.name, slot.claimed, sample.page_index + 1)] += (
-                    font.counts.get(slot.code, 1)
-                )
+            count = font.counts.get(slot.code, 0)
+            sample = font.samples.get(slot.code)
+            if decided == _REPLACEMENT and count and sample is not None:
+                unmapped[(font.base, slot.name, slot.claimed, sample.page_index + 1)] += count
         if changed:
             replacements.append((font, changed))
     for (base, glyph, claimed, page), count in sorted(unmapped.items()):
@@ -306,9 +320,7 @@ def _repair(data: bytes) -> tuple[bytes, int]:
             claimed,
             count,
         )
-    if not replacements:
-        return data, sum(unmapped.values())
-    return _rewrite(data, replacements), sum(unmapped.values())
+    return replacements, unmapped
 
 
 def _is_advent(base: str) -> bool:
@@ -481,36 +493,132 @@ def _from_name(name: str, code: int) -> str:
         return f"(cid:{code})"
 
 
-def _attach_samples(data: bytes, fonts: list[_Font]) -> None:
-    by_base: dict[str, list[_Font]] = defaultdict(list)
-    for font in fonts:
-        by_base[font.base].append(font)
-    claimed = {(font.base, slot.claimed): slot.code for font in fonts for slot in font.slots}
-    with pdfplumber.open(io.BytesIO(data)) as pdf:
-        for index, page in enumerate(pdf.pages):
-            try:
-                chars = page.chars
-            finally:
-                page.close()
-            for char in chars:
-                base = _base_name(char.get("fontname"))
-                text = str(char.get("text", ""))
-                code = claimed.get((base, text))
-                if code is None:
-                    continue
-                for font in by_base.get(base, []):
-                    if all(slot.code != code for slot in font.slots):
-                        continue
-                    font.counts[code] = font.counts.get(code, 0) + 1
-                    if code in font.samples:
-                        continue
-                    font.samples[code] = _Sample(page_index=index)
+def _count_uses(pdf: pikepdf.Pdf, fonts: list[_Font]) -> None:
+    # Count by font object, not by the name pdfplumber later prints. /BaseFont
+    # and the descriptor's /FontName can differ, and two fonts can claim the
+    # same character. The content stream names the font resource, which points
+    # at one object.
+    by_id = {font.objid: font for font in fonts}
+    for index, page in enumerate(pdf.pages):
+        _count_container(page, page.get("/Resources"), index, by_id, set())
 
 
-def _rewrite(data: bytes, replacements: list[tuple[_Font, dict[int, str]]]) -> bytes:
+def _count_container(
+    container: pikepdf.Object | pikepdf.Page,
+    resources: pikepdf.Object | None,
+    page_index: int,
+    by_id: dict[int, _Font],
+    stack: set[tuple[int, int]],
+) -> None:
+    objgen = getattr(container, "objgen", None)
+    if objgen in stack:
+        return
+    if objgen is not None:
+        stack.add(objgen)
+    try:
+        _count_operators(container, resources, page_index, by_id, stack)
+    finally:
+        if objgen is not None:
+            stack.discard(objgen)
+
+
+def _count_operators(
+    container: pikepdf.Object | pikepdf.Page,
+    resources: pikepdf.Object | None,
+    page_index: int,
+    by_id: dict[int, _Font],
+    stack: set[tuple[int, int]],
+) -> None:
+    font_ids = _resource_fonts(resources, by_id)
+    current: int | None = None
+    try:
+        operations = pikepdf.parse_content_stream(container)
+    except Exception:
+        LOGGER.warning("symbol font repair could not read a content stream", exc_info=True)
+        return
+    for instruction in operations:
+        operands = getattr(instruction, "operands", ())
+        operator = getattr(instruction, "operator", "")
+        op = str(operator)
+        if op == "Do" and operands and resources is not None:
+            _count_xobject(operands[0], resources, page_index, by_id, stack)
+            continue
+        if op == "Tf" and operands:
+            current = font_ids.get(str(operands[0]).lstrip("/"))
+            continue
+        if current is None or current not in by_id or not operands:
+            continue
+        font = by_id[current]
+        if op in {"Tj", "'"}:
+            _count_codes(operands[0], font, page_index)
+        elif op == '"':
+            _count_codes(operands[-1], font, page_index)
+        elif op == "TJ":
+            for piece in _pieces(operands[0]):
+                _count_codes(piece, font, page_index)
+
+
+def _resource_fonts(resources: pikepdf.Object | None, by_id: dict[int, _Font]) -> dict[str, int]:
+    if resources is None:
+        return {}
+    fonts = resources.get("/Font")
+    if fonts is None:
+        return {}
+    found: dict[str, int] = {}
+    for key, font in fonts.items():
+        objgen = getattr(font, "objgen", None)
+        if objgen is None or objgen[0] not in by_id:
+            continue
+        found[str(key).lstrip("/")] = objgen[0]
+    return found
+
+
+def _count_xobject(
+    name: object,
+    resources: pikepdf.Object,
+    page_index: int,
+    by_id: dict[int, _Font],
+    stack: set[tuple[int, int]],
+) -> None:
+    xobjects = resources.get("/XObject")
+    if xobjects is None:
+        return
+    xobject = xobjects.get(str(name))
+    if xobject is None or str(xobject.get("/Subtype")) != "/Form":
+        return
+    nested = xobject.get("/Resources")
+    _count_container(xobject, nested if nested is not None else resources, page_index, by_id, stack)
+
+
+def _pieces(value: object) -> Iterable[object]:
+    if isinstance(value, bytes | str) or not isinstance(value, Iterable):
+        return ()
+    return value
+
+
+def _count_codes(value: object, font: _Font, page_index: int) -> None:
+    raw = _codes(value)
+    for code in raw:
+        font.counts[code] = font.counts.get(code, 0) + 1
+        if code not in font.samples:
+            font.samples[code] = _Sample(page_index=page_index)
+
+
+def _codes(value: object) -> bytes:
+    if isinstance(value, bool | int | float | Decimal):
+        return b""
+    decode = getattr(value, "__bytes__", None)
+    if not callable(decode):
+        return b""
+    try:
+        raw = decode()
+    except (TypeError, ValueError):
+        return b""
+    return raw if isinstance(raw, bytes) else b""
+
+
+def _rewrite(pdf: pikepdf.Pdf, replacements: list[tuple[_Font, dict[int, str]]]) -> bytes:
     # pikepdf keeps encryption, object streams, and nested dictionaries.
-    # The hand-written trailer update dropped those and blanked the pages.
-    pdf = pikepdf.open(io.BytesIO(data))
     wrote = False
     for font, changed in replacements:
         mapping = dict(font.cmap)
@@ -520,7 +628,7 @@ def _rewrite(data: bytes, replacements: list[tuple[_Font, dict[int, str]]]) -> b
         pdf.get_object(font.objid, 0)["/ToUnicode"] = pikepdf.Stream(pdf, _cmap(mapping))
         wrote = True
     if not wrote:
-        return data
+        raise RuntimeError("symbol font repair had nothing to write")
     out = io.BytesIO()
     try:
         # True keeps the encryption the file already has. Older RC4 cannot

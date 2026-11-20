@@ -11,7 +11,7 @@ import {
 const BOX = { x0: 0.1, y0: 0.2, x1: 0.9, y1: 0.3 };
 
 const PARSER: ParserArtifact = {
-  schema_version: "1",
+  schema_version: "2",
   checksum: "abc",
   parser: { name: "default", version: "1", configuration: {} },
   unmapped_symbol_count: 0,
