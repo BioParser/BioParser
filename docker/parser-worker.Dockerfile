@@ -40,6 +40,58 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 #-------------------------------------------
 
+# Dev stage for the Compose overlay. Not the last stage, so the default build
+# stays the production image. It also installs dev-reload (watchfiles).
+
+FROM base AS build-dev
+
+COPY --from=uv /uv /uvx /bin/
+
+ENV UV_CACHE_DIR=/root/.cache/uv \
+    UV_PYTHON_DOWNLOADS=0 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+WORKDIR /app
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-editable --no-install-project --no-default-groups --group parser-worker --group dev-reload
+
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-editable --no-default-groups --group parser-worker --group dev-reload
+
+FROM base AS parser-worker-dev
+
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid 10001 --home-dir /home/app --no-create-home \
+        --shell /usr/sbin/nologin app \
+    && install -d -o 10001 -g 0 -m 0770 /home/app /data
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    HOME=/home/app
+
+WORKDIR /app
+
+COPY --from=build-dev /app/.venv /app/.venv
+
+USER 10001:10001
+
+RUN PYTHONDONTWRITEBYTECODE=1 python -c "import bioparser.worker.parse, watchfiles"
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('BIOPARSER_LIVENESS_PORT', '8081') + '/health', timeout=3)"]
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["python", "-m", "bioparser.worker.parse"]
+
+#-------------------------------------------
+
 FROM base AS runtime
 
 # Numeric user: OpenShift runs the container as a random UID in group 0.

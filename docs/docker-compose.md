@@ -34,7 +34,7 @@ cp .env.example .env
 
 Required:
 
-`COMPOSE_FILE`: Compose configuration preference, e.g. `docker-compose.yml:docker-compose.gpu.yml` (GPU) or `docker-compose.yml:docker-compose.cpu.yml` (CPU).  
+`COMPOSE_FILE`: Compose configuration preference, e.g. `docker-compose.yml:docker-compose.gpu.yml` (GPU) or `docker-compose.yml:docker-compose.cpu.yml` (CPU). Do not add `docker-compose.dev.yml` here. `bash bioparser compose` appends it for one run.  
 `VLLM_MODEL`: Hugging Face repo id, for example `Qwen/Qwen3-0.6B` (already set in `.env.example`).  
 `VLLM_PORT`: host port for vLLM (default `8000`).  
 `BIOPARSER_PORT`: host port for the API (default `8080`).  
@@ -75,7 +75,27 @@ docker compose up --build
 curl localhost:8080/health
 ```
 
-Stop with `Ctrl+C`, or `docker compose down`.
+`bash bioparser compose up` starts this same stack plus the dev overlay. Port 8080 still serves the UI that was built into the API image. That copy does not pick up frontend edits. Use port 5173 for UI work.
+
+Stop with `Ctrl+C`, or `docker compose down`. Stop the dev overlay with `bash bioparser compose down`.
+
+## Dev overlay
+
+`bioparser` at the repository root is a wrapper for `docker compose`. `bash bioparser compose up` reads `COMPOSE_FILE` from `.env` and appends `:docker-compose.dev.yml` for that run only. It does not edit `.env`. GPU or CPU and logging stay whatever `.env` already selects. `docker-compose.dev.yml` is not part of the default `COMPOSE_FILE`. The same wrapper applies to the other Compose commands, so `bash bioparser compose down` includes the dev services. `compose up` builds what it must. Any further arguments are passed through.
+
+```sh
+bash bioparser compose up
+```
+
+The overlay reloads the code under edit. MinerU, vLLM, Postgres, Redis, Loki, Alloy, Grafana, and Traefik stay on their built images. Reloading MinerU or vLLM reloads the models.
+
+- `ui` is the Vite dev server on Node 26 (the version in `frontend/package.json`). Open `http://localhost:5173/ui/`. It publishes `127.0.0.1:5173` and mounts `./frontend`, with `node_modules` on its own volume. The first start runs `npm ci` into that volume.
+- `frontend/vite.config.ts` proxies `/api` and `/ready` to `BIOPARSER_DEV_API_ORIGIN`, which defaults to `http://127.0.0.1:8080`, so `npm run dev` on the host is unchanged. The dev file sets `http://bioparser:8080`, because `127.0.0.1` inside the `ui` container is that container.
+- `bioparser` mounts `./src` on `PYTHONPATH` ahead of the package installed in the image, and runs Uvicorn `--reload` on `bioparser.api.app:app`, host `0.0.0.0`, port `8080`. The reloader watches `/src`.
+- `parser-worker` and `extractor-worker` build the `parser-worker-dev` and `extractor-worker-dev` stages of their own Dockerfiles. Those stages install the `dev-reload` group (`watchfiles`) on top of the worker group. They are not the last stage, so a build without a target stays the production image. The production stages and the OKD images do not install that group. The overlay mounts `./src` and restarts `python -m bioparser.worker.parse` and `python -m bioparser.worker.extract` when a file under `./src` changes. The workers stay on the internal network.
+- `migrate` mounts the same source, runs once, and exits. It is not wrapped in a watcher.
+
+Port 8080 still serves the UI that was built into the API image. That copy does not pick up frontend edits. Use port 5173 for UI work.
 
 ## Logs
 

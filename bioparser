@@ -1,0 +1,77 @@
+#!/bin/sh
+# Wrapper for the local Compose stack with the hot-reload overlay.
+#
+#   bash bioparser compose up
+#   bash bioparser compose down
+#
+# Port 8080 still serves the UI that was built into the API image. That copy
+# does not pick up frontend edits. Open http://localhost:5173/ui/ for UI work.
+#
+# Reads COMPOSE_FILE from .env and appends :docker-compose.dev.yml for this
+# run only. Does not edit .env. GPU or CPU and logging stay whatever .env
+# already selects. `compose up` builds what it must. Other arguments are
+# passed through to `docker compose`.
+
+set -eu
+
+cd "$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+
+if [ "${1:-}" != "compose" ]; then
+  echo "usage: bash bioparser compose [docker compose arguments...]" >&2
+  exit 2
+fi
+shift
+
+if [ ! -f .env ]; then
+  echo "bioparser: .env is missing (copy .env.example to .env)" >&2
+  exit 1
+fi
+
+compose_file=
+while IFS= read -r line || [ -n "$line" ]; do
+  case $line in
+    COMPOSE_FILE=*)
+      compose_file=${line#COMPOSE_FILE=}
+      break
+      ;;
+  esac
+done < .env
+compose_file=$(printf '%s' "$compose_file" | tr -d '\r')
+compose_file=$(printf '%s' "$compose_file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+case $compose_file in
+  \"*\")
+    compose_file=${compose_file#\"}
+    compose_file=${compose_file%\"}
+    ;;
+  \'*\')
+    compose_file=${compose_file#\'}
+    compose_file=${compose_file%\'}
+    ;;
+esac
+
+if [ -z "$compose_file" ]; then
+  echo "bioparser: COMPOSE_FILE is not set in .env" >&2
+  exit 1
+fi
+
+case ":$compose_file:" in
+  *:docker-compose.dev.yml:*) ;;
+  *) compose_file=$compose_file:docker-compose.dev.yml ;;
+esac
+
+export COMPOSE_FILE=$compose_file
+
+if [ "${1:-}" = "up" ]; then
+  shift
+  for arg in "$@"; do
+    case $arg in
+      --build|--no-build)
+        exec docker compose up "$@"
+        ;;
+    esac
+  done
+  exec docker compose up --build "$@"
+fi
+
+exec docker compose "$@"

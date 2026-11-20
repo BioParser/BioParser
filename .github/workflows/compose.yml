@@ -65,3 +65,9 @@ jobs:
           validate -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.logging.yml
           validate -f docker-compose.yml -f docker-compose.cpu.yml -f docker-compose.logging.yml -f docker-compose.traefik.yml
           validate -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.logging.yml -f docker-compose.traefik.yml
+          validate -f docker-compose.yml -f docker-compose.cpu.yml -f docker-compose.dev.yml
+          validate -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.dev.yml
+          validate -f docker-compose.yml -f docker-compose.cpu.yml -f docker-compose.logging.yml -f docker-compose.dev.yml
+          validate -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.logging.yml -f docker-compose.dev.yml
+          validate -f docker-compose.yml -f docker-compose.cpu.yml -f docker-compose.logging.yml -f docker-compose.traefik.yml -f docker-compose.dev.yml
+          validate -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.logging.yml -f docker-compose.traefik.yml -f docker-compose.dev.yml
