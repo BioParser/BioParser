@@ -64,7 +64,6 @@ class VLLMService:
         )
 
         self.model: str | None = None
-        self._max_model_len: int | None = None
         self._max_tokens = settings.vllm_max_tokens
         self._lock = asyncio.Lock()
         self._discovery_timeout = settings.vllm_model_discovery_timeout_seconds
@@ -104,24 +103,22 @@ class VLLMService:
             if self.model is None:
                 card = await self._first_model_card()
                 self.model = card.id
-                self._max_model_len = _reported_max_model_len(card)
             return self.model
 
     async def get_max_model_len(self) -> int:
         """The served context window, read from the server on every call.
 
         A restarted vLLM can keep the same model id and change ``--max-model-len``.
-        That does not 404, so the window cannot stay cached with the id. The id
-        stays cached until a 404.
+        That does not 404, so the window is not cached. A listed id that differs
+        from the cached one is adopted, so the next request does not use a stale id.
         """
         async with self._lock:
             card = await self._first_model_card()
-            if self.model is None:
+            if self.model != card.id:
                 self.model = card.id
             reported = _reported_max_model_len(card)
             if reported is None:
                 raise VLLMError("vLLM did not report max_model_len")
-            self._max_model_len = reported
             return reported
 
     async def count_chat_tokens(
@@ -232,9 +229,8 @@ class VLLMService:
         return fit_end
 
     def _forget_model(self) -> None:
-        """Drop the cached id and context window so the next call discovers both."""
+        """Drop the cached model id so the next call discovers it."""
         self.model = None
-        self._max_model_len = None
 
     async def aclose(self) -> None:
         await self.client.close()

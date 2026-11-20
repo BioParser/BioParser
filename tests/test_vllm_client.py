@@ -560,12 +560,10 @@ def _window(max_tokens: int, budget: int) -> VLLMService:
     service = VLLMService()
     service.model = "stub-model"
     service._max_tokens = max_tokens
-    service._max_model_len = max_tokens + budget
+    window = max_tokens + budget
 
     async def cached_window() -> int:
-        if service._max_model_len is None:
-            raise VLLMError("vLLM did not report max_model_len")
-        return service._max_model_len
+        return window
 
     service.get_max_model_len = cached_window  # type: ignore[method-assign]
     return service
@@ -713,6 +711,34 @@ async def test_a_restarted_server_reports_a_new_context_window(
 
 
 @pytest.mark.anyio
+async def test_a_listed_model_replaces_a_stale_cached_id(
+    vllm_transport: Callable[[Handler], None],
+) -> None:
+    requested: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/models"):
+            return httpx2.Response(
+                200,
+                json=_model_list({"id": "new-model", "max_model_len": 4096}),
+            )
+        body = json.loads(request.content)
+        requested.append(body["model"])
+        return httpx2.Response(200, json={"count": 3, "tokens": [1, 2, 3]})
+
+    vllm_transport(handler)
+    service = VLLMService()
+    service.model = "old-model"
+    try:
+        assert await service.fit_prefix(["hello"]) == 1
+    finally:
+        await service.aclose()
+
+    assert service.model == "new-model"
+    assert requested == ["new-model"]
+
+
+@pytest.mark.anyio
 async def test_tokenize_sends_the_chat_the_completion_would_send(
     vllm_log: pytest.LogCaptureFixture,
     make_service: Callable[[Handler], VLLMService],
@@ -729,7 +755,6 @@ async def test_tokenize_sends_the_chat_the_completion_would_send(
         return httpx2.Response(200, json={"count": 3, "max_model_len": 4096, "tokens": [1, 2, 3]})
 
     service = make_service(handler)
-    service._max_model_len = 4096
     service._max_tokens = 4093
     try:
         kept = await service.fit_prefix(["hello"], system_prompt="sys")
