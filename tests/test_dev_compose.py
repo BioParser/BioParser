@@ -29,7 +29,7 @@ def test_example_env_does_not_select_the_dev_overlay() -> None:
 
 def test_base_compose_has_no_dev_services() -> None:
     services = _services("docker-compose.yml")
-    assert "ui" not in services
+    assert "frontend" not in services
 
 
 def test_compose_wrapper_appends_the_overlay_and_does_not_edit_env() -> None:
@@ -52,27 +52,30 @@ def _stage_names(text: str) -> list[str]:
 
 def test_dev_overlay_reloads_edited_code_only() -> None:
     api_dockerfile = (_ROOT / "docker" / "api.Dockerfile").read_text(encoding="utf-8")
-    ui_dockerfile = (_ROOT / "docker" / "ui.Dockerfile").read_text(encoding="utf-8")
+    frontend_dockerfile = (_ROOT / "docker" / "frontend.Dockerfile").read_text(encoding="utf-8")
     api_node = next(
         _image_after("node:", line) for line in api_dockerfile.splitlines() if " AS ui" in line
     )
-    ui_node = next(
+    frontend_node = next(
         line.removeprefix("FROM ")
-        for line in ui_dockerfile.splitlines()
+        for line in frontend_dockerfile.splitlines()
         if line.startswith("FROM node:")
     )
-    assert ui_node == api_node
+    assert frontend_node == api_node
     services = _services("docker-compose.dev.yml")
 
-    ui = services["ui"]
-    assert ui["image"] == "bioparser-ui-dev"
-    assert ui["build"]["dockerfile"] == "docker/ui.Dockerfile"
-    assert "command" not in ui
-    assert "USER node" in ui_dockerfile
-    assert "npm ci --no-audit --no-fund" in ui_dockerfile
-    assert ui["ports"] == ["127.0.0.1:5173:5173"]
-    assert ui["environment"]["BIOPARSER_DEV_API_ORIGIN"] == "http://bioparser:8080"
-    assert ui["volumes"] == ["./frontend:/frontend:ro", "ui-node-modules:/frontend/node_modules"]
+    frontend = services["frontend"]
+    assert frontend["image"] == "bioparser-frontend-dev"
+    assert frontend["build"]["dockerfile"] == "docker/frontend.Dockerfile"
+    assert "command" not in frontend
+    assert "USER node" in frontend_dockerfile
+    assert "npm ci --no-audit --no-fund" in frontend_dockerfile
+    assert frontend["ports"] == ["127.0.0.1:5173:5173"]
+    assert frontend["environment"]["BIOPARSER_DEV_API_ORIGIN"] == "http://bioparser:8080"
+    assert frontend["volumes"] == [
+        "./frontend:/frontend:ro",
+        "frontend-node-modules:/frontend/node_modules",
+    ]
 
     assert "command" not in services["bioparser"]
     assert "environment" not in services["bioparser"]
