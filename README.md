@@ -147,8 +147,8 @@ Same commands as CI:
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy .
-uv run pytest -m "not integration and not image"
-uv run pytest -m image
+uv run pytest -m "not integration and not network"
+uv run pytest -m network
 ```
 
 Auto-fix: `uv run ruff check --fix` and `uv run ruff format`.

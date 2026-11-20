@@ -21,6 +21,7 @@ from bioparser.parser.models import (
     ParserArtifact,
     TableContent,
     TextContent,
+    boxes_for_range,
 )
 from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 
@@ -400,6 +401,150 @@ def test_oversized_span_product_is_capped(raw: str) -> None:
     assert cells[0].rowspan * cells[0].colspan == HTML_CELL_MAX_OCCUPIED
     assert cells[0].rowspan == 1
     assert cells[0].colspan == HTML_CELL_MAX_SPAN
+
+
+def test_glyph_edges_highlight_inside_a_superscript() -> None:
+    middle = _middle([_block("text", 0, "April 9"), _block("text", 1, "x")])
+    # The stored text wraps the superscript the way text.py does. The edges are the glyphs.
+    middle["pages"][0]["blocks"][0]["content"] = [
+        {"type": "text", "content": "April 9"},
+        {"type": "text", "content": "th", "styles": ["superscript"]},
+    ]
+    middle["extensions"]["bioparser_lines"] = {
+        "version": 1,
+        "pages": [
+            {
+                "page_idx": 0,
+                "blocks": [
+                    {
+                        "index": 0,
+                        "lines": [
+                            {
+                                "y0": 0.30,
+                                "y1": 0.32,
+                                "glyphs": [
+                                    {"t": "April 9", "x0": 0.10, "x1": 0.40},
+                                    {"t": "th", "x0": 0.40, "x1": 0.46},
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    assert content.text == "April 9^{th}"
+    boxes = boxes_for_range(content.lines, content.text.index("th"), content.text.index("th") + 2)
+    assert len(boxes) == 1
+    assert boxes[0].x0 == pytest.approx(0.40)
+    assert boxes[0].x1 == pytest.approx(0.46)
+    assert boxes[0].y0 == pytest.approx(0.30)
+
+
+def test_an_unmeasured_span_does_not_take_the_next_glyphs() -> None:
+    # catapult had no character boxes, so the harvest stored one glyph for its span box.
+    middle = _middle([_block("text", 0, "catapult catalog")])
+    middle["extensions"]["bioparser_lines"] = {
+        "version": 1,
+        "pages": [
+            {
+                "page_idx": 0,
+                "blocks": [
+                    {
+                        "index": 0,
+                        "lines": [
+                            {
+                                "y0": 0.20,
+                                "y1": 0.22,
+                                "glyphs": [
+                                    {"t": "catapult", "x0": 0.10, "x1": 0.45},
+                                    {"t": " ", "x0": 0.45, "x1": 0.48},
+                                    {"t": "c", "x0": 0.50, "x1": 0.54},
+                                    {"t": "a", "x0": 0.54, "x1": 0.58},
+                                    {"t": "t", "x0": 0.58, "x1": 0.62},
+                                    {"t": "a", "x0": 0.62, "x1": 0.66},
+                                    {"t": "l", "x0": 0.66, "x1": 0.70},
+                                    {"t": "o", "x0": 0.70, "x1": 0.74},
+                                    {"t": "g", "x0": 0.74, "x1": 0.78},
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    assert content.text == "catapult catalog"
+    gap = boxes_for_range(content.lines, 0, len("catapult"))
+    assert len(gap) == 1
+    assert gap[0].x0 == pytest.approx(0.10)
+    assert gap[0].x1 == pytest.approx(0.45)
+    word = content.text.index("catalog")
+    measured = boxes_for_range(content.lines, word, word + len("catalog"))
+    assert len(measured) == 1
+    assert measured[0].x0 == pytest.approx(0.50)
+    assert measured[0].x1 == pytest.approx(0.78)
+
+
+def test_a_removed_line_end_hyphen_does_not_take_a_later_hyphen() -> None:
+    middle = _middle([_block("text", 0, "computing X-ray")])
+    middle["extensions"]["bioparser_lines"] = {
+        "version": 1,
+        "pages": [
+            {
+                "page_idx": 0,
+                "blocks": [
+                    {
+                        "index": 0,
+                        "lines": [
+                            {
+                                "y0": 0.10,
+                                "y1": 0.12,
+                                "glyphs": [
+                                    {"t": "c", "x0": 0.10, "x1": 0.12},
+                                    {"t": "o", "x0": 0.12, "x1": 0.14},
+                                    {"t": "m", "x0": 0.14, "x1": 0.16},
+                                    {"t": "p", "x0": 0.16, "x1": 0.18},
+                                    {"t": "u", "x0": 0.18, "x1": 0.20},
+                                    {"t": "t", "x0": 0.20, "x1": 0.22},
+                                    {"t": "-", "x0": 0.22, "x1": 0.24},
+                                ],
+                            },
+                            {
+                                "y0": 0.14,
+                                "y1": 0.16,
+                                "glyphs": [
+                                    {"t": "i", "x0": 0.10, "x1": 0.12},
+                                    {"t": "n", "x0": 0.12, "x1": 0.14},
+                                    {"t": "g", "x0": 0.14, "x1": 0.16},
+                                    {"t": " ", "x0": 0.16, "x1": 0.18},
+                                    {"t": "X", "x0": 0.20, "x1": 0.24},
+                                    {"t": "-", "x0": 0.24, "x1": 0.26},
+                                    {"t": "r", "x0": 0.26, "x1": 0.28},
+                                    {"t": "a", "x0": 0.28, "x1": 0.30},
+                                    {"t": "y", "x0": 0.30, "x1": 0.32},
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    assert content.text == "computing X-ray"
+    joined = boxes_for_range(content.lines, 0, len("computing"))
+    assert [(box.x0, box.x1, box.y0) for box in joined] == [
+        (0.10, 0.22, 0.10),
+        (0.10, 0.16, 0.14),
+    ]
+    hyphen = content.text.index("-")
+    kept = boxes_for_range(content.lines, hyphen, hyphen + 1)
+    assert len(kept) == 1
+    assert kept[0].x0 == pytest.approx(0.24)
+    assert kept[0].y0 == pytest.approx(0.14)
 
 
 def test_balanced_span_product_is_capped() -> None:
