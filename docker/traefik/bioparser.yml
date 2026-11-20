@@ -10,10 +10,25 @@ http:
         - "websecure"
       service: "bioparser"
       middlewares:
+        # The rate limit runs first. It also limits the Basic Auth password tries.
+        - "bioparser-ratelimit"
         - "bioparser-auth"
       tls: {}
 
   middlewares:
+    # A token bucket for each client IP address. Traefik takes the address from the
+    # TCP connection, not from X-Forwarded-For. A client can send `burst` requests at
+    # one time. Then Traefik accepts `average` requests in each `period`. It answers
+    # the other requests with 429 and a Retry-After header.
+    # Traefik deletes the bucket of a client after 1 to 2 seconds with no requests,
+    # and the next request starts a full bucket. Keep `burst` at most `average` (one
+    # second of requests). With a larger `burst`, a client that pauses can send more
+    # than `average` requests each second.
+    bioparser-ratelimit:
+      rateLimit:
+        average: 20
+        period: 1s
+        burst: 20
     bioparser-auth:
       basicAuth:
         # The Compose secret from TRAEFIK_USERS_FILE. The repository ships no users.

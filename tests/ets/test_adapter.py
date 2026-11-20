@@ -470,7 +470,7 @@ def test_a_printed_token_stays_when_it_fails_its_check() -> None:
     assert "out_of_range:individualCount" in row.warnings
     assert "out_of_range:dispersion" in row.warnings
     assert "not_numeric:month" in row.warnings
-    assert "not_a_date:eventDate" in row.warnings
+    assert "ambiguous_date:eventDate" in row.warnings
     assert "out_of_range:decimalLongitude" in row.warnings
     assert "not_in_vocabulary:countryCode" in row.warnings
 
@@ -588,3 +588,30 @@ def test_an_empty_maximum_stays_empty() -> None:
 def test_an_empty_document_id_is_rejected() -> None:
     with pytest.raises(ValueError, match="references is empty"):
         to_ets(_artifact(_observation()), references="")
+
+
+@pytest.mark.parametrize("field", ["eventDate", "measurementDeterminedDate"])
+@pytest.mark.parametrize(
+    ("printed", "expected", "warning"),
+    [
+        ("08/03/1963", "08/03/1963", "ambiguous_date"),
+        ("08.03.1963", "08.03.1963", "ambiguous_date"),
+        ("32/13/1963", "32/13/1963", "not_a_date"),
+        ("not a date", "not a date", "not_a_date"),
+        ("00/03/1963", "00/03/1963", "not_a_date"),
+        ("08/03/0000", "08/03/0000", "not_a_date"),
+        ("13/03/1963", "1963-03-13", None),
+        ("03/13/1963", "1963-03-13", None),
+        ("1963-03-08", "1963-03-08", None),
+        ("8 March 1963", "1963-03-08", None),
+    ],
+)
+def test_date_warnings_distinguish_ambiguous_and_invalid_dates(
+    field: str, printed: str, expected: str, warning: str | None
+) -> None:
+    observation = _observation(**{field: _cited(printed)})
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+
+    assert getattr(row, field) == expected
+    assert row.warnings == (f"{warning}:{field}" if warning else "")
