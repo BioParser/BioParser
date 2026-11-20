@@ -49,9 +49,5 @@ export function useEvidenceArtifacts(jobId: string, enabled: boolean) {
     retry: retryArtifact,
     enabled,
   });
-  return {
-    blocks: { ...parser, data: parser.data?.blocks },
-    unmappedSymbols: { ...parser, data: parser.data?.unmappedSymbols },
-    observations,
-  };
+  return { parser, observations };
 }

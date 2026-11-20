@@ -20,8 +20,8 @@ interface EvidenceViewProps {
 // Where a value came from: the quotation from the parser block, with the value and the unit
 // marked. Shown only once an observation is selected, so nothing loads before that.
 export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewProps) {
-  const { blocks, observations, unmappedSymbols } = useEvidenceArtifacts(jobId, true);
-  const unmapped = unmappedSymbols.data ?? 0;
+  const { parser, observations } = useEvidenceArtifacts(jobId, true);
+  const unmapped = parser.data?.unmappedSymbols ?? 0;
   const panelRef = useRef<HTMLElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -49,7 +49,7 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
     panelRef.current
       ?.querySelector(".evidence-quote mark.evidence-value")
       ?.scrollIntoView({ block: "center" });
-  }, [observationIndex, observations.data, blocks.data]);
+  }, [observationIndex, observations.data, parser.data]);
 
   function close() {
     const opener = openerRef.current;
@@ -93,12 +93,12 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
       ) : (
         <>
           <ValueAndUnit observation={observation} />
-          {blocks.isPending ? (
+          {parser.isPending ? (
             <p role="status">Loading the quotation…</p>
-          ) : blocks.isError ? (
-            <EvidenceError>{artifactError(blocks.error, "parser")}</EvidenceError>
+          ) : parser.isError ? (
+            <EvidenceError>{artifactError(parser.error, "parser")}</EvidenceError>
           ) : (
-            <Quotation jobId={jobId} observation={observation} blocks={blocks.data} />
+            <Quotation jobId={jobId} observation={observation} blocks={parser.data.blocks} />
           )}
         </>
       )}
