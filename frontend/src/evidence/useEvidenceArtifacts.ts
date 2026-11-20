@@ -26,6 +26,14 @@ function observationsOf(artifact: ExtractionArtifact): Observation[] {
   return artifact.observations ?? [];
 }
 
+function parserEvidence(artifact: ParserArtifact) {
+  return {
+    blocks: indexTextBlocks(artifact),
+    unrepairedCount: artifact.unrepaired_count ?? 0,
+    repairStatus: artifact.repair_status ?? "skipped",
+  };
+}
+
 // Both artifacts of a job, fetched once and kept while the job is open: the API serves them
 // as immutable. Nothing is fetched while `enabled` is false, so the view loads them only once
 // an observation is selected. Each query fails on its own, so the view can keep what loaded.
@@ -33,11 +41,7 @@ export function useEvidenceArtifacts(jobId: string, enabled: boolean) {
   const parser = useQuery({
     queryKey: artifactQueryKey("parser", jobId),
     queryFn: ({ signal }) => getParserArtifact(jobId, signal),
-    select: (artifact: ParserArtifact) => ({
-      blocks: indexTextBlocks(artifact),
-      unrepairedCount: artifact.unrepaired_count ?? 0,
-      repairStatus: artifact.repair_status ?? "skipped",
-    }),
+    select: parserEvidence,
     staleTime: Number.POSITIVE_INFINITY,
     retry: retryArtifact,
     enabled,

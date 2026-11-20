@@ -28,11 +28,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(1)
     source = Path(args[0])
     target = Path(args[1])
-    try:
-        repaired = repair_pdf(source.read_bytes())
-    except Exception:
-        LOGGER.warning("symbol font repair left the PDF unchanged", exc_info=True)
-        raise SystemExit(1) from None
+    repaired = repair_pdf(source.read_bytes())
     if repaired.status is RepairStatus.FAILED:
         raise SystemExit(1)
     target.write_bytes(repaired.data)

@@ -19,12 +19,14 @@ from decimal import Decimal
 
 import pikepdf
 from pdfminer.cmapdb import CMapParser, FileUnicodeMap
-from pdfminer.encodingdb import name2unicode
 from pdfminer.latin_enc import ENCODING
 from pdfminer.pdfdocument import PDFDocument
+from pdfminer.pdffont import PDFFont, PDFUnicodeNotDefined, Type1FontHeaderParser
+from pdfminer.pdfinterp import PDFResourceManager
 from pdfminer.pdfpage import PDFPage
 from pdfminer.pdfparser import PDFParser
 from pdfminer.pdftypes import resolve1
+from pdfminer.psexceptions import PSEOF
 
 from bioparser.parser.models import RepairStatus
 
@@ -270,32 +272,12 @@ _ROWS: dict[tuple[str, str], str | None] = {
     ("AdvP4C4E46", "C19"): None,
 }
 
-_WIN_NAMES: dict[int, str] = {
-    win: name for name, _std, _mac, win, _pdf in ENCODING if isinstance(win, int)
-}
-_MAC_NAMES: dict[int, str] = {
-    mac: name for name, _std, mac, _win, _pdf in ENCODING if isinstance(mac, int)
-}
-_STD_NAMES: dict[int, str] = {
-    std: name for name, std, _mac, _win, _pdf in ENCODING if isinstance(std, int)
-}
-_ENCODING_NAMES = {
-    "WinAnsiEncoding": _WIN_NAMES,
-    "MacRomanEncoding": _MAC_NAMES,
-    "StandardEncoding": _STD_NAMES,
-}
-
 
 @dataclass(frozen=True)
 class _Slot:
     code: int
     name: str
     claimed: str
-
-
-@dataclass(frozen=True)
-class _Sample:
-    page_index: int
 
 
 @dataclass
@@ -307,7 +289,8 @@ class _Font:
     # Glyphs with a nonzero width. None when the font does not say.
     ink: int | None
     slots: list[_Slot]
-    samples: dict[int, _Sample]
+    # First page a code was drawn on. The key is the character code.
+    samples: dict[int, int]
     counts: dict[int, int]
 
 
@@ -369,7 +352,7 @@ def _replacements(
             count = font.counts.get(slot.code, 0)
             sample = font.samples.get(slot.code)
             if decided == _REPLACEMENT and count and sample is not None:
-                unmapped[(font.base, slot.name, slot.claimed, sample.page_index + 1)] += count
+                unmapped[(font.base, slot.name, slot.claimed, sample + 1)] += count
         if changed:
             replacements.append((font, changed))
     for (base, glyph, claimed, page), count in sorted(unmapped.items()):
@@ -462,7 +445,7 @@ def _remember_font(ref: object, found: dict[int, _Font]) -> None:
         return
     base = _base_name(resolve1(font.get("BaseFont")))
     cmap = _cmap_of(font)
-    slots = _slots(font, cmap)
+    slots = _slots(objid, font)
     if not slots:
         return
     found[objid] = _Font(
@@ -492,19 +475,29 @@ def _base_name(value: object) -> str:
     return text.split("+")[-1]
 
 
-def _slots(font: dict[str, object], cmap: dict[int, str]) -> list[_Slot]:
+def _slots(objid: int, font: dict[str, object]) -> list[_Slot]:
     first = resolve1(font.get("FirstChar"))
     last = resolve1(font.get("LastChar"))
     if not isinstance(first, int) or not isinstance(last, int):
         return []
-    names = _encoding_names(font)
+    # Claimed characters come from pdfminer, so a font with no encoding is read
+    # the same way the parser reads it. A Type 1 font file supplies the names.
+    reader = PDFResourceManager().get_font(objid, font)
+    names = _glyph_names(font)
     slots: list[_Slot] = []
     for code in range(first, last + 1):
         name = names.get(code)
         if name is None:
             continue
-        slots.append(_Slot(code=code, name=name, claimed=cmap.get(code, _from_name(name, code))))
+        slots.append(_Slot(code=code, name=name, claimed=_claimed(reader, code)))
     return slots
+
+
+def _claimed(reader: PDFFont, code: int) -> str:
+    try:
+        return reader.to_unichr(code)
+    except PDFUnicodeNotDefined:
+        return f"(cid:{code})"
 
 
 def _ink_count(font: dict[str, object]) -> int | None:
@@ -527,31 +520,71 @@ def _cmap_of(font: dict[str, object]) -> dict[int, str]:
     return dict(parsed.cid2unichr)
 
 
-def _encoding_names(font: dict[str, object]) -> dict[int, str]:
+def _glyph_names(font: dict[str, object]) -> dict[int, str]:
+    # The same choice pdfminer makes. A TrueType font with no encoding is
+    # WinAnsi. Anything else with no encoding is Standard, unless the font
+    # file itself names the glyphs.
+    subtype = _literal_name(resolve1(font.get("Subtype")))
+    default = "WinAnsiEncoding" if subtype == "TrueType" else "StandardEncoding"
+    if "Encoding" not in font:
+        embedded = _embedded_names(font)
+        return embedded if embedded is not None else _standard_names(default)
     encoding = resolve1(font.get("Encoding"))
     literal = _literal_name(encoding)
-    if encoding is None or literal == "WinAnsiEncoding":
-        return dict(_WIN_NAMES)
-    if literal in _ENCODING_NAMES:
-        return dict(_ENCODING_NAMES[literal])
-    if not isinstance(encoding, dict):
-        return {}
-    base = _literal_name(resolve1(encoding.get("BaseEncoding")))
-    names = dict(_ENCODING_NAMES[base]) if base in _ENCODING_NAMES else {}
-    differences = resolve1(encoding.get("Differences"))
-    if not isinstance(differences, list):
+    if isinstance(encoding, dict):
+        base = _literal_name(resolve1(encoding.get("BaseEncoding"))) or default
+        names = _standard_names(base)
+        differences = resolve1(encoding.get("Differences"))
+        if not isinstance(differences, list):
+            return names
+        code = 0
+        for item in differences:
+            item = resolve1(item)
+            if isinstance(item, int):
+                code = item
+                continue
+            name = _literal_name(item)
+            if name is not None:
+                names[code] = name
+                code += 1
         return names
-    code = 0
-    for item in differences:
-        item = resolve1(item)
-        if isinstance(item, int):
-            code = item
-            continue
-        name = _literal_name(item)
-        if name is not None:
-            names[code] = name
-            code += 1
+    return _standard_names(literal or default)
+
+
+def _standard_names(encoding: str) -> dict[int, str]:
+    columns = {"StandardEncoding": 1, "MacRomanEncoding": 2, "WinAnsiEncoding": 3}
+    column = columns.get(encoding, 1)
+    names: dict[int, str] = {}
+    for row in ENCODING:
+        code = row[column]
+        if isinstance(code, int):
+            names[code] = row[0]
     return names
+
+
+def _embedded_names(font: dict[str, object]) -> dict[int, str] | None:
+    descriptor = resolve1(font.get("FontDescriptor"))
+    if not isinstance(descriptor, dict) or "FontFile" not in descriptor:
+        return None
+    stream = resolve1(descriptor.get("FontFile"))
+    read = getattr(stream, "get_data", None)
+    if not callable(read):
+        return None
+    raw = read()
+    if not isinstance(raw, bytes) or not raw:
+        return None
+    length = resolve1(stream.get("Length1")) if hasattr(stream, "get") else None
+    if isinstance(length, int) and length > 0:
+        raw = raw[:length]
+    parser = Type1FontHeaderParser(io.BytesIO(raw))
+    names: dict[int, str] = {}
+    while True:
+        try:
+            code, name = parser.nextobject()
+        except PSEOF:
+            return names
+        if isinstance(code, int) and isinstance(name, str):
+            names[code] = name
 
 
 def _literal_name(value: object) -> str | None:
@@ -559,13 +592,6 @@ def _literal_name(value: object) -> str | None:
     if isinstance(name, str):
         return name
     return None
-
-
-def _from_name(name: str, code: int) -> str:
-    try:
-        return name2unicode(name)
-    except KeyError:
-        return f"(cid:{code})"
 
 
 def _count_uses(pdf: pikepdf.Pdf, fonts: list[_Font]) -> None:
@@ -690,7 +716,7 @@ def _count_codes(value: object, font: _Font, page_index: int) -> None:
     for code in raw:
         font.counts[code] = font.counts.get(code, 0) + 1
         if code not in font.samples:
-            font.samples[code] = _Sample(page_index=page_index)
+            font.samples[code] = page_index
 
 
 def _codes(value: object) -> bytes:
@@ -708,16 +734,13 @@ def _codes(value: object) -> bytes:
 
 def _rewrite(pdf: pikepdf.Pdf, replacements: list[tuple[_Font, dict[int, str]]]) -> bytes:
     # pikepdf keeps encryption, object streams, and nested dictionaries.
-    wrote = False
+    # The caller only reaches here when a slot changed.
     for font, changed in replacements:
         mapping = dict(font.cmap)
         if not mapping:
             mapping = {slot.code: slot.claimed for slot in font.slots}
         mapping.update(changed)
         pdf.get_object(font.objid, 0)["/ToUnicode"] = pikepdf.Stream(pdf, _cmap(mapping))
-        wrote = True
-    if not wrote:
-        raise RuntimeError("symbol font repair had nothing to write")
     out = io.BytesIO()
     try:
         # True keeps the encryption the file already has. Older RC4 cannot

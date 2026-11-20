@@ -17,8 +17,8 @@ from bioparser.parser.advent_repair.symbol_fonts import (
     _TEXT_FONTS,
     _cmap,
     _decide,
-    _encoding_names,
     _Font,
+    _glyph_names,
     _interesting,
     _is_small,
     _Slot,
@@ -199,12 +199,12 @@ class _EncodingName:
 
 
 def test_macroman_and_standard_encodings_name_their_glyphs() -> None:
-    mac = _encoding_names({"Encoding": _EncodingName("MacRomanEncoding")})
-    standard = _encoding_names({"Encoding": _EncodingName("StandardEncoding")})
-    win = _encoding_names({"Encoding": _EncodingName("WinAnsiEncoding")})
+    mac = _glyph_names({"Encoding": _EncodingName("MacRomanEncoding")})
+    standard = _glyph_names({"Subtype": _EncodingName("Type1")})
+    win = _glyph_names({"Subtype": _EncodingName("TrueType")})
     assert mac[65] == "A"
     assert standard[65] == "A"
-    assert mac[128] != win[128]
+    assert standard.get(128) != win.get(128)
 
 
 def test_an_unnamed_glyph_in_a_large_font_is_refused() -> None:
@@ -388,6 +388,32 @@ def test_a_font_used_only_inside_a_form_is_repaired() -> None:
     assert repaired.status is RepairStatus.SUCCESS
     assert "GI<1.47" in text
     assert "1.36\u00b10.16" in text
+
+
+def test_a_restored_font_is_not_counted_after_q() -> None:
+    # The font is set inside q, so Q drops it. Text after Q is not that font.
+    pdf = pikepdf.Pdf.new()
+    widths = [0] * (66 - 46 + 1)
+    widths[0] = 500
+    font = pdf.make_indirect(
+        pikepdf.Dictionary(
+            Type=pikepdf.Name.Font,
+            Subtype=pikepdf.Name.Type1,
+            BaseFont=pikepdf.Name("/AdvUnlisted"),
+            Encoding=pikepdf.Name.WinAnsiEncoding,
+            FirstChar=46,
+            LastChar=66,
+            Widths=widths,
+        )
+    )
+    page = pdf.add_blank_page(page_size=(200, 200))
+    page.Resources = pikepdf.Dictionary(Font=pikepdf.Dictionary(FAdv=font))
+    page.Contents = pikepdf.Stream(pdf, b"BT q /FAdv 12 Tf (.) Tj Q (AB) Tj ET\n")
+    raw = io.BytesIO()
+    pdf.save(raw)
+    repaired = repair_pdf(raw.getvalue())
+    assert repaired.status is RepairStatus.SUCCESS
+    assert repaired.count == 1
 
 
 def test_the_unrepaired_count_matches_the_glyphs_pdfplumber_reads() -> None:

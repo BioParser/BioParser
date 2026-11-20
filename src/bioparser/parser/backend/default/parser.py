@@ -109,11 +109,13 @@ def _words_from_page(page: PdfPlumberPage) -> list[WordBox]:
     for item in raw_words:
         glyphs: list[tuple[str, float, float]] = []
         for char in item.get("chars") or []:
-            text = str(char.get("text") or "").replace("\u0000", "")
-            if not text:
+            glyph = str(char.get("text") or "").replace("\u0000", "")
+            if not glyph:
                 continue
-            glyphs.append((text, float(char["x0"]), float(char["x1"])))
-        text = "".join(glyph for glyph, _left, _right in glyphs)
+            glyphs.append((glyph, float(char["x0"]), float(char["x1"])))
+        # pdfplumber expands ligatures in the word text and not in each glyph.
+        # Citations compare that word text, so a drawn "ﬁ" stays "fi" there.
+        text = str(item.get("text") or "").replace("\u0000", "")
         if not text:
             continue
         words.append(
