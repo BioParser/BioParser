@@ -26,6 +26,7 @@ from bioparser.jobs import ALLOWED_TRANSITIONS, JobState, JobStatus
 from bioparser.jobs.queue import JobQueueError, JobSubmitter, ParseJobMessage
 from bioparser.parser.backend.mineru.schema import MINERU_VERSION
 from bioparser.parser.models import (
+    PARSER_ARTIFACT_SCHEMA_VERSION,
     BlockKind,
     BlockRole,
     ContentBlock,
@@ -304,7 +305,7 @@ def stub_parser_artifact(text: str = STUB_TEXT) -> ParserArtifact:
         content=TextContent(text=text),
     )
     return ParserArtifact(
-        schema_version="1",
+        schema_version=PARSER_ARTIFACT_SCHEMA_VERSION,
         checksum="0" * 64,
         parser=ParserInfo(name="default", version="1", configuration={}),
         pages=[Page(page_number=1, width=595.0, height=842.0, blocks=[block])],
