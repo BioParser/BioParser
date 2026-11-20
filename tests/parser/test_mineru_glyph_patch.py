@@ -78,6 +78,7 @@ def _assert_rewritten(site: Path) -> None:
 
     content = _text(site, _CONTENT)
     assert 'span.metadata.get("bioparser_glyphs")' in content
+    assert 'glyphs.append({"t": text, "x0": box[0], "x1": box[2]})' in content
 
     pages = _text(site, _PAGES)
     assert pages.count("def _bioparser_note_flat") == 1
