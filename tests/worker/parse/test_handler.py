@@ -14,7 +14,7 @@ from dramatiq.brokers.stub import StubBroker
 from dramatiq.middleware.time_limit import TimeLimit
 from stubs import MemoryStorage, StubJobs, bind_jobs, clear_jobs, failed_task, fake_mineru
 
-from bioparser.artifact_paths import parse_result_path
+from bioparser.artifact_paths import parse_result_path, pdf_path
 from bioparser.db.engine import DatabaseError, DatabaseUnavailableError
 from bioparser.jobs.queue import JobDeferred, JobTimeLimitExceeded
 from bioparser.jobs.queue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
@@ -39,18 +39,16 @@ from bioparser.parser.models import (
     TextContent,
 )
 from bioparser.parser.protocol import PdfParser
+from bioparser.parser_names import PARSER_VERSIONS
 from bioparser.services.mineru.client import MinerUClient
 from bioparser.worker.parse.before_claim import mineru_before_claim
 from bioparser.worker.parse.config import DEFAULT_PARSE_MAX_RETRIES
 from bioparser.worker.parse.handler import ParseJobHandler
 
 JOB_ID = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
-PDF_REF = (
-    "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"  # kept as a UUID: the worker doesn't depend on its shape
-)
 PDF_BYTES = b"%PDF-1.4"
 PDF_CHECKSUM = hashlib.sha256(PDF_BYTES).hexdigest()
-RESULT_PATH = parse_result_path(PDF_CHECKSUM, "default", "1")
+RESULT_PATH = parse_result_path(PDF_CHECKSUM, "default", PARSER_VERSIONS["default"])
 CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -71,7 +69,7 @@ def _mineru_ready_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _storage() -> MemoryStorage:
-    return MemoryStorage({PDF_REF: PDF_BYTES})
+    return MemoryStorage({pdf_path(PDF_CHECKSUM): PDF_BYTES})
 
 
 class RecordingParser:
@@ -122,7 +120,7 @@ def _queued() -> JobState:
         status="queued",
         parser="default",
         extractor="default",
-        pdf_ref=PDF_REF,
+        document_checksum=PDF_CHECKSUM,
         created_at=CREATED_AT,
     )
 
@@ -821,7 +819,9 @@ def test_the_mineru_result_path_has_the_tier_as_its_last_segment() -> None:
     asyncio.run(handler.aclose())
 
     assert jobs.state is not None
-    assert jobs.state.parse_result_ref == f"pdf/{PDF_CHECKSUM}/parsed/mineru/3/standard"
+    assert jobs.state.parse_result_ref == (
+        f"pdf/{PDF_CHECKSUM}/parsed/mineru/{PARSER_VERSIONS['mineru']}/standard"
+    )
 
 
 def test_each_backend_gets_its_own_result_path() -> None:
@@ -834,7 +834,9 @@ def test_each_backend_gets_its_own_result_path() -> None:
 
     assert jobs.state is not None
     # Without a tier the handler names the default tier's path
-    assert jobs.state.parse_result_ref == parse_result_path(PDF_CHECKSUM, "mineru", "3", "basic")
+    assert jobs.state.parse_result_ref == parse_result_path(
+        PDF_CHECKSUM, "mineru", PARSER_VERSIONS["mineru"], "basic"
+    )
 
 
 def test_the_parser_reads_a_closed_temp_file_that_is_removed_afterwards(

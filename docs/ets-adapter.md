@@ -70,14 +70,14 @@ A minimum greater than the maximum is kept as printed, and the row warns `bounds
 - `sex` tries the reading first, then the printed word. The first one in the list is the column, in its canonical form. If neither is in the list, the printed word stays and the row warns `not_in_vocabulary:sex`.
 - `countryCode` is two letters. Matching ignores case, and a match is written in uppercase, so `de` becomes `DE`. Other text stays and warns `not_in_vocabulary:countryCode`. The printed country name stays on `country`.
 - `basisOfRecord` and `aggregateMeasure` are not printed tokens. A value outside those lists stays empty and warns `not_in_vocabulary` for that field.
-- A date that parses is written as `YYYY-MM-DD`. A year-first number or a written month is converted. A numeric day and month is converted when one number is greater than 12, so that number is the day. When both are 12 or less, the printed text stays and warns `not_a_date` for that field. Year, month, and day that do not form a calendar day stay as printed and warn `not_a_date:year,month,day`. A number outside its column's range, such as month 13, a count below 1, or a longitude past 180, stays and warns `out_of_range` for that field.
+- A date that parses is written as `YYYY-MM-DD`. A year-first number or a written month is converted. A numeric day and month is converted when one number is greater than 12, so that number is the day.  When both numbers are between 1 and 12 and the year is valid, the text stays as printed and warns `ambiguous_date` for that field. Invalid dates stay as printed and warn `not_a_date`. These rules apply to both `eventDate` and `measurementDeterminedDate`. Year, month, and day that do not form a calendar day stay as printed and warn `not_a_date:year,month,day`. A number outside its column's range, such as month 13, a count below 1, or a longitude past 180, stays and warns `out_of_range` for that field.
 
 ### Defaults and assigned columns
 
 - A missing `basisOfRecord` stays empty. ETS does not default it. `aggregateMeasure` stays empty.
 - A missing `individualCount` is empty. A missing `dispersion` is empty. A measured dispersion of zero keeps the spelling the paper printed. The minimum and the maximum have no default either.
 - `measurementID` is assigned when the rows are built.
-- `references` comes from the job's document. The API writes the document checksum, the last segment of `pdf_ref`, until a bibliographic citation exists.
+- `references` comes from the job's document. The API writes `document_checksum` until a bibliographic citation exists.
 - `warnings` collects what the adapter found while building the row.
 - `occurrenceID` is the printed token, or a value read from a wider phrase, when the observation stored one.
 - `taxonRank` stays empty. A taxonomy lookup fills it with `taxonID`. A printed kingdom, phylum, class, order, family, or genus is copied, and a later lookup fills one of those columns only when the observation left it empty.

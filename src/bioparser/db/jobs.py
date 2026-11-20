@@ -8,13 +8,25 @@ from typing import Literal, cast, get_args
 from uuid import UUID
 
 from pydantic import ValidationError
-from sqlalchemy import CheckConstraint, DateTime, String, Text, Uuid, insert, select, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    Uuid,
+    insert,
+    select,
+    text,
+)
 from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.orm import InstrumentedAttribute, Mapped, mapped_column
 
-from bioparser.artifact_paths import ARTIFACT_PATH_MAX_LENGTH, pdf_path
+from bioparser.artifact_paths import ARTIFACT_PATH_MAX_LENGTH
 from bioparser.db.base import Base
+from bioparser.db.documents import Document
 from bioparser.hashing import Sha256Hex
 from bioparser.jobs.state import (
     ALLOWED_TRANSITIONS,
@@ -42,7 +54,7 @@ class Job(Base):
             f"status IN ({', '.join(repr(status) for status in _STATUSES)})",
             name="jobs_status_check",
         ),
-        CheckConstraint("pdf_ref <> ''", name="jobs_pdf_ref_check"),
+        Index("jobs_document_checksum_idx", "document_checksum"),
         CheckConstraint(
             "parse_result_ref IS NULL OR parse_result_ref <> ''",
             name="jobs_parse_result_ref_check",
@@ -60,7 +72,10 @@ class Job(Base):
     status: Mapped[str] = mapped_column(Text)
     parser: Mapped[str] = mapped_column(Text)
     extractor: Mapped[str] = mapped_column(Text)
-    pdf_ref: Mapped[str] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
+    document_checksum: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("documents.checksum", name="jobs_document_checksum_fkey"),
+    )
     parse_result_ref: Mapped[str | None] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
     extract_result_ref: Mapped[str | None] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
     error_code: Mapped[str | None] = mapped_column(Text)
@@ -85,7 +100,15 @@ def _job_state_to_columns(state: JobState) -> dict[str, object]:
 
 
 def _row_to_job_state(row: Mapping[str, object]) -> JobState:
-    return JobState.model_validate({name: row[name] for name in _COLUMNS})
+    try:
+        return JobState.model_validate({name: row[name] for name in _COLUMNS})
+    except ValidationError as exc:
+        raise CorruptJobStateError(str(row["job_id"])) from exc
+
+
+def _job_and_name(row: Mapping[str, object]) -> tuple[JobState, str | None]:
+    """The stored job and the display name from the joined document row."""
+    return _row_to_job_state(row), cast(str | None, row["display_name"])
 
 
 async def create(connection: AsyncConnection, state: JobState) -> JobState:
@@ -107,50 +130,49 @@ async def get(connection: AsyncConnection, job_id: UUID) -> JobState | None:
     )
     if row is None:
         return None
-    try:
-        return _row_to_job_state(cast(Mapping[str, object], row))
-    except ValidationError as exc:
-        raise CorruptJobStateError(str(job_id)) from exc
+    return _row_to_job_state(cast(Mapping[str, object], row))
 
 
 async def list_jobs(
     connection: AsyncConnection,
     *,
+    job_id: UUID | None = None,
     status: JobStatus | None = None,
     parser: str | None = None,
-) -> list[JobState]:
-    """List jobs, optionally filtered by status and parser, ordered newest first."""
-    stmt = select(Job.__table__)
+) -> list[tuple[JobState, str | None]]:
+    """Jobs joined to their document names, newest first."""
+    stmt = select(Job.__table__, Document.display_name).join(
+        Document, Document.checksum == Job.document_checksum
+    )
+    if job_id is not None:
+        stmt = stmt.where(Job.job_id == job_id)
     if status is not None:
         stmt = stmt.where(Job.status == status)
     if parser is not None:
         stmt = stmt.where(Job.parser == parser)
     stmt = stmt.order_by(Job.created_at.desc())
     rows = (await connection.execute(stmt)).mappings().all()
-    results: list[JobState] = []
-    for row in rows:
-        try:
-            results.append(_row_to_job_state(cast(Mapping[str, object], row)))
-        except ValidationError as exc:
-            raise CorruptJobStateError(str(row["job_id"])) from exc
-    return results
+    return [_job_and_name(cast(Mapping[str, object], row)) for row in rows]
 
 
 async def list_jobs_for_document(
     connection: AsyncConnection,
     checksum: Sha256Hex,
-) -> list[JobState]:
-    """List all jobs associated with a document checksum, ordered newest first."""
-    target = pdf_path(checksum)
-    stmt = select(Job.__table__).where(Job.pdf_ref == target).order_by(Job.created_at.desc())
+) -> list[tuple[JobState, str | None]] | None:
+    """Jobs for one document, newest first. None when that document does not exist."""
+    stmt = (
+        select(Document.display_name, Job.__table__)
+        .select_from(Document)
+        .outerjoin(Job, Job.document_checksum == Document.checksum)
+        .where(Document.checksum == checksum)
+        .order_by(Job.created_at.desc())
+    )
     rows = (await connection.execute(stmt)).mappings().all()
-    results: list[JobState] = []
-    for row in rows:
-        try:
-            results.append(_row_to_job_state(cast(Mapping[str, object], row)))
-        except ValidationError as exc:
-            raise CorruptJobStateError(str(row["job_id"])) from exc
-    return results
+    if not rows:
+        return None
+    return [
+        _job_and_name(cast(Mapping[str, object], row)) for row in rows if row["job_id"] is not None
+    ]
 
 
 ClaimOutcome = Literal["claimed", "exhausted", "skipped", "missing"]

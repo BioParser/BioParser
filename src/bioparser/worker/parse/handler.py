@@ -9,7 +9,7 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-from bioparser.artifact_paths import parse_result_path
+from bioparser.artifact_paths import parse_result_path, pdf_path
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
 from bioparser.hashing import sha256_bytes
@@ -79,7 +79,9 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
             await self._wake_extractor_if_parsed(message.job_id)
 
     async def run(self, state: JobState) -> None:
-        artifact_path = await self._ensure_parser_artifact(state.parser, state.pdf_ref)
+        artifact_path = await self._ensure_parser_artifact(
+            state.parser, pdf_path(state.document_checksum)
+        )
         async with database.transaction() as connection:
             wrote = await job_queries.record_parsed(connection, state.job_id, artifact_path)
         if not wrote:
@@ -117,9 +119,9 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
                 return False
         return state is not None and state.status == "parsed"
 
-    async def _ensure_parser_artifact(self, parser_name: str, pdf_ref: str) -> str:
+    async def _ensure_parser_artifact(self, parser_name: str, path: str) -> str:
         """Return the artifact path for the parsed PDF, creating it if needed."""
-        pdf = await self._retrieve_pdf(pdf_ref)
+        pdf = await self._retrieve_pdf(path)
         checksum = await asyncio.to_thread(sha256_bytes, pdf)
         artifact_path = _parse_result_path(checksum, parser_name, self._mineru_tier)
         stored = await _retrieve_or_none(self._storage, artifact_path)
@@ -141,9 +143,9 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
             kind="parser artifact",
         )
 
-    async def _retrieve_pdf(self, pdf_ref: str) -> bytes:
+    async def _retrieve_pdf(self, path: str) -> bytes:
         try:
-            return await self._storage.retrieve(pdf_ref)
+            return await self._storage.retrieve(path)
         except ArtifactNotFoundError as exc:
             LOGGER.error("input PDF is not in artifact storage")
             raise PermanentJobFailure("internal_error") from exc

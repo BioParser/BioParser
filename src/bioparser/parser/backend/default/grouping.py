@@ -11,17 +11,20 @@ class WordBox:
     x1: float
     top: float
     bottom: float
+    # One glyph box. Its text may be longer than one character. Empty means the word box is split evenly.
+    glyphs: tuple[tuple[str, float, float], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class WordSpan:
+class LineGeom:
+    """Character edges of one visual line, in the block string's coordinates (PDF points)."""
+
     start: int
     end: int
-    line: int
-    x0: float
-    x1: float
     top: float
     bottom: float
+    x0: tuple[float | None, ...]
+    x1: tuple[float | None, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +34,7 @@ class TextBlock:
     x1: float
     top: float
     bottom: float
-    spans: tuple[WordSpan, ...] = ()
+    lines: tuple[LineGeom, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +82,7 @@ class _OpenBlock:
     def close_paragraph(self) -> None:
         if not self.lines:
             return
-        text, spans = _lines_to_text_and_spans(self.lines)
+        text, lines = _lines_to_text_and_lines(self.lines)
         self.paragraphs.append(
             TextBlock(
                 text=text,
@@ -87,7 +90,7 @@ class _OpenBlock:
                 x1=max(line.x1 for line in self.lines),
                 top=min(line.top for line in self.lines),
                 bottom=max(line.bottom for line in self.lines),
-                spans=spans,
+                lines=lines,
             )
         )
         self.lines = []
@@ -124,7 +127,21 @@ def group_words_into_text_blocks(
     height starts a new paragraph in the same open column. Remaining columns
     are emitted left to right, each top to bottom.
     """
-    words = [WordBox(_strip_soft_hyphens(w.text), w.x0, w.x1, w.top, w.bottom) for w in words]
+    words = [
+        WordBox(
+            _strip_soft_hyphens(word.text),
+            word.x0,
+            word.x1,
+            word.top,
+            word.bottom,
+            glyphs=tuple(
+                (_strip_soft_hyphens(text), left, right)
+                for text, left, right in word.glyphs
+                if _strip_soft_hyphens(text)
+            ),
+        )
+        for word in words
+    ]
     words = [w for w in words if w.text]
     if not words:
         return []
@@ -255,48 +272,69 @@ def _lines_to_blocks(
     return emitted
 
 
-def _lines_to_text_and_spans(lines: list[_Line]) -> tuple[str, tuple[WordSpan, ...]]:
-    """Build block text and map each word onto character offsets."""
+def _glyph_edges(word: WordBox) -> list[tuple[str, float, float]]:
+    """Character edges for ``word.text``. Real glyph boxes win; otherwise the word box is split evenly."""
+    if word.glyphs and "".join(text for text, _, _ in word.glyphs) == word.text:
+        edges: list[tuple[str, float, float]] = []
+        for text, x0, x1 in word.glyphs:
+            if len(text) == 1:
+                edges.append((text, x0, x1))
+                continue
+            span = x1 - x0
+            step = span / len(text) if text else 0.0
+            edges.extend(
+                (char, x0 + step * index, x0 + step * (index + 1))
+                for index, char in enumerate(text)
+            )
+        return edges
+    count = len(word.text)
+    if count == 0:
+        return []
+    step = (word.x1 - word.x0) / count
+    return [
+        (char, word.x0 + step * index, word.x0 + step * (index + 1))
+        for index, char in enumerate(word.text)
+    ]
+
+
+def _lines_to_text_and_lines(lines: list[_Line]) -> tuple[str, tuple[LineGeom, ...]]:
+    """Build block text and one edge list per visual line."""
     text = ""
-    spans: list[WordSpan] = []
-    for line_index, line in enumerate(lines):
+    geoms: list[LineGeom] = []
+    for line in lines:
         words = line.words
         if not words:
             continue
         hyphen_join = bool(text.endswith("-") and words[0].text[:1].islower())
         if hyphen_join:
             text = text[:-1]
-            if spans:
-                last = spans[-1]
-                trimmed = WordSpan(
-                    last.start,
-                    last.end - 1,
-                    last.line,
-                    last.x0,
-                    last.x1,
-                    last.top,
-                    last.bottom,
-                )
-                if trimmed.end > trimmed.start:
-                    spans[-1] = trimmed
+            if geoms:
+                last = geoms[-1]
+                if last.end - 1 > last.start:
+                    geoms[-1] = LineGeom(
+                        last.start,
+                        last.end - 1,
+                        last.top,
+                        last.bottom,
+                        last.x0[:-1],
+                        last.x1[:-1],
+                    )
                 else:
-                    spans.pop()
+                    geoms.pop()
         elif text:
             text += " "
+        x0: list[float | None] = []
+        x1: list[float | None] = []
         for word_index, word in enumerate(words):
             if word_index > 0:
                 text += " "
-            start = len(text)
-            text += word.text
-            spans.append(
-                WordSpan(
-                    start,
-                    len(text),
-                    line_index,
-                    word.x0,
-                    word.x1,
-                    word.top,
-                    word.bottom,
-                )
-            )
-    return text, tuple(spans)
+                x0.append(None)
+                x1.append(None)
+            for _char, left, right in _glyph_edges(word):
+                text += _char
+                x0.append(left)
+                x1.append(right)
+        geoms.append(
+            LineGeom(len(text) - len(x0), len(text), line.top, line.bottom, tuple(x0), tuple(x1))
+        )
+    return text, tuple(geoms)

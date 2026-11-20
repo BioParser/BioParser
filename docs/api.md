@@ -71,6 +71,10 @@ All endpoints require a shared API key, except the explicit public endpoints: `/
   ```
 - **OpenAPI / Swagger UI:** The security scheme `ApiKeyAuth` is registered on the OpenAPI document (`/openapi.json`), enabling interactive authentication via the "Authorize" button in Swagger UI (`/docs`).
 
+### Rate limit
+
+Through Traefik (`docker-compose.traefik.yml`), each client IP address has a request limit. Traefik answers a request over the limit with `429 Too Many Requests`, and the request does not go to the API. The response has a `Retry-After` header (in seconds) and a plain-text body, not the error envelope above. Send the request again after that time. The API port itself has no rate limit. [docker-compose.md](docker-compose.md#https-and-traefik) gives the values.
+
 ### `POST /api/extractions`
 
 Submit a PDF.
@@ -259,7 +263,7 @@ If omitted or `{}` is sent, parameters default to `parser: "default"` and `extra
 
 ### `GET /api/documents/{checksum}/jobs`
 
-List all jobs associated with a specific document. The default row is `job_id` and `status`. `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and `document_checksum`. A done job does not include its ETS rows here. Those are `GET /api/jobs/{job_id}/ets`.
+List all jobs for `{checksum}`. The default row is `job_id` and `status`. `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and `document_checksum`. `display_name` is null when the document has no name. A done job does not include its ETS rows here. Those are `GET /api/jobs/{job_id}/ets`.
 
 **Success — `200 OK`:**
 
@@ -277,7 +281,7 @@ List all jobs associated with a specific document. The default row is `job_id` a
 
 ### `GET /api/jobs`
 
-List jobs across all documents, with optional query filters. The default row is `job_id` and `status`. `?detail=full` adds the stored record and still omits ETS rows.
+List jobs across all documents, with optional query filters. The default row is `job_id` and `status`. `?detail=full` adds the stored record from the job joined to its document, and still omits ETS rows. `display_name` is null when the document has no name.
 
 - **Query parameters:**
   - `status` (optional): Filter by job status (`queued`, `parsing`, `parsed`, `extracting`, `done`, `failed`).
@@ -322,9 +326,11 @@ Poll a job.
 - `done` is `job_id` and `status`. The ETS rows are `GET /api/jobs/{job_id}/ets`, in
   observation order. `references` on each row is the document checksum.
 - `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`,
-  `document_checksum`, and `has_parse_result`. The flag is true when the parser
-  artifact was stored. `timeout` and `internal_error` do not say which stage ended,
-  so a full read is what tells a reader that parsing finished. The full body has no rows.
+  `document_checksum`, and `has_parse_result`. That read is one query, the job
+  joined to its document. `display_name` is null when the document has no name.
+  The flag is true when the parser artifact was stored. `timeout` and
+  `internal_error` do not say which stage ended, so a full read is what tells a
+  reader that parsing finished. The full body has no rows.
 - The response holds no storage paths. The UI reads the internal artifacts from the
   [job artifact routes](#get-apijobsjob_idartifactsparser-and-artifactsextraction).
 
@@ -518,8 +524,9 @@ Migrations stay on the sync psycopg driver.
   Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it is still
   being received. A missing or understated `Content-Length` is still capped while
   reading the file in chunks.
-- `GET /api/jobs/{job_id}` — reads the typed state from Postgres. It does not read the
-  extraction artifact. `?detail=full` adds the stored record.
+- `GET /api/jobs/{job_id}` — reads the job joined to its document. It does not read the
+  extraction artifact. `?detail=full` adds the stored record, including the document's
+  display name.
 - `GET /api/jobs/{job_id}/ets` — for a done job, reads the extraction artifact off the
   event loop and returns the ETS rows. Another status is `409`.
 - `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`
