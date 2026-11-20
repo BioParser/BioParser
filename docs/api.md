@@ -27,8 +27,8 @@ ETS rows are `GET /api/jobs/{job_id}/ets`.
   artifact and maps it. Other statuses do not. `?detail=full` on the job read adds the
   stored record and does not include the rows.
 - **Readiness (`/ready`) is supported.** The readiness endpoint performs
-  lightweight dependency checks only when corresponding environment variables are
-  set (see *Readiness behaviour* below).
+  concurrent checks of Redis, Postgres, and artifact storage (see *Readiness
+  behaviour* below).
 - **No `/api/v1` prefix or global exception handlers.** Routes raise
   `fastapi.HTTPException` directly and use structured `{"code", "message"}`
   details for the queued-job API's documented failures.
@@ -437,8 +437,8 @@ built files (`frontend/dist`); the API image sets it. Without it, every `/ui` pa
 
 ### `GET /ready`
 
-Readiness. Checks Redis, Postgres, and the artifact directory, each with a bounded
-timeout, and returns `200 {"status": "ready"}` when all three succeed.
+Readiness. Checks Redis, Postgres, and the artifact directory concurrently, each
+with a bounded timeout, and returns `200 {"status": "ready"}` when all three succeed.
 
 **Success — `200 OK`:**
 
@@ -466,18 +466,21 @@ Readiness behaviour:
   (seconds, default `1.0`). On failure the endpoint returns `503`; FastAPI places the
   readiness payload under `detail`, e.g.
   `{"detail": {"status": "not ready", "unavailable": ["redis"]}}`.
-- It does the same kind of TCP connect against the Postgres URL (default port 5432),
-  with the same timeout. On failure `503` is returned with `"postgres"` in the
-  `unavailable` list. The response does not include the URL or its password.
+- It runs `SELECT 1` through the API's existing Postgres pool, using the configured
+  database credentials. The same per-check timeout covers borrowing a connection
+  and completing the transaction. A connection failure, failed query, or timeout
+  returns `503` with `"postgres"` in the `unavailable` list. The response does not
+  include the URL or its password.
 - It attempts to create and remove a temporary file in the artifact directory to confirm
   writability. On failure `503` is returned with `"storage"` in the `unavailable` list.
 - Invalid configuration, including an empty required setting, returns `503` with
   `"config"` in the `unavailable` list. The API also refuses to start when these
   settings are missing.
 
-Checks are intentionally minimal: they use a raw TCP connect for Redis and Postgres and a
-local file operation for storage so that checks are fast, require no credentials, and do
-not expose secrets in error messages.
+All three checks start together, so a slow dependency does not delay the start of
+the other checks. The endpoint waits for all results and lists every failed
+dependency in Redis, Postgres, storage order. Redis uses a raw TCP connection;
+Postgres must accept an authenticated query; storage uses a local file operation.
 
 ---
 
@@ -600,7 +603,7 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 | `artifact_storage_path` | required | filesystem artifact root |
 | `redis_url` | required | Redis URL for the parse queue |
 | `redis_timeout_seconds` | `5.0` | Redis connect and operation timeout |
-| `database_url` | required | `postgresql` URL (`PostgresDsn`) for job state; `/ready` TCP-connects to it |
+| `database_url` | required | `postgresql` URL (`PostgresDsn`) for job state; `/ready` runs `SELECT 1` through the API's pool |
 | `parse_queue_name` | `parse` | Redis/Dramatiq queue name shared with the parser worker |
 | `api_key` | `None` | Shared API key (`BIOPARSER_API_KEY`). Required when `auth_disabled` is false. Redacted in logs and errors (`SecretStr`). |
 | `auth_disabled` | `False` | Disables authentication checks for local development (`BIOPARSER_AUTH_DISABLED`). Emits a warning at startup if true. |
