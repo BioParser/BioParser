@@ -823,6 +823,13 @@ export interface components {
             parser: components["schemas"]["ParserInfo"];
             /** Pages */
             pages: components["schemas"]["Page"][];
+            /** @default skipped */
+            repair_status: components["schemas"]["RepairStatus"];
+            /**
+             * Unrepaired Count
+             * @default 0
+             */
+            unrepaired_count: number;
         };
         /** ParserInfo */
         ParserInfo: {
@@ -873,6 +880,12 @@ export interface components {
         ReadinessUnavailableResponse: {
             detail: components["schemas"]["ReadinessUnavailableDetail"];
         };
+        /**
+         * RepairStatus
+         * @description Whether the symbol-font repair changed the PDF the parsers read.
+         * @enum {string}
+         */
+        RepairStatus: "skipped" | "success" | "failed";
         /**
          * SafeError
          * @description A short, non-sensitive description of why a job failed.

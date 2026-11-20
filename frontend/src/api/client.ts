@@ -14,6 +14,7 @@ export type DocumentMetadataResponse = Schemas["DocumentMetadataResponse"];
 export type CreateJobRequest = Schemas["CreateJobRequest"];
 export type UploadLimitsResponse = Schemas["UploadLimitsResponse"];
 export type ParserArtifact = Schemas["ParserArtifact"];
+export type RepairStatus = Schemas["RepairStatus"];
 export type ExtractionArtifact = Schemas["ExtractionArtifact"];
 // One job with the stored record, which the API returns for detail=full.
 export type JobStatusFullResponse = Schemas["JobFullResponse"] | Schemas["FailedJobFullResponse"];

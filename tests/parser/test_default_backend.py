@@ -1,13 +1,15 @@
 import asyncio
 from pathlib import Path
 
+import pikepdf
 import pytest
 
 from bioparser.hashing import sha256_file
 from bioparser.parser import ParserBackendUnavailableError, UnsupportedDocumentError
 from bioparser.parser.backend.default.grouping import WordBox, group_words_into_text_blocks
-from bioparser.parser.backend.default.parser import _CHILD_ENV, DefaultParser, _child_environment
+from bioparser.parser.backend.default.parser import DefaultParser
 from bioparser.parser.backend.factory import get_parser
+from bioparser.parser.child import CHILD_ENV, child_environment
 from bioparser.parser.models import ParserArtifact
 from bioparser.parser_names import DEFAULT_PARSER_NAME
 
@@ -20,6 +22,52 @@ EMPTY_PAGE_PDF = b"""%PDF-1.1
 trailer<< /Root 1 0 R >>
 %%EOF
 """
+
+
+def test_a_ligature_is_expanded_and_a_dropped_glyph_is_removed(tmp_path: Path) -> None:
+    cmap = b"""/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<00> <FF>
+endcodespacerange
+2 beginbfchar
+<01> <FB01>
+<02> <0000>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+"""
+    pdf = pikepdf.Pdf.new()
+    font = pdf.make_indirect(
+        pikepdf.Dictionary(
+            Type=pikepdf.Name.Font,
+            Subtype=pikepdf.Name.Type1,
+            BaseFont=pikepdf.Name("/Helvetica"),
+            Encoding=pikepdf.Name.WinAnsiEncoding,
+            ToUnicode=pikepdf.Stream(pdf, cmap),
+        )
+    )
+    page = pdf.add_blank_page(page_size=(400, 200))
+    page.Resources = pikepdf.Dictionary(Font=pikepdf.Dictionary(F1=font))
+    page.Contents = pikepdf.Stream(pdf, b"BT /F1 12 Tf 72 100 Td (signi\x01\x02cant) Tj ET\n")
+    path = tmp_path / "ligature.pdf"
+    pdf.save(path)
+    artifact = DefaultParser().parse_in_this_process(path)
+    text = " ".join(
+        block.content.text
+        for page in artifact.pages
+        for block in page.blocks
+        if block.content.type == "text"
+    )
+    assert text == "significant"
+    assert "\ufb01" not in text
+    assert "\u0000" not in text
 
 
 def test_fixture_pdf_to_artifact() -> None:
@@ -77,9 +125,9 @@ def test_the_parser_child_gets_no_secrets(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("BIOPARSER_REDIS_URL", "redis://:secret@redis:6379/0")
     monkeypatch.setenv("POSTGRES_PASSWORD", "secret")
 
-    env = _child_environment()
+    env = child_environment()
 
-    assert set(env) <= set(_CHILD_ENV)
+    assert set(env) <= set(CHILD_ENV)
     assert "secret" not in "".join(env.values())
 
 

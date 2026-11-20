@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef } from "react";
-import { ApiError } from "../api/client";
+import { ApiError, type RepairStatus } from "../api/client";
 import { EvidencePdf } from "./EvidencePdf";
 import {
   buildQuotation,
@@ -20,7 +20,10 @@ interface EvidenceViewProps {
 // Where a value came from: the quotation from the parser block, with the value and the unit
 // marked. Shown only once an observation is selected, so nothing loads before that.
 export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewProps) {
-  const { blocks, observations } = useEvidenceArtifacts(jobId, true);
+  const { parser, observations } = useEvidenceArtifacts(jobId, true);
+  const unrepaired = parser.data?.unrepairedCount ?? 0;
+  const repairStatus = parser.data?.repairStatus ?? "skipped";
+  const repairNotice = repairWarning(unrepaired, repairStatus);
   const panelRef = useRef<HTMLElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -48,7 +51,7 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
     panelRef.current
       ?.querySelector(".evidence-quote mark.evidence-value")
       ?.scrollIntoView({ block: "center" });
-  }, [observationIndex, observations.data, blocks.data]);
+  }, [observationIndex, observations.data, parser.data]);
 
   function close() {
     const opener = openerRef.current;
@@ -80,6 +83,7 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
           Close
         </button>
       </div>
+      {repairNotice !== null && <p role="status">{repairNotice}</p>}
       {observations.isPending ? (
         <p role="status">Loading the evidence…</p>
       ) : observations.isError ? (
@@ -91,17 +95,37 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
       ) : (
         <>
           <ValueAndUnit observation={observation} />
-          {blocks.isPending ? (
+          {parser.isPending ? (
             <p role="status">Loading the quotation…</p>
-          ) : blocks.isError ? (
-            <EvidenceError>{artifactError(blocks.error, "parser")}</EvidenceError>
+          ) : parser.isError ? (
+            <EvidenceError>{artifactError(parser.error, "parser")}</EvidenceError>
           ) : (
-            <Quotation jobId={jobId} observation={observation} blocks={blocks.data} />
+            <Quotation jobId={jobId} observation={observation} blocks={parser.data.blocks} />
           )}
         </>
       )}
     </section>
   );
+}
+
+// unrepairedCount is how many drawn Adv glyphs this repair replaced with U+FFFD.
+// That is a small face with no row, a known symbol face, or a (cid:N) slot.
+// failed means the repair did not run, so the text was not checked.
+function repairWarning(count: number, status: RepairStatus): string | null {
+  if (status === "failed") {
+    return (
+      "Symbol fonts in this paper could not be checked. " +
+      "A symbol in the text may not be the one printed on the page."
+    );
+  }
+  const tail = "The symbol printed on the page may be different.";
+  if (count === 1) {
+    return `1 symbol in this paper could not be read and is shown as \uFFFD. ${tail}`;
+  }
+  if (count > 1) {
+    return `${count} symbols in this paper could not be read and are shown as \uFFFD. ${tail}`;
+  }
+  return null;
 }
 
 // The printed value and unit, from the extraction artifact alone, so they stay when the

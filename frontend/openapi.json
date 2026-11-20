@@ -4453,6 +4453,16 @@
             },
             "type": "array",
             "title": "Pages"
+          },
+          "repair_status": {
+            "$ref": "#/components/schemas/RepairStatus",
+            "default": "skipped"
+          },
+          "unrepaired_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Unrepaired Count",
+            "default": 0
           }
         },
         "additionalProperties": false,
@@ -4568,6 +4578,16 @@
             }
           }
         ]
+      },
+      "RepairStatus": {
+        "type": "string",
+        "enum": [
+          "skipped",
+          "success",
+          "failed"
+        ],
+        "title": "RepairStatus",
+        "description": "Whether the symbol-font repair changed the PDF the parsers read."
       },
       "SafeError": {
         "properties": {

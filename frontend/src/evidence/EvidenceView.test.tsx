@@ -68,9 +68,11 @@ function textBlock(block_id: string, text: string) {
 }
 
 const PARSER: ParserArtifact = {
-  schema_version: "1",
+  schema_version: "2",
   checksum: "abc",
   parser: { name: "default", version: "1", configuration: {} },
+  unrepaired_count: 0,
+  repair_status: "success",
   pages: [
     {
       page_number: 1,
@@ -289,6 +291,41 @@ describe("EvidenceView", () => {
     renderView(0);
     await screen.findByRole("blockquote");
     expect(await screen.findByRole("img", { name: "Page 1 of the PDF" })).toBeDefined();
+  });
+
+  it("does not warn when every symbol was matched", async () => {
+    renderView(0);
+    await screen.findByRole("blockquote");
+    expect(screen.queryByText(/could not be read/)).toBeNull();
+  });
+
+  it("warns when the parser replaced symbols it could not match", async () => {
+    stubArtifacts(() =>
+      Response.json({ ...PARSER, unrepaired_count: 2, repair_status: "success" }),
+    );
+    renderView(0);
+    expect((await screen.findByText(/could not be read/)).textContent).toBe(
+      "2 symbols in this paper could not be read and are shown as \uFFFD. The symbol printed on the page may be different.",
+    );
+  });
+
+  it("warns when the symbol repair did not run", async () => {
+    stubArtifacts(() => Response.json({ ...PARSER, repair_status: "failed" }));
+    renderView(0);
+    expect((await screen.findByText(/could not be checked/)).textContent).toBe(
+      "Symbol fonts in this paper could not be checked. " +
+        "A symbol in the text may not be the one printed on the page.",
+    );
+  });
+
+  it("names a single unmatched symbol", async () => {
+    stubArtifacts(() =>
+      Response.json({ ...PARSER, unrepaired_count: 1, repair_status: "success" }),
+    );
+    renderView(0);
+    expect((await screen.findByText(/could not be read/)).textContent).toBe(
+      "1 symbol in this paper could not be read and is shown as \uFFFD. The symbol printed on the page may be different.",
+    );
   });
 
   it("keeps the quotation when the PDF is missing", async () => {

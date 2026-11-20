@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import asyncio
-import os
-import sys
+import io
 from importlib.metadata import version
 from pathlib import Path
 
@@ -10,7 +8,8 @@ import pdfplumber
 from pdfplumber.page import Page as PdfPlumberPage
 from pydantic import ValidationError
 
-from bioparser.hashing import sha256_file
+from bioparser.hashing import sha256_bytes
+from bioparser.parser.advent_repair.symbol_fonts import repair_pdf
 from bioparser.parser.backend.default.child import EXIT_NOT_FOUND, EXIT_UNSUPPORTED
 from bioparser.parser.backend.default.grouping import (
     SPAN_WIDTH_FACTOR,
@@ -19,6 +18,7 @@ from bioparser.parser.backend.default.grouping import (
     group_words_into_text_blocks,
 )
 from bioparser.parser.checksum import block_id
+from bioparser.parser.child import run_child
 from bioparser.parser.errors import ParserProcessError, UnsupportedDocumentError
 from bioparser.parser.models import (
     PARSER_ARTIFACT_SCHEMA_VERSION,
@@ -109,13 +109,18 @@ def _words_from_page(page: PdfPlumberPage) -> list[WordBox]:
     for item in raw_words:
         glyphs: list[tuple[str, float, float]] = []
         for char in item.get("chars") or []:
-            text = str(char.get("text") or "")
-            if not text:
+            glyph = str(char.get("text") or "").replace("\u0000", "")
+            if not glyph:
                 continue
-            glyphs.append((text, float(char["x0"]), float(char["x1"])))
+            glyphs.append((glyph, float(char["x0"]), float(char["x1"])))
+        # pdfplumber expands ligatures in the word text and not in each glyph.
+        # Citations compare that word text, so a drawn "ﬁ" stays "fi" there.
+        text = str(item.get("text") or "").replace("\u0000", "")
+        if not text:
+            continue
         words.append(
             WordBox(
-                text=str(item["text"]),
+                text=text,
                 x0=float(item["x0"]),
                 x1=float(item["x1"]),
                 top=float(item["top"]),
@@ -126,50 +131,27 @@ def _words_from_page(page: PdfPlumberPage) -> list[WordBox]:
     return words
 
 
-# Names a child needs to start. The child must not inherit the database and Redis
-# passwords. This is not a sandbox: code in the child runs as the same user and can
-# still read them from /proc/<pid>/environ. #286 limits what a stolen password can do.
-_CHILD_ENV = ("PATH", "LANG", "LC_ALL", "SYSTEMROOT", "PATHEXT", "TEMP", "TMP", "TMPDIR")
-
-
-def _child_environment() -> dict[str, str]:
-    return {name: os.environ[name] for name in _CHILD_ENV if name in os.environ}
-
-
 class DefaultParser:
     """Default digital-born PDF backend. Text currently uses pdfplumber."""
 
     async def parse(self, path: Path) -> ParserArtifact:
         """Parse the PDF in a child process."""
-        child = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "bioparser.parser.backend.default.child",
-            str(path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-            env=_child_environment(),
-        )
-        try:
-            out, _ = await child.communicate()
-        except asyncio.CancelledError:
-            if child.returncode is None:
-                child.kill()
-            await child.wait()
-            raise
-        return _artifact_from_child(child.returncode, out)
+        returncode, out = await run_child("bioparser.parser.backend.default.child", str(path))
+        return _artifact_from_child(returncode, out)
 
     def parse_in_this_process(self, path: Path) -> ParserArtifact:
         pdf_path = path.expanduser().resolve()
         if not pdf_path.is_file():
             raise FileNotFoundError("PDF not found")
 
-        checksum = sha256_file(pdf_path)
+        original = pdf_path.read_bytes()
+        checksum = sha256_bytes(original)
+        repaired = repair_pdf(original)
         pages: list[Page] = []
         extracted_any = False
 
         try:
-            with pdfplumber.open(pdf_path) as pdf:
+            with pdfplumber.open(io.BytesIO(repaired.data)) as pdf:
                 for index, page in enumerate(pdf.pages):
                     page_number = index + 1
                     width = float(page.width)
@@ -245,6 +227,8 @@ class DefaultParser:
                 },
             ),
             pages=pages,
+            repair_status=repaired.status,
+            unrepaired_count=repaired.count,
         )
 
 
