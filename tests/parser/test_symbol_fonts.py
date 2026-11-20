@@ -14,7 +14,6 @@ from bioparser.parser.advent_repair import symbol_child
 from bioparser.parser.advent_repair.symbol_fonts import (
     _DROP,
     _REPLACEMENT,
-    _TEXT_FONTS,
     _cmap,
     _decide,
     _Font,
@@ -24,6 +23,7 @@ from bioparser.parser.advent_repair.symbol_fonts import (
     _Slot,
     repair_pdf,
 )
+from bioparser.parser.advent_repair.table import _SYMBOL_FONTS, _TEXT_FONTS
 from bioparser.parser.backend.default.parser import DefaultParser
 from bioparser.parser.backend.mineru import parser as mineru_parser
 from bioparser.parser.backend.mineru.parser import MinerUParser
@@ -234,6 +234,17 @@ def test_a_large_advent_font_without_a_row_is_kept() -> None:
     assert _decide("AdvP49811", slot, small=False) == "A"
 
 
+def test_a_known_symbol_font_refuses_an_unlisted_glyph_when_large() -> None:
+    epsilon = _Slot(code=101, name="e", claimed="e")
+    three = _Slot(code=51, name="three", claimed="3")
+    assert _decide("AdvP3EAA99", epsilon, small=False) == _REPLACEMENT
+    assert _decide("AdvP7DA6", three, small=False) == _REPLACEMENT
+    assert "AdvP3EAA99" in _SYMBOL_FONTS
+    body = _Slot(code=65, name="A", claimed="A")
+    assert _decide("AdvP403A40", body, small=False) == "A"
+    assert "AdvP403A40" in _TEXT_FONTS
+
+
 def test_a_pdf_without_a_catalog_is_left_unchanged() -> None:
     original = b"%PDF-1.4\n%%EOF\n"
     repaired = repair_pdf(original)
@@ -438,6 +449,25 @@ def test_an_unlisted_adv_font_becomes_the_replacement_character() -> None:
         assert repaired.status is RepairStatus.SUCCESS
         assert repaired.count > 0
         assert "\ufffd" in _text(repaired.data)
+
+
+def test_a_failed_repair_is_recorded_when_the_parse_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(_data: bytes) -> list[_Font]:
+        raise RuntimeError("symbol fonts could not be read")
+
+    monkeypatch.setattr("bioparser.parser.advent_repair.symbol_fonts._fonts", boom)
+    artifact = DefaultParser().parse_in_this_process(EDITORIAL)
+    text = "\n".join(
+        block.content.text
+        for page in artifact.pages
+        for block in page.blocks
+        if block.content.type == "text"
+    )
+    assert artifact.repair_status is RepairStatus.FAILED
+    assert artifact.unrepaired_count == 0
+    assert "Broadening the scope of PLOS Biology" in text
 
 
 def test_the_parser_child_keeps_the_unmapped_log(

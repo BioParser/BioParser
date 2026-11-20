@@ -26,6 +26,7 @@ from bioparser.parser.errors import (
     ParserTimeoutError,
     UnsupportedDocumentError,
 )
+from bioparser.parser.models import RepairStatus
 from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 from bioparser.services.mineru import client as client_module
 from bioparser.services.mineru.client import MAX_WAIT_SECONDS, MinerUClient
@@ -72,6 +73,15 @@ def test_the_reply_is_mapped_with_the_pdf_checksum_and_settings(pdf: Path) -> No
         "GET /v1/tasks/job_1",
         "GET /v1/files/file-job_1/content",
     ]
+
+
+def test_a_failed_repair_is_recorded_when_mineru_parses(pdf: Path) -> None:
+    with fake_mineru(parsed_task()) as mineru:
+        artifact = asyncio.run(MinerUParser(mineru.url, timeout_s=120.0).parse(pdf))
+
+    assert artifact.repair_status is RepairStatus.FAILED
+    assert artifact.unrepaired_count == 0
+    assert artifact.pages[0].blocks[0].content.type == "text"
 
 
 def test_the_tier_is_asked_for_and_recorded(pdf: Path) -> None:

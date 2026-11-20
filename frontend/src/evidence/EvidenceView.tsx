@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef } from "react";
-import { ApiError } from "../api/client";
+import { ApiError, type RepairStatus } from "../api/client";
 import { EvidencePdf } from "./EvidencePdf";
 import {
   buildQuotation,
@@ -110,7 +110,7 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
 
 // unrepairedCount is how many times the parser inserted U+FFFD for a small Adv glyph
 // with no saved row. failed means the repair did not run, so the text was not checked.
-function repairWarning(count: number, status: "skipped" | "success" | "failed"): string | null {
+function repairWarning(count: number, status: RepairStatus): string | null {
   if (status === "failed") {
     return (
       "Symbol fonts in this paper could not be checked. " +
