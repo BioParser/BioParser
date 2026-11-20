@@ -85,7 +85,14 @@ def vllm_transport(monkeypatch: pytest.MonkeyPatch) -> Callable[[Handler], None]
                 http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)),
             )
 
+        def http_client(**kwargs: Any) -> httpx2.AsyncClient:
+            return httpx2.AsyncClient(
+                **kwargs,
+                transport=httpx2.MockTransport(handler),
+            )
+
         monkeypatch.setattr(vllm_module, "AsyncOpenAI", client)
+        monkeypatch.setattr(vllm_module, "AsyncClient", http_client)
 
     return install
 

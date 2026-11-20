@@ -28,14 +28,9 @@ def build_worker(
         max_retries=settings.extract_max_retries,
     )
     vllm = VLLMService()
-    char_budget = settings.extraction_char_budget
 
     def extractor_factory(name: str) -> Extractor:
-        return get_extractor(
-            name,
-            vllm=vllm,
-            char_budget=char_budget,
-        )
+        return get_extractor(name, vllm=vllm)
 
     handler = ExtractJobHandler(
         database_url=str(settings.database_url),

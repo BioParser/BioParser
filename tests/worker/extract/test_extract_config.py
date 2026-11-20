@@ -21,7 +21,6 @@ def test_claim_cap_follows_the_retry_count(tmp_path: Path) -> None:
         extract_max_retries=5,
     )
     assert settings.extract_max_claims == 6
-    assert settings.extraction_char_budget == 8000
     assert settings.extract_queue_name == "extract"
     assert settings.liveness_port == 8081
 

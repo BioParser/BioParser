@@ -9,9 +9,6 @@ from bioparser.logging_config import parse_level
 DEFAULT_EXTRACT_TIME_LIMIT_SECONDS = 10 * 60
 DEFAULT_EXTRACT_MAX_RETRIES = 3
 
-# A character budget, not a token budget.
-# The generation ceiling is BIOPARSER_VLLM_MAX_TOKENS on the vLLM client.
-DEFAULT_EXTRACTION_CHAR_BUDGET = 8000
 # Probe port for GET /health.
 DEFAULT_LIVENESS_PORT = 8081
 
@@ -38,7 +35,6 @@ class ExtractWorkerSettings(BaseSettings):
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
     extract_time_limit_seconds: float = Field(default=DEFAULT_EXTRACT_TIME_LIMIT_SECONDS, gt=0)
     extract_max_retries: int = Field(default=DEFAULT_EXTRACT_MAX_RETRIES, ge=0)
-    extraction_char_budget: int = Field(default=DEFAULT_EXTRACTION_CHAR_BUDGET, ge=50)
     liveness_port: int = Field(default=DEFAULT_LIVENESS_PORT, ge=1, le=65535)
 
     @property
