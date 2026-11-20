@@ -34,8 +34,8 @@ def test_base_compose_has_no_dev_services() -> None:
 
 def test_compose_wrapper_appends_the_overlay_and_does_not_edit_env() -> None:
     script = (_ROOT / "bioparser-compose").read_text(encoding="utf-8")
-    assert "exec docker compose up --build" in script
-    assert "exec docker compose" in script
+    assert 'exec docker compose "$@"' in script
+    assert "--build" not in script
     assert "docker-compose.dev.yml" in script
     assert "5173" in script
     assert ">>" not in script
@@ -52,18 +52,27 @@ def _stage_names(text: str) -> list[str]:
 
 def test_dev_overlay_reloads_edited_code_only() -> None:
     api_dockerfile = (_ROOT / "docker" / "api.Dockerfile").read_text(encoding="utf-8")
-    node_image = next(
+    ui_dockerfile = (_ROOT / "docker" / "ui.Dockerfile").read_text(encoding="utf-8")
+    api_node = next(
         _image_after("node:", line) for line in api_dockerfile.splitlines() if " AS ui" in line
     )
+    ui_node = next(
+        line.removeprefix("FROM ")
+        for line in ui_dockerfile.splitlines()
+        if line.startswith("FROM node:")
+    )
+    assert ui_node == api_node
     services = _services("docker-compose.dev.yml")
 
     ui = services["ui"]
-    assert ui["image"] == node_image
+    assert ui["image"] == "bioparser-ui-dev"
+    assert ui["build"]["dockerfile"] == "docker/ui.Dockerfile"
+    assert "command" not in ui
+    assert "USER node" in ui_dockerfile
+    assert "npm ci --no-audit --no-fund" in ui_dockerfile
     assert ui["ports"] == ["127.0.0.1:5173:5173"]
     assert ui["environment"]["BIOPARSER_DEV_API_ORIGIN"] == "http://bioparser:8080"
-    assert "npm run dev -- --host 0.0.0.0 --port 5173" in ui["command"][-1]
-    assert "./frontend:/frontend" in ui["volumes"]
-    assert "ui-node-modules:/frontend/node_modules" in ui["volumes"]
+    assert ui["volumes"] == ["./frontend:/frontend:ro", "ui-node-modules:/frontend/node_modules"]
 
     assert "command" not in services["bioparser"]
     assert "environment" not in services["bioparser"]
@@ -92,7 +101,8 @@ def test_dev_overlay_reloads_edited_code_only() -> None:
         stages = _stage_names(dockerfile)
         assert stages[-1] == "runtime"
         assert stages.index(f"{name}-dev") < stages.index("runtime")
-        prod, dev = dockerfile.split("FROM base AS build-dev\n", 1)
+        assert "build-dev" not in dockerfile
+        prod, dev = dockerfile.split(f"FROM base AS {name}-dev\n", 1)
         assert "--group dev-reload" not in prod
         assert "--group dev-reload" in dev
         assert "PYTHONPATH=/src" in dev

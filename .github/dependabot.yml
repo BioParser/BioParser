@@ -76,8 +76,8 @@ updates:
   # Images in docker-compose.yml, docker-compose.cpu.yml, docker-compose.gpu.yml,
   # and docker-compose.dev.yml.
   # redis is also pinned in .github/workflows/ci.yml. Bump both manually.
-  # node in docker-compose.dev.yml matches the UI stage in docker/api.Dockerfile.
-  # node also matches .nvmrc. Bump those pins together.
+  # The dev UI node pin is in docker/ui.Dockerfile. It matches the UI stage
+  # in docker/api.Dockerfile and .nvmrc. Bump those pins together.
   - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:
@@ -92,7 +92,8 @@ updates:
           - "vllm/vllm-openai"
           - "vllm/vllm-openai-cpu"
 
-  # frontend/package.json. Node itself is pinned in .nvmrc and docker/api.Dockerfile.
+  # frontend/package.json. Node itself is pinned in .nvmrc, docker/api.Dockerfile,
+  # and docker/ui.Dockerfile.
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:

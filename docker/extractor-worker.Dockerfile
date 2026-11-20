@@ -41,11 +41,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 #-------------------------------------------
 
 # Dev stage for the Compose overlay. Not the last stage, so the default build
-# stays the production image. It also installs dev-reload (watchfiles).
+# stays the production image. Adds dev-reload (watchfiles) on the production venv.
 
-FROM base AS build-dev
+FROM base AS extractor-worker-dev
 
 COPY --from=uv /uv /uvx /bin/
+COPY --from=build /app/.venv /app/.venv
 
 ENV UV_CACHE_DIR=/root/.cache/uv \
     UV_PYTHON_DOWNLOADS=0 \
@@ -57,15 +58,7 @@ WORKDIR /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-editable --no-install-project --no-default-groups --group extractor-worker --group dev-reload
-
-COPY pyproject.toml uv.lock README.md ./
-COPY src ./src
-
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-editable --no-default-groups --group extractor-worker --group dev-reload
-
-FROM base AS extractor-worker-dev
+    uv sync --locked --inexact --no-install-project --no-default-groups --group dev-reload
 
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid 10001 --home-dir /home/app --no-create-home \
@@ -77,10 +70,6 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/src \
     HOME=/home/app
-
-WORKDIR /app
-
-COPY --from=build-dev /app/.venv /app/.venv
 
 USER 10001:10001
 
