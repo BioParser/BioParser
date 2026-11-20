@@ -71,6 +71,10 @@ All endpoints require a shared API key, except the explicit public endpoints: `/
   ```
 - **OpenAPI / Swagger UI:** The security scheme `ApiKeyAuth` is registered on the OpenAPI document (`/openapi.json`), enabling interactive authentication via the "Authorize" button in Swagger UI (`/docs`).
 
+### Rate limit
+
+Through Traefik (`docker-compose.traefik.yml`), each client IP address has a request limit. Traefik answers a request over the limit with `429 Too Many Requests`, and the request does not go to the API. The response has a `Retry-After` header (in seconds) and a plain-text body, not the error envelope above. Send the request again after that time. The API port itself has no rate limit. [docker-compose.md](docker-compose.md#https-and-traefik) gives the values.
+
 ### `POST /api/extractions`
 
 Submit a PDF.

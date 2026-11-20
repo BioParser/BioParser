@@ -6,8 +6,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from bioparser.ets.dates import parse_date
+from bioparser.ets.dates import is_ambiguous_date, parse_date
 from bioparser.ets.notices import (
+    AmbiguousDate,
     BoundsReversed,
     DateField,
     NotACalendarDay,
@@ -319,7 +320,10 @@ def _parse_date(
     stored = stored_text(value)
     text = parse_date(stored)
     if text is None:
-        warnings.append(NotADate(field=field))
+        if is_ambiguous_date(stored):
+            warnings.append(AmbiguousDate(field=field))
+        else:
+            warnings.append(NotADate(field=field))
         return stored
     return text
 
