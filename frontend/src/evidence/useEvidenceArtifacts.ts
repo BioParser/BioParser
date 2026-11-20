@@ -35,7 +35,8 @@ export function useEvidenceArtifacts(jobId: string, enabled: boolean) {
     queryFn: ({ signal }) => getParserArtifact(jobId, signal),
     select: (artifact: ParserArtifact) => ({
       blocks: indexTextBlocks(artifact),
-      unmappedSymbols: artifact.unmapped_symbol_count ?? 0,
+      unrepairedCount: artifact.unrepaired_count ?? 0,
+      repairStatus: artifact.repair_status ?? "skipped",
     }),
     staleTime: Number.POSITIVE_INFINITY,
     retry: retryArtifact,

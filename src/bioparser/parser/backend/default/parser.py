@@ -144,12 +144,12 @@ class DefaultParser:
 
         original = pdf_path.read_bytes()
         checksum = sha256_bytes(original)
-        repaired, unmapped_symbol_count = repair_pdf(original)
+        repaired = repair_pdf(original)
         pages: list[Page] = []
         extracted_any = False
 
         try:
-            with pdfplumber.open(io.BytesIO(repaired)) as pdf:
+            with pdfplumber.open(io.BytesIO(repaired.data)) as pdf:
                 for index, page in enumerate(pdf.pages):
                     page_number = index + 1
                     width = float(page.width)
@@ -225,7 +225,8 @@ class DefaultParser:
                 },
             ),
             pages=pages,
-            unmapped_symbol_count=unmapped_symbol_count,
+            repair_status=repaired.status,
+            unrepaired_count=repaired.count,
         )
 
 

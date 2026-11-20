@@ -48,7 +48,7 @@ class MinerUParser:
             raise FileNotFoundError("PDF not found")
         content = await asyncio.to_thread(pdf_path.read_bytes)
         checksum = await asyncio.to_thread(sha256_bytes, content)
-        repaired, unmapped_symbol_count = await repair_pdf_in_child(pdf_path)
+        repaired = await repair_pdf_in_child(pdf_path, original=content)
         wait_s = MAX_WAIT_SECONDS if self._timeout_s is None else self._timeout_s
 
         try:
@@ -56,7 +56,7 @@ class MinerUParser:
                 self._base_url, wait_s, connect_timeout=_CONNECT_TIMEOUT_S, tier=self._tier
             )
             try:
-                middle = await client.parse(filename=f"{checksum}.pdf", content=repaired)
+                middle = await client.parse(filename=f"{checksum}.pdf", content=repaired.data)
             finally:
                 await client.aclose()
         except MinerUTimeoutError as exc:
@@ -78,7 +78,8 @@ class MinerUParser:
                 parser_name=MINERU_PARSER_NAME,
                 parser_version=PARSER_VERSIONS[MINERU_PARSER_NAME],
                 configuration=parse_configuration(self._tier),
-                unmapped_symbol_count=unmapped_symbol_count,
+                repair_status=repaired.status,
+                unrepaired_count=repaired.count,
             )
         except MiddleJsonContractError as exc:
             # The service and this mapper disagree (a MinerU upgrade on one side): not the PDF.

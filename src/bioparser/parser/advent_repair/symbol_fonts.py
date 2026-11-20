@@ -25,6 +25,8 @@ from pdfminer.pdfpage import PDFPage
 from pdfminer.pdfparser import PDFParser
 from pdfminer.pdftypes import resolve1
 
+from bioparser.parser.models import RepairStatus
+
 LOGGER = logging.getLogger(__name__)
 
 # A small Adv symbol font has at most this many glyphs with ink.
@@ -32,7 +34,6 @@ LOGGER = logging.getLogger(__name__)
 # codes is not the count: a WinAnsi font lists every code between the first
 # and the last, including ones with no drawing.
 _SMALL_FONT = 8
-_TEXT_ENCODINGS = frozenset({"WinAnsiEncoding", "MacRomanEncoding", "StandardEncoding"})
 _REPLACEMENT = "\ufffd"
 # A dropped drawing (the square-root bar) becomes U+0000,
 # which the parser can replace or handle as needed.
@@ -98,6 +99,19 @@ _ROWS: dict[tuple[str, str], str | None] = {
     # a current address, beside the author and again before the note.
     ("AdvP41461E", "currency"): "\u2297",
     ("AdvP403A40", "currency"): "\u2297",
+    # Biology 2014. A small text subset. Each glyph is the character it names.
+    ("AdvP497E2", "parenleft"): "(",
+    ("AdvP497E2", "parenright"): ")",
+    ("AdvP497E2", "asterisk"): "*",
+    ("AdvP497E2", "plus"): "+",
+    ("AdvP497E2", "comma"): ",",
+    ("AdvP497E2", "hyphen"): "-",
+    ("AdvP497E2", "period"): ".",
+    ("AdvP497E2", "slash"): "/",
+    ("AdvP497E2", "zero"): "0",
+    ("AdvP497E2", "one"): "1",
+    ("AdvP497E2", "two"): "2",
+    ("AdvP497E2", "three"): "3",
     # ONE 2014.
     ("AdvP3EAA99", "a"): "\u03b1",
     # Genetics 2008.
@@ -235,6 +249,17 @@ _ROWS: dict[tuple[str, str], str | None] = {
 _WIN_NAMES: dict[int, str] = {
     win: name for name, _std, _mac, win, _pdf in ENCODING if isinstance(win, int)
 }
+_MAC_NAMES: dict[int, str] = {
+    mac: name for name, _std, mac, _win, _pdf in ENCODING if isinstance(mac, int)
+}
+_STD_NAMES: dict[int, str] = {
+    std: name for name, std, _mac, _win, _pdf in ENCODING if isinstance(std, int)
+}
+_ENCODING_NAMES = {
+    "WinAnsiEncoding": _WIN_NAMES,
+    "MacRomanEncoding": _MAC_NAMES,
+    "StandardEncoding": _STD_NAMES,
+}
 
 
 @dataclass(frozen=True)
@@ -257,38 +282,46 @@ class _Font:
     cmap: dict[int, str]
     # Glyphs with a nonzero width. None when the font does not say.
     ink: int | None
-    # A standard text encoding and no unicode map of its own. Not a symbol font.
-    plain: bool
     slots: list[_Slot]
     samples: dict[int, _Sample]
     counts: dict[int, int]
 
 
-def repair_pdf(data: bytes) -> tuple[bytes, int]:
-    """Return the PDF with repaired symbol labels, and how many glyphs became U+FFFD.
+@dataclass(frozen=True)
+class SymbolRepair:
+    """The PDF the parsers should read, and what the repair did."""
 
-    Any failure leaves the original bytes. A PDF that the parsers can already
-    read must not become unreadable because the repair could not finish.
+    data: bytes
+    count: int
+    status: RepairStatus
+
+
+def repair_pdf(data: bytes) -> SymbolRepair:
+    """Repair symbol labels. A failure returns the original bytes and status failed.
+
+    A PDF that the parsers can already read must not become unreadable because
+    the repair could not finish.
     """
     try:
         return _repair(data)
     except Exception:
         LOGGER.warning("symbol font repair left the PDF unchanged", exc_info=True)
-        return data, 0
+        return SymbolRepair(data, 0, RepairStatus.FAILED)
 
 
-def _repair(data: bytes) -> tuple[bytes, int]:
+def _repair(data: bytes) -> SymbolRepair:
     fonts = _fonts(data)
     interesting = [font for font in fonts if _interesting(font)]
     if not interesting:
-        return data, 0
+        return SymbolRepair(data, 0, RepairStatus.SKIPPED)
     pdf = pikepdf.open(io.BytesIO(data))
     try:
         _count_uses(pdf, interesting)
         replaced, unmapped = _replacements(interesting)
+        count = sum(unmapped.values())
         if not replaced:
-            return data, sum(unmapped.values())
-        return _rewrite(pdf, replaced), sum(unmapped.values())
+            return SymbolRepair(data, count, RepairStatus.SUCCESS)
+        return SymbolRepair(_rewrite(pdf, replaced), count, RepairStatus.SUCCESS)
     finally:
         pdf.close()
 
@@ -332,10 +365,8 @@ def _is_advent(base: str) -> bool:
 
 
 def _is_small(font: _Font) -> bool:
-    # A standard text subset stays as the PDF labels it. Listing every such
-    # subset is not possible, and these glyphs are the characters they name.
-    if font.plain:
-        return False
+    # A standard encoding does not make a font body text. One-glyph symbol
+    # fonts use that encoding too. A known text subset has a row for each glyph.
     count = font.ink if font.ink is not None else len(font.slots)
     return count <= _SMALL_FONT
 
@@ -366,35 +397,62 @@ def _fonts(data: bytes) -> list[_Font]:
     document = PDFDocument(parser)
     found: dict[int, _Font] = {}
     for page in PDFPage.create_pages(document):
-        resources = resolve1(page.resources)
-        if not isinstance(resources, dict) or "Font" not in resources:
-            continue
-        fonts = resolve1(resources["Font"])
-        if not isinstance(fonts, dict):
-            continue
-        for ref in fonts.values():
-            objid = getattr(ref, "objid", None)
-            if not isinstance(objid, int) or objid in found:
-                continue
-            font = resolve1(ref)
-            if not isinstance(font, dict):
-                continue
-            base = _base_name(resolve1(font.get("BaseFont")))
-            cmap = _cmap_of(font)
-            slots = _slots(font, cmap)
-            if not slots:
-                continue
-            found[objid] = _Font(
-                base=base,
-                objid=objid,
-                cmap=cmap,
-                ink=_ink_count(font),
-                plain=_plain_text(font),
-                slots=slots,
-                samples={},
-                counts={},
-            )
+        # Form XObjects carry their own font dictionaries. A page that only
+        # draws a form would otherwise leave those fonts unread.
+        _collect_fonts(page.resources, found, set())
     return list(found.values())
+
+
+def _collect_fonts(resources: object, found: dict[int, _Font], seen: set[int]) -> None:
+    resources = resolve1(resources)
+    if not isinstance(resources, dict):
+        return
+    marker = id(resources)
+    if marker in seen:
+        return
+    seen.add(marker)
+    fonts = resolve1(resources.get("Font"))
+    if isinstance(fonts, dict):
+        for ref in fonts.values():
+            _remember_font(ref, found)
+    xobjects = resolve1(resources.get("XObject"))
+    if not isinstance(xobjects, dict):
+        return
+    for ref in xobjects.values():
+        xobject = resolve1(ref)
+        if _literal_name(resolve1(_item(xobject, "Subtype"))) != "Form":
+            continue
+        _collect_fonts(_item(xobject, "Resources"), found, seen)
+
+
+def _remember_font(ref: object, found: dict[int, _Font]) -> None:
+    objid = getattr(ref, "objid", None)
+    if not isinstance(objid, int) or objid in found:
+        return
+    font = resolve1(ref)
+    if not isinstance(font, dict):
+        return
+    base = _base_name(resolve1(font.get("BaseFont")))
+    cmap = _cmap_of(font)
+    slots = _slots(font, cmap)
+    if not slots:
+        return
+    found[objid] = _Font(
+        base=base,
+        objid=objid,
+        cmap=cmap,
+        ink=_ink_count(font),
+        slots=slots,
+        samples={},
+        counts={},
+    )
+
+
+def _item(obj: object, key: str) -> object:
+    getter = getattr(obj, "get", None)
+    if callable(getter):
+        return getter(key)
+    return None
 
 
 def _base_name(value: object) -> str:
@@ -428,24 +486,6 @@ def _ink_count(font: dict[str, object]) -> int | None:
     return sum(1 for width in widths if isinstance(width, int | float) and width != 0)
 
 
-def _plain_text(font: dict[str, object]) -> bool:
-    # No unicode map, and the encoding is a standard one with no renames.
-    # The character the PDF gives is the glyph name. Symbol fonts bring a map
-    # or a Differences array, and those are the ones the rows cover.
-    if font.get("ToUnicode") is not None:
-        return False
-    encoding = resolve1(font.get("Encoding"))
-    if encoding is None or _literal_name(encoding) in _TEXT_ENCODINGS:
-        return True
-    if not isinstance(encoding, dict):
-        return False
-    differences = resolve1(encoding.get("Differences"))
-    if isinstance(differences, list) and differences:
-        return False
-    base = _literal_name(resolve1(encoding.get("BaseEncoding")))
-    return base is None or base in _TEXT_ENCODINGS
-
-
 def _cmap_of(font: dict[str, object]) -> dict[int, str]:
     stream = resolve1(font.get("ToUnicode"))
     read = getattr(stream, "get_data", None)
@@ -461,12 +501,15 @@ def _cmap_of(font: dict[str, object]) -> dict[int, str]:
 
 def _encoding_names(font: dict[str, object]) -> dict[int, str]:
     encoding = resolve1(font.get("Encoding"))
-    if encoding is None or _literal_name(encoding) == "WinAnsiEncoding":
+    literal = _literal_name(encoding)
+    if encoding is None or literal == "WinAnsiEncoding":
         return dict(_WIN_NAMES)
+    if literal in _ENCODING_NAMES:
+        return dict(_ENCODING_NAMES[literal])
     if not isinstance(encoding, dict):
         return {}
     base = _literal_name(resolve1(encoding.get("BaseEncoding")))
-    names = dict(_WIN_NAMES) if base == "WinAnsiEncoding" else {}
+    names = dict(_ENCODING_NAMES[base]) if base in _ENCODING_NAMES else {}
     differences = resolve1(encoding.get("Differences"))
     if not isinstance(differences, list):
         return names

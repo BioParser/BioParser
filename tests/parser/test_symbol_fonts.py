@@ -15,6 +15,7 @@ from bioparser.parser.advent_repair.symbol_fonts import (
     _DROP,
     _REPLACEMENT,
     _decide,
+    _encoding_names,
     _Font,
     _is_small,
     _Slot,
@@ -24,7 +25,7 @@ from bioparser.parser.backend.default.parser import DefaultParser
 from bioparser.parser.backend.mineru import parser as mineru_parser
 from bioparser.parser.backend.mineru.parser import MinerUParser
 from bioparser.parser.errors import ParserProcessError, UnsupportedDocumentError
-from bioparser.parser.models import ParserArtifact
+from bioparser.parser.models import ParserArtifact, RepairStatus
 from bioparser.services.mineru.client import MinerUError
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -54,7 +55,8 @@ def test_the_2014_biology_paper_recovers_the_symbol_glyphs() -> None:
     text, artifact = _artifact_text(BIOLOGY)
     assert artifact.schema_version == "2"
     assert artifact.parser.version == "3"
-    assert artifact.unmapped_symbol_count == 0
+    assert artifact.unrepaired_count == 0
+    assert artifact.repair_status is RepairStatus.SUCCESS
     assert artifact.checksum == hashlib.sha256(BIOLOGY.read_bytes()).hexdigest()
     assert "(>10 g)" in text
     assert "GI<1.47" in text
@@ -70,17 +72,19 @@ def test_the_2014_biology_paper_recovers_the_symbol_glyphs() -> None:
 
 def test_the_2019_editorial_is_left_unchanged() -> None:
     original = EDITORIAL.read_bytes()
-    repaired, count = repair_pdf(original)
-    assert repaired == original
-    assert count == 0
+    repaired = repair_pdf(original)
+    assert repaired.data == original
+    assert repaired.count == 0
+    assert repaired.status is RepairStatus.SKIPPED
     text, artifact = _artifact_text(EDITORIAL)
-    assert artifact.unmapped_symbol_count == 0
+    assert artifact.unrepaired_count == 0
+    assert artifact.repair_status is RepairStatus.SKIPPED
     assert "Broadening the scope of PLOS Biology" in text
 
 
 def test_the_2008_genetics_paper_reuses_the_same_glyphs() -> None:
-    repaired, count = repair_pdf(GENETICS.read_bytes())
-    text = _text(repaired)
+    repaired = repair_pdf(GENETICS.read_bytes())
+    text = _text(repaired.data)
     assert "Atm\u2212/\u2212" in text
     assert "p<0.0001" in text
     assert ">90%" in text
@@ -90,13 +94,14 @@ def test_the_2008_genetics_paper_reuses_the_same_glyphs() -> None:
     assert "\u00b5m" in text
     assert "\u2297" in text
     assert "\u00a4" not in text
-    assert count == 0
+    assert repaired.count == 0
+    assert repaired.status is RepairStatus.SUCCESS
     assert "\ufffd" not in text
 
 
 def test_the_2014_one_paper_recovers_the_symbol_glyphs() -> None:
-    repaired, count = repair_pdf(ONE.read_bytes())
-    text = _text(repaired)
+    repaired = repair_pdf(ONE.read_bytes())
+    text = _text(repaired.data)
     assert "P<0.05" in text
     assert "P,0.05" not in text
     assert ">80%" in text
@@ -110,7 +115,8 @@ def test_the_2014_one_paper_recovers_the_symbol_glyphs() -> None:
     assert "arcsin \u221ax" in text
     assert "Strzez\u0307ek" in text
     assert "\u00d7100" in text
-    assert count == 0
+    assert repaired.count == 0
+    assert repaired.status is RepairStatus.SUCCESS
     assert "\ufffd" not in text
 
 
@@ -151,7 +157,6 @@ def test_a_wide_code_range_with_few_drawings_is_small() -> None:
         objid=1,
         cmap={},
         ink=2,
-        plain=False,
         slots=[_Slot(code, "A", "A") for code in range(45, 55)],
         samples={},
         counts={},
@@ -159,18 +164,33 @@ def test_a_wide_code_range_with_few_drawings_is_small() -> None:
     assert _is_small(font)
 
 
-def test_a_standard_text_subset_is_not_a_symbol_font() -> None:
+def test_a_small_text_subset_keeps_the_characters_it_names() -> None:
     font = _Font(
         base="AdvP497E2",
         objid=1,
         cmap={},
         ink=6,
-        plain=True,
         slots=[_Slot(code, "zero", "0") for code in range(40, 52)],
         samples={},
         counts={},
     )
-    assert not _is_small(font)
+    assert _is_small(font)
+    slot = _Slot(code=48, name="parenleft", claimed="(")
+    assert _decide("AdvP497E2", slot, small=True) == "("
+
+
+class _EncodingName:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+def test_macroman_and_standard_encodings_name_their_glyphs() -> None:
+    mac = _encoding_names({"Encoding": _EncodingName("MacRomanEncoding")})
+    standard = _encoding_names({"Encoding": _EncodingName("StandardEncoding")})
+    win = _encoding_names({"Encoding": _EncodingName("WinAnsiEncoding")})
+    assert mac[65] == "A"
+    assert standard[65] == "A"
+    assert mac[128] != win[128]
 
 
 def test_an_unnamed_glyph_in_a_large_font_is_refused() -> None:
@@ -185,7 +205,10 @@ def test_a_large_advent_font_without_a_row_is_kept() -> None:
 
 def test_a_pdf_without_a_catalog_is_left_unchanged() -> None:
     original = b"%PDF-1.4\n%%EOF\n"
-    assert repair_pdf(original) == (original, 0)
+    repaired = repair_pdf(original)
+    assert repaired.data == original
+    assert repaired.count == 0
+    assert repaired.status is RepairStatus.FAILED
 
 
 def _advent_font(pdf: pikepdf.Pdf, base: str) -> pikepdf.Object:
@@ -208,9 +231,10 @@ def test_an_encrypted_pdf_keeps_its_text() -> None:
     ):
         encrypted = io.BytesIO()
         source.save(encrypted, encryption=encryption)
-        repaired, _count = repair_pdf(encrypted.getvalue())
-        assert "1.36\u00b10.16" in _text(repaired)
-        opened = pikepdf.open(io.BytesIO(repaired))
+        repaired = repair_pdf(encrypted.getvalue())
+        assert repaired.status is RepairStatus.SUCCESS
+        assert "1.36\u00b10.16" in _text(repaired.data)
+        opened = pikepdf.open(io.BytesIO(repaired.data))
         assert len(opened.pages) > 0
         if encryption.R >= 4:
             assert opened.is_encrypted
@@ -246,9 +270,9 @@ end
     )
     edited = io.BytesIO()
     pdf.save(edited)
-    repaired, _count = repair_pdf(edited.getvalue())
+    repaired = repair_pdf(edited.getvalue())
     twos = []
-    with pdfplumber.open(io.BytesIO(repaired)) as opened:
+    with pdfplumber.open(io.BytesIO(repaired.data)) as opened:
         for page in opened.pages:
             for char in page.chars:
                 if "AdvP7DA6" in str(char.get("fontname")):
@@ -260,8 +284,8 @@ end
 
 
 def test_tounicode_is_set_on_the_font_not_inside_its_encoding() -> None:
-    repaired, _count = repair_pdf(BIOLOGY.read_bytes())
-    pdf = pikepdf.open(io.BytesIO(repaired))
+    repaired = repair_pdf(BIOLOGY.read_bytes())
+    pdf = pikepdf.open(io.BytesIO(repaired.data))
     font = _advent_font(pdf, "AdvP7DA6")
     assert "/ToUnicode" in font
     assert "/ToUnicode" not in font["/Encoding"]
@@ -269,7 +293,10 @@ def test_tounicode_is_set_on_the_font_not_inside_its_encoding() -> None:
 
 def test_a_truncated_pdf_is_left_unchanged(tmp_path: Path) -> None:
     original = BIOLOGY.read_bytes()[: len(BIOLOGY.read_bytes()) // 2]
-    assert repair_pdf(original) == (original, 0)
+    repaired = repair_pdf(original)
+    assert repaired.data == original
+    assert repaired.count == 0
+    assert repaired.status is RepairStatus.FAILED
     path = tmp_path / "truncated.pdf"
     path.write_bytes(original)
     with pytest.raises(UnsupportedDocumentError):
@@ -296,13 +323,50 @@ def _with_base_font(source: bytes, old: str, new: str, *, font_name: bool) -> by
     return out.getvalue()
 
 
+def test_an_unlisted_plain_symbol_font_becomes_the_replacement_character() -> None:
+    edited = _with_base_font(BIOLOGY.read_bytes(), "AdvP3D3256", "AdvUnseen", font_name=False)
+    repaired = repair_pdf(edited)
+    text = _text(repaired.data)
+    assert repaired.status is RepairStatus.SUCCESS
+    assert repaired.count > 0
+    assert "1.3660.16" not in text
+    assert "\ufffd" in text
+
+
+def _page_as_form(source: bytes, page_index: int) -> bytes:
+    pdf = pikepdf.open(io.BytesIO(source))
+    page = pdf.pages[page_index]
+    form = pikepdf.Stream(pdf, page["/Contents"].read_bytes())
+    form["/Type"] = pikepdf.Name.XObject
+    form["/Subtype"] = pikepdf.Name.Form
+    form["/BBox"] = page["/MediaBox"]
+    form["/Resources"] = page["/Resources"]
+    page["/Resources"] = pikepdf.Dictionary(XObject=pikepdf.Dictionary(Fm0=form))
+    page["/Contents"] = pikepdf.Stream(pdf, b"q /Fm0 Do Q\n")
+    out = io.BytesIO()
+    pdf.save(out)
+    return out.getvalue()
+
+
+def test_a_font_used_only_inside_a_form_is_repaired() -> None:
+    wrapped = _page_as_form(BIOLOGY.read_bytes(), 1)
+    before = _text(wrapped)
+    assert "GI,1.47" in before
+    repaired = repair_pdf(wrapped)
+    text = _text(repaired.data)
+    assert repaired.status is RepairStatus.SUCCESS
+    assert "GI<1.47" in text
+    assert "1.36\u00b10.16" in text
+
+
 def test_an_unlisted_adv_font_becomes_the_replacement_character() -> None:
     original = BIOLOGY.read_bytes()
     for also_font_name in (False, True):
         edited = _with_base_font(original, "AdvP7DA6", "AdvUnknown", font_name=also_font_name)
-        repaired, count = repair_pdf(edited)
-        assert count > 0
-        assert "\ufffd" in _text(repaired)
+        repaired = repair_pdf(edited)
+        assert repaired.status is RepairStatus.SUCCESS
+        assert repaired.count > 0
+        assert "\ufffd" in _text(repaired.data)
 
 
 def test_the_parser_child_keeps_the_unmapped_log(
@@ -314,7 +378,8 @@ def test_the_parser_child_keeps_the_unmapped_log(
     )
     with caplog.at_level(logging.WARNING):
         artifact = asyncio.run(DefaultParser().parse(path))
-    assert artifact.unmapped_symbol_count > 0
+    assert artifact.unrepaired_count > 0
+    assert artifact.repair_status is RepairStatus.SUCCESS
     assert "unmapped symbol font glyph" in caplog.text
     assert "AdvUnknown" in caplog.text
 
@@ -374,9 +439,10 @@ def test_a_failed_repair_child_returns_the_original(
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
     original = BIOLOGY.read_bytes()
     with caplog.at_level(logging.WARNING):
-        repaired, count = asyncio.run(symbol_child.repair_pdf_in_child(BIOLOGY))
-    assert repaired == original
-    assert count == 0
+        repaired = asyncio.run(symbol_child.repair_pdf_in_child(BIOLOGY))
+    assert repaired.data == original
+    assert repaired.count == 0
+    assert repaired.status is RepairStatus.FAILED
     assert "left the PDF unchanged" in caplog.text
 
 

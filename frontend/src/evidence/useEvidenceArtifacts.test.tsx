@@ -20,7 +20,8 @@ const PARSER: ParserArtifact = {
   schema_version: "2",
   checksum: "abc",
   parser: { name: "default", version: "1", configuration: {} },
-  unmapped_symbol_count: 0,
+  unrepaired_count: 0,
+  repair_status: "skipped",
   pages: [
     {
       page_number: 1,

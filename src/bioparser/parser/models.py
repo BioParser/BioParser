@@ -224,6 +224,14 @@ class ParserInfo(BaseModel):
     configuration: dict[str, str | int | float | bool]
 
 
+class RepairStatus(StrEnum):
+    """Whether the symbol-font repair changed the PDF the parsers read."""
+
+    SKIPPED = "skipped"
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
 class ParserArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
@@ -231,6 +239,8 @@ class ParserArtifact(BaseModel):
     checksum: Sha256Hex
     parser: ParserInfo
     pages: list[Page]
+    # skipped: nothing to repair. success: the repair finished. failed: the original PDF.
+    repair_status: RepairStatus = RepairStatus.SKIPPED
     # Glyphs the symbol-font repair replaced with U+FFFD. Zero when the field is absent
-    # on an older artifact.
-    unmapped_symbol_count: int = Field(default=0, ge=0)
+    # on an older artifact, and zero when the repair was skipped or failed.
+    unrepaired_count: int = Field(default=0, ge=0)

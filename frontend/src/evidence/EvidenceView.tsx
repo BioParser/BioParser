@@ -21,7 +21,9 @@ interface EvidenceViewProps {
 // marked. Shown only once an observation is selected, so nothing loads before that.
 export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewProps) {
   const { parser, observations } = useEvidenceArtifacts(jobId, true);
-  const unmapped = parser.data?.unmappedSymbols ?? 0;
+  const unrepaired = parser.data?.unrepairedCount ?? 0;
+  const repairStatus = parser.data?.repairStatus ?? "skipped";
+  const repairNotice = repairWarning(unrepaired, repairStatus);
   const panelRef = useRef<HTMLElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -81,7 +83,7 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
           Close
         </button>
       </div>
-      {unmapped > 0 && <p role="status">{unmappedSymbolWarning(unmapped)}</p>}
+      {repairNotice !== null && <p role="status">{repairNotice}</p>}
       {observations.isPending ? (
         <p role="status">Loading the evidence…</p>
       ) : observations.isError ? (
@@ -106,14 +108,23 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
   );
 }
 
-// A small Adv font glyph with no saved row. The count is how many times the parser
-// inserted U+FFFD for one of those glyphs.
-function unmappedSymbolWarning(count: number): string {
+// unrepairedCount is how many times the parser inserted U+FFFD for a small Adv glyph
+// with no saved row. failed means the repair did not run, so the text was not checked.
+function repairWarning(count: number, status: "skipped" | "success" | "failed"): string | null {
+  if (status === "failed") {
+    return (
+      "Symbol fonts in this paper could not be checked. " +
+      "A symbol in the text may not be the one printed on the page."
+    );
+  }
   const tail = "The symbol printed on the page may be different.";
   if (count === 1) {
     return `1 symbol in this paper could not be read and is shown as \uFFFD. ${tail}`;
   }
-  return `${count} symbols in this paper could not be read and are shown as \uFFFD. ${tail}`;
+  if (count > 1) {
+    return `${count} symbols in this paper could not be read and are shown as \uFFFD. ${tail}`;
+  }
+  return null;
 }
 
 // The printed value and unit, from the extraction artifact alone, so they stay when the

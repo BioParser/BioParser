@@ -71,7 +71,8 @@ const PARSER: ParserArtifact = {
   schema_version: "2",
   checksum: "abc",
   parser: { name: "default", version: "1", configuration: {} },
-  unmapped_symbol_count: 0,
+  unrepaired_count: 0,
+  repair_status: "success",
   pages: [
     {
       page_number: 1,
@@ -299,15 +300,28 @@ describe("EvidenceView", () => {
   });
 
   it("warns when the parser replaced symbols it could not match", async () => {
-    stubArtifacts(() => Response.json({ ...PARSER, unmapped_symbol_count: 2 }));
+    stubArtifacts(() =>
+      Response.json({ ...PARSER, unrepaired_count: 2, repair_status: "success" }),
+    );
     renderView(0);
     expect((await screen.findByText(/could not be read/)).textContent).toBe(
       "2 symbols in this paper could not be read and are shown as \uFFFD. The symbol printed on the page may be different.",
     );
   });
 
+  it("warns when the symbol repair did not run", async () => {
+    stubArtifacts(() => Response.json({ ...PARSER, repair_status: "failed" }));
+    renderView(0);
+    expect((await screen.findByText(/could not be checked/)).textContent).toBe(
+      "Symbol fonts in this paper could not be checked. " +
+        "A symbol in the text may not be the one printed on the page.",
+    );
+  });
+
   it("names a single unmatched symbol", async () => {
-    stubArtifacts(() => Response.json({ ...PARSER, unmapped_symbol_count: 1 }));
+    stubArtifacts(() =>
+      Response.json({ ...PARSER, unrepaired_count: 1, repair_status: "success" }),
+    );
     renderView(0);
     expect((await screen.findByText(/could not be read/)).textContent).toBe(
       "1 symbol in this paper could not be read and is shown as \uFFFD. The symbol printed on the page may be different.",
