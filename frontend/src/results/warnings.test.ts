@@ -29,7 +29,22 @@ describe("warningText", () => {
     ["not_verified:scientificName", "The scientific name is the model's reading."],
     ["not_numeric:individualCount", "The individual count is not a number."],
     ["out_of_range:decimalLatitude", "The latitude is outside the range of its column."],
-    ["not_in_vocabulary:sex", "The sex is not one of the accepted values."],
+    [
+      "not_in_vocabulary:sex",
+      "The sex is not one of the accepted values. The printed text is kept.",
+    ],
+    [
+      "not_in_vocabulary:countryCode",
+      "The country code is not one of the accepted values. The printed text is kept.",
+    ],
+    [
+      "not_in_vocabulary:basisOfRecord",
+      "The basis of record is not one of the accepted values. The column is left empty.",
+    ],
+    [
+      "not_in_vocabulary:aggregateMeasure",
+      "The aggregate measure is not one of the accepted values. The column is left empty.",
+    ],
     ["not_a_date:eventDate", "The event date is not a calendar day."],
     ["not_a_date:year,month,day", "The year, month, and day together are not a calendar day."],
     ["ambiguous_date:eventDate", "The event date can be read day first or month first."],

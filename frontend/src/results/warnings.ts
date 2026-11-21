@@ -66,9 +66,12 @@ const KINDS: Record<string, { fields: readonly string[]; text: (label: string) =
     fields: ["scientificName"],
     text: (label) => `${label} is the model's reading. No taxonomy lookup has confirmed it.`,
   },
+  // sex and countryCode keep the printed text. basisOfRecord and aggregateMeasure are the
+  // model's reading, not printed text, and the adapter leaves the column empty
+  // (_parse_basis and _parse_aggregate in src/bioparser/ets/assess.py).
   not_in_vocabulary: {
-    fields: ["sex", "basisOfRecord", "aggregateMeasure", "countryCode"],
-    text: (label) => `${label} is not one of the accepted values.`,
+    fields: ["sex", "countryCode"],
+    text: (label) => `${label} is not one of the accepted values. The printed text is kept.`,
   },
   not_a_date: {
     fields: ["measurementDeterminedDate", "eventDate"],
@@ -99,8 +102,13 @@ export function informationalLabel(code: string): string | null {
   return Object.hasOwn(INFORMATIONAL, code) ? INFORMATIONAL[code] : null;
 }
 
-// Codes whose field names several columns.
+// Codes with a line of their own: a code that names several columns, or a field the adapter
+// treats differently from the other fields of its kind.
 const COMBINED: Record<string, string> = {
+  "not_in_vocabulary:basisOfRecord":
+    "The basis of record is not one of the accepted values. The column is left empty.",
+  "not_in_vocabulary:aggregateMeasure":
+    "The aggregate measure is not one of the accepted values. The column is left empty.",
   "not_a_date:year,month,day": "The year, month, and day together are not a calendar day.",
   "bounds_reversed:measurementValue_min,measurementValue_max":
     "The minimum is greater than the maximum. Both are kept as printed.",
