@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mineru-dep
+  labels:
+    app: mineru
+  annotations:
+    image.openshift.io/triggers: '[{"from":{"kind":"ImageStreamTag","name":"mineru:cpu"},"fieldPath":"spec.template.spec.containers[?(@.name==\"mineru-cpu\")].image"}]'
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: mineru
+  template:
+    metadata:
+      labels:
+        app: mineru
+    spec:
+      containers:
+        - name: mineru-cpu
+          image: ghcr.io/bioparser/bioparser/mineru:cpu
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: HF_HOME
+              value: /tmp/hf-cache
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bioparser-secret
+                  key: HF_TOKEN
+            - name: MINERU_API_CONCURRENCY
+              valueFrom:
+                configMapKeyRef:
+                  name: bioparser-config
+                  key: MINERU_API_CONCURRENCY
+            - name: MINERU_INTRA_OP_NUM_THREADS
+              value: "4"
+            - name: MINERU_PDF_RENDER_THREADS
+              value: "2"
+          resources:
+            requests:
+              cpu: "2"
+              memory: "8Gi"
+            limits:
+              cpu: "4"
+              memory: "12Gi"
+          volumeMounts:
+            - name: tmp-cache
+              mountPath: /tmp
+      volumes:
+        - name: tmp-cache
+          emptyDir:
+            sizeLimit: 5Gi
