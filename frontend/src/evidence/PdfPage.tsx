@@ -1,16 +1,22 @@
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { type CSSProperties, type RefObject, useEffect, useRef, useState } from "react";
-import type { BoundingBox } from "./quotation";
+import type { BoundingBox, Highlight } from "./quotation";
 
 export interface Outline {
   blockId: string;
   bbox: BoundingBox;
 }
 
+// A box around the value or the unit, on one line of a block.
+export interface PageHighlight extends Highlight {
+  blockId: string;
+}
+
 interface PdfPageProps {
   pdf: PDFDocumentProxy;
   pageNumber: number;
   outlines: Outline[];
+  highlights?: PageHighlight[];
 }
 
 // A canvas past twice the CSS size costs memory on a phone without looking sharper.
@@ -33,8 +39,9 @@ function percent(fraction: number): string {
 }
 
 // One page of the PDF at the width of its container, redrawn when that width changes, with
-// the given blocks outlined over it. Another page is another component: key it by page.
-export function PdfPage({ pdf, pageNumber, outlines }: PdfPageProps) {
+// the given blocks outlined over it and the value and the unit boxed inside them. Another
+// page is another component: key it by page.
+export function PdfPage({ pdf, pageNumber, outlines, highlights = [] }: PdfPageProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const width = useElementWidth(frameRef);
@@ -86,6 +93,18 @@ export function PdfPage({ pdf, pageNumber, outlines }: PdfPageProps) {
               className="pdf-outline"
               style={outlineStyle(outline.bbox)}
               data-block-id={outline.blockId}
+            />
+          ))}
+        {state === "drawn" &&
+          highlights.map((highlight, index) => (
+            <div
+              // The boxes come in the order of the quotation and never reorder.
+              // biome-ignore lint/suspicious/noArrayIndexKey: a run can repeat a box's block and mark.
+              key={`${highlight.blockId}-${index}`}
+              className={`pdf-highlight pdf-highlight-${highlight.mark}`}
+              style={outlineStyle(highlight.bbox)}
+              data-block-id={highlight.blockId}
+              data-mark={highlight.mark}
             />
           ))}
       </div>

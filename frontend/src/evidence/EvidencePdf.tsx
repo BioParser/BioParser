@@ -1,29 +1,35 @@
 import { ApiError } from "../api/client";
-import { type Outline, PdfPage } from "./PdfPage";
+import { type Outline, type PageHighlight, PdfPage } from "./PdfPage";
 import type { QuotedBlock } from "./quotation";
 import { usePdfDocument } from "./usePdfDocument";
 
 interface PageOfBlocks {
   pageNumber: number;
   outlines: Outline[];
+  // The value and the unit themselves, from the glyph edges of the blocks that have them.
+  highlights: PageHighlight[];
   // Blocks on this page that the parser gave no box for.
   unplaced: string[];
 }
 
 // The quoted blocks by page, in the order the quotation shows them. A value over two blocks
-// gives one page with two outlines, or two pages.
+// gives one page with two outlines, or two pages. A block's highlights go on its page even when
+// it has no box of its own.
 export function pagesOf(quotation: QuotedBlock[]): PageOfBlocks[] {
   const pages = new Map<number, PageOfBlocks>();
   for (const block of quotation) {
     let page = pages.get(block.pageNumber);
     if (page === undefined) {
-      page = { pageNumber: block.pageNumber, outlines: [], unplaced: [] };
+      page = { pageNumber: block.pageNumber, outlines: [], highlights: [], unplaced: [] };
       pages.set(block.pageNumber, page);
     }
     if (block.bbox === null) {
       page.unplaced.push(block.blockId);
     } else {
       page.outlines.push({ blockId: block.blockId, bbox: block.bbox });
+    }
+    for (const highlight of block.highlights) {
+      page.highlights.push({ blockId: block.blockId, ...highlight });
     }
   }
   return [...pages.values()];
@@ -48,7 +54,12 @@ export function EvidencePdf({ jobId, quotation }: { jobId: string; quotation: Qu
     <>
       {pagesOf(quotation).map((page) => (
         <div key={page.pageNumber}>
-          <PdfPage pdf={pdf.data} pageNumber={page.pageNumber} outlines={page.outlines} />
+          <PdfPage
+            pdf={pdf.data}
+            pageNumber={page.pageNumber}
+            outlines={page.outlines}
+            highlights={page.highlights}
+          />
           {page.unplaced.map((blockId) => (
             <p key={blockId} className="evidence-note">
               The parser gave no position for block <code>{blockId}</code>, so it is not outlined.
