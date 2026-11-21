@@ -925,8 +925,32 @@ export interface components {
             text: string;
             /** Heading Level */
             heading_level?: number | null;
-            /** Spans */
-            spans?: components["schemas"]["TextSpan"][];
+            /** Lines */
+            lines?: components["schemas"]["TextLine"][];
+        };
+        /**
+         * TextLine
+         * @description One horizontal line, with a horizontal edge for each stored character.
+         *
+         *     ``x0[i]`` and ``x1[i]`` are the glyph edges of ``text[start + i]`` on the block
+         *     that owns this line. A null pair is a stored character with no ink: a space
+         *     inserted between words, a hyphen removed at a line join, or MinerU's ``^{}``
+         *     and ``_{}`` markers. A glyph that covers several characters shares its box in equal slices.
+         *     Coordinates are stored to four decimal places.
+         */
+        TextLine: {
+            /** Start */
+            start: number;
+            /** End */
+            end: number;
+            /** Y0 */
+            y0: number;
+            /** Y1 */
+            y1: number;
+            /** X0 */
+            x0: (number | null)[];
+            /** X1 */
+            x1: (number | null)[];
         };
         /**
          * TextRange
@@ -942,19 +966,6 @@ export interface components {
             start: number;
             /** End */
             end: number;
-        };
-        /**
-         * TextSpan
-         * @description Word box mapped onto `TextContent.text` as a half-open character range.
-         */
-        TextSpan: {
-            /** Start */
-            start: number;
-            /** End */
-            end: number;
-            /** Line */
-            line: number;
-            bbox: components["schemas"]["BoundingBox"];
         };
         /**
          * UploadLimitsResponse

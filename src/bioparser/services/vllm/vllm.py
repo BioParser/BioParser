@@ -1,7 +1,8 @@
 import asyncio
 import logging
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Sequence
 
+from httpx2 import AsyncClient, HTTPError
 from openai import (
     NOT_GIVEN,
     APIError,
@@ -13,6 +14,7 @@ from openai import (
     omit,
 )
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
+from openai.types.model import Model
 from openai.types.shared_params.response_format_json_schema import ResponseFormatJSONSchema
 from pydantic import BaseModel, ValidationError
 
@@ -35,6 +37,10 @@ class VLLMRequestRejectedError(VLLMError):
     """vLLM rejected the request. Retrying the same input will fail again."""
 
 
+class VLLMContextLengthError(VLLMRequestRejectedError):
+    """The prompt and the reserved completion do not fit in the context window."""
+
+
 class VLLMSchemaError(VLLMError):
     """The response body did not match the model. The server did accept the request."""
 
@@ -43,15 +49,21 @@ class VLLMService:
     def __init__(self) -> None:
         settings = get_settings()
 
+        api_key = settings.vllm_api_key.get_secret_value()
         self.client = AsyncOpenAI(
             base_url=settings.vllm_base_url,
-            api_key=settings.vllm_api_key.get_secret_value(),
+            api_key=api_key,
             timeout=settings.vllm_request_timeout_seconds,
             max_retries=0,
         )
+        # /tokenize is on the server root, next to /v1.
+        self._http = AsyncClient(
+            base_url=_server_root(settings.vllm_base_url),
+            timeout=settings.vllm_request_timeout_seconds,
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
 
         self.model: str | None = None
-        self._max_model_len: int | None = None
         self._max_tokens = settings.vllm_max_tokens
         self._lock = asyncio.Lock()
         self._discovery_timeout = settings.vllm_model_discovery_timeout_seconds
@@ -72,6 +84,16 @@ class VLLMService:
             return False
         return True
 
+    async def _first_model_card(self) -> Model:
+        """The first model the server lists."""
+        try:
+            response = await self.client.models.list(timeout=self._discovery_timeout)
+        except APIError as exc:
+            raise VLLMError(f"vLLM unreachable: {type(exc).__name__}") from exc
+        if not response.data:
+            raise VLLMError("vLLM exposes no models")
+        return response.data[0]
+
     async def get_model(self) -> str:
         """Discover the served model id. The first id the server lists, cached for this process."""
         if self.model is not None:
@@ -79,31 +101,140 @@ class VLLMService:
 
         async with self._lock:
             if self.model is None:
-                try:
-                    response = await self.client.models.list(timeout=self._discovery_timeout)
-                except APIError as exc:
-                    raise VLLMError(f"vLLM unreachable: {type(exc).__name__}") from exc
-                if not response.data:
-                    raise VLLMError("vLLM exposes no models")
-                card = response.data[0]
+                card = await self._first_model_card()
                 self.model = card.id
-                self._max_model_len = _reported_max_model_len(card)
             return self.model
 
     async def get_max_model_len(self) -> int:
-        """The served model's context window. vLLM sends this as max_model_len."""
-        await self.get_model()
-        if self._max_model_len is None:
-            raise VLLMError("vLLM did not report max_model_len")
-        return self._max_model_len
+        """The served context window, read from the server on every call.
+
+        A restarted vLLM can keep the same model id and change ``--max-model-len``.
+        That does not 404, so the window is not cached. A listed id that differs
+        from the cached one is adopted, so the next request does not use a stale id.
+        """
+        async with self._lock:
+            card = await self._first_model_card()
+            if self.model != card.id:
+                self.model = card.id
+            reported = _reported_max_model_len(card)
+            if reported is None:
+                raise VLLMError("vLLM did not report max_model_len")
+            return reported
+
+    async def count_chat_tokens(
+        self,
+        prompt: str,
+        *,
+        system_prompt: str | None = None,
+        enable_thinking: bool = False,
+    ) -> int:
+        """Token count of the chat the completion would send. The tokenizer only.
+
+        A 404 forgets the model id that was sent, as a chat completion does.
+        """
+        model = await self.get_model()
+        try:
+            response = await self._http.post(
+                "/tokenize",
+                json={
+                    "model": model,
+                    "messages": _messages(prompt, system_prompt),
+                    "chat_template_kwargs": {"enable_thinking": enable_thinking},
+                },
+            )
+        except HTTPError as exc:
+            raise VLLMError(f"vLLM tokenize failed: {type(exc).__name__}") from exc
+        if response.status_code == 404:
+            async with self._lock:
+                if self.model == model:
+                    self._forget_model()
+            raise VLLMError("vLLM tokenize failed: 404")
+        if response.status_code >= 400:
+            raise VLLMError(f"vLLM tokenize failed: {response.status_code}")
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        count = body.get("count") if isinstance(body, dict) else None
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise VLLMError("vLLM tokenize response did not include a count")
+        return count
+
+    async def fit_prefix(
+        self,
+        parts: Sequence[str],
+        *,
+        system_prompt: str | None = None,
+        separator: str = "\n\n",
+        max_tokens: int | None = None,
+        enable_thinking: bool = False,
+    ) -> int:
+        """How many leading parts fit in the context window.
+
+        The empty chat is counted first. A byte-level tokenizer spends at most
+        one token per byte, so every prefix inside that budget is kept without
+        another call. The joined text then doubles until a call is over the
+        budget. A binary search of the part index finds the longest prefix
+        inside that interval. The system prompt is always counted, including
+        when [parts] is empty.
+        """
+        window = await self.get_max_model_len()
+        budget = window - self._token_ceiling(max_tokens)
+        if budget < 1:
+            raise VLLMError("the completion ceiling does not fit in the context window")
+
+        base = await self.count_chat_tokens(
+            "",
+            system_prompt=system_prompt,
+            enable_thinking=enable_thinking,
+        )
+        if base > budget:
+            raise VLLMContextLengthError("the prompt does not fit in the context window")
+        if not parts:
+            return 0
+
+        sizes = _prefix_nbytes(parts, separator)
+        fit_end = _byte_fit_end(sizes, budget - base)
+        if fit_end == len(parts):
+            return fit_end
+
+        target = sizes[fit_end - 1] if fit_end else 1
+        miss_end: int | None = None
+        while miss_end is None:
+            target *= 2
+            end = min(len(parts), max(_end_reaching(sizes, target), fit_end + 1))
+            count = await self.count_chat_tokens(
+                separator.join(parts[:end]),
+                system_prompt=system_prompt,
+                enable_thinking=enable_thinking,
+            )
+            if count > budget:
+                miss_end = end
+            else:
+                fit_end = end
+                if fit_end == len(parts):
+                    return fit_end
+
+        while miss_end > fit_end + 1:
+            mid = (fit_end + miss_end) // 2
+            count = await self.count_chat_tokens(
+                separator.join(parts[:mid]),
+                system_prompt=system_prompt,
+                enable_thinking=enable_thinking,
+            )
+            if count <= budget:
+                fit_end = mid
+            else:
+                miss_end = mid
+        return fit_end
 
     def _forget_model(self) -> None:
-        """Drop the cached id and context window so the next call discovers both."""
+        """Drop the cached model id so the next call discovers it."""
         self.model = None
-        self._max_model_len = None
 
     async def aclose(self) -> None:
         await self.client.close()
+        await self._http.aclose()
 
     async def _logged(self, request: Awaitable[ChatCompletion]) -> ChatCompletion:
         """Await one chat completion and log one record for it, whatever the outcome.
@@ -169,7 +300,15 @@ class VLLMService:
                 if self.model == requested_model:
                     self._forget_model()
             raise VLLMError(f"vLLM request failed: {type(exc).__name__}") from exc
-        except (BadRequestError, UnprocessableEntityError) as exc:
+        except BadRequestError as exc:
+            if "maximum context length" in str(exc):
+                raise VLLMContextLengthError(
+                    "the prompt does not fit in the context window"
+                ) from exc
+            raise VLLMRequestRejectedError(
+                f"vLLM rejected the request: {type(exc).__name__}"
+            ) from exc
+        except UnprocessableEntityError as exc:
             raise VLLMRequestRejectedError(
                 f"vLLM rejected the request: {type(exc).__name__}"
             ) from exc
@@ -250,6 +389,43 @@ def _reported_max_model_len(card: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         return None
     return value
+
+
+def _server_root(base_url: str) -> str:
+    """The server origin. Chat uses ``/v1``. Tokenize is beside it."""
+    trimmed = base_url.rstrip("/")
+    if trimmed.endswith("/v1"):
+        return trimmed[: -len("/v1")]
+    return trimmed
+
+
+def _prefix_nbytes(parts: Sequence[str], separator: str) -> list[int]:
+    """Joined byte length of each leading prefix, separator included."""
+    sizes: list[int] = []
+    used = 0
+    gap = len(separator.encode())
+    for index, part in enumerate(parts):
+        used += len(part.encode()) if index == 0 else gap + len(part.encode())
+        sizes.append(used)
+    return sizes
+
+
+def _byte_fit_end(sizes: Sequence[int], room: int) -> int:
+    """How many leading prefixes fit in [room] bytes."""
+    fitted = 0
+    for size in sizes:
+        if size > room:
+            break
+        fitted += 1
+    return fitted
+
+
+def _end_reaching(sizes: Sequence[int], target: int) -> int:
+    """The shortest leading prefix whose joined text reaches [target] bytes."""
+    for index, size in enumerate(sizes):
+        if size >= target:
+            return index + 1
+    return len(sizes)
 
 
 def _request_timeout(timeout: float | None) -> float | NotGiven:

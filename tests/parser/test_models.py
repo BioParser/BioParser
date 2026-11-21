@@ -10,7 +10,8 @@ from bioparser.parser.models import (
     Page,
     ParserInfo,
     TextContent,
-    TextSpan,
+    TextLine,
+    boxes_for_range,
 )
 
 
@@ -32,12 +33,14 @@ def _sample_artifact() -> ParserArtifact:
                         role=BlockRole.BODY,
                         content=TextContent(
                             text="Hello",
-                            spans=[
-                                TextSpan(
+                            lines=[
+                                TextLine(
                                     start=0,
                                     end=5,
-                                    line=0,
-                                    bbox=BoundingBox(x0=0.1, y0=0.2, x1=0.3, y1=0.3),
+                                    y0=0.2,
+                                    y1=0.3,
+                                    x0=[0.10, 0.14, 0.18, 0.22, 0.26],
+                                    x1=[0.14, 0.18, 0.22, 0.26, 0.30],
                                 )
                             ],
                         ),
@@ -69,6 +72,34 @@ def test_continuation_of_round_trip() -> None:
     )
     restored = ParserArtifact.model_validate_json(artifact.model_dump_json())
     assert restored.pages[0].blocks[1].continuation_of == "doc-1-p1-b0000"
+
+
+def test_glyph_edges_are_stored_to_four_decimals() -> None:
+    line = TextLine(
+        start=0,
+        end=2,
+        y0=0.123456789,
+        y1=0.234567891,
+        x0=[0.345678912, None],
+        x1=[0.456789123, None],
+    )
+    stored = line.model_dump()
+    assert stored["y0"] == round(0.123456789, 4)
+    assert stored["x0"] == [round(0.345678912, 4), None]
+    assert stored["x1"][0] == round(0.456789123, 4)
+    dumped = line.model_dump_json()
+    assert "0.123456789" not in dumped
+    assert "0.345678912" not in dumped
+
+
+def test_a_mid_word_range_uses_only_its_glyph_edges() -> None:
+    content = _sample_artifact().pages[0].blocks[0].content
+    assert isinstance(content, TextContent)
+    line = content.lines[0]
+    boxes = boxes_for_range([line], 2, 4)
+    assert len(boxes) == 1
+    assert boxes[0].x0 == 0.18
+    assert boxes[0].x1 == 0.26
 
 
 def test_inverted_bbox_is_rejected() -> None:

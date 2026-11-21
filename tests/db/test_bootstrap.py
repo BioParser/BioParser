@@ -139,10 +139,18 @@ def _assert_table_use(app_url: str) -> None:
         assert connection.execute(text("SELECT current_user")).scalar_one() == APP_ROLE
         connection.execute(
             text(
-                "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
-                "VALUES (:job_id, 1, 'queued', 'default', 'default', 'pdf')"
+                "INSERT INTO documents (checksum, display_name, size_bytes) "
+                "VALUES (:checksum, NULL, 0)"
             ),
-            {"job_id": job_id},
+            {"checksum": "ab" * 32},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, "
+                "document_checksum) "
+                "VALUES (:job_id, 2, 'queued', 'default', 'default', :checksum)"
+            ),
+            {"job_id": job_id, "checksum": "ab" * 32},
         )
         connection.execute(
             text("UPDATE jobs SET status = 'parsing' WHERE job_id = :job_id"),

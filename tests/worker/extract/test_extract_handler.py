@@ -21,7 +21,7 @@ from bioparser.artifact_paths import (
     parse_result_path,
 )
 from bioparser.db.engine import DatabaseUnavailableError
-from bioparser.extract.backend.default.extractor import extract_observations
+from bioparser.extract.backend.default.extractor import extract_observations, render_prompt
 from bioparser.extract.backend.default.locate import cited_observations
 from bioparser.extract.backend.default.schema import Extraction, ModelObservation
 from bioparser.extract.backend.factory import get_extractor
@@ -57,7 +57,12 @@ from bioparser.parser.models import (
     TextContent,
 )
 from bioparser.services.vllm import VLLMService
-from bioparser.services.vllm.vllm import VLLMError, VLLMRequestRejectedError, VLLMTruncatedError
+from bioparser.services.vllm.vllm import (
+    VLLMContextLengthError,
+    VLLMError,
+    VLLMRequestRejectedError,
+    VLLMTruncatedError,
+)
 from bioparser.worker.extract.before_claim import vllm_before_claim
 from bioparser.worker.extract.config import DEFAULT_EXTRACT_MAX_RETRIES
 from bioparser.worker.extract.handler import ExtractJobHandler
@@ -127,7 +132,7 @@ def _parsed() -> JobState:
         status="parsed",
         parser="default",
         extractor="default",
-        pdf_ref="pdf/abc",
+        document_checksum="ab" * 32,
         parse_result_ref=PARSE_REF,
         created_at=CREATED_AT,
     )
@@ -155,7 +160,7 @@ def _real_extract(
 
     def extract(artifact: ParserArtifact) -> Awaitable[ExtractionArtifact]:
         async def run() -> ExtractionArtifact:
-            result = await extract_observations(service, artifact, char_budget=8000)
+            result = await extract_observations(service, artifact)
             return _artifact(cited_observations(result.output, artifact))
 
         return run()
@@ -201,7 +206,6 @@ def _registered(vllm: StubVLLMService) -> Callable[[str], Extractor]:
         return get_extractor(
             name,
             vllm=cast(VLLMService, vllm),
-            char_budget=8000,
         )
 
     return extractor_factory
@@ -341,6 +345,93 @@ def test_a_rejected_request_is_permanent() -> None:
     assert jobs.state.status == "failed"
     assert jobs.state.error_code == "extraction_failed"
     assert jobs.state.claims("extracting") == 1
+
+
+def test_a_long_paper_keeps_the_prefix_that_fits() -> None:
+    paper = _parser_artifact()
+    second = (
+        paper.pages[0]
+        .blocks[0]
+        .model_copy(update={"block_id": "b1", "order": 1, "content": TextContent(text="later")})
+    )
+    paper.pages[0].blocks.append(second)
+
+    class ShortFit(StubVLLMService):
+        async def fit_prefix(
+            self,
+            parts: list[str],
+            *,
+            system_prompt: str | None = None,
+            separator: str = "\n\n",
+            max_tokens: int | None = None,
+            enable_thinking: bool = False,
+        ) -> int:
+            return 1
+
+    prompt = asyncio.run(render_prompt(paper, vllm=cast(VLLMService, ShortFit())))
+
+    assert prompt.text == f"[b0] {QUOTE}"
+    assert prompt.blocks == {"b0": QUOTE}
+
+
+def test_a_short_prefix_is_logged_without_the_text(caplog: pytest.LogCaptureFixture) -> None:
+    paper = _parser_artifact()
+    second = (
+        paper.pages[0]
+        .blocks[0]
+        .model_copy(update={"block_id": "b1", "order": 1, "content": TextContent(text="later")})
+    )
+    paper.pages[0].blocks.append(second)
+
+    class ShortFit(StubVLLMService):
+        async def fit_prefix(
+            self,
+            parts: list[str],
+            *,
+            system_prompt: str | None = None,
+            separator: str = "\n\n",
+            max_tokens: int | None = None,
+            enable_thinking: bool = False,
+        ) -> int:
+            return 1
+
+    with caplog.at_level(logging.WARNING, logger="bioparser.extract.backend.default.extractor"):
+        asyncio.run(render_prompt(paper, vllm=cast(VLLMService, ShortFit())))
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "extraction prompt kept 1 of 2 eligible blocks"
+    ]
+    assert QUOTE not in caplog.text
+    assert "later" not in caplog.text
+
+
+def test_eligible_text_that_does_not_fit_is_a_context_length_error() -> None:
+    class NoneFit(StubVLLMService):
+        async def fit_prefix(
+            self,
+            parts: list[str],
+            *,
+            system_prompt: str | None = None,
+            separator: str = "\n\n",
+            max_tokens: int | None = None,
+            enable_thinking: bool = False,
+        ) -> int:
+            return 0
+
+    with pytest.raises(VLLMContextLengthError, match="context window"):
+        asyncio.run(render_prompt(_parser_artifact(), vllm=cast(VLLMService, NoneFit())))
+
+
+def test_a_paper_with_no_eligible_text_stays_empty() -> None:
+    paper = _parser_artifact()
+    paper.pages[0].blocks[0] = (
+        paper.pages[0].blocks[0].model_copy(update={"role": BlockRole.REFERENCE})
+    )
+
+    prompt = asyncio.run(render_prompt(paper, vllm=cast(VLLMService, StubVLLMService())))
+
+    assert prompt.text == ""
+    assert prompt.blocks == {}
 
 
 def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> None:
@@ -505,7 +596,7 @@ def test_a_job_still_parsing_is_left_alone() -> None:
         status="parsing",
         parser="default",
         extractor="default",
-        pdf_ref="pdf/abc",
+        document_checksum="ab" * 32,
         created_at=CREATED_AT,
     )
     jobs = StubJobs(state)
@@ -750,7 +841,6 @@ def test_registered_extractor_stores_the_resolved_version() -> None:
         return get_extractor(
             name,
             vllm=cast(VLLMService, vllm),
-            char_budget=8000,
         )
 
     handler = ExtractJobHandler(

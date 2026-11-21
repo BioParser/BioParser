@@ -15,6 +15,9 @@ export type CreateJobRequest = Schemas["CreateJobRequest"];
 export type UploadLimitsResponse = Schemas["UploadLimitsResponse"];
 export type ParserArtifact = Schemas["ParserArtifact"];
 export type ExtractionArtifact = Schemas["ExtractionArtifact"];
+// A done job's results: one ETS row per observation, in observation order.
+export type EtsRowsResponse = Schemas["EtsRowsResponse"];
+export type EtsRow = Schemas["EtsRow"];
 // One job with the stored record, which the API returns for detail=full.
 export type JobStatusFullResponse = Schemas["JobFullResponse"] | Schemas["FailedJobFullResponse"];
 // The dashboard reads the stored record, which the list returns for detail=full.
@@ -159,6 +162,12 @@ export function getJob(
   if (detail !== undefined) params.set("detail", detail);
   const query = params.size > 0 ? `?${params}` : "";
   return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}${query}`, { signal });
+}
+
+// The ETS rows of a done job. 409 until the job is done; 500 artifact_invalid when the stored
+// extraction artifact cannot be read.
+export function getJobEts(jobId: string, signal?: AbortSignal): Promise<EtsRowsResponse> {
+  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/ets`, { signal });
 }
 
 // The largest PDF the API accepts (BIOPARSER_MAX_UPLOAD_BYTES), so the browser checks
