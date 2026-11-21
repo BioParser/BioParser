@@ -60,11 +60,11 @@ spec:
             - name: dshm
               mountPath: /dev/shm
           resources:
-            limits:
-              memory: "32Gi"
-              cpu: "8"
             requests:
               memory: "16Gi"
+              cpu: "2"
+            limits:
+              memory: "32Gi"
               cpu: "4"
       volumes:
         - name: qwen-storage

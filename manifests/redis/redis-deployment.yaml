@@ -33,7 +33,7 @@ spec:
         - name: REDIS_MAX_MEMORY
           valueFrom:
             configMapKeyRef:
-              name: bioparser-configmap
+              name: bioparser-config
               key: REDIS_MAX_MEMORY
         command: ["sh", "-c"]
         args:
@@ -59,11 +59,11 @@ spec:
           protocol: TCP
         resources:
           requests:
-            memory: "768Mi"
-            cpu: "500m"
+            memory: "500Mi"
+            cpu: "250m"
           limits:
-            memory: "768Mi"
-            cpu: "50m"
+            memory: "1Gi"
+            cpu: "500m"
         securityContext:
           allowPrivilegeEscalation: false
           runAsNonRoot: true
