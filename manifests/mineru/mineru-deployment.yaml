@@ -24,11 +24,19 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
+          startupProbe:
+            httpGet:
+              path: /v1/health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 24
           livenessProbe:
             httpGet:
               path: /v1/health
               port: 8000
-            initialDelaySeconds: 120
+            initialDelaySeconds: 0
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 3
