@@ -24,6 +24,14 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8000
+            initialDelaySeconds: 120
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
           env:
             - name: HF_HOME
               value: /tmp/hf-cache
