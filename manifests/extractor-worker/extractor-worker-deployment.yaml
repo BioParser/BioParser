@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: extractor-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: extractor-worker
+  template:
+    metadata:
+      labels:
+        app: extractor-worker
+    spec:
+      containers:
+        - name: extractor-worker
+          image: ghcr.io/bioparser/bioparser/extractor-worker:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: bioparser-config
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bioparser-secret
+                  key: REDIS_PASSWORD
+            - name: POSTGRES_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bioparser-secret
+                  key: POSTGRES_APP_PASSWORD
+          volumeMounts:
+            - mountPath: /data
+              name: artifact-storage
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+      volumes:
+        - name: artifact-storage
+          persistentVolumeClaim:
+            claimName: bioparser-artifact-pvc
