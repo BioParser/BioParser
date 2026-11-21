@@ -4,6 +4,7 @@ import { useParams, useSearchParams } from "react-router";
 import { ApiError, getJob, type JobStatusFullResponse } from "../api/client";
 import { EvidenceView } from "../evidence/EvidenceView";
 import { JOB_STATUS_LABELS } from "../jobStatus";
+import { JobResults } from "../results/JobResults";
 
 const OBSERVATION_PARAM = "observation";
 
@@ -31,6 +32,14 @@ export function JobDetailPage() {
   const { jobId = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const observationIndex = parseObservationIndex(searchParams.get(OBSERVATION_PARAM));
+  // Each selection is a history entry: Back returns to the previous observation, then closes.
+  function openEvidence(index: number) {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set(OBSERVATION_PARAM, String(index));
+      return next;
+    });
+  }
   function closeEvidence() {
     setSearchParams((previous) => {
       const next = new URLSearchParams(previous);
@@ -80,7 +89,13 @@ export function JobDetailPage() {
                 : "The API is temporarily unavailable. Retrying automatically…"}
           </p>
         )}
-        {!missing && job.data && <JobStatus job={job.data} />}
+        {!missing && job.data && (
+          <JobStatus
+            job={job.data}
+            observationIndex={observationIndex}
+            onSelectObservation={openEvidence}
+          />
+        )}
       </div>
       {showEvidence && (
         <EvidenceView jobId={jobId} observationIndex={observationIndex} onClose={closeEvidence} />
@@ -89,7 +104,15 @@ export function JobDetailPage() {
   );
 }
 
-function JobStatus({ job }: { job: JobStatusFullResponse }) {
+function JobStatus({
+  job,
+  observationIndex,
+  onSelectObservation,
+}: {
+  job: JobStatusFullResponse;
+  observationIndex: number | null;
+  onSelectObservation: (index: number) => void;
+}) {
   const stage =
     job.status === "failed"
       ? STAGES.indexOf(job.has_parse_result ? "extracting" : "parsing")
@@ -134,7 +157,12 @@ function JobStatus({ job }: { job: JobStatusFullResponse }) {
       {job.status === "done" && (
         <section aria-labelledby="job-results-heading">
           <h2 id="job-results-heading">Results</h2>
-          <p>The job completed successfully. The results viewer is not available yet.</p>
+          <JobResults
+            jobId={job.job_id}
+            displayName={job.display_name}
+            selectedIndex={observationIndex}
+            onSelect={onSelectObservation}
+          />
         </section>
       )}
     </>

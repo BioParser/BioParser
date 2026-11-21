@@ -197,8 +197,15 @@ input {
 /* The job page: the evidence view sits beside the results, or below them on a narrow screen. */
 .job-detail {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
+}
+
+/* A grid item is as wide as its content by default. The results table scrolls inside its
+   own box instead of widening the page on a phone. */
+.job-detail > * {
+  min-width: 0;
 }
 
 @media (min-width: 60rem) {
@@ -512,4 +519,82 @@ mark.evidence-unit {
   .dashboard-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Job results (#313). The table reuses .jobs-scroll and .jobs-table from the dashboard. */
+.results-downloads,
+.results-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.results-count {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.results-table td:first-child {
+  min-width: 0;
+}
+
+.results-table tbody tr {
+  cursor: pointer;
+}
+
+.results-table tbody tr:hover {
+  background: #8881;
+}
+
+/* The open row: a bar on its left edge and a tint, so it is not marked by color alone. */
+.results-table tr.results-selected {
+  background: light-dark(#2457ba1a, #a0bcff26);
+  box-shadow: inset 4px 0 0 light-dark(#2457ba, #a0bcff);
+}
+
+.results-open {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+}
+
+/* break-word, not anywhere: anywhere lets the table squeeze a name to one letter per line. */
+.results-taxon,
+.results-trait {
+  min-width: 8rem;
+  overflow-wrap: break-word;
+}
+
+.results-taxon {
+  font-style: italic;
+}
+
+.results-empty {
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+
+.results-flag summary {
+  cursor: pointer;
+  white-space: nowrap;
+  color: light-dark(#8a4b00, #ffc680);
+  font-weight: 600;
+}
+
+.results-note summary {
+  color: inherit;
+  font-weight: normal;
+}
+
+.results-flag ul {
+  min-width: 16rem;
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.results-error {
+  padding: 0.5rem 1rem;
+  border-left: 4px solid #d33;
+  background: #d332;
 }
