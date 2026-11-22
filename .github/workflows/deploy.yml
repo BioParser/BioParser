@@ -1,0 +1,40 @@
+name: Deploy images
+
+# Publishes the application images after the ci.yml run on main succeeds.
+# Staging imports ghcr.io/bioparser/bioparser/api:latest on its own schedule.
+# GitHub only runs a workflow_run workflow from the default branch.
+
+on:
+  workflow_run:
+    workflows: [ci.yml]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read # fetch the commit those checks ran on
+  packages: write # push images
+
+jobs:
+  deploy:
+    name: Build and push images
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push images
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: bash .github/scripts/publish_images.sh
