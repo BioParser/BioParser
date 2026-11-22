@@ -7,11 +7,12 @@
 # Port 8080 still serves the UI that was built into the API image. That copy
 # does not pick up frontend edits. Open http://localhost:5173/ui/ for UI work.
 #
-# Appends :docker-compose.dev.yml to COMPOSE_FILE for this run only. A value
-# already exported in the shell wins. Otherwise the last COMPOSE_FILE= line in
-# .env wins, including an "export " prefix, and a trailing " # comment" is
-# dropped. Does not edit .env. GPU or CPU and logging stay whatever that
-# value already selects. Every argument is passed through to `docker compose`.
+# Appends the dev file to COMPOSE_FILE for this run only. A value already set
+# in the shell wins. Otherwise the last literal COMPOSE_FILE assignment in
+# the env file wins. A $ or \ in that value is an error. --env-file replaces
+# .env. -f adds the dev file as another -f, because Compose ignores
+# COMPOSE_FILE when -f is set. Does not edit .env. Every argument is passed
+# through to `docker compose`.
 
 set -eu
 
@@ -22,59 +23,257 @@ if [ $# -eq 0 ]; then
   exit 2
 fi
 
-# Compose strips one matched pair of quotes and ignores the rest of the line.
-strip_compose_value() {
-  value=$(printf '%s' "$1" | sed 's/^[[:space:]]*//')
-  case $value in
-    \"*)
-      value=${value#\"}
-      value=${value%%\"*}
+tmp=$(mktemp -d)
+: > "$tmp/args"
+: > "$tmp/envfiles"
+
+need_file=0
+have_dev=0
+inserted=0
+
+append_dev_flag() {
+  if [ "$need_file" -eq 1 ] && [ "$have_dev" -eq 0 ] && [ "$inserted" -eq 0 ]; then
+    printf '%s\n' -f >> "$tmp/args"
+    printf '%s\n' docker-compose.dev.yml >> "$tmp/args"
+    inserted=1
+  fi
+}
+
+while [ $# -gt 0 ]; do
+  case $1 in
+    --)
+      append_dev_flag
+      printf '%s\n' "$1" >> "$tmp/args"
+      shift
+      break
       ;;
-    \'*)
-      value=${value#\'}
-      value=${value%%\'*}
+    --env-file)
+      if [ $# -lt 2 ]; then
+        echo "bioparser-compose: --env-file needs a path" >&2
+        exit 1
+      fi
+      printf '%s\n' "$2" >> "$tmp/envfiles"
+      printf '%s\n' "$1" >> "$tmp/args"
+      printf '%s\n' "$2" >> "$tmp/args"
+      shift 2
+      ;;
+    --env-file=*)
+      printf '%s\n' "${1#--env-file=}" >> "$tmp/envfiles"
+      printf '%s\n' "$1" >> "$tmp/args"
+      shift
+      ;;
+    -f | --file)
+      if [ $# -lt 2 ]; then
+        echo "bioparser-compose: -f needs a path" >&2
+        exit 1
+      fi
+      need_file=1
+      base=${2##*/}
+      if [ "$base" = docker-compose.dev.yml ]; then
+        have_dev=1
+      fi
+      printf '%s\n' "$1" >> "$tmp/args"
+      printf '%s\n' "$2" >> "$tmp/args"
+      shift 2
+      ;;
+    --file=*)
+      need_file=1
+      base=${1#--file=}
+      base=${base##*/}
+      if [ "$base" = docker-compose.dev.yml ]; then
+        have_dev=1
+      fi
+      printf '%s\n' "$1" >> "$tmp/args"
+      shift
+      ;;
+    -*)
+      printf '%s\n' "$1" >> "$tmp/args"
+      shift
       ;;
     *)
-      value=$(printf '%s' "$value" | sed 's/[[:space:]]#.*$//;s/[[:space:]]*$//')
+      append_dev_flag
+      break
       ;;
   esac
-  printf '%s' "$value"
+done
+
+while [ $# -gt 0 ]; do
+  printf '%s\n' "$1" >> "$tmp/args"
+  shift
+done
+append_dev_flag
+
+use_default_env=0
+if [ ! -s "$tmp/envfiles" ]; then
+  use_default_env=1
+fi
+
+if [ "$use_default_env" -eq 1 ] && [ ! -f .env ] && [ -z "${COMPOSE_FILE+x}" ] && [ "$need_file" -eq 0 ]; then
+  echo "bioparser-compose: .env is missing (copy .env.example to .env)" >&2
+  exit 1
+fi
+
+: > "$tmp/toparse"
+if [ "$use_default_env" -eq 1 ]; then
+  if [ -f .env ]; then
+    printf '%s\n' .env >> "$tmp/toparse"
+  fi
+else
+  while IFS= read -r env_path || [ -n "$env_path" ]; do
+    if [ ! -f "$env_path" ]; then
+      echo "bioparser-compose: env file not found: $env_path" >&2
+      exit 1
+    fi
+    printf '%s\n' "$env_path" >> "$tmp/toparse"
+  done < "$tmp/envfiles"
+fi
+
+compose_seen=0
+sep_seen=0
+compose_from_file=
+sep_from_file=
+cr=$(printf '\r')
+
+read_env_file() {
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%"$cr"}
+    line=${line#"${line%%[![:space:]]*}"}
+    [ -z "$line" ] && continue
+    case $line in
+      \#*) continue ;;
+    esac
+    case $line in
+      export[[:space:]]*)
+        line=${line#export}
+        line=${line#"${line%%[![:space:]]*}"}
+        ;;
+    esac
+    case $line in
+      [A-Za-z_]*) ;;
+      *) continue ;;
+    esac
+    key=${line%%[^A-Za-z0-9_]*}
+    rest=${line#"$key"}
+    rest=${rest#"${rest%%[![:space:]]*}"}
+    case $rest in
+      =*) rest=${rest#=} ;;
+      *) continue ;;
+    esac
+    rest=${rest#"${rest%%[![:space:]]*}"}
+    case $key in
+      COMPOSE_FILE | COMPOSE_PATH_SEPARATOR) ;;
+      *) continue ;;
+    esac
+    case $rest in
+      \'*)
+        rest=${rest#\'}
+        case $rest in
+          *\'*) rest=${rest%%\'*} ;;
+          *)
+            echo "bioparser-compose: $key in the env file has an unterminated quote" >&2
+            exit 1
+            ;;
+        esac
+        ;;
+      \"*)
+        rest=${rest#\"}
+        case $rest in
+          *\"*) rest=${rest%%\"*} ;;
+          *)
+            echo "bioparser-compose: $key in the env file has an unterminated quote" >&2
+            exit 1
+            ;;
+        esac
+        ;;
+      *)
+        rest=${rest%%" #"*}
+        rest=${rest%"${rest##*[![:space:]]}"}
+        ;;
+    esac
+    case $key in
+      COMPOSE_FILE)
+        compose_seen=1
+        compose_from_file=$rest
+        ;;
+      COMPOSE_PATH_SEPARATOR)
+        sep_seen=1
+        sep_from_file=$rest
+        ;;
+    esac
+  done < "$1"
+}
+
+if [ -s "$tmp/toparse" ]; then
+  while IFS= read -r env_path || [ -n "$env_path" ]; do
+    read_env_file "$env_path"
+  done < "$tmp/toparse"
+fi
+
+reject_expansion() {
+  case $2 in
+    *'$'* | *\\*)
+      echo "bioparser-compose: $1 in the env file contains \$ or \\. Write a literal value, or set $1 in the shell." >&2
+      exit 1
+      ;;
+  esac
 }
 
 if [ -n "${COMPOSE_FILE+x}" ]; then
   compose_file=$COMPOSE_FILE
+elif [ "$compose_seen" -eq 1 ]; then
+  reject_expansion COMPOSE_FILE "$compose_from_file"
+  compose_file=$compose_from_file
 else
-  if [ ! -f .env ]; then
-    echo "bioparser-compose: .env is missing (copy .env.example to .env)" >&2
-    exit 1
-  fi
-
   compose_file=
-  while IFS= read -r line || [ -n "$line" ]; do
-    line=$(printf '%s' "$line" | tr -d '\r' | sed 's/^[[:space:]]*//')
-    case $line in
-      '' | \#*) continue ;;
-      export\ *)
-        line=${line#export }
-        line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//')
-        ;;
-    esac
-    case $line in
-      COMPOSE_FILE=*) compose_file=$(strip_compose_value "${line#COMPOSE_FILE=}") ;;
-    esac
-  done < .env
 fi
 
-if [ -z "$compose_file" ]; then
-  echo "bioparser-compose: COMPOSE_FILE is not set in .env" >&2
+if [ -z "$compose_file" ] && [ "$need_file" -eq 0 ]; then
+  if [ -n "${COMPOSE_FILE+x}" ] || [ "$compose_seen" -eq 1 ]; then
+    echo "bioparser-compose: COMPOSE_FILE is empty" >&2
+  else
+    echo "bioparser-compose: COMPOSE_FILE is not set" >&2
+  fi
   exit 1
 fi
 
-case ":$compose_file:" in
-  *:docker-compose.dev.yml:*) ;;
-  *) compose_file=$compose_file:docker-compose.dev.yml ;;
-esac
+if [ -n "${COMPOSE_PATH_SEPARATOR+x}" ]; then
+  sep=$COMPOSE_PATH_SEPARATOR
+elif [ "$sep_seen" -eq 1 ]; then
+  reject_expansion COMPOSE_PATH_SEPARATOR "$sep_from_file"
+  sep=$sep_from_file
+else
+  case $(uname -s) in
+    MINGW* | MSYS* | CYGWIN*) sep=';' ;;
+    *) sep=: ;;
+  esac
+fi
+if [ -z "$sep" ]; then
+  sep=:
+fi
 
-export COMPOSE_FILE=$compose_file
+if [ -n "$compose_file" ]; then
+  already=0
+  oldifs=$IFS
+  set -f
+  IFS=$sep
+  for part in $compose_file; do
+    base=${part##*/}
+    if [ "$base" = "docker-compose.dev.yml" ]; then
+      already=1
+    fi
+  done
+  set +f
+  IFS=$oldifs
+  if [ "$already" -eq 0 ]; then
+    compose_file=${compose_file}${sep}docker-compose.dev.yml
+  fi
+  export COMPOSE_FILE=$compose_file
+fi
+
+set --
+while IFS= read -r arg || [ -n "$arg" ]; do
+  set -- "$@" "$arg"
+done < "$tmp/args"
+rm -rf "$tmp"
 
 exec docker compose "$@"

@@ -81,7 +81,7 @@ Stop with `Ctrl+C`, or `docker compose down`. Stop the dev overlay with `bash bi
 
 ## Dev overlay
 
-`bioparser-compose` at the repository root is a wrapper for `docker compose`. `bash bioparser-compose up` appends `:docker-compose.dev.yml` for that run only. A `COMPOSE_FILE` already set in the shell wins. Otherwise the last `COMPOSE_FILE=` line in `.env` wins. It does not edit `.env`. GPU or CPU and logging stay whatever that value already selects. `docker-compose.dev.yml` is not part of the default `COMPOSE_FILE`. The same wrapper applies to the other Compose commands, so `bash bioparser-compose down` includes the dev services. Arguments are passed through unchanged.
+`bioparser-compose` at the repository root is a wrapper for `docker compose`. `bash bioparser-compose up` appends the dev file for that run only. A `COMPOSE_FILE` already set in the shell wins. Otherwise the last literal `COMPOSE_FILE` assignment in the env file wins. A `$` or `\` in that value is an error. Set `COMPOSE_FILE` in the shell when the list is built from other variables. `--env-file` replaces `.env`. `-f` adds the dev file as another `-f`. It does not edit `.env`. GPU or CPU and logging stay whatever that value already selects. `docker-compose.dev.yml` is not part of the default `COMPOSE_FILE`. The same wrapper applies to the other Compose commands, so `bash bioparser-compose down` includes the dev services. Arguments are passed through unchanged.
 
 ```sh
 bash bioparser-compose up

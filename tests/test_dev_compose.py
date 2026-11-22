@@ -65,6 +65,8 @@ def _run_wrapper(
     fake.chmod(0o755)
     env = os.environ.copy()
     env.pop("COMPOSE_FILE", None)
+    env.pop("COMPOSE_PATH_SEPARATOR", None)
+    env.pop("STACK", None)
     if shell_compose is not None:
         env["COMPOSE_FILE"] = shell_compose
     env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
@@ -140,6 +142,114 @@ def test_compose_wrapper_follows_compose_env_rules(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     recorded = (shell / "docker-out").read_text(encoding="utf-8").splitlines()
     assert recorded[0] == "docker-compose.yml:docker-compose.gpu.yml:docker-compose.dev.yml"
+
+
+@_NEEDS_POSIX
+def test_compose_wrapper_rejects_expansion_in_the_env_file(tmp_path: Path) -> None:
+    cases = [
+        "STACK=b.yml\nCOMPOSE_FILE=$STACK\n",
+        "COMPOSE_FILE=${NOT_SET_ZZ:-b.yml}\n",
+        "COMPOSE_FILE='$STACK'\n",
+        'COMPOSE_FILE="a\\nb.yml"\n',
+        "COMPOSE_PATH_SEPARATOR=$SEP\nCOMPOSE_FILE=a.yml\n",
+    ]
+    for index, env_text in enumerate(cases):
+        case = tmp_path / f"case-{index}"
+        case.mkdir()
+        result = _run_wrapper(case, env_text, "config")
+        assert result.returncode == 1, result.stderr
+        assert "contains $ or \\" in result.stderr
+        assert not (case / "docker-out").exists()
+
+    shell = tmp_path / "shell"
+    shell.mkdir()
+    result = _run_wrapper(
+        shell,
+        "COMPOSE_FILE=$STACK\n",
+        "config",
+        shell_compose="docker-compose.yml",
+    )
+    assert result.returncode == 0, result.stderr
+    recorded = (shell / "docker-out").read_text(encoding="utf-8").splitlines()
+    assert recorded[0] == "docker-compose.yml:docker-compose.dev.yml"
+
+
+@_NEEDS_POSIX
+def test_compose_wrapper_accepts_compose_whitespace_and_separator(tmp_path: Path) -> None:
+    spaced = tmp_path / "spaced"
+    spaced.mkdir()
+    result = _run_wrapper(spaced, "COMPOSE_FILE = b.yml\n", "config")
+    assert result.returncode == 0, result.stderr
+    recorded = (spaced / "docker-out").read_text(encoding="utf-8").splitlines()
+    assert recorded[0] == "b.yml:docker-compose.dev.yml"
+
+    exported = tmp_path / "exported"
+    exported.mkdir()
+    result = _run_wrapper(exported, "export\tCOMPOSE_FILE=b.yml\n", "config")
+    assert result.returncode == 0, result.stderr
+    recorded = (exported / "docker-out").read_text(encoding="utf-8").splitlines()
+    assert recorded[0] == "b.yml:docker-compose.dev.yml"
+
+    separated = tmp_path / "separated"
+    separated.mkdir()
+    result = _run_wrapper(
+        separated,
+        "COMPOSE_PATH_SEPARATOR=;\nCOMPOSE_FILE=a.yml;b.yml\n",
+        "config",
+    )
+    assert result.returncode == 0, result.stderr
+    recorded = (separated / "docker-out").read_text(encoding="utf-8").splitlines()
+    assert recorded[0] == "a.yml;b.yml;docker-compose.dev.yml"
+
+    tab_hash = tmp_path / "tab-hash"
+    tab_hash.mkdir()
+    result = _run_wrapper(tab_hash, "COMPOSE_FILE=b.yml\t# comment\n", "config")
+    assert result.returncode == 0, result.stderr
+    recorded = (tab_hash / "docker-out").read_text(encoding="utf-8").splitlines()
+    assert recorded[0] == "b.yml\t# comment:docker-compose.dev.yml"
+
+
+@_NEEDS_POSIX
+def test_compose_wrapper_reads_env_file_and_adds_file_flag(tmp_path: Path) -> None:
+    other = tmp_path / "other.env"
+    other.write_text("COMPOSE_FILE=b.yml\n", encoding="utf-8")
+    result = _run_wrapper(tmp_path, None, "--env-file", "other.env", "config")
+    assert result.returncode == 0, result.stderr
+    recorded = (tmp_path / "docker-out").read_text(encoding="utf-8").splitlines()
+    assert recorded == [
+        "b.yml:docker-compose.dev.yml",
+        "compose --env-file other.env config",
+    ]
+
+    both = tmp_path / "both"
+    both.mkdir()
+    (both / "other.env").write_text("COMPOSE_FILE=b.yml\n", encoding="utf-8")
+    result = _run_wrapper(both, "COMPOSE_FILE=a.yml\n", "--env-file", "other.env", "config")
+    assert result.returncode == 0, result.stderr
+    recorded = (both / "docker-out").read_text(encoding="utf-8").splitlines()
+    assert recorded[0] == "b.yml:docker-compose.dev.yml"
+
+    flagged = tmp_path / "flagged"
+    flagged.mkdir()
+    result = _run_wrapper(flagged, "COMPOSE_FILE=a.yml\n", "-f", "a.yml", "config")
+    assert result.returncode == 0, result.stderr
+    recorded = (flagged / "docker-out").read_text(encoding="utf-8").splitlines()
+    assert recorded[1] == "compose -f a.yml -f docker-compose.dev.yml config"
+
+    present = tmp_path / "present"
+    present.mkdir()
+    result = _run_wrapper(present, "COMPOSE_FILE=a.yml\n", "-f", "docker-compose.dev.yml", "config")
+    assert result.returncode == 0, result.stderr
+    recorded = (present / "docker-out").read_text(encoding="utf-8").splitlines()
+    assert recorded[1] == "compose -f docker-compose.dev.yml config"
+
+
+@_NEEDS_POSIX
+def test_compose_wrapper_says_when_compose_file_is_empty(tmp_path: Path) -> None:
+    result = _run_wrapper(tmp_path, None, "config", shell_compose="")
+    assert result.returncode == 1
+    assert "COMPOSE_FILE is empty" in result.stderr
+    assert not (tmp_path / "docker-out").exists()
 
 
 @_NEEDS_POSIX
