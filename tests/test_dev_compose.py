@@ -1,11 +1,18 @@
 """The dev overlay is opt-in. The default Compose file stays the local OKD stack."""
 
 import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
+
+_NEEDS_POSIX = pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None, reason="needs a POSIX shell"
+)
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -66,6 +73,7 @@ def _run_wrapper(
     )
 
 
+@_NEEDS_POSIX
 def test_compose_wrapper_appends_the_overlay_and_does_not_edit_env(tmp_path: Path) -> None:
     env_text = "COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml\n"
     result = _run_wrapper(tmp_path, env_text, "up", "--build")
@@ -78,6 +86,7 @@ def test_compose_wrapper_appends_the_overlay_and_does_not_edit_env(tmp_path: Pat
     assert (tmp_path / ".env").read_text(encoding="utf-8") == env_text
 
 
+@_NEEDS_POSIX
 def test_compose_wrapper_strips_quotes_and_does_not_repeat_the_overlay(tmp_path: Path) -> None:
     quoted = [
         '"docker-compose.yml:docker-compose.cpu.yml"\n',
@@ -103,6 +112,7 @@ def test_compose_wrapper_strips_quotes_and_does_not_repeat_the_overlay(tmp_path:
     assert (already / ".env").read_text(encoding="utf-8") == env_text
 
 
+@_NEEDS_POSIX
 def test_compose_wrapper_refuses_a_missing_env(tmp_path: Path) -> None:
     result = _run_wrapper(tmp_path, None, "up")
     assert result.returncode == 1
