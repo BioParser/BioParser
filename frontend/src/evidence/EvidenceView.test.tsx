@@ -319,8 +319,8 @@ describe("EvidenceView", () => {
       }),
     );
     renderView(0);
-    expect((await screen.findByText(/3B2 typesetter/)).textContent).toBe(
-      "This paper uses the 3B2 typesetter. Advent fonts could not be checked, so a symbol in the parsed text may not be the symbol printed on the page.",
+    expect((await screen.findByText(/symbol check did not finish/)).textContent).toBe(
+      "The symbol check did not finish, so this paper could not be confirmed free of the rare 3B2 typesetter. If it uses 3B2, a symbol in the parsed text may not be the symbol printed on the page.",
     );
   });
 

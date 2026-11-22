@@ -111,6 +111,7 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
 }
 
 // Advent problems share one notice. The lead names the typesetter, then one sentence each.
+// A failed check does not know the typesetter, so that notice has no lead.
 // An unknown code has no sentence yet.
 function problemNotices(problems: ParseProblem[]): { code: string; text: string }[] {
   const details: string[] = [];
@@ -123,12 +124,16 @@ function problemNotices(problems: ParseProblem[]): { code: string; text: string 
   if (details.length === 0) {
     return [];
   }
-  return [{ code: "advent", text: `This paper uses the 3B2 typesetter. ${details.join(" ")}` }];
+  const failed = problems.every((problem) => problem.code === "advent_fonts_unchecked");
+  const text = failed
+    ? details.join(" ")
+    : `This paper uses the 3B2 typesetter. ${details.join(" ")}`;
+  return [{ code: "advent", text }];
 }
 
 function problemText(problem: ParseProblem): string | null {
   if (problem.code === "advent_fonts_unchecked") {
-    return "Advent fonts could not be checked, so a symbol in the parsed text may not be the symbol printed on the page.";
+    return "The symbol check did not finish, so this paper could not be confirmed free of the rare 3B2 typesetter. If it uses 3B2, a symbol in the parsed text may not be the symbol printed on the page.";
   }
   if (problem.code === "advent_symbols_replaced" && problem.count >= 1) {
     if (problem.count === 1) {
