@@ -593,6 +593,95 @@ mark.evidence-unit {
   padding-left: 1.25rem;
 }
 
+/* The fields of an expanded row (#402). The scroll box is a container, so the list can be as
+   wide as the box rather than the table, and stays in view while the table scrolls sideways. */
+.results-scroll {
+  container-type: inline-size;
+}
+
+.results-fields-toggle {
+  min-height: 2.75rem;
+  white-space: nowrap;
+}
+
+.results-table tbody tr.results-fields-row {
+  cursor: auto;
+}
+
+.results-table tbody tr.results-fields-row:hover {
+  background: none;
+}
+
+.results-table tr.results-fields-row.results-selected {
+  background: light-dark(#2457ba1a, #a0bcff26);
+}
+
+/* The row above already has a line under it. */
+.results-fields-row td {
+  border-top: none;
+  padding-top: 0;
+}
+
+.results-fields {
+  position: sticky;
+  left: 0.75rem;
+  max-width: calc(100cqi - 1.5rem);
+}
+
+.results-fields dl {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) minmax(0, 1fr);
+  gap: 0.25rem 1rem;
+  margin: 0;
+  padding: 0.75rem;
+  border-left: 3px solid #8885;
+  background: #8881;
+}
+
+/* Each label and value is one grid row, so the two line up across the list. */
+.results-field {
+  display: contents;
+}
+
+.results-field dt {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.results-field dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Remarks can hold line breaks. */
+.results-field-value {
+  white-space: pre-line;
+}
+
+.results-field-warning {
+  display: block;
+  font-size: 0.875rem;
+  color: light-dark(#8a4b00, #ffc680);
+  font-weight: 600;
+}
+
+.results-field-warning.results-note {
+  color: inherit;
+  font-weight: normal;
+  opacity: 0.75;
+}
+
+@container (max-width: 30rem) {
+  .results-fields dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .results-field dd {
+    margin-bottom: 0.5rem;
+  }
+}
+
 .results-error {
   padding: 0.5rem 1rem;
   border-left: 4px solid #d33;

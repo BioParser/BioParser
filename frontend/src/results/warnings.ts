@@ -114,6 +114,20 @@ const COMBINED: Record<string, string> = {
     "The minimum is greater than the maximum. Both are kept as printed.",
 };
 
+// The columns a code names: the comma-separated list after its colon, as format_warning
+// writes it. An unknown kind still names its columns. A code without a colon names none.
+export function namedFields(code: string): string[] {
+  const separator = code.indexOf(":");
+  if (separator < 0) {
+    return [];
+  }
+  return code
+    .slice(separator + 1)
+    .split(",")
+    .map((field) => field.trim())
+    .filter((field) => field !== "");
+}
+
 // The plain-language line for a known code, or null for an unknown one.
 export function warningText(code: string): string | null {
   if (Object.hasOwn(COMBINED, code)) {

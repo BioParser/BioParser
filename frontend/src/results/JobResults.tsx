@@ -1,7 +1,8 @@
-import { type MouseEvent, useState } from "react";
+import { Fragment, type MouseEvent, useState } from "react";
 import { ApiError, type EtsRow, type EtsRowsResponse } from "../api/client";
 import { shouldRetry } from "../api/queryClient";
 import { toCsv } from "./csv";
+import { type Field, rowFields } from "./fields";
 import { downloadName } from "./fileName";
 import { reportedText, taxonText } from "./format";
 import { saveFile } from "./saveFile";
@@ -21,6 +22,18 @@ interface JobResultsProps {
 export function JobResults({ jobId, displayName, selectedIndex, onSelect }: JobResultsProps) {
   const results = useJobResults(jobId);
   const [hideFlagged, setHideFlagged] = useState(false);
+  // The observations whose fields are listed. Kept here, so hiding flagged rows and showing
+  // them again does not close them.
+  const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
+  function toggleFields(observationIndex: number) {
+    setExpanded((open) => {
+      const next = new Set(open);
+      if (!next.delete(observationIndex)) {
+        next.add(observationIndex);
+      }
+      return next;
+    });
+  }
 
   if (results.isPending) {
     return (
@@ -80,7 +93,13 @@ export function JobResults({ jobId, displayName, selectedIndex, onSelect }: JobR
           {shown.length === 0 ? (
             <p>Every observation is flagged. Clear “Hide flagged rows” to see them.</p>
           ) : (
-            <ResultsTable entries={shown} selectedIndex={selectedIndex} onSelect={onSelect} />
+            <ResultsTable
+              entries={shown}
+              selectedIndex={selectedIndex}
+              onSelect={onSelect}
+              expanded={expanded}
+              onToggleFields={toggleFields}
+            />
           )}
         </>
       )}
@@ -126,17 +145,24 @@ interface Entry {
   flagged: boolean;
 }
 
+const HEADINGS = ["No.", "Taxon", "Trait", "Reported value", "Flag", "Fields"];
+
 function ResultsTable({
   entries,
   selectedIndex,
   onSelect,
+  expanded,
+  onToggleFields,
 }: {
   entries: Entry[];
   selectedIndex: number | null;
   onSelect: (observationIndex: number) => void;
+  expanded: ReadonlySet<number>;
+  onToggleFields: (observationIndex: number) => void;
 }) {
   // A click anywhere on a row opens its evidence, except on a control inside it, such as
-  // the warnings toggle. The button in the first cell is the keyboard path.
+  // the warnings or fields toggle. The button in the first cell is the keyboard path. The
+  // fields row below an expanded row does not open the evidence.
   function handleRowClick(event: MouseEvent<HTMLTableRowElement>, index: number) {
     if (event.target instanceof Element && event.target.closest("button, a, input, details")) {
       return;
@@ -150,7 +176,7 @@ function ResultsTable({
         <caption>Observations, in extraction order</caption>
         <thead>
           <tr>
-            {["No.", "Taxon", "Trait", "Reported value", "Flag"].map((heading) => (
+            {HEADINGS.map((heading) => (
               <th key={heading} scope="col">
                 {heading}
               </th>
@@ -161,30 +187,59 @@ function ResultsTable({
           {entries.map(({ row, index, codes, flagged }) => {
             const selected = index === selectedIndex;
             const reported = reportedText(row);
+            const fields = rowFields(row, codes);
+            const open = expanded.has(index);
+            const fieldsId = `results-fields-${index}`;
             return (
-              <tr
-                key={row.measurementID}
-                className={selected ? "results-selected" : undefined}
-                aria-current={selected ? "true" : undefined}
-                onClick={(event) => handleRowClick(event, index)}
-              >
-                <td>
-                  <button
-                    type="button"
-                    className="results-open"
-                    aria-label={`Show evidence for observation ${index + 1}`}
-                    onClick={() => onSelect(index)}
+              <Fragment key={row.measurementID}>
+                <tr
+                  className={selected ? "results-selected" : undefined}
+                  aria-current={selected ? "true" : undefined}
+                  onClick={(event) => handleRowClick(event, index)}
+                >
+                  <td>
+                    <button
+                      type="button"
+                      className="results-open"
+                      aria-label={`Show evidence for observation ${index + 1}`}
+                      onClick={() => onSelect(index)}
+                    >
+                      {index + 1}
+                    </button>
+                  </td>
+                  <td className="results-taxon">{taxonText(row)}</td>
+                  <td className="results-trait">{row.verbatimTraitName}</td>
+                  <td>{reported ?? <span className="results-empty">Not reported</span>}</td>
+                  <td>
+                    <Flag codes={codes} flagged={flagged} />
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="results-fields-toggle"
+                      aria-expanded={open}
+                      aria-controls={open ? fieldsId : undefined}
+                      aria-label={`${fieldCount(fields.length)} of observation ${index + 1}`}
+                      onClick={() => onToggleFields(index)}
+                    >
+                      <span aria-hidden="true">{open ? "▾ " : "▸ "}</span>
+                      {fieldCount(fields.length)}
+                    </button>
+                  </td>
+                </tr>
+                {open && (
+                  <tr
+                    id={fieldsId}
+                    className={
+                      selected ? "results-fields-row results-selected" : "results-fields-row"
+                    }
                   >
-                    {index + 1}
-                  </button>
-                </td>
-                <td className="results-taxon">{taxonText(row)}</td>
-                <td className="results-trait">{row.verbatimTraitName}</td>
-                <td>{reported ?? <span className="results-empty">Not reported</span>}</td>
-                <td>
-                  <Flag codes={codes} flagged={flagged} />
-                </td>
-              </tr>
+                    <td colSpan={HEADINGS.length}>
+                      <FieldList fields={fields} observationNumber={index + 1} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             );
           })}
         </tbody>
@@ -227,6 +282,49 @@ function Flag({ codes, flagged }: { codes: string[]; flagged: boolean }) {
       </ul>
     </details>
   );
+}
+
+// The fields of one observation, in ETS column order. A field that a warning names shows the
+// warning next to its value, with the same flag mark and text as the Flag column.
+function FieldList({ fields, observationNumber }: { fields: Field[]; observationNumber: number }) {
+  return (
+    <div className="results-fields">
+      <dl aria-label={`Fields of observation ${observationNumber}`}>
+        {fields.map((field) => (
+          <div key={field.column} className="results-field">
+            <dt>{field.label}</dt>
+            <dd>
+              {field.value === null ? (
+                <span className="results-empty">Empty</span>
+              ) : (
+                <span className="results-field-value">{field.value}</span>
+              )}
+              {field.codes.map((code) => (
+                <FieldWarning key={code} code={code} />
+              ))}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function FieldWarning({ code }: { code: string }) {
+  if (!flagsRow(code)) {
+    return <span className="results-field-warning results-note">{informationalLabel(code)}</span>;
+  }
+  const text = warningText(code);
+  return (
+    <span className="results-field-warning">
+      <span aria-hidden="true">⚑ </span>
+      {text ?? <code>{code}</code>}
+    </span>
+  );
+}
+
+function fieldCount(count: number): string {
+  return count === 1 ? "1 field" : `${count} fields`;
 }
 
 function rowCount(count: number): string {

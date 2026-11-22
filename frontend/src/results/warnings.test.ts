@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flagsRow, informationalLabel, parseWarnings, warningText } from "./warnings";
+import { flagsRow, informationalLabel, namedFields, parseWarnings, warningText } from "./warnings";
 
 describe("parseWarnings", () => {
   it("reads no codes from an empty string", () => {
@@ -21,6 +21,25 @@ describe("parseWarnings", () => {
       "not_numeric:age",
       "out_of_range:month",
     ]);
+  });
+});
+
+describe("namedFields", () => {
+  it("reads the column after the colon", () => {
+    expect(namedFields("not_numeric:age")).toEqual(["age"]);
+  });
+
+  it("reads each column of a code that names several", () => {
+    expect(namedFields("not_a_date:year,month,day")).toEqual(["year", "month", "day"]);
+  });
+
+  it("reads the columns of a kind the UI does not know", () => {
+    expect(namedFields("new_kind:habitat")).toEqual(["habitat"]);
+  });
+
+  it("reads no column from a code without one", () => {
+    expect(namedFields("no_colon")).toEqual([]);
+    expect(namedFields("kind:")).toEqual([]);
   });
 });
 
