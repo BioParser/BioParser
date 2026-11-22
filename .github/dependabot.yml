@@ -61,11 +61,9 @@ updates:
         update-types:
           - "version-update:semver-major"
           - "version-update:semver-minor"
-      # A Dependabot bump of node here does not change .nvmrc or
-      # package.json "engines": bump them in the same PR.
+      # Node is pinned in the Dockerfiles and .nvmrc. Dependabot cannot
+      # update .nvmrc, so bump the image tag, the digest, and .nvmrc by hand.
       - dependency-name: "node"
-        update-types:
-          - "version-update:semver-major"
       # This image is the uv release CI pins by hand. Bump both manually.
       - dependency-name: "ghcr.io/astral-sh/uv"
     groups:
@@ -76,8 +74,8 @@ updates:
   # Images in docker-compose.yml, docker-compose.cpu.yml, docker-compose.gpu.yml,
   # and docker-compose.dev.yml.
   # redis is also pinned in .github/workflows/ci.yml. Bump both manually.
-  # The dev frontend node pin is in docker/frontend.Dockerfile. It matches the
-  # Node stage in docker/api.Dockerfile and .nvmrc. Bump those pins together.
+  # Node is ignored above. The dev frontend pin, the API ui stage, and .nvmrc
+  # move together by hand.
   - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:
@@ -92,8 +90,8 @@ updates:
           - "vllm/vllm-openai"
           - "vllm/vllm-openai-cpu"
 
-  # frontend/package.json. Node itself is pinned in .nvmrc, docker/api.Dockerfile,
-  # and docker/frontend.Dockerfile.
+  # frontend/package.json. Node itself is pinned in .nvmrc and the Dockerfiles.
+  # Dependabot does not bump it.
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:

@@ -280,6 +280,8 @@ def test_dev_overlay_reloads_edited_code_only() -> None:
         if line.startswith("FROM node:")
     )
     assert frontend_node == api_node
+    nvmrc = (_ROOT / ".nvmrc").read_text(encoding="utf-8").strip()
+    assert api_node.startswith(f"node:{nvmrc}-slim@")
     services = _services("docker-compose.dev.yml")
 
     frontend = services["frontend"]
