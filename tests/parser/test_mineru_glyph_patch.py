@@ -45,6 +45,7 @@ _ANCHORS: tuple[tuple[str, str], ...] = (
     (_NATIVE, _PATCH._DELETE_PREBUILT_OLD),
     (_NATIVE, _PATCH._ASSIGN_OLD),
     (_CONTENT, _PATCH._LINE_ITEMS_OLD),
+    (_CONTENT, _PATCH._LINE_KEEP_OLD),
     (_CONTENT, _PATCH._OCR_SPAN_OLD),
     (_OCR, _PATCH._OCR_IMPORT_OLD),
     (_OCR, _PATCH._OCR_APPLY_OLD),
@@ -66,6 +67,7 @@ _ANCHORS: tuple[tuple[str, str], ...] = (
     (_PIPELINE, _PATCH._NATIVE_OUTPUT_OLD),
     *((_MERGING, old) for old, _new, _already in _PATCH._MERGE_COPIES),
     (_TAGGED, _PATCH._TAGGED_CLASS_OLD),
+    (_TAGGED, _PATCH._TAGGED_KIND_OLD),
     (_TAGGED, _PATCH._TAGGED_CALL_OLD),
 )
 
@@ -95,6 +97,11 @@ def _assert_rewritten(site: Path) -> None:
     assert 'span.metadata.get("bioparser_glyphs")' in content
     assert 'ocr_res.get("bioparser_chars")' in content
     assert 'glyphs.append({"t": text, "x0": box[0], "x1": box[2]})' not in content
+    assert _PATCH._LINE_KEEP_NEW in content
+    assert (
+        'if block_type in LINE_METADATA_BLOCK_TYPES:\n            block_item["lines"] = _build_ocr_det_line_items'
+        not in content
+    )
 
     ocr = _text(site, _OCR)
     assert "def _bioparser_ocr_chars" in ocr
@@ -142,7 +149,8 @@ def _assert_rewritten(site: Path) -> None:
     assert (
         "        _bioparser_freeze_glyphs(line, page_size)\n        line.chars.clear()\n"
     ) in pipeline
-    assert 'output_block["lines"] = _bioparser_lines(block, page_size)\n' in pipeline
+    assert "if lines or normalized_type in _LINE_METADATA_OUTPUT_TYPES:" in pipeline
+    assert 'output_block["lines"] = lines\n' in pipeline
 
     merging = _text(site, _MERGING)
     assert merging.count("merged.bioparser_glyphs") == 3
@@ -150,6 +158,7 @@ def _assert_rewritten(site: Path) -> None:
     tagged = _text(site, _TAGGED)
     assert tagged.count("def _bioparser_tagged_lines") == 1
     assert "_bioparser_tagged_lines(measured, self.page.size)" in tagged
+    assert _PATCH._TAGGED_KIND_NEW in tagged
 
 
 def _wheel_bytes(project: str, version: str) -> bytes:

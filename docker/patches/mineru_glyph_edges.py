@@ -8,10 +8,12 @@ document. This rewrites those spots so the middle document gains
 ``extensions.bioparser_lines``. MinerU can rebuild text without character boxes, and the
 assigner still leaves some spans empty. Those spans contribute no glyphs. Flash OCR has
 no character list from the detector. The recognizer already has a column for each
-character, and this keeps that column and places it along the detection box. Tagged
-text keeps one box for the whole block. Each character box is copied onto the visual
-line it belongs to. It refuses to edit a file that does not still contain the functions
-it was written against.
+character, and this keeps that column and places it along the detection box. Removing
+padding can leave that column count short of the last character, and the last character
+then sets the right edge. A measured line is kept on every block. The mapper chooses
+which block types become part of the artifact. Tagged text keeps one box for the whole
+block. Each character box is copied onto the visual line it belongs to. It refuses to
+edit a file that does not still contain the functions it was written against.
 """
 
 from __future__ import annotations
@@ -125,41 +127,6 @@ def _build_ocr_det_line_items(lines: list[_AnalyzeLine], page_size: tuple[float,
         line_items.append({"bbox": normalized_bbox, "glyphs": glyphs})
     return line_items
 '''
-
-# A tree patched before recognizer columns still even-splits an empty span. Drop that.
-_SPAN_BOX_OLD = """            saved = span.metadata.get("bioparser_glyphs") if isinstance(span.metadata, dict) else None
-            if isinstance(saved, list) and saved:
-                for char in saved:
-                    glyph = _bioparser_glyph(char, page_size)
-                    if glyph is not None:
-                        glyphs.append(glyph)
-                continue
-            # An empty list is a native span the assigner did not fill. Flash OCR never
-            # writes the list: the detected line is one text span and one box.
-            if not isinstance(saved, list) and (
-                saved is not None or getattr(span, "type", None) != ContentType.TEXT
-            ):
-                continue
-            text = span.content if isinstance(getattr(span, "content", None), str) else ""
-            if text == "":
-                continue
-            try:
-                box = _page_bbox_to_unit_bbox(span.bbox, page_size)
-            except (TypeError, ValueError):
-                box = None
-            if box is None:
-                continue
-            glyphs.append({"t": text, "x0": box[0], "x1": box[2]})
-"""
-
-_SPAN_BOX_NEW = """            saved = span.metadata.get("bioparser_glyphs") if isinstance(span.metadata, dict) else None
-            if not isinstance(saved, list):
-                continue
-            for char in saved:
-                glyph = _bioparser_glyph(char, page_size)
-                if glyph is not None:
-                    glyphs.append(glyph)
-"""
 
 _OCR_SPAN_OLD = """        page_spans.append(
             _AnalyzeSpan(
@@ -304,8 +271,10 @@ def _bioparser_ocr_chars(
 ) -> list[dict[str, object]] | None:
     """Place each recognized character along a horizontal detection box.
 
-    ``info`` is the column count after padding correction, then one column center
-    per character. A vertical crop is left alone: its columns run down the page.
+    ``info`` is the column count after padding is removed, then one column center
+    per character. That count can stop short of the last center, which used to pile
+    the tail on the right edge and drop the line. The last center then sets the
+    right edge. A vertical crop is left alone: its columns run down the page.
     """
     if text == "":
         return None
@@ -324,13 +293,10 @@ def _bioparser_ocr_chars(
         return None
     width = x1 - x0
     height = y1 - y0
-    if (
-        len(columns) != len(text)
-        or column_count <= 0
-        or width <= 0
-        or height <= 0
-        or height / width >= rotate_ratio
-    ):
+    if len(columns) != len(text) or width <= 0 or height <= 0 or height / width >= rotate_ratio:
+        return None
+    column_count = max(column_count, max(columns))
+    if column_count <= 0:
         return None
     centers = [min(max(column / column_count, 0.0), 1.0) for column in columns]
     bounds = [0.0]
@@ -365,6 +331,17 @@ _OCR_APPLY_OLD = """    items_to_remove = []
         ocr_text, ocr_score = ocr_result_list[index]
         need_ocr_res["text"] = ocr_text
         need_ocr_res["score"] = float(f"{ocr_score:.3f}")
+"""
+
+_LINE_KEEP_OLD = """            block_item[PDF_NATIVE_SCRIPT_MARKUP_KEY] = True
+
+        if block_type in LINE_METADATA_BLOCK_TYPES:
+            block_item["lines"] = _build_ocr_det_line_items(lines, page_size)
+"""
+
+_LINE_KEEP_NEW = """            block_item[PDF_NATIVE_SCRIPT_MARKUP_KEY] = True
+
+        block_item["lines"] = _build_ocr_det_line_items(lines, page_size)
 """
 
 _OCR_APPLY_NEW = """    items_to_remove = []
@@ -551,13 +528,6 @@ _DV_DOCUMENT_NEW = '''def model_json_to_middle_json(model_json: ModelJson) -> Mi
 '''
 
 
-def _replace_present(path: Path, old: str, new: str) -> None:
-    text = path.read_text(encoding="utf-8")
-    if old not in text:
-        return
-    path.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-
 def _replace(path: Path, old: str, new: str, *, already: str) -> None:
     text = path.read_text(encoding="utf-8")
     if already in text:
@@ -596,7 +566,7 @@ def _patch_mineru(site_packages: Path) -> None:
         already="assigned_span_indices = _owned_span_assignments(_native_text, spans, median_span_height)\n",
     )
     _replace(content, _LINE_ITEMS_OLD, _LINE_ITEMS_NEW, already="def _bioparser_glyph")
-    _replace_present(content, _SPAN_BOX_OLD, _SPAN_BOX_NEW)
+    _replace(content, _LINE_KEEP_OLD, _LINE_KEEP_NEW, already=_LINE_KEEP_NEW)
     _replace(content, _OCR_SPAN_OLD, _OCR_SPAN_NEW, already='ocr_res.get("bioparser_chars")')
     rec_post = (
         site_packages
@@ -699,10 +669,13 @@ _NATIVE_CLEAR_NEW = """        _freeze_wrapped_bold_title_evidence(line, page_si
         line.chars.clear()
 """
 
-_NATIVE_OUTPUT_OLD = """        output_block["lines"] = _normalize_output_line_items(block, page_size)
+_NATIVE_OUTPUT_OLD = """    if normalized_type in _LINE_METADATA_OUTPUT_TYPES:
+        output_block["lines"] = _normalize_output_line_items(block, page_size)
 """
 
-_NATIVE_OUTPUT_NEW = """        output_block["lines"] = _bioparser_lines(block, page_size)
+_NATIVE_OUTPUT_NEW = """    lines = _bioparser_lines(block, page_size)
+    if lines or normalized_type in _LINE_METADATA_OUTPUT_TYPES:
+        output_block["lines"] = lines
 """
 
 _NATIVE_FREEZE = '''def _bioparser_freeze_glyphs(line: _LineItem, page_size: tuple[float, float]) -> None:
@@ -867,6 +840,12 @@ _TAGGED_CLASS_OLD = "class _PageAssembler:\n"
 
 _TAGGED_CLASS_NEW = _TAGGED_FN + "\n\nclass _PageAssembler:\n"
 
+_TAGGED_KIND_OLD = """        if kind in {"text", "paragraph_title", "doc_title", "page_footnote", "ref_text"}:
+"""
+
+_TAGGED_KIND_NEW = """        if kind not in {"image", "table", "equation", "list", "index"}:
+"""
+
 _TAGGED_CALL_OLD = """            block["lines"] = [{"bbox": box}]
 """
 
@@ -914,11 +893,12 @@ def _patch_docvortex_native(site_packages: Path) -> None:
         pipeline,
         _NATIVE_OUTPUT_OLD,
         _NATIVE_OUTPUT_NEW,
-        already="_bioparser_lines(block, page_size)",
+        already="if lines or normalized_type in _LINE_METADATA_OUTPUT_TYPES:",
     )
     for old, new, already in _MERGE_COPIES:
         _replace(merging, old, new, already=already)
     _replace(tagged, _TAGGED_CLASS_OLD, _TAGGED_CLASS_NEW, already="def _bioparser_tagged_lines")
+    _replace(tagged, _TAGGED_KIND_OLD, _TAGGED_KIND_NEW, already=_TAGGED_KIND_NEW)
     _replace(
         tagged,
         _TAGGED_CALL_OLD,

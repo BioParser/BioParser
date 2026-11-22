@@ -591,6 +591,14 @@ def test_recognizer_columns_place_each_character() -> None:
     assert chars[1]["bbox"] == pytest.approx([30.0, 10.0, 100.0, 30.0])
     assert patch._bioparser_ocr_chars("A", [4.0, [1.0]], [0.0, 0.0, 10.0, 40.0]) is None
     assert patch._bioparser_ocr_chars("AB", [10.0, [1.0]], [0.0, 0.0, 10.0, 4.0]) is None
+    kept = patch._bioparser_ocr_chars(
+        "ABCD", [10.0, [2.0, 6.0, 12.0, 16.0]], [0.0, 0.0, 160.0, 10.0]
+    )
+    assert kept is not None
+    assert [item["char"] for item in kept] == ["A", "B", "C", "D"]
+    assert kept[-1]["bbox"][2] == pytest.approx(160.0)
+    edges = [item["bbox"][0] for item in kept] + [kept[-1]["bbox"][2]]
+    assert edges == sorted(set(edges))
 
 
 def test_balanced_span_product_is_capped() -> None:
