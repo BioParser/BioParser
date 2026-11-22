@@ -237,8 +237,12 @@ class ProblemCode(StrEnum):
 
     # The Advent 3B2 repair did not run, so the original PDF was read.
     ADVENT_FONTS_UNCHECKED = "advent_fonts_unchecked"
-    # Advent glyphs the repair replaced with U+FFFD.
-    ADVENT_SYMBOLS_UNREAD = "advent_symbols_unread"
+    # Drawn Advent symbols replaced with the Unicode replacement character.
+    ADVENT_SYMBOLS_REPLACED = "advent_symbols_replaced"
+    # Drawn characters in an Advent font that has not been verified. They were kept.
+    ADVENT_CHARACTERS_UNVERIFIED = "advent_characters_unverified"
+    # Pages whose Advent content stream could not be counted.
+    ADVENT_PAGES_UNCOUNTED = "advent_pages_uncounted"
 
 
 class ParseProblem(BaseModel):
@@ -247,15 +251,6 @@ class ParseProblem(BaseModel):
     code: ProblemCode
     # How many items this code counts. Zero when the problem is that a check did not run.
     count: int = Field(default=0, ge=0)
-
-
-def symbol_font_problems(status: RepairStatus, count: int) -> list[ParseProblem]:
-    """The artifact problems for one symbol-font repair. An empty list needs no warning."""
-    if status is RepairStatus.FAILED:
-        return [ParseProblem(code=ProblemCode.ADVENT_FONTS_UNCHECKED)]
-    if status is RepairStatus.SUCCESS and count > 0:
-        return [ParseProblem(code=ProblemCode.ADVENT_SYMBOLS_UNREAD, count=count)]
-    return []
 
 
 class ParserArtifact(BaseModel):

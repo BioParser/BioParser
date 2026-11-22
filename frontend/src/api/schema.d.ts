@@ -851,7 +851,7 @@ export interface components {
          * @description A gap the parse noticed. The parse still succeeded.
          * @enum {string}
          */
-        ProblemCode: "advent_fonts_unchecked" | "advent_symbols_unread";
+        ProblemCode: "advent_fonts_unchecked" | "advent_symbols_replaced" | "advent_characters_unverified" | "advent_pages_uncounted";
         /**
          * ReadinessResponse
          * @example {

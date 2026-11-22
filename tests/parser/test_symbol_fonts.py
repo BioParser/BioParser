@@ -14,14 +14,18 @@ from bioparser.parser.advent_repair import symbol_child
 from bioparser.parser.advent_repair.symbol_fonts import (
     _DROP,
     _REPLACEMENT,
+    SymbolRepair,
     _cmap,
     _decide,
     _Font,
     _glyph_names,
     _interesting,
+    _is_advent,
     _is_small,
+    _remember_font,
     _Slot,
     repair_pdf,
+    symbol_font_problems,
 )
 from bioparser.parser.advent_repair.table import _ROWS, _SYMBOL_FONTS, _TEXT_FONTS
 from bioparser.parser.backend.default.parser import DefaultParser
@@ -52,6 +56,19 @@ def _artifact_text(path: Path) -> tuple[str, ParserArtifact]:
         if block.content.type == "text"
     )
     return text, artifact
+
+
+def test_symbol_font_problems_keep_only_what_the_view_should_say() -> None:
+    assert symbol_font_problems(SymbolRepair(b"", 0, RepairStatus.SKIPPED)) == []
+    assert symbol_font_problems(SymbolRepair(b"", 0, RepairStatus.SUCCESS)) == []
+    assert symbol_font_problems(SymbolRepair(b"", 2, RepairStatus.SUCCESS, 4, 1)) == [
+        ParseProblem(code=ProblemCode.ADVENT_SYMBOLS_REPLACED, count=2),
+        ParseProblem(code=ProblemCode.ADVENT_CHARACTERS_UNVERIFIED, count=4),
+        ParseProblem(code=ProblemCode.ADVENT_PAGES_UNCOUNTED, count=1),
+    ]
+    assert symbol_font_problems(SymbolRepair(b"", 3, RepairStatus.FAILED, 4)) == [
+        ParseProblem(code=ProblemCode.ADVENT_FONTS_UNCHECKED)
+    ]
 
 
 def test_the_2014_biology_paper_recovers_the_symbol_glyphs() -> None:
@@ -123,33 +140,34 @@ def test_the_2014_one_paper_recovers_the_symbol_glyphs() -> None:
 
 def test_a_saved_row_is_the_font_and_glyph_name() -> None:
     slot = _Slot(code=63, name="question", claimed="?")
-    assert _decide("AdvP7DA6", slot, small=True) == "\u00b7"
+    assert _decide("AdvP7DA6", slot) == "\u00b7"
 
 
-def test_a_small_advent_glyph_with_no_row_is_refused() -> None:
+def test_an_unseen_face_keeps_a_glyph_that_has_no_row() -> None:
     # The drawing is the EU publications logo, which is not a character.
+    # The face is on neither list, so the claimed character stays.
     slot = _Slot(code=60, name="less", claimed="<")
-    assert _decide("AdvP101F3A", slot, small=True) == _REPLACEMENT
+    assert _decide("AdvP101F3A", slot) == "<"
 
 
 def test_a_row_in_a_large_font_is_applied() -> None:
     slot = _Slot(code=45, name="hyphen", claimed="-")
-    assert _decide("AdvP3D3256", slot, small=False) == "\u201d"
+    assert _decide("AdvP3D3256", slot) == "\u201d"
 
 
 def test_a_row_that_matches_the_claim_is_kept() -> None:
     slot = _Slot(code=37, name="percent", claimed="%")
-    assert _decide("AdvP4C4E59", slot, small=True) == "%"
+    assert _decide("AdvP4C4E59", slot) == "%"
 
 
 def test_an_accent_stored_before_its_letter_is_dropped() -> None:
     slot = _Slot(code=128, name="Euro", claimed="\u20ac")
-    assert _decide("AdvP4C4E59", slot, small=True) == _DROP
+    assert _decide("AdvP4C4E59", slot) == _DROP
 
 
 def test_a_small_font_that_is_not_advent_is_kept() -> None:
     slot = _Slot(code=45, name="endash", claimed="\u2013")
-    assert _decide("20", slot, small=True) == "\u2013"
+    assert _decide("20", slot) == "\u2013"
 
 
 def test_a_wide_code_range_with_few_drawings_is_small() -> None:
@@ -178,17 +196,18 @@ def test_a_small_text_subset_keeps_the_characters_it_names() -> None:
     assert _is_small(font)
     assert "AdvP497E2" in _TEXT_FONTS
     slot = _Slot(code=48, name="parenleft", claimed="(")
-    assert _decide("AdvP497E2", slot, small=True) == "("
+    assert _decide("AdvP497E2", slot) == "("
     letter = _Slot(code=80, name="P", claimed="P")
-    assert _decide("AdvP4041BD", letter, small=True) == "P"
-    assert _decide("AdvTT3978f921.BI", letter, small=True) == "P"
+    assert _decide("AdvP4041BD", letter) == "P"
+    assert _decide("AdvTT3978f921.BI", letter) == "P"
 
 
-def test_an_unseen_small_face_becomes_the_replacement_character() -> None:
+def test_an_unseen_small_face_keeps_the_character_it_claims() -> None:
     letter = _Slot(code=80, name="P", claimed="P")
-    assert _decide("AdvUnseen", letter, small=True) == _REPLACEMENT
+    assert _decide("AdvUnseen", letter) == "P"
+    assert not _is_advent("AdventPro-Regular")
     unnamed = _Slot(code=1, name="C14", claimed="(cid:1)")
-    assert _decide("AdvP4041BD", unnamed, small=True) == _REPLACEMENT
+    assert _decide("AdvP4041BD", unnamed) == _REPLACEMENT
 
 
 class _EncodingName:
@@ -217,7 +236,7 @@ def test_an_unnamed_glyph_in_a_large_font_is_refused() -> None:
         counts={},
     )
     assert _interesting(font)
-    assert _decide("AdvP49811", slot, small=False) == _REPLACEMENT
+    assert _decide("AdvP49811", slot) == _REPLACEMENT
 
 
 def test_a_long_cmap_uses_blocks_of_at_most_100() -> None:
@@ -229,7 +248,7 @@ def test_a_long_cmap_uses_blocks_of_at_most_100() -> None:
 
 def test_a_large_advent_font_without_a_row_is_kept() -> None:
     slot = _Slot(code=65, name="A", claimed="A")
-    assert _decide("AdvP49811", slot, small=False) == "A"
+    assert _decide("AdvP49811", slot) == "A"
 
 
 def test_every_face_with_a_row_is_on_exactly_one_list() -> None:
@@ -269,12 +288,99 @@ def test_a_large_known_symbol_font_is_rewritten() -> None:
 def test_a_known_symbol_font_refuses_an_unlisted_glyph_when_large() -> None:
     epsilon = _Slot(code=101, name="e", claimed="e")
     three = _Slot(code=51, name="three", claimed="3")
-    assert _decide("AdvP3EAA99", epsilon, small=False) == _REPLACEMENT
-    assert _decide("AdvP7DA6", three, small=False) == _REPLACEMENT
+    assert _decide("AdvP3EAA99", epsilon) == _REPLACEMENT
+    assert _decide("AdvP7DA6", three) == _REPLACEMENT
     assert "AdvP3EAA99" in _SYMBOL_FONTS
     body = _Slot(code=65, name="A", claimed="A")
-    assert _decide("AdvP403A40", body, small=False) == "A"
+    assert _decide("AdvP403A40", body) == "A"
     assert "AdvP403A40" in _TEXT_FONTS
+
+
+def test_an_inline_font_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING):
+        _remember_font({"BaseFont": b"AdvP7DA6"}, {})
+    assert "skipped an inline font AdvP7DA6" in caplog.text
+
+
+def test_an_unreadable_content_stream_is_a_problem(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*_args: object, **_kwargs: object) -> list[object]:
+        raise RuntimeError("bad stream")
+
+    monkeypatch.setattr(
+        "bioparser.parser.advent_repair.symbol_fonts.pikepdf.parse_content_stream", boom
+    )
+    repaired = repair_pdf(BIOLOGY.read_bytes())
+    assert repaired.status is RepairStatus.SUCCESS
+    assert repaired.uncounted_pages > 0
+
+
+def test_a_nonzero_generation_is_rewritten() -> None:
+    pdf = pikepdf.Pdf.new()
+    font = pdf.make_indirect(
+        pikepdf.Dictionary(
+            Type=pikepdf.Name.Font,
+            Subtype=pikepdf.Name.Type1,
+            BaseFont=pikepdf.Name("/AdvP3EAA99"),
+            Encoding=pikepdf.Name.WinAnsiEncoding,
+            FirstChar=65,
+            LastChar=65,
+            Widths=[500],
+        )
+    )
+    page = pdf.add_blank_page(page_size=(200, 200))
+    page.Resources = pikepdf.Dictionary(Font=pikepdf.Dictionary(F=font))
+    page.Contents = pikepdf.Stream(pdf, b"BT /F 12 Tf (A) Tj ET\n")
+    raw = io.BytesIO()
+    pdf.save(raw)
+    saved = pikepdf.open(io.BytesIO(raw.getvalue()))
+    # Saving can renumber objects, so the id is read back from the file.
+    objid = int(saved.pages[0].Resources.Font.F.objgen[0])
+    saved.close()
+    text = raw.getvalue().decode("latin1")
+    text = text.replace(f"{objid} 0 obj", f"{objid} 1 obj", 1)
+    text = text.replace(f"{objid} 0 R", f"{objid} 1 R")
+    # The xref generation is the second field of this object's entry.
+    lines = text.splitlines()
+    xref = lines.index("xref")
+    # `xref` / `0 N` / one line per object, and object 0 is the first.
+    entry = xref + 2 + objid
+    offset, _generation, use = lines[entry].split()
+    lines[entry] = f"{offset} 00001 {use}"
+    bumped = "\n".join(lines).encode("latin1")
+    opened = pikepdf.open(io.BytesIO(bumped))
+    live = opened.pages[0].Resources.Font.F
+    assert int(live.objgen[1]) == 1
+    opened.close()
+    repaired = repair_pdf(bumped)
+    assert repaired.status is RepairStatus.SUCCESS
+    assert repaired.count == 1
+    assert "\ufffd" in _text(repaired.data)
+
+
+def test_the_parse_child_does_not_repair(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def keep_original(path: Path, *, original: bytes | None = None) -> SymbolRepair:
+        data = original if original is not None else path.read_bytes()
+        return SymbolRepair(data, 0, RepairStatus.SUCCESS)
+
+    monkeypatch.setattr(
+        "bioparser.parser.backend.default.parser.repair_pdf_in_child", keep_original
+    )
+    text, artifact = asyncio.run(_parsed(BIOLOGY))
+    assert artifact.problems == []
+    assert "GI,1.47" in text
+    assert "GI<1.47" not in text
+    assert artifact.checksum == hashlib.sha256(BIOLOGY.read_bytes()).hexdigest()
+
+
+async def _parsed(path: Path) -> tuple[str, ParserArtifact]:
+    artifact = await DefaultParser().parse(path)
+    text = "\n".join(
+        block.content.text
+        for page in artifact.pages
+        for block in page.blocks
+        if block.content.type == "text"
+    )
+    return text, artifact
 
 
 def test_a_pdf_without_a_catalog_is_left_unchanged() -> None:
@@ -397,14 +503,13 @@ def _with_base_font(source: bytes, old: str, new: str, *, font_name: bool) -> by
     return out.getvalue()
 
 
-def test_an_unlisted_plain_symbol_font_becomes_the_replacement_character() -> None:
+def test_an_unlisted_plain_symbol_font_keeps_the_claimed_character() -> None:
     edited = _with_base_font(BIOLOGY.read_bytes(), "AdvP3D3256", "AdvUnseen", font_name=False)
     repaired = repair_pdf(edited)
     text = _text(repaired.data)
     assert repaired.status is RepairStatus.SUCCESS
-    assert repaired.count > 0
-    assert "1.3660.16" not in text
-    assert "\ufffd" in text
+    assert repaired.unchecked > 0
+    assert "1.3660.16" in text
 
 
 def _page_as_form(source: bytes, page_index: int) -> bytes:
@@ -456,12 +561,13 @@ def test_a_restored_font_is_not_counted_after_q() -> None:
     pdf.save(raw)
     repaired = repair_pdf(raw.getvalue())
     assert repaired.status is RepairStatus.SUCCESS
-    assert repaired.count == 1
+    assert repaired.count == 0
+    assert repaired.unchecked == 1
 
 
 def test_the_unrepaired_count_matches_the_glyphs_pdfplumber_reads() -> None:
-    # Only the base name changes, so pdfplumber still prints the descriptor name.
-    # The replacement characters are what the count is for.
+    # The renamed face is no longer a known symbol face, so its glyphs stay.
+    # The remaining replacement characters are the other symbol faces.
     edited = _with_base_font(BIOLOGY.read_bytes(), "AdvP7DA6", "AdvUnknown", font_name=False)
     repaired = repair_pdf(edited)
     seen = 0
@@ -470,17 +576,18 @@ def test_the_unrepaired_count_matches_the_glyphs_pdfplumber_reads() -> None:
             seen += sum(1 for char in page.chars or [] if char.get("text") == "\ufffd")
             page.close()
     assert repaired.count == seen
-    assert seen > 0
+    assert repaired.unchecked > 0
 
 
-def test_an_unlisted_adv_font_becomes_the_replacement_character() -> None:
+def test_an_unlisted_adv_font_keeps_the_claimed_character() -> None:
     original = BIOLOGY.read_bytes()
     for also_font_name in (False, True):
         edited = _with_base_font(original, "AdvP7DA6", "AdvUnknown", font_name=also_font_name)
         repaired = repair_pdf(edited)
+        text = _text(repaired.data)
         assert repaired.status is RepairStatus.SUCCESS
-        assert repaired.count > 0
-        assert "\ufffd" in _text(repaired.data)
+        assert repaired.unchecked > 0
+        assert "GI,1.47" in text
 
 
 def test_a_failed_repair_is_recorded_when_the_parse_succeeds(
@@ -510,10 +617,14 @@ def test_the_parser_child_keeps_the_unmapped_log(
     )
     with caplog.at_level(logging.WARNING):
         artifact = asyncio.run(DefaultParser().parse(path))
-    [problem] = artifact.problems
-    assert problem.code is ProblemCode.ADVENT_SYMBOLS_UNREAD
-    assert problem.count > 0
-    assert "unmapped symbol font glyph" in caplog.text
+    unchecked = [
+        problem
+        for problem in artifact.problems
+        if problem.code is ProblemCode.ADVENT_CHARACTERS_UNVERIFIED
+    ]
+    assert len(unchecked) == 1
+    assert unchecked[0].count > 0
+    assert "unchecked advent face" in caplog.text
     assert "AdvUnknown" in caplog.text
 
 

@@ -8,14 +8,10 @@ from bioparser.parser.models import (
     BoundingBox,
     ContentBlock,
     Page,
-    ParseProblem,
     ParserInfo,
-    ProblemCode,
-    RepairStatus,
     TextContent,
     TextLine,
     boxes_for_range,
-    symbol_font_problems,
 )
 
 
@@ -54,17 +50,6 @@ def _sample_artifact() -> ParserArtifact:
             )
         ],
     )
-
-
-def test_symbol_font_problems_keep_only_what_the_view_should_say() -> None:
-    assert symbol_font_problems(RepairStatus.SKIPPED, 0) == []
-    assert symbol_font_problems(RepairStatus.SUCCESS, 0) == []
-    assert symbol_font_problems(RepairStatus.SUCCESS, 2) == [
-        ParseProblem(code=ProblemCode.ADVENT_SYMBOLS_UNREAD, count=2)
-    ]
-    assert symbol_font_problems(RepairStatus.FAILED, 0) == [
-        ParseProblem(code=ProblemCode.ADVENT_FONTS_UNCHECKED)
-    ]
 
 
 def test_parser_artifact_json_round_trip() -> None:

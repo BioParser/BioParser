@@ -4535,7 +4535,9 @@
         "type": "string",
         "enum": [
           "advent_fonts_unchecked",
-          "advent_symbols_unread"
+          "advent_symbols_replaced",
+          "advent_characters_unverified",
+          "advent_pages_uncounted"
         ],
         "title": "ProblemCode",
         "description": "A gap the parse noticed. The parse still succeeded."

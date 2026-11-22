@@ -5,6 +5,7 @@ from pathlib import Path
 
 from bioparser.hashing import sha256_bytes
 from bioparser.parser.advent_repair.symbol_child import repair_pdf_in_child
+from bioparser.parser.advent_repair.symbol_fonts import symbol_font_problems
 from bioparser.parser.backend.mineru.mapper import (
     MiddleJsonContractError,
     artifact_from_middle_json,
@@ -16,7 +17,7 @@ from bioparser.parser.errors import (
     ParserTimeoutError,
     UnsupportedDocumentError,
 )
-from bioparser.parser.models import ParserArtifact, symbol_font_problems
+from bioparser.parser.models import ParserArtifact
 from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 from bioparser.services.mineru.client import (
     DEFAULT_TIER,
@@ -78,7 +79,7 @@ class MinerUParser:
                 parser_name=MINERU_PARSER_NAME,
                 parser_version=PARSER_VERSIONS[MINERU_PARSER_NAME],
                 configuration=parse_configuration(self._tier),
-                problems=symbol_font_problems(repaired.status, repaired.count),
+                problems=symbol_font_problems(repaired),
             )
         except MiddleJsonContractError as exc:
             # The service and this mapper disagree (a MinerU upgrade on one side): not the PDF.

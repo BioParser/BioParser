@@ -1,4 +1,8 @@
-"""One pdfplumber parse. The PDF path is the only argument, and the artifact JSON is written to stdout."""
+"""One pdfplumber parse.
+
+The arguments are the PDF path and the checksum of the original file. The
+parent has already repaired the PDF. The artifact JSON is written to stdout.
+"""
 
 from __future__ import annotations
 
@@ -20,10 +24,12 @@ def main(argv: list[str] | None = None) -> None:
     configure_child_logging()
 
     args = sys.argv[1:] if argv is None else argv
-    if len(args) != 1:
+    if len(args) != 2:
         raise SystemExit(EXIT_NOT_FOUND)
     try:
-        artifact = DefaultParser().parse_in_this_process(Path(args[0]))
+        artifact = DefaultParser().parse_in_this_process(
+            Path(args[0]), repair=False, checksum=args[1]
+        )
     except FileNotFoundError as exc:
         sys.stdout.buffer.write(str(exc).encode())
         raise SystemExit(EXIT_NOT_FOUND) from exc

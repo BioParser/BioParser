@@ -110,33 +110,45 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
   );
 }
 
-// One sentence per problem code. An unknown code has no sentence yet.
+// Advent problems share one notice. The lead names the typesetter, then one sentence each.
+// An unknown code has no sentence yet.
 function problemNotices(problems: ParseProblem[]): { code: string; text: string }[] {
-  const notices: { code: string; text: string }[] = [];
+  const details: string[] = [];
   for (const problem of problems) {
     const text = problemText(problem);
     if (text !== null) {
-      notices.push({ code: problem.code, text });
+      details.push(text);
     }
   }
-  return notices;
+  if (details.length === 0) {
+    return [];
+  }
+  return [{ code: "advent", text: `This paper uses the 3B2 typesetter. ${details.join(" ")}` }];
 }
 
 function problemText(problem: ParseProblem): string | null {
   if (problem.code === "advent_fonts_unchecked") {
-    return (
-      "Advent fonts from the 3B2 typesetter could not be checked. " +
-      "A symbol in the text may not be the one printed on the page."
-    );
+    return "Advent fonts could not be checked, so a symbol in the parsed text may not be the symbol printed on the page.";
   }
-  if (problem.code !== "advent_symbols_unread" || problem.count < 1) {
-    return null;
+  if (problem.code === "advent_symbols_replaced" && problem.count >= 1) {
+    if (problem.count === 1) {
+      return "1 Advent symbol in the parsed text was replaced with the Unicode replacement character because the printed symbol could not be named.";
+    }
+    return `${problem.count} Advent symbols in the parsed text were replaced with the Unicode replacement character because the printed symbols could not be named.`;
   }
-  const tail = "The symbol printed on the page may be different.";
-  if (problem.count === 1) {
-    return `1 Advent symbol from the 3B2 typesetter could not be read and is shown as \uFFFD. ${tail}`;
+  if (problem.code === "advent_characters_unverified" && problem.count >= 1) {
+    if (problem.count === 1) {
+      return "1 Advent character in the parsed text was left unchanged because the font has not been verified.";
+    }
+    return `${problem.count} Advent characters in the parsed text were left unchanged because the font has not been verified.`;
   }
-  return `${problem.count} Advent symbols from the 3B2 typesetter could not be read and are shown as \uFFFD. ${tail}`;
+  if (problem.code === "advent_pages_uncounted" && problem.count >= 1) {
+    if (problem.count === 1) {
+      return "On 1 page, the drawing commands could not be counted, so an Advent symbol in the parsed text may have been replaced with the Unicode replacement character without that replacement being reported.";
+    }
+    return `On ${problem.count} pages, the drawing commands could not be counted, so an Advent symbol in the parsed text may have been replaced with the Unicode replacement character without that replacement being reported.`;
+  }
+  return null;
 }
 
 // The printed value and unit, from the extraction artifact alone, so they stay when the

@@ -1,8 +1,9 @@
 """Repair one PDF in a process the worker can kill.
 
 The PDF path and the output path are the arguments. Stdout is one line,
-`success 3` or `skipped 0`. A failure exits 1 and leaves no output file the
-parent should trust. Log lines go to stderr.
+`success 3 0 0` or `skipped 0 0 0`. The numbers are unread glyphs, unchecked
+glyphs, and pages that could not be counted. A failure exits 1 and leaves no
+output file the parent should trust. Log lines go to stderr.
 """
 
 from __future__ import annotations
@@ -32,7 +33,10 @@ def main(argv: list[str] | None = None) -> None:
     if repaired.status is RepairStatus.FAILED:
         raise SystemExit(1)
     target.write_bytes(repaired.data)
-    line = f"{repaired.status.value} {repaired.count}\n"
+    line = (
+        f"{repaired.status.value} {repaired.count} "
+        f"{repaired.unchecked} {repaired.uncounted_pages}\n"
+    )
     sys.stdout.buffer.write(line.encode())
 
 
@@ -54,26 +58,27 @@ async def repair_pdf_in_child(path: Path, *, original: bytes | None = None) -> S
         if returncode != 0 or parsed is None or parsed[0] is RepairStatus.FAILED:
             LOGGER.warning("symbol font repair left the PDF unchanged")
             return SymbolRepair(original, 0, RepairStatus.FAILED)
-        status, count = parsed
+        status, count, unchecked, uncounted = parsed
         try:
             repaired = await asyncio.to_thread(output.read_bytes)
         except OSError:
             LOGGER.warning("symbol font repair left the PDF unchanged", exc_info=True)
             return SymbolRepair(original, 0, RepairStatus.FAILED)
-        return SymbolRepair(repaired, count, status)
+        return SymbolRepair(repaired, count, status, unchecked, uncounted)
     finally:
         output.unlink(missing_ok=True)
 
 
-def _child_result(stdout: bytes) -> tuple[RepairStatus, int] | None:
+def _child_result(stdout: bytes) -> tuple[RepairStatus, int, int, int] | None:
     parts = stdout.decode("utf-8", "replace").split()
-    if len(parts) != 2 or not parts[1].isdigit():
+    if len(parts) != 4 or not all(part.isdigit() for part in parts[1:]):
         return None
     try:
         status = RepairStatus(parts[0])
     except ValueError:
         return None
-    return status, int(parts[1])
+    count, unchecked, uncounted = (int(part) for part in parts[1:])
+    return status, count, unchecked, uncounted
 
 
 if __name__ == "__main__":

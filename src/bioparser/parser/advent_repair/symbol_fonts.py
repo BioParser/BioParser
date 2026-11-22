@@ -1,18 +1,21 @@
 """Repair Advent 3B2 symbol fonts before either parser reads the PDF.
 
 The font's glyph name and its unicode map name the slot as an ordinary character.
-The drawing is the operator. Only fonts whose base name starts with Adv are
-considered. A row is that name plus the glyph name, and the pair is applied as
-written. A known text face keeps the character the map claims, even when the
-face is small. A known symbol face refuses an unlisted glyph at any size.
-Any other small Adv glyph with no row becomes U+FFFD. A missing character is
-safer than a wrong one.
+The drawing is the operator. Only a base name that starts with Adv and a
+capital letter is considered, so Advent Pro is left alone. A row is that name
+plus the glyph name, and the pair is applied as written. A known text face
+keeps the character the map claims, even when the face is small. A known
+symbol face refuses an unlisted glyph at any size. A face on neither list
+keeps the claimed character, and the drawn glyphs are counted. A `(cid:N)`
+becomes U+FFFD. A missing character is safer than a wrong one when the face
+is known to draw symbols.
 """
 
 from __future__ import annotations
 
 import io
 import logging
+import re
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -30,7 +33,7 @@ from pdfminer.pdftypes import resolve1
 from pdfminer.psexceptions import PSEOF
 
 from bioparser.parser.advent_repair.table import _ROWS, _SYMBOL_FONTS, _TEXT_FONTS
-from bioparser.parser.models import RepairStatus
+from bioparser.parser.models import ParseProblem, ProblemCode, RepairStatus
 
 LOGGER = logging.getLogger(__name__)
 
@@ -71,8 +74,33 @@ class SymbolRepair:
     """The PDF the parsers should read, and what the repair did."""
 
     data: bytes
+    # Glyphs replaced with U+FFFD.
     count: int
     status: RepairStatus
+    # Drawn glyphs in a small face that is on neither list. They were kept.
+    unchecked: int = 0
+    # Pages whose content stream could not be counted.
+    uncounted_pages: int = 0
+
+
+def symbol_font_problems(repaired: SymbolRepair) -> list[ParseProblem]:
+    """The artifact problems for one symbol-font repair. An empty list needs no warning."""
+    if repaired.status is RepairStatus.FAILED:
+        return [ParseProblem(code=ProblemCode.ADVENT_FONTS_UNCHECKED)]
+    problems: list[ParseProblem] = []
+    if repaired.status is RepairStatus.SUCCESS and repaired.count > 0:
+        problems.append(
+            ParseProblem(code=ProblemCode.ADVENT_SYMBOLS_REPLACED, count=repaired.count)
+        )
+    if repaired.status is RepairStatus.SUCCESS and repaired.unchecked > 0:
+        problems.append(
+            ParseProblem(code=ProblemCode.ADVENT_CHARACTERS_UNVERIFIED, count=repaired.unchecked)
+        )
+    if repaired.status is RepairStatus.SUCCESS and repaired.uncounted_pages > 0:
+        problems.append(
+            ParseProblem(code=ProblemCode.ADVENT_PAGES_UNCOUNTED, count=repaired.uncounted_pages)
+        )
+    return problems
 
 
 def repair_pdf(data: bytes) -> SymbolRepair:
@@ -95,36 +123,43 @@ def _repair(data: bytes) -> SymbolRepair:
         return SymbolRepair(data, 0, RepairStatus.SKIPPED)
     pdf = pikepdf.open(io.BytesIO(data))
     try:
-        _count_uses(pdf, interesting)
-        replaced, unmapped = _replacements(interesting)
+        uncounted = _count_uses(pdf, interesting)
+        replaced, unmapped, unchecked = _replacements(interesting)
         count = sum(unmapped.values())
-        if not replaced:
-            return SymbolRepair(data, count, RepairStatus.SUCCESS)
-        return SymbolRepair(_rewrite(pdf, replaced), count, RepairStatus.SUCCESS)
+        payload = data if not replaced else _rewrite(pdf, replaced)
+        return SymbolRepair(payload, count, RepairStatus.SUCCESS, unchecked, uncounted)
     finally:
         pdf.close()
 
 
 def _replacements(
     fonts: list[_Font],
-) -> tuple[list[tuple[_Font, dict[int, str]]], dict[tuple[str, str, str, int], int]]:
+) -> tuple[list[tuple[_Font, dict[int, str]]], dict[tuple[str, str, str, int], int], int]:
     # Every slot is decided from the font dictionary. A glyph the content
     # stream did not show is still rewritten, so a missed count cannot leave
     # the wrong character in place.
     replacements: list[tuple[_Font, dict[int, str]]] = []
     unmapped: dict[tuple[str, str, str, int], int] = defaultdict(int)
+    unchecked = 0
     for font in fonts:
         changed: dict[int, str] = {}
         small = _is_small(font)
+        unseen = font.base not in _TEXT_FONTS and font.base not in _SYMBOL_FONTS
+        kept = 0
         for slot in font.slots:
-            decided = _decide(font.base, slot, small=small)
+            decided = _decide(font.base, slot)
+            drawn = font.counts.get(slot.code, 0)
+            if unseen and small and decided == slot.claimed and drawn:
+                kept += drawn
             if decided == slot.claimed:
                 continue
             changed[slot.code] = decided
-            count = font.counts.get(slot.code, 0)
             sample = font.samples.get(slot.code)
-            if decided == _REPLACEMENT and count and sample is not None:
-                unmapped[(font.base, slot.name, slot.claimed, sample + 1)] += count
+            if decided == _REPLACEMENT and drawn and sample is not None:
+                unmapped[(font.base, slot.name, slot.claimed, sample + 1)] += drawn
+        if kept:
+            LOGGER.warning("unchecked advent face %s drew %s glyphs", font.base, kept)
+            unchecked += kept
         if changed:
             replacements.append((font, changed))
     for (base, glyph, claimed, page), count in sorted(unmapped.items()):
@@ -136,11 +171,15 @@ def _replacements(
             claimed,
             count,
         )
-    return replacements, unmapped
+    return replacements, unmapped, unchecked
+
+
+# 3B2 names put a capital letter after Adv. Advent Pro does not.
+_ADVENT_NAME = re.compile(r"Adv[A-Z]")
 
 
 def _is_advent(base: str) -> bool:
-    return base.startswith("Adv")
+    return _ADVENT_NAME.match(base) is not None
 
 
 def _is_small(font: _Font) -> bool:
@@ -160,7 +199,7 @@ def _interesting(font: _Font) -> bool:
     return any((font.base, slot.name) in _ROWS for slot in font.slots)
 
 
-def _decide(base: str, slot: _Slot, *, small: bool) -> str:
+def _decide(base: str, slot: _Slot) -> str:
     if not _is_advent(base):
         return slot.claimed
     if (base, slot.name) in _ROWS:
@@ -171,7 +210,8 @@ def _decide(base: str, slot: _Slot, *, small: bool) -> str:
     if base in _TEXT_FONTS:
         return slot.claimed
     # A listed symbol face. Size does not make it text.
-    if base in _SYMBOL_FONTS or small:
+    # A face on neither list keeps the claim. The caller counts those glyphs.
+    if base in _SYMBOL_FONTS:
         return _REPLACEMENT
     return slot.claimed
 
@@ -211,7 +251,10 @@ def _collect_fonts(resources: object, found: dict[int, _Font], seen: set[int]) -
 
 def _remember_font(ref: object, found: dict[int, _Font]) -> None:
     objid = getattr(ref, "objid", None)
-    if not isinstance(objid, int) or objid in found:
+    if not isinstance(objid, int):
+        _log_inline_font(ref)
+        return
+    if objid in found:
         return
     font = resolve1(ref)
     if not isinstance(font, dict):
@@ -230,6 +273,14 @@ def _remember_font(ref: object, found: dict[int, _Font]) -> None:
         samples={},
         counts={},
     )
+
+
+def _log_inline_font(ref: object) -> None:
+    font = resolve1(ref)
+    if not isinstance(font, dict) or font.get("BaseFont") is None:
+        return
+    base = _base_name(resolve1(font.get("BaseFont")))
+    LOGGER.warning("symbol font repair skipped an inline font %s", base)
 
 
 def _item(obj: object, key: str) -> object:
@@ -367,14 +418,17 @@ def _literal_name(value: object) -> str | None:
     return None
 
 
-def _count_uses(pdf: pikepdf.Pdf, fonts: list[_Font]) -> None:
+def _count_uses(pdf: pikepdf.Pdf, fonts: list[_Font]) -> int:
     # Count by font object, not by the name pdfplumber later prints. /BaseFont
     # and the descriptor's /FontName can differ, and two fonts can claim the
     # same character. The content stream names the font resource, which points
     # at one object.
     by_id = {font.objid: font for font in fonts}
+    missed = 0
     for index, page in enumerate(pdf.pages):
-        _count_container(page, page.get("/Resources"), index, by_id, set(), None)
+        if not _count_container(page, page.get("/Resources"), index, by_id, set(), None):
+            missed += 1
+    return missed
 
 
 def _count_container(
@@ -384,14 +438,14 @@ def _count_container(
     by_id: dict[int, _Font],
     stack: set[tuple[int, int]],
     font: int | None,
-) -> None:
+) -> bool:
     objgen = getattr(container, "objgen", None)
     if objgen in stack:
-        return
+        return True
     if objgen is not None:
         stack.add(objgen)
     try:
-        _count_operators(container, resources, page_index, by_id, stack, font)
+        return _count_operators(container, resources, page_index, by_id, stack, font)
     finally:
         if objgen is not None:
             stack.discard(objgen)
@@ -404,7 +458,7 @@ def _count_operators(
     by_id: dict[int, _Font],
     stack: set[tuple[int, int]],
     font: int | None,
-) -> None:
+) -> bool:
     # q and Q save and restore the font with the rest of the graphics state.
     # A form starts from the font that was current at Do, and Do restores it.
     font_ids = _resource_fonts(resources, by_id)
@@ -414,7 +468,8 @@ def _count_operators(
         operations = pikepdf.parse_content_stream(container)
     except Exception:
         LOGGER.warning("symbol font repair could not read a content stream", exc_info=True)
-        return
+        return False
+    counted = True
     for instruction in operations:
         operands = getattr(instruction, "operands", ())
         operator = getattr(instruction, "operator", "")
@@ -427,7 +482,8 @@ def _count_operators(
                 current = saved.pop()
             continue
         if op == "Do" and operands and resources is not None:
-            _count_xobject(operands[0], resources, page_index, by_id, stack, current)
+            if not _count_xobject(operands[0], resources, page_index, by_id, stack, current):
+                counted = False
             continue
         if op == "Tf" and operands:
             current = font_ids.get(str(operands[0]).lstrip("/"))
@@ -442,6 +498,7 @@ def _count_operators(
         elif op == "TJ":
             for piece in _pieces(operands[0]):
                 _count_codes(piece, active, page_index)
+    return counted
 
 
 def _resource_fonts(resources: pikepdf.Object | None, by_id: dict[int, _Font]) -> dict[str, int]:
@@ -466,16 +523,16 @@ def _count_xobject(
     by_id: dict[int, _Font],
     stack: set[tuple[int, int]],
     font: int | None,
-) -> None:
+) -> bool:
     xobjects = resources.get("/XObject")
     if xobjects is None:
-        return
+        return True
     xobject = xobjects.get(str(name))
     if xobject is None or str(xobject.get("/Subtype")) != "/Form":
-        return
+        return True
     nested = xobject.get("/Resources")
     chosen = nested if nested is not None else resources
-    _count_container(xobject, chosen, page_index, by_id, stack, font)
+    return _count_container(xobject, chosen, page_index, by_id, stack, font)
 
 
 def _pieces(value: object) -> Iterable[object]:
@@ -505,6 +562,19 @@ def _codes(value: object) -> bytes:
     return raw if isinstance(raw, bytes) else b""
 
 
+def _live_object(pdf: pikepdf.Pdf, objid: int) -> pikepdf.Object:
+    # The generation is not 0 for an incrementally updated file. pdfminer does
+    # not keep it, so the object is found here by its id.
+    matches = [
+        obj
+        for obj in pdf.objects
+        if getattr(obj, "objgen", None) is not None and obj.objgen[0] == objid
+    ]
+    if not matches:
+        raise KeyError(objid)
+    return max(matches, key=lambda obj: int(obj.objgen[1]))
+
+
 def _rewrite(pdf: pikepdf.Pdf, replacements: list[tuple[_Font, dict[int, str]]]) -> bytes:
     # pikepdf keeps encryption, object streams, and nested dictionaries.
     # The caller only reaches here when a slot changed.
@@ -513,7 +583,7 @@ def _rewrite(pdf: pikepdf.Pdf, replacements: list[tuple[_Font, dict[int, str]]])
         if not mapping:
             mapping = {slot.code: slot.claimed for slot in font.slots}
         mapping.update(changed)
-        pdf.get_object(font.objid, 0)["/ToUnicode"] = pikepdf.Stream(pdf, _cmap(mapping))
+        _live_object(pdf, font.objid)["/ToUnicode"] = pikepdf.Stream(pdf, _cmap(mapping))
     out = io.BytesIO()
     try:
         # True keeps the encryption the file already has. Older RC4 cannot

@@ -295,19 +295,19 @@ describe("EvidenceView", () => {
   it("does not warn when every symbol was matched", async () => {
     renderView(0);
     await screen.findByRole("blockquote");
-    expect(screen.queryByText(/could not be read/)).toBeNull();
+    expect(screen.queryByText(/3B2 typesetter/)).toBeNull();
   });
 
   it("warns when the parser replaced symbols it could not match", async () => {
     stubArtifacts(() =>
       Response.json({
         ...PARSER,
-        problems: [{ code: "advent_symbols_unread", count: 2 }],
+        problems: [{ code: "advent_symbols_replaced", count: 2 }],
       }),
     );
     renderView(0);
-    expect((await screen.findByText(/could not be read/)).textContent).toBe(
-      "2 Advent symbols from the 3B2 typesetter could not be read and are shown as \uFFFD. The symbol printed on the page may be different.",
+    expect((await screen.findByText(/3B2 typesetter/)).textContent).toBe(
+      "This paper uses the 3B2 typesetter. 2 Advent symbols in the parsed text were replaced with the Unicode replacement character because the printed symbols could not be named.",
     );
   });
 
@@ -319,9 +319,34 @@ describe("EvidenceView", () => {
       }),
     );
     renderView(0);
-    expect((await screen.findByText(/could not be checked/)).textContent).toBe(
-      "Advent fonts from the 3B2 typesetter could not be checked. " +
-        "A symbol in the text may not be the one printed on the page.",
+    expect((await screen.findByText(/3B2 typesetter/)).textContent).toBe(
+      "This paper uses the 3B2 typesetter. Advent fonts could not be checked, so a symbol in the parsed text may not be the symbol printed on the page.",
+    );
+  });
+
+  it("warns when an unseen Advent face was left as the font claims", async () => {
+    stubArtifacts(() =>
+      Response.json({
+        ...PARSER,
+        problems: [{ code: "advent_characters_unverified", count: 58 }],
+      }),
+    );
+    renderView(0);
+    expect((await screen.findByText(/3B2 typesetter/)).textContent).toBe(
+      "This paper uses the 3B2 typesetter. 58 Advent characters in the parsed text were left unchanged because the font has not been verified.",
+    );
+  });
+
+  it("warns when a page of Advent fonts could not be counted", async () => {
+    stubArtifacts(() =>
+      Response.json({
+        ...PARSER,
+        problems: [{ code: "advent_pages_uncounted", count: 1 }],
+      }),
+    );
+    renderView(0);
+    expect((await screen.findByText(/3B2 typesetter/)).textContent).toBe(
+      "This paper uses the 3B2 typesetter. On 1 page, the drawing commands could not be counted, so an Advent symbol in the parsed text may have been replaced with the Unicode replacement character without that replacement being reported.",
     );
   });
 
@@ -329,12 +354,29 @@ describe("EvidenceView", () => {
     stubArtifacts(() =>
       Response.json({
         ...PARSER,
-        problems: [{ code: "advent_symbols_unread", count: 1 }],
+        problems: [{ code: "advent_symbols_replaced", count: 1 }],
       }),
     );
     renderView(0);
-    expect((await screen.findByText(/could not be read/)).textContent).toBe(
-      "1 Advent symbol from the 3B2 typesetter could not be read and is shown as \uFFFD. The symbol printed on the page may be different.",
+    expect((await screen.findByText(/3B2 typesetter/)).textContent).toBe(
+      "This paper uses the 3B2 typesetter. 1 Advent symbol in the parsed text was replaced with the Unicode replacement character because the printed symbol could not be named.",
+    );
+  });
+
+  it("puts every Advent problem in one notice", async () => {
+    stubArtifacts(() =>
+      Response.json({
+        ...PARSER,
+        problems: [
+          { code: "advent_symbols_replaced", count: 2 },
+          { code: "advent_characters_unverified", count: 58 },
+          { code: "advent_pages_uncounted", count: 1 },
+        ],
+      }),
+    );
+    renderView(0);
+    expect((await screen.findByText(/3B2 typesetter/)).textContent).toBe(
+      "This paper uses the 3B2 typesetter. 2 Advent symbols in the parsed text were replaced with the Unicode replacement character because the printed symbols could not be named. 58 Advent characters in the parsed text were left unchanged because the font has not been verified. On 1 page, the drawing commands could not be counted, so an Advent symbol in the parsed text may have been replaced with the Unicode replacement character without that replacement being reported.",
     );
   });
 
