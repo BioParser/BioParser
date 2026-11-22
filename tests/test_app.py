@@ -157,11 +157,13 @@ def test_submit_pdf(client: TestClient) -> None:
 async def test_duplicate_pdf_submission_reuses_stored_artifact(
     stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, jobs, parse_queue, _ = stub_api_adapters
     artifact_storage = FileSystemArtifactStorage(tmp_path / "artifacts")
-    monkeypatch.setattr(api_app.state, "artifact_storage", artifact_storage)
+    # pytest 9.2 records the previous value from the instance __dict__.
+    # Starlette State keeps attributes elsewhere, so a second
+    # monkeypatch.setattr deletes this attribute twice at teardown.
+    api_app.state.artifact_storage = artifact_storage
 
     async with httpx2.AsyncClient(
         transport=ASGITransport(api_app),
