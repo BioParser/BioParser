@@ -28,6 +28,7 @@ _COLUMNS = {
     "extracting_claims": ("NO", "integer", None),
     "created_at": ("NO", "timestamp with time zone", None),
     "updated_at": ("NO", "timestamp with time zone", None),
+    "deleted_at": ("YES", "timestamp with time zone", None),
 }
 _CHECKS = {
     "jobs_status_check",
@@ -35,6 +36,7 @@ _CHECKS = {
     "jobs_extract_result_ref_check",
     "jobs_parsing_claims_check",
     "jobs_extracting_claims_check",
+    "jobs_deleted_at_check",
 }
 _DOCUMENTS_COLUMNS = {
     "checksum": ("NO", "character varying", 64),

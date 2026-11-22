@@ -69,6 +69,7 @@ FastAPI owns the public HTTP contract:
 
 - `POST /api/extractions` stores a PDF, inserts its document and a job in one transaction, and queues that job
 - `GET /api/jobs/{job_id}` for job status and results
+- `DELETE /api/jobs/{job_id}` soft-deletes a done or failed job: it leaves the job lists, and its row, document and artifacts stay
 - `/health` for process liveness
 - `/ready` a readiness endpoint for Redis and artifact storage availability
 

@@ -1,10 +1,19 @@
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { useParams, useSearchParams } from "react-router";
-import { ApiError, getJob, type JobStatusFullResponse } from "../api/client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router";
+import {
+  ApiError,
+  deleteJob,
+  getJob,
+  type JobList,
+  type JobStatusFullResponse,
+} from "../api/client";
 import { EvidenceView } from "../evidence/EvidenceView";
+import { artifactQueryKey } from "../evidence/useEvidenceArtifacts";
+import { jobQueryKey } from "../evidence/usePdfDocument";
 import { JOB_STATUS_LABELS } from "../jobStatus";
 import { JobResults } from "../results/JobResults";
+import { resultsQueryKey } from "../results/useJobResults";
 
 const OBSERVATION_PARAM = "observation";
 
@@ -58,7 +67,7 @@ export function JobDetailPage() {
   const job = useQuery({
     // detail=full: the page shows the stored record, and usePdfDocument reads the document
     // checksum from the same cache entry.
-    queryKey: ["job", jobId],
+    queryKey: jobQueryKey(jobId),
     queryFn: ({ signal }) => getJob(jobId, signal, "full"),
     enabled: visible,
     // Polling is also the retry schedule, so transient failures remain visible.
@@ -131,6 +140,10 @@ function JobStatus({
             <time dateTime={job.created_at}>{new Date(job.created_at).toLocaleString()}</time>
           </dd>
         </dl>
+        {(job.status === "done" || job.status === "failed") && (
+          // key: another job's page starts with the question closed and no delete of its own.
+          <DeleteJob key={job.job_id} jobId={job.job_id} displayName={job.display_name} />
+        )}
       </section>
       <section aria-labelledby="job-progress-heading">
         <h2 id="job-progress-heading">Progress</h2>
@@ -166,6 +179,126 @@ function JobStatus({
         </section>
       )}
     </>
+  );
+}
+
+// The dashboard shows this name once after a delete (see DashboardPage).
+export type DeletedJobState = { deletedJob: string };
+
+// A finished job can be deleted. The API keeps the document, the PDF and the artifacts.
+function DeleteJob({ jobId, displayName }: { jobId: string; displayName: string | null }) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [confirming, setConfirming] = useState(false);
+  const deleteButton = useRef<HTMLButtonElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  const opened = useRef(false);
+  useEffect(() => {
+    if (confirming) cancelButton.current?.focus();
+    else if (opened.current) deleteButton.current?.focus();
+  }, [confirming]);
+  // The job's cached data goes once the page has unmounted: removed while the page still
+  // shows it, a query would load again at the next render.
+  const deleted = useRef(false);
+  useEffect(
+    () => () => {
+      if (!deleted.current) return;
+      for (const queryKey of [
+        jobQueryKey(jobId),
+        resultsQueryKey(jobId),
+        artifactQueryKey("parser", jobId),
+        artifactQueryKey("extraction", jobId),
+      ]) {
+        queryClient.removeQueries({ queryKey, exact: true });
+      }
+    },
+    [jobId, queryClient],
+  );
+
+  // The id to delete is the mutation's variable, fixed when the user confirms. The callbacks
+  // here run for that id even if the page has moved on; React Query hands a pending mutation
+  // the options of the latest render, so they must not read this render's props.
+  const removal = useMutation({
+    mutationFn: async (id: string) => {
+      try {
+        await deleteJob(id);
+      } catch (error) {
+        // Already deleted, for example in another tab: the outcome is the same.
+        if (!(error instanceof ApiError && error.status === 404)) throw error;
+      }
+    },
+    onSuccess: (_data, id) => {
+      queryClient.setQueriesData<JobList>({ queryKey: ["jobs"] }, (jobs) =>
+        jobs?.filter((listed) => listed.job_id !== id),
+      );
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
+  function confirmDelete() {
+    const state: DeletedJobState = { deletedJob: displayName ?? "Unnamed PDF" };
+    removal.mutate(jobId, {
+      // Runs only while this job's page is still open: a delete that ends after the user has
+      // gone elsewhere does not take them back to the dashboard.
+      onSuccess: async () => {
+        deleted.current = true;
+        // replace: Back does not return to the page of a job that is gone.
+        await navigate("/", { replace: true, state });
+      },
+    });
+  }
+
+  // The buttons sit in paragraphs so they get the page's paragraph spacing.
+  if (!confirming) {
+    return (
+      <p>
+        <button
+          type="button"
+          ref={deleteButton}
+          onClick={() => {
+            opened.current = true;
+            setConfirming(true);
+          }}
+        >
+          Delete job
+        </button>
+      </p>
+    );
+  }
+  return (
+    <div>
+      <p id="job-delete-question">
+        Delete this job? It leaves the job lists. The PDF and its stored results are kept.
+      </p>
+      {removal.isError && (
+        <p role="alert">
+          {removal.error instanceof ApiError && removal.error.code === "job_not_finished"
+            ? "Only a done or failed job can be deleted."
+            : "The job could not be deleted. Try again."}
+        </p>
+      )}
+      <p>
+        <button
+          type="button"
+          aria-describedby="job-delete-question"
+          disabled={removal.isPending}
+          onClick={confirmDelete}
+        >
+          {removal.isPending ? "Deleting…" : "Delete job"}
+        </button>{" "}
+        <button
+          type="button"
+          ref={cancelButton}
+          aria-describedby="job-delete-question"
+          disabled={removal.isPending}
+          onClick={() => {
+            removal.reset();
+            setConfirming(false);
+          }}
+        >
+          Cancel
+        </button>
+      </p>
+    </div>
   );
 }
 

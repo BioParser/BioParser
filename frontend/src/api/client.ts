@@ -164,6 +164,12 @@ export function getJob(
   return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}${query}`, { signal });
 }
 
+// Deletes a done or failed job: the job row only, not the document, the PDF or the artifacts.
+// 409 job_not_finished for a job in any other status, 404 for one that is already gone.
+export async function deleteJob(jobId: string, signal?: AbortSignal): Promise<void> {
+  await apiRequest(`/api/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE", signal });
+}
+
 // The ETS rows of a done job. 409 until the job is done; 500 artifact_invalid when the stored
 // extraction artifact cannot be read.
 export function getJobEts(jobId: string, signal?: AbortSignal): Promise<EtsRowsResponse> {

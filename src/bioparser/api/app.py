@@ -62,6 +62,7 @@ from .errors import (
     INVALID_CONTENT_LENGTH,
     INVALID_JOB_ID,
     INVALID_PDF,
+    JOB_NOT_FINISHED,
     JOB_NOT_FOUND,
     JOB_STATE_UNREADABLE,
     MISSING_FILE,
@@ -730,6 +731,43 @@ async def job_status(
     if detail == "full":
         return job_body_full(state, display_name)
     return job_body(state)
+
+
+@app.delete(
+    "/api/jobs/{job_id}",
+    status_code=204,
+    dependencies=[Depends(require_api_key)],
+    response_class=Response,
+    responses={
+        204: {"description": "The job was deleted"},
+        401: error_response(UNAUTHORIZED),
+        404: error_response(JOB_NOT_FOUND),
+        409: error_response(JOB_NOT_FINISHED),
+        422: error_response(INVALID_JOB_ID),
+        503: error_response(DATABASE_UNAVAILABLE),
+    },
+)
+async def delete_job(request: Request, job_id: str) -> Response:
+    """Delete a `done` or `failed` job.
+
+    The job leaves the job lists and its reads are `404`. It is a soft delete: the
+    row is marked deleted and stays in the database. The document, its PDF and the
+    parser and extraction artifacts stay too, since other jobs of the same PDF can
+    share them. A job in any other status is still running and is `409`.
+    """
+    parsed_job_id = _parse_job_id(job_id)
+    fields = {"job_id": str(parsed_job_id)}
+    try:
+        async with database.transaction() as connection:
+            outcome = await job_queries.delete_finished(connection, parsed_job_id)
+    except DatabaseError as exc:
+        LOGGER.warning("job delete failed", extra=fields | error_fields(exc))
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
+    if outcome == "missing":
+        raise http_error(404, JOB_NOT_FOUND)
+    if outcome == "not_finished":
+        raise http_error(409, JOB_NOT_FINISHED)
+    return Response(status_code=204)
 
 
 @app.get(

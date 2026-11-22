@@ -1453,6 +1453,137 @@
             "description": "Service Unavailable"
           }
         }
+      },
+      "delete": {
+        "summary": "Delete Job",
+        "description": "Delete a `done` or `failed` job.\n\nThe job leaves the job lists and its reads are `404`. It is a soft delete: the\nrow is marked deleted and stays in the database. The document, its PDF and the\nparser and extraction artifacts stay too, since other jobs of the same PDF can\nshare them. A job in any other status is still running and is `409`.",
+        "operationId": "delete_job_api_jobs__job_id__delete",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The job was deleted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "unauthorized": {
+                    "summary": "Invalid or missing API key",
+                    "value": {
+                      "detail": {
+                        "code": "unauthorized",
+                        "message": "Invalid or missing API key"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "job_not_found": {
+                    "summary": "Job not found",
+                    "value": {
+                      "detail": {
+                        "code": "job_not_found",
+                        "message": "Job not found"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "job_not_finished": {
+                    "summary": "Only a done or failed job can be deleted. GET /api/jobs/{job_id} shows the job status",
+                    "value": {
+                      "detail": {
+                        "code": "job_not_finished",
+                        "message": "Only a done or failed job can be deleted. GET /api/jobs/{job_id} shows the job status"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_job_id": {
+                    "summary": "job_id must be a version 4 UUID",
+                    "value": {
+                      "detail": {
+                        "code": "invalid_job_id",
+                        "message": "job_id must be a version 4 UUID"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "database_unavailable": {
+                    "summary": "Database is unavailable",
+                    "value": {
+                      "detail": {
+                        "code": "database_unavailable",
+                        "message": "Database is unavailable"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
       }
     },
     "/api/jobs/{job_id}/ets": {
@@ -2364,6 +2495,7 @@
               "unsupported_content_type",
               "invalid_content_length",
               "job_not_found",
+              "job_not_finished",
               "invalid_job_id",
               "content_too_large",
               "storage_unavailable",
