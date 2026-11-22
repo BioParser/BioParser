@@ -14,8 +14,7 @@ const PARSER: ParserArtifact = {
   schema_version: "2",
   checksum: "abc",
   parser: { name: "default", version: "1", configuration: {} },
-  unrepaired_count: 0,
-  repair_status: "skipped",
+  problems: [],
   pages: [
     {
       page_number: 1,

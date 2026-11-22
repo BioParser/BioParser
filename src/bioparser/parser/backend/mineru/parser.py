@@ -16,7 +16,7 @@ from bioparser.parser.errors import (
     ParserTimeoutError,
     UnsupportedDocumentError,
 )
-from bioparser.parser.models import ParserArtifact
+from bioparser.parser.models import ParserArtifact, symbol_font_problems
 from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 from bioparser.services.mineru.client import (
     DEFAULT_TIER,
@@ -78,8 +78,7 @@ class MinerUParser:
                 parser_name=MINERU_PARSER_NAME,
                 parser_version=PARSER_VERSIONS[MINERU_PARSER_NAME],
                 configuration=parse_configuration(self._tier),
-                repair_status=repaired.status,
-                unrepaired_count=repaired.count,
+                problems=symbol_font_problems(repaired.status, repaired.count),
             )
         except MiddleJsonContractError as exc:
             # The service and this mapper disagree (a MinerU upgrade on one side): not the PDF.

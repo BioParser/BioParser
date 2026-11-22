@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef } from "react";
-import { ApiError, type RepairStatus } from "../api/client";
+import { ApiError, type ParseProblem } from "../api/client";
 import { EvidencePdf } from "./EvidencePdf";
 import {
   buildQuotation,
@@ -21,9 +21,7 @@ interface EvidenceViewProps {
 // marked. Shown only once an observation is selected, so nothing loads before that.
 export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewProps) {
   const { parser, observations } = useEvidenceArtifacts(jobId, true);
-  const unrepaired = parser.data?.unrepairedCount ?? 0;
-  const repairStatus = parser.data?.repairStatus ?? "skipped";
-  const repairNotice = repairWarning(unrepaired, repairStatus);
+  const notices = problemNotices(parser.data?.problems ?? []);
   const panelRef = useRef<HTMLElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -83,7 +81,11 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
           Close
         </button>
       </div>
-      {repairNotice !== null && <p role="status">{repairNotice}</p>}
+      {notices.map((notice) => (
+        <p key={notice.code} role="status">
+          {notice.text}
+        </p>
+      ))}
       {observations.isPending ? (
         <p role="status">Loading the evidence…</p>
       ) : observations.isError ? (
@@ -108,24 +110,33 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
   );
 }
 
-// unrepairedCount is how many drawn Adv glyphs this repair replaced with U+FFFD.
-// That is a small face with no row, a known symbol face, or a (cid:N) slot.
-// failed means the repair did not run, so the text was not checked.
-function repairWarning(count: number, status: RepairStatus): string | null {
-  if (status === "failed") {
+// One sentence per problem code. An unknown code has no sentence yet.
+function problemNotices(problems: ParseProblem[]): { code: string; text: string }[] {
+  const notices: { code: string; text: string }[] = [];
+  for (const problem of problems) {
+    const text = problemText(problem);
+    if (text !== null) {
+      notices.push({ code: problem.code, text });
+    }
+  }
+  return notices;
+}
+
+function problemText(problem: ParseProblem): string | null {
+  if (problem.code === "advent_fonts_unchecked") {
     return (
-      "Symbol fonts in this paper could not be checked. " +
+      "Advent fonts from the 3B2 typesetter could not be checked. " +
       "A symbol in the text may not be the one printed on the page."
     );
   }
+  if (problem.code !== "advent_symbols_unread" || problem.count < 1) {
+    return null;
+  }
   const tail = "The symbol printed on the page may be different.";
-  if (count === 1) {
-    return `1 symbol in this paper could not be read and is shown as \uFFFD. ${tail}`;
+  if (problem.count === 1) {
+    return `1 Advent symbol from the 3B2 typesetter could not be read and is shown as \uFFFD. ${tail}`;
   }
-  if (count > 1) {
-    return `${count} symbols in this paper could not be read and are shown as \uFFFD. ${tail}`;
-  }
-  return null;
+  return `${problem.count} Advent symbols from the 3B2 typesetter could not be read and are shown as \uFFFD. ${tail}`;
 }
 
 // The printed value and unit, from the extraction artifact alone, so they stay when the

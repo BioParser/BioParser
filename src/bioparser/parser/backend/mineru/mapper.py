@@ -34,9 +34,9 @@ from bioparser.parser.models import (
     BoundingBox,
     ContentBlock,
     Page,
+    ParseProblem,
     ParserArtifact,
     ParserInfo,
-    RepairStatus,
     TableContent,
     TextContent,
 )
@@ -123,8 +123,7 @@ def artifact_from_middle_json(
     parser_name: str,
     parser_version: str,
     configuration: dict[str, str | int | float | bool],
-    repair_status: RepairStatus = RepairStatus.SKIPPED,
-    unrepaired_count: int = 0,
+    problems: list[ParseProblem] | None = None,
 ) -> ParserArtifact:
     try:
         dump = MiddleDump.model_validate(middle)
@@ -178,6 +177,5 @@ def artifact_from_middle_json(
         checksum=checksum,
         parser=ParserInfo(name=parser_name, version=parser_version, configuration=configuration),
         pages=pages,
-        repair_status=repair_status,
-        unrepaired_count=unrepaired_count,
+        problems=problems or [],
     )

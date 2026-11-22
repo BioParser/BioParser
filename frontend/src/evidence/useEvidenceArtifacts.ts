@@ -29,8 +29,7 @@ function observationsOf(artifact: ExtractionArtifact): Observation[] {
 function parserEvidence(artifact: ParserArtifact) {
   return {
     blocks: indexTextBlocks(artifact),
-    unrepairedCount: artifact.unrepaired_count ?? 0,
-    repairStatus: artifact.repair_status ?? "skipped",
+    problems: artifact.problems ?? [],
   };
 }
 

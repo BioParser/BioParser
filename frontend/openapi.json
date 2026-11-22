@@ -4433,6 +4433,25 @@
         ],
         "title": "Page"
       },
+      "ParseProblem": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ProblemCode"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Count",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "ParseProblem"
+      },
       "ParserArtifact": {
         "properties": {
           "schema_version": {
@@ -4454,15 +4473,12 @@
             "type": "array",
             "title": "Pages"
           },
-          "repair_status": {
-            "$ref": "#/components/schemas/RepairStatus",
-            "default": "skipped"
-          },
-          "unrepaired_count": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Unrepaired Count",
-            "default": 0
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/ParseProblem"
+            },
+            "type": "array",
+            "title": "Problems"
           }
         },
         "additionalProperties": false,
@@ -4514,6 +4530,15 @@
           "configuration"
         ],
         "title": "ParserInfo"
+      },
+      "ProblemCode": {
+        "type": "string",
+        "enum": [
+          "advent_fonts_unchecked",
+          "advent_symbols_unread"
+        ],
+        "title": "ProblemCode",
+        "description": "A gap the parse noticed. The parse still succeeded."
       },
       "ReadinessResponse": {
         "properties": {
@@ -4578,16 +4603,6 @@
             }
           }
         ]
-      },
-      "RepairStatus": {
-        "type": "string",
-        "enum": [
-          "skipped",
-          "success",
-          "failed"
-        ],
-        "title": "RepairStatus",
-        "description": "Whether the symbol-font repair changed the PDF the parsers read."
       },
       "SafeError": {
         "properties": {

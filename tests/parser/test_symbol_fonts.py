@@ -28,7 +28,7 @@ from bioparser.parser.backend.default.parser import DefaultParser
 from bioparser.parser.backend.mineru import parser as mineru_parser
 from bioparser.parser.backend.mineru.parser import MinerUParser
 from bioparser.parser.errors import ParserProcessError, UnsupportedDocumentError
-from bioparser.parser.models import ParserArtifact, RepairStatus
+from bioparser.parser.models import ParseProblem, ParserArtifact, ProblemCode, RepairStatus
 from bioparser.services.mineru.client import MinerUError
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -58,8 +58,7 @@ def test_the_2014_biology_paper_recovers_the_symbol_glyphs() -> None:
     text, artifact = _artifact_text(BIOLOGY)
     assert artifact.schema_version == "2"
     assert artifact.parser.version == "3"
-    assert artifact.unrepaired_count == 0
-    assert artifact.repair_status is RepairStatus.SUCCESS
+    assert artifact.problems == []
     assert artifact.checksum == hashlib.sha256(BIOLOGY.read_bytes()).hexdigest()
     assert "(>10 g)" in text
     assert "GI<1.47" in text
@@ -80,8 +79,7 @@ def test_the_2019_editorial_is_left_unchanged() -> None:
     assert repaired.count == 0
     assert repaired.status is RepairStatus.SKIPPED
     text, artifact = _artifact_text(EDITORIAL)
-    assert artifact.unrepaired_count == 0
-    assert artifact.repair_status is RepairStatus.SKIPPED
+    assert artifact.problems == []
     assert "Broadening the scope of PLOS Biology" in text
 
 
@@ -499,8 +497,7 @@ def test_a_failed_repair_is_recorded_when_the_parse_succeeds(
         for block in page.blocks
         if block.content.type == "text"
     )
-    assert artifact.repair_status is RepairStatus.FAILED
-    assert artifact.unrepaired_count == 0
+    assert artifact.problems == [ParseProblem(code=ProblemCode.ADVENT_FONTS_UNCHECKED)]
     assert "Broadening the scope of PLOS Biology" in text
 
 
@@ -513,8 +510,9 @@ def test_the_parser_child_keeps_the_unmapped_log(
     )
     with caplog.at_level(logging.WARNING):
         artifact = asyncio.run(DefaultParser().parse(path))
-    assert artifact.unrepaired_count > 0
-    assert artifact.repair_status is RepairStatus.SUCCESS
+    [problem] = artifact.problems
+    assert problem.code is ProblemCode.ADVENT_SYMBOLS_UNREAD
+    assert problem.count > 0
     assert "unmapped symbol font glyph" in caplog.text
     assert "AdvUnknown" in caplog.text
 

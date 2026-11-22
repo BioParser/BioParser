@@ -814,6 +814,15 @@ export interface components {
             /** Blocks */
             blocks: components["schemas"]["ContentBlock"][];
         };
+        /** ParseProblem */
+        ParseProblem: {
+            code: components["schemas"]["ProblemCode"];
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+        };
         /** ParserArtifact */
         ParserArtifact: {
             /** Schema Version */
@@ -823,13 +832,8 @@ export interface components {
             parser: components["schemas"]["ParserInfo"];
             /** Pages */
             pages: components["schemas"]["Page"][];
-            /** @default skipped */
-            repair_status: components["schemas"]["RepairStatus"];
-            /**
-             * Unrepaired Count
-             * @default 0
-             */
-            unrepaired_count: number;
+            /** Problems */
+            problems?: components["schemas"]["ParseProblem"][];
         };
         /** ParserInfo */
         ParserInfo: {
@@ -842,6 +846,12 @@ export interface components {
                 [key: string]: string | number | boolean;
             };
         };
+        /**
+         * ProblemCode
+         * @description A gap the parse noticed. The parse still succeeded.
+         * @enum {string}
+         */
+        ProblemCode: "advent_fonts_unchecked" | "advent_symbols_unread";
         /**
          * ReadinessResponse
          * @example {
@@ -880,12 +890,6 @@ export interface components {
         ReadinessUnavailableResponse: {
             detail: components["schemas"]["ReadinessUnavailableDetail"];
         };
-        /**
-         * RepairStatus
-         * @description Whether the symbol-font repair changed the PDF the parsers read.
-         * @enum {string}
-         */
-        RepairStatus: "skipped" | "success" | "failed";
         /**
          * SafeError
          * @description A short, non-sensitive description of why a job failed.

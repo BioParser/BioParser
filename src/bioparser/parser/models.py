@@ -232,6 +232,32 @@ class RepairStatus(StrEnum):
     FAILED = "failed"
 
 
+class ProblemCode(StrEnum):
+    """A gap the parse noticed. The parse still succeeded."""
+
+    # The Advent 3B2 repair did not run, so the original PDF was read.
+    ADVENT_FONTS_UNCHECKED = "advent_fonts_unchecked"
+    # Advent glyphs the repair replaced with U+FFFD.
+    ADVENT_SYMBOLS_UNREAD = "advent_symbols_unread"
+
+
+class ParseProblem(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    code: ProblemCode
+    # How many items this code counts. Zero when the problem is that a check did not run.
+    count: int = Field(default=0, ge=0)
+
+
+def symbol_font_problems(status: RepairStatus, count: int) -> list[ParseProblem]:
+    """The artifact problems for one symbol-font repair. An empty list needs no warning."""
+    if status is RepairStatus.FAILED:
+        return [ParseProblem(code=ProblemCode.ADVENT_FONTS_UNCHECKED)]
+    if status is RepairStatus.SUCCESS and count > 0:
+        return [ParseProblem(code=ProblemCode.ADVENT_SYMBOLS_UNREAD, count=count)]
+    return []
+
+
 class ParserArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
@@ -239,8 +265,5 @@ class ParserArtifact(BaseModel):
     checksum: Sha256Hex
     parser: ParserInfo
     pages: list[Page]
-    # skipped: nothing to repair. success: the repair finished. failed: the original PDF.
-    repair_status: RepairStatus = RepairStatus.SKIPPED
-    # Glyphs the symbol-font repair replaced with U+FFFD. Zero when the field is absent
-    # on an older artifact, and zero when the repair was skipped or failed.
-    unrepaired_count: int = Field(default=0, ge=0)
+    # Empty when the parse finished with nothing to warn about.
+    problems: list[ParseProblem] = Field(default_factory=list)

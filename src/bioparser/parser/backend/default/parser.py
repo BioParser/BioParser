@@ -31,6 +31,7 @@ from bioparser.parser.models import (
     ParserInfo,
     TextContent,
     TextLine,
+    symbol_font_problems,
 )
 from bioparser.parser_names import DEFAULT_PARSER_NAME, PARSER_VERSIONS
 
@@ -227,8 +228,7 @@ class DefaultParser:
                 },
             ),
             pages=pages,
-            repair_status=repaired.status,
-            unrepaired_count=repaired.count,
+            problems=symbol_font_problems(repaired.status, repaired.count),
         )
 
 

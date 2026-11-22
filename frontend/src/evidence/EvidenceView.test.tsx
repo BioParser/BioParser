@@ -71,8 +71,7 @@ const PARSER: ParserArtifact = {
   schema_version: "2",
   checksum: "abc",
   parser: { name: "default", version: "1", configuration: {} },
-  unrepaired_count: 0,
-  repair_status: "success",
+  problems: [],
   pages: [
     {
       page_number: 1,
@@ -301,30 +300,41 @@ describe("EvidenceView", () => {
 
   it("warns when the parser replaced symbols it could not match", async () => {
     stubArtifacts(() =>
-      Response.json({ ...PARSER, unrepaired_count: 2, repair_status: "success" }),
+      Response.json({
+        ...PARSER,
+        problems: [{ code: "advent_symbols_unread", count: 2 }],
+      }),
     );
     renderView(0);
     expect((await screen.findByText(/could not be read/)).textContent).toBe(
-      "2 symbols in this paper could not be read and are shown as \uFFFD. The symbol printed on the page may be different.",
+      "2 Advent symbols from the 3B2 typesetter could not be read and are shown as \uFFFD. The symbol printed on the page may be different.",
     );
   });
 
   it("warns when the symbol repair did not run", async () => {
-    stubArtifacts(() => Response.json({ ...PARSER, repair_status: "failed" }));
+    stubArtifacts(() =>
+      Response.json({
+        ...PARSER,
+        problems: [{ code: "advent_fonts_unchecked", count: 0 }],
+      }),
+    );
     renderView(0);
     expect((await screen.findByText(/could not be checked/)).textContent).toBe(
-      "Symbol fonts in this paper could not be checked. " +
+      "Advent fonts from the 3B2 typesetter could not be checked. " +
         "A symbol in the text may not be the one printed on the page.",
     );
   });
 
   it("names a single unmatched symbol", async () => {
     stubArtifacts(() =>
-      Response.json({ ...PARSER, unrepaired_count: 1, repair_status: "success" }),
+      Response.json({
+        ...PARSER,
+        problems: [{ code: "advent_symbols_unread", count: 1 }],
+      }),
     );
     renderView(0);
     expect((await screen.findByText(/could not be read/)).textContent).toBe(
-      "1 symbol in this paper could not be read and is shown as \uFFFD. The symbol printed on the page may be different.",
+      "1 Advent symbol from the 3B2 typesetter could not be read and is shown as \uFFFD. The symbol printed on the page may be different.",
     );
   });
 
