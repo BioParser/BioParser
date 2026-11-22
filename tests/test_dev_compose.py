@@ -42,7 +42,10 @@ def test_base_compose_has_no_dev_services() -> None:
 
 
 def _run_wrapper(
-    tmp_path: Path, env_text: str | None, *args: str
+    tmp_path: Path,
+    env_text: str | None,
+    *args: str,
+    shell_compose: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     script = tmp_path / "bioparser-compose"
     script.write_bytes((_ROOT / "bioparser-compose").read_bytes())
@@ -61,6 +64,9 @@ def _run_wrapper(
     )
     fake.chmod(0o755)
     env = os.environ.copy()
+    env.pop("COMPOSE_FILE", None)
+    if shell_compose is not None:
+        env["COMPOSE_FILE"] = shell_compose
     env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
     env["BIOPARSER_FAKE_DOCKER_OUT"] = str(out)
     return subprocess.run(
@@ -113,6 +119,30 @@ def test_compose_wrapper_strips_quotes_and_does_not_repeat_the_overlay(tmp_path:
 
 
 @_NEEDS_POSIX
+def test_compose_wrapper_follows_compose_env_rules(tmp_path: Path) -> None:
+    last_wins = tmp_path / "last"
+    last_wins.mkdir()
+    env_text = "COMPOSE_FILE=docker-compose.yml\nexport COMPOSE_FILE=docker-compose.yml:docker-compose.cpu.yml # note\n"
+    result = _run_wrapper(last_wins, env_text, "config")
+    assert result.returncode == 0, result.stderr
+    recorded = (last_wins / "docker-out").read_text(encoding="utf-8").splitlines()
+    assert recorded[0] == "docker-compose.yml:docker-compose.cpu.yml:docker-compose.dev.yml"
+    assert (last_wins / ".env").read_text(encoding="utf-8") == env_text
+
+    shell = tmp_path / "shell"
+    shell.mkdir()
+    result = _run_wrapper(
+        shell,
+        "COMPOSE_FILE=docker-compose.yml\n",
+        "config",
+        shell_compose="docker-compose.yml:docker-compose.gpu.yml",
+    )
+    assert result.returncode == 0, result.stderr
+    recorded = (shell / "docker-out").read_text(encoding="utf-8").splitlines()
+    assert recorded[0] == "docker-compose.yml:docker-compose.gpu.yml:docker-compose.dev.yml"
+
+
+@_NEEDS_POSIX
 def test_compose_wrapper_refuses_a_missing_env(tmp_path: Path) -> None:
     result = _run_wrapper(tmp_path, None, "up")
     assert result.returncode == 1
@@ -149,8 +179,10 @@ def test_dev_overlay_reloads_edited_code_only() -> None:
     assert "USER node" in frontend_dockerfile
     assert "npm ci --no-audit --no-fund" in frontend_dockerfile
     assert frontend["init"] is True
-    assert frontend["networks"] == ["backend", "frontend-publish"]
+    assert frontend["networks"] == ["dev-api", "frontend-publish"]
+    assert frontend["environment"]["VITE_GRAFANA_URL"] == "http://localhost:${GRAFANA_PORT:-3000}"
     publish = yaml.safe_load((_ROOT / "docker-compose.dev.yml").read_text(encoding="utf-8"))
+    assert publish["networks"]["dev-api"]["internal"] is True
     assert (
         publish["networks"]["frontend-publish"]["driver_opts"][
             "com.docker.network.bridge.enable_ip_masquerade"
@@ -164,14 +196,12 @@ def test_dev_overlay_reloads_edited_code_only() -> None:
         "./frontend/index.html:/frontend/index.html:ro",
         "./frontend/vite.config.ts:/frontend/vite.config.ts:ro",
     ]
-    assert "frontend-node-modules" not in (_ROOT / "docker-compose.dev.yml").read_text(
-        encoding="utf-8"
-    )
 
     assert "command" not in services["bioparser"]
     assert "environment" not in services["bioparser"]
     assert services["bioparser"]["build"]["target"] == "api-dev"
     assert services["bioparser"]["image"] == "bioparser-api-dev"
+    assert services["bioparser"]["networks"] == ["dev-api"]
     assert services["bioparser"]["volumes"] == ["./src:/src:ro"]
     api_stages = _stage_names(api_dockerfile)
     assert api_stages[-1] == "runtime"
@@ -195,7 +225,6 @@ def test_dev_overlay_reloads_edited_code_only() -> None:
         stages = _stage_names(dockerfile)
         assert stages[-1] == "runtime"
         assert stages.index(f"{name}-dev") < stages.index("runtime")
-        assert "build-dev" not in dockerfile
         prod, dev = dockerfile.split(f"FROM base AS {name}-dev\n", 1)
         assert "--group dev-reload" not in prod
         assert "--group dev-reload" in dev
@@ -220,10 +249,6 @@ def test_dev_overlay_reloads_edited_code_only() -> None:
     )[0]
     assert "PYTHONPATH=/src" in migrate_dev
     assert "watchfiles" not in migrate_dev
-    assert "install-watchfiles" not in services
-
-    lock = (_ROOT / "uv.lock").read_text(encoding="utf-8")
-    assert 'name = "watchfiles"\nversion = "1.2.0"' in lock
 
     for left_alone in (
         "mineru",

@@ -15,16 +15,17 @@ services:
     environment:
       # 127.0.0.1 inside this container is the frontend, not the API.
       BIOPARSER_DEV_API_ORIGIN: http://bioparser:8080
+      # The browser opens Grafana on the host. Vite reads this when it starts.
+      VITE_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3000}
     ports:
       - "127.0.0.1:5173:5173"
     volumes:
       - ./frontend/src:/frontend/src:ro
       - ./frontend/index.html:/frontend/index.html:ro
       - ./frontend/vite.config.ts:/frontend/vite.config.ts:ro
-    # backend reaches the API. A container only on that internal network cannot
-    # publish 5173, so the second network exists to publish the port and has
-    # no outbound masquerade.
-    networks: [backend, frontend-publish]
+    # dev-api reaches only the API. frontend-publish exists so the host port
+    # works, and it has no outbound masquerade.
+    networks: [dev-api, frontend-publish]
     mem_limit: 2g
     memswap_limit: 2g
     cap_drop: [ALL]
@@ -36,6 +37,8 @@ services:
     image: bioparser-api-dev
     build:
       target: api-dev
+    # Merged with the base networks. The frontend is not on those.
+    networks: [dev-api]
     volumes:
       - ./src:/src:ro
 
@@ -61,6 +64,8 @@ services:
       - ./src:/src:ro
 
 networks:
+  dev-api:
+    internal: true
   frontend-publish:
     driver: bridge
     driver_opts:

@@ -7,9 +7,11 @@
 # Port 8080 still serves the UI that was built into the API image. That copy
 # does not pick up frontend edits. Open http://localhost:5173/ui/ for UI work.
 #
-# Reads COMPOSE_FILE from .env and appends :docker-compose.dev.yml for this
-# run only. Does not edit .env. GPU or CPU and logging stay whatever .env
-# already selects. Every argument is passed through to `docker compose`.
+# Appends :docker-compose.dev.yml to COMPOSE_FILE for this run only. A value
+# already exported in the shell wins. Otherwise the last COMPOSE_FILE= line in
+# .env wins, including an "export " prefix, and a trailing " # comment" is
+# dropped. Does not edit .env. GPU or CPU and logging stay whatever that
+# value already selects. Every argument is passed through to `docker compose`.
 
 set -eu
 
@@ -20,33 +22,48 @@ if [ $# -eq 0 ]; then
   exit 2
 fi
 
-if [ ! -f .env ]; then
-  echo "bioparser-compose: .env is missing (copy .env.example to .env)" >&2
-  exit 1
-fi
-
-compose_file=
-while IFS= read -r line || [ -n "$line" ]; do
-  case $line in
-    COMPOSE_FILE=*)
-      compose_file=${line#COMPOSE_FILE=}
-      break
+# Compose strips one matched pair of quotes and ignores the rest of the line.
+strip_compose_value() {
+  value=$(printf '%s' "$1" | sed 's/^[[:space:]]*//')
+  case $value in
+    \"*)
+      value=${value#\"}
+      value=${value%%\"*}
+      ;;
+    \'*)
+      value=${value#\'}
+      value=${value%%\'*}
+      ;;
+    *)
+      value=$(printf '%s' "$value" | sed 's/[[:space:]]#.*$//;s/[[:space:]]*$//')
       ;;
   esac
-done < .env
-compose_file=$(printf '%s' "$compose_file" | tr -d '\r')
-compose_file=$(printf '%s' "$compose_file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  printf '%s' "$value"
+}
 
-case $compose_file in
-  \"*\")
-    compose_file=${compose_file#\"}
-    compose_file=${compose_file%\"}
-    ;;
-  \'*\')
-    compose_file=${compose_file#\'}
-    compose_file=${compose_file%\'}
-    ;;
-esac
+if [ -n "${COMPOSE_FILE+x}" ]; then
+  compose_file=$COMPOSE_FILE
+else
+  if [ ! -f .env ]; then
+    echo "bioparser-compose: .env is missing (copy .env.example to .env)" >&2
+    exit 1
+  fi
+
+  compose_file=
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=$(printf '%s' "$line" | tr -d '\r' | sed 's/^[[:space:]]*//')
+    case $line in
+      '' | \#*) continue ;;
+      export\ *)
+        line=${line#export }
+        line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//')
+        ;;
+    esac
+    case $line in
+      COMPOSE_FILE=*) compose_file=$(strip_compose_value "${line#COMPOSE_FILE=}") ;;
+    esac
+  done < .env
+fi
 
 if [ -z "$compose_file" ]; then
   echo "bioparser-compose: COMPOSE_FILE is not set in .env" >&2
