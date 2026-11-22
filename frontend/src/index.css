@@ -175,6 +175,21 @@ input {
   color: #d33;
 }
 
+.job-file-remove {
+  margin-left: auto;
+}
+
+.job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+/* Always in the page, so a screen reader announces the text when it appears. */
+.job-notice {
+  margin: 0;
+}
+
 .job-detail-progress {
   display: flex;
   flex-wrap: wrap;
