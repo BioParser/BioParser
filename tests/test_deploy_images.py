@@ -52,11 +52,21 @@ sys.exit(0)
         encoding="utf-8",
     )
     fake.chmod(0o755)
+    gh = bin_dir / "gh"
+    gh.write_text(
+        """#!/usr/bin/env python3
+import os
+
+print(os.environ["TIP_SHA"])
+""",
+        encoding="utf-8",
+    )
+    gh.chmod(0o755)
     return bin_dir
 
 
 def _publish(
-    tmp_path: Path, *, fail: str = ""
+    tmp_path: Path, *, fail: str = "", tip: str = _SHA
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     log = tmp_path / "docker-log"
     bin_dir = _fake_docker(tmp_path)
@@ -65,6 +75,8 @@ def _publish(
     env["DOCKER_LOG"] = str(log)
     env["DOCKER_FAIL"] = fail
     env["SHA"] = _SHA
+    env["TIP_SHA"] = tip
+    env["GITHUB_REPOSITORY"] = "BioParser/BioParser"
     result = subprocess.run(
         ["bash", str(_ROOT / ".github/scripts/publish_images.sh")],
         env=env,
@@ -83,15 +95,16 @@ def _pushes(lines: list[str]) -> list[str]:
 
 @_NEEDS_POSIX
 @pytest.mark.parametrize(
-    ("fail", "outcome"),
+    ("fail", "tip", "outcome"),
     [
-        ("", "published"),
-        ("--target cpu", "no-push"),
-        (f"push {_PREFIX}/migrate:{_SHA}", "no-floating"),
+        ("", _SHA, "published"),
+        ("--target cpu", _SHA, "no-push"),
+        (f"push {_PREFIX}/migrate:{_SHA}", _SHA, "no-floating"),
+        ("", "newer", "behind"),
     ],
 )
-def test_publish_order(tmp_path: Path, fail: str, outcome: str) -> None:
-    result, lines = _publish(tmp_path, fail=fail)
+def test_publish_order(tmp_path: Path, fail: str, tip: str, outcome: str) -> None:
+    result, lines = _publish(tmp_path, fail=fail, tip=tip)
     pushes = _pushes(lines)
     if outcome == "published":
         assert result.returncode == 0, result.stderr
@@ -100,6 +113,10 @@ def test_publish_order(tmp_path: Path, fail: str, outcome: str) -> None:
         assert lines.index(builds[-1]) < lines.index(pushes[0])
         assert " --target cpu " in next(line for line in builds if "mineru.Dockerfile" in line)
         assert pushes == _PUSHES
+        return
+    if outcome == "behind":
+        assert result.returncode == 0, result.stderr
+        assert pushes == _PUSHES[:5]
         return
     assert result.returncode != 0
     if outcome == "no-push":

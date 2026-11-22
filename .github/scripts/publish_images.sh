@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Publish every application image, or leave the registry unchanged.
 # Each image is built before any push. Floating tags move only after every sha
-# tag push succeeds. api:latest moves last, because staging imports that tag
-# on its own schedule.
+# tag push succeeds, and only when this commit is still the tip of main.
+# api:latest moves last, because staging imports that tag on its own schedule.
 
 set -euo pipefail
 
@@ -31,6 +31,12 @@ while IFS='|' read -r name file target sha_tag float_tag; do
   [[ -z "${name}" ]] && continue
   docker push "${prefix}/${name}:${sha_tag}"
 done <<< "${specs}"
+
+tip=$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)
+if [[ "${tip}" != "${SHA}" ]]; then
+  echo "This commit is no longer the tip of main. Floating tags stay put."
+  exit 0
+fi
 
 while IFS='|' read -r name file target sha_tag float_tag; do
   [[ -z "${name}" ]] && continue
