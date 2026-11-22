@@ -228,7 +228,7 @@ export function StartJobPage() {
   return (
     <>
       <h1>Start a job</h1>
-      <p>Each PDF becomes its own job.</p>
+      <p className="page-lead">Each PDF becomes its own job.</p>
       <form onSubmit={handleSubmit} className="job-form">
         <fieldset disabled={sending} className="job-fieldset">
           {/* biome-ignore lint/a11y/noStaticElementInteractions: dropping is a shortcut; the file input inside does the same with a keyboard. */}

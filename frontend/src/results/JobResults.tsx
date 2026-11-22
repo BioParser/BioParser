@@ -73,7 +73,7 @@ export function JobResults({ jobId, displayName, selectedIndex, onSelect }: JobR
     <div className="results">
       <Downloads jobId={jobId} displayName={displayName} body={body} />
       {entries.length === 0 ? (
-        <p>No observations were found in this document.</p>
+        <p className="empty-state">No observations were found in this document.</p>
       ) : (
         <>
           <div className="results-toolbar">
