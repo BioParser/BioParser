@@ -57,6 +57,41 @@ RUN npm run build
 
 #-------------------------------------------
 
+# Dev stage for the Compose overlay. Not the last stage, so the default build
+# stays the production image. Compose mounts the source on /src.
+
+FROM base AS api-dev
+
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid 10001 --no-create-home \
+        --shell /usr/sbin/nologin app \
+    && mkdir -p /data \
+    && chown app:app /data
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/src \
+    BIOPARSER_UI_DIST_PATH=/app/ui
+
+WORKDIR /app
+
+COPY --from=build --chown=app:app /app/.venv /app/.venv
+
+COPY --from=ui /ui/dist /app/ui
+
+USER app:app
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["uvicorn", "bioparser.api.app:app", "--reload", "--reload-dir", "/src", "--host", "0.0.0.0", "--port", "8080"]
+
+#-------------------------------------------
+
 FROM base AS runtime
 
 RUN groupadd --system --gid 10001 app \

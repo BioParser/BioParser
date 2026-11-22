@@ -46,9 +46,14 @@ def _sync_commands(text: str) -> list[list[str]]:
     return [line.split() for line in text.splitlines() if line.strip().startswith("uv sync ")]
 
 
+def _production_sync_commands(text: str) -> list[list[str]]:
+    # Worker dev stages also sync dev-reload. The default image does not.
+    return [command for command in _sync_commands(text) if "dev-reload" not in command]
+
+
 @pytest.mark.parametrize("group", _ENTRYPOINTS)
 def test_image_dockerfile_syncs_its_own_group(group: str) -> None:
-    commands = _sync_commands(_dockerfile(group).read_text(encoding="utf-8"))
+    commands = _production_sync_commands(_dockerfile(group).read_text(encoding="utf-8"))
     assert len(commands) == 2
     dependency_layer, project_install = commands
     assert "--no-install-project" in dependency_layer
@@ -72,7 +77,7 @@ def test_api_image_starts_the_app_without_importing_it_at_build() -> None:
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required")
 @pytest.mark.parametrize("group", _ENTRYPOINTS)
 def test_synced_image_group_imports_its_entrypoint(group: str, tmp_path: Path) -> None:
-    commands = _sync_commands(_dockerfile(group).read_text(encoding="utf-8"))
+    commands = _production_sync_commands(_dockerfile(group).read_text(encoding="utf-8"))
     project_install = [command for command in commands if "--no-install-project" not in command]
     assert len(project_install) == 1
     env = os.environ.copy()

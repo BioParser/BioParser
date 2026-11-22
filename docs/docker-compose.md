@@ -34,7 +34,7 @@ cp .env.example .env
 
 Required:
 
-`COMPOSE_FILE`: Compose configuration preference, e.g. `docker-compose.yml:docker-compose.gpu.yml` (GPU) or `docker-compose.yml:docker-compose.cpu.yml` (CPU).  
+`COMPOSE_FILE`: Compose configuration preference, e.g. `docker-compose.yml:docker-compose.gpu.yml` (GPU) or `docker-compose.yml:docker-compose.cpu.yml` (CPU). Do not add `docker-compose.dev.yml` here. `bash bioparser-compose` appends it for one run.  
 `VLLM_MODEL`: Hugging Face repo id, for example `Qwen/Qwen3-0.6B` (already set in `.env.example`).  
 `VLLM_PORT`: host port for vLLM (default `8000`).  
 `BIOPARSER_PORT`: host port for the API (default `8080`).  
@@ -75,7 +75,27 @@ docker compose up --build
 curl localhost:8080/health
 ```
 
-Stop with `Ctrl+C`, or `docker compose down`.
+`bash bioparser-compose up` starts this same stack plus the dev overlay. Port 8080 still serves the UI that was built into the API image. That copy does not pick up frontend edits. Use port 5173 for UI work.
+
+Stop with `Ctrl+C`, or `docker compose down`. Stop the dev overlay with `bash bioparser-compose down`.
+
+## Dev overlay
+
+`bioparser-compose` at the repository root is a wrapper for `docker compose`. `bash bioparser-compose up` appends the dev file for that run only. A `COMPOSE_FILE` already set in the shell wins. Otherwise the last literal `COMPOSE_FILE` assignment in the env file wins. A `$` or `\` in that value is an error. Set `COMPOSE_FILE` in the shell when the list is built from other variables. `--env-file` replaces `.env`. `-f` adds the dev file as another `-f`. It does not edit `.env`. GPU or CPU and logging stay whatever that value already selects. `docker-compose.dev.yml` is not part of the default `COMPOSE_FILE`. The same wrapper applies to the other Compose commands, so `bash bioparser-compose down` includes the dev services. Arguments are passed through unchanged.
+
+```sh
+bash bioparser-compose up
+```
+
+The overlay reloads the code under edit. MinerU, vLLM, Postgres, Redis, Loki, Alloy, Grafana, and Traefik stay on their built images. Reloading MinerU or vLLM reloads the models.
+
+- `frontend` is the Vite dev server from `docker/frontend.Dockerfile` (Node 26.13.0, the same pin as the `ui` stage in `docker/api.Dockerfile` and `.nvmrc`). Open `http://localhost:5173/ui/`. It publishes `127.0.0.1:5173`, runs as the image user `node`, and mounts `./frontend/src`, `index.html`, and `vite.config.ts` read-only. Dependencies are installed in the image. `npm ci` runs when that image is built. A dependency change needs a rebuild. It shares an internal network with the API only. `VITE_GRAFANA_URL` is `http://localhost:` plus `GRAFANA_PORT` (3000 when that is unset). A save that replaces `index.html` or `vite.config.ts` with a new file can leave the container on the old one. Save those two in place, or restart `frontend`.
+- `frontend/vite.config.ts` proxies `/api` and `/ready` to `BIOPARSER_DEV_API_ORIGIN`, which defaults to `http://127.0.0.1:8080`, so `npm run dev` on the host is unchanged. The dev file sets `http://bioparser:8080`, because `127.0.0.1` inside the `frontend` container is that container.
+- `bioparser`, `parser-worker`, `extractor-worker`, and `migrate` build a dev stage of their own Dockerfile. That stage is not the last one, so a build without a target stays the production image. Each dev stage reads `/src` ahead of the package installed in the image. The overlay only mounts `./src` there.
+- The API dev stage runs Uvicorn `--reload` and restarts when a Python file under `./src` changes. The worker dev stages install the `dev-reload` group (`watchfiles`) on the production virtualenv and restart `python -m bioparser.worker.parse` and `python -m bioparser.worker.extract` when any file under `./src` changes. A worker reload stops the running job after 5 seconds and that job is run again. Waiting for it to finish is not useful during local editing. The production stages and the OKD images do not install that group. The workers stay on the internal network.
+- The migrate dev stage runs once and exits. It is not wrapped in a watcher.
+
+Port 8080 still serves the UI that was built into the API image. That copy does not pick up frontend edits. Use port 5173 for UI work.
 
 ## Logs
 

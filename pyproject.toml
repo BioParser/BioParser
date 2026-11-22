@@ -70,6 +70,8 @@ migrate = [
   "alembic>=1.20.1",
   "psycopg[binary]>=3.3.6",
 ]
+# Worker dev images only. The production worker groups do not include it.
+dev-reload = ["watchfiles>=1.2.0"]
 
 [tool.uv]
 default-groups = "all"

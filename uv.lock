@@ -139,6 +139,9 @@ dev = [
     { name = "ruff" },
     { name = "types-pyyaml" },
 ]
+dev-reload = [
+    { name = "watchfiles" },
+]
 extractor-worker = [
     { name = "dramatiq", extra = ["redis"] },
     { name = "openai" },
@@ -191,6 +194,7 @@ dev = [
     { name = "ruff", specifier = ">=0.16.5" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20261111" },
 ]
+dev-reload = [{ name = "watchfiles", specifier = ">=1.2.0" }]
 extractor-worker = [
     { name = "dramatiq", extras = ["redis"], specifier = ">=2.2.1" },
     { name = "openai", specifier = ">=3.8.0" },
