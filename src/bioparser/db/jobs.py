@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     Uuid,
+    delete,
     insert,
     select,
     text,
@@ -173,6 +174,32 @@ async def list_jobs_for_document(
     return [
         _job_and_name(cast(Mapping[str, object], row)) for row in rows if row["job_id"] is not None
     ]
+
+
+# Only a finished job can be deleted. A queued or running job still has a queue
+# message, and a worker that finds no row retries it until its retries run out.
+DELETABLE_STATUSES: tuple[JobStatus, ...] = ("done", "failed")
+
+DeleteOutcome = Literal["deleted", "not_finished", "missing"]
+
+
+async def delete_finished(connection: AsyncConnection, job_id: UUID) -> DeleteOutcome:
+    """Delete one job row while its status is in `DELETABLE_STATUSES`.
+
+    The status check and the delete are one statement, so a job that moves on in
+    between is not deleted. The document, the PDF and the artifacts stay: other jobs
+    of the same PDF can share them. `not_finished` means the row is still there with
+    another status. `missing` means no row.
+    """
+    result = await connection.execute(
+        delete(Job).where(Job.job_id == job_id, Job.status.in_(DELETABLE_STATUSES))
+    )
+    if result.rowcount == 1:
+        return "deleted"
+    found = (await connection.execute(select(Job.job_id).where(Job.job_id == job_id))).one_or_none()
+    if found is None:
+        return "missing"
+    return "not_finished"
 
 
 ClaimOutcome = Literal["claimed", "exhausted", "skipped", "missing"]

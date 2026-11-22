@@ -430,6 +430,101 @@ async def test_mark_failed_skips_a_missing_job(database: str) -> None:
         )
 
 
+# What each status needs on a stored job besides its id: refs and error
+_STATUS_FIELDS: dict[str, dict[str, object]] = {
+    "queued": {},
+    "parsing": {},
+    "parsed": {"parse_result_ref": "parsed"},
+    "extracting": {"parse_result_ref": "parsed"},
+    "done": {"parse_result_ref": "parsed", "extract_result_ref": "extracted"},
+    "failed": {"error_code": "invalid_pdf"},
+}
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_delete_finished_removes_only_a_done_or_failed_job(database: str) -> None:
+    states = {
+        status: _queued(uuid.uuid4(), status=status, **fields)
+        for status, fields in _STATUS_FIELDS.items()
+    }
+    for state in states.values():
+        await _create(state)
+
+    async with db_engine.transaction() as connection:
+        outcomes = {
+            status: await job_queries.delete_finished(connection, state.job_id)
+            for status, state in states.items()
+        }
+        missing = await job_queries.delete_finished(connection, uuid.uuid4())
+        document = await document_queries.get(connection, CHECKSUM)
+        remaining = await job_queries.list_jobs_for_document(connection, CHECKSUM)
+
+    assert outcomes == {
+        "queued": "not_finished",
+        "parsing": "not_finished",
+        "parsed": "not_finished",
+        "extracting": "not_finished",
+        "done": "deleted",
+        "failed": "deleted",
+    }
+    assert missing == "missing"
+    assert document is not None
+    assert remaining is not None
+    assert {state.status for state, _name in remaining} == {
+        "queued",
+        "parsing",
+        "parsed",
+        "extracting",
+    }
+    assert await _get(states["done"].job_id) is None
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_delete_finished_removes_only_the_given_job(database: str) -> None:
+    """Other finished jobs of the same document and of other documents stay."""
+    other_checksum = "cd" * 32
+    deleted = _queued(uuid.uuid4(), status="done", **_STATUS_FIELDS["done"])
+    same_document = _queued(uuid.uuid4(), status="done", **_STATUS_FIELDS["done"])
+    other_document = _queued(
+        uuid.uuid4(), status="failed", document_checksum=other_checksum, **_STATUS_FIELDS["failed"]
+    )
+    for state in (deleted, same_document, other_document):
+        await _create(state)
+
+    async with db_engine.transaction() as connection:
+        assert await job_queries.delete_finished(connection, deleted.job_id) == "deleted"
+        listed = await job_queries.list_jobs(connection)
+
+    assert {state.job_id for state, _name in listed} == {
+        same_document.job_id,
+        other_document.job_id,
+    }
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_delete_finished_checks_the_status_it_deletes(database: str) -> None:
+    """A job that moves on after a read is not deleted by a stale decision."""
+    state = _queued(uuid.uuid4())
+    await _create(state)
+    async with db_engine.transaction() as connection:
+        await job_queries.claim(
+            connection,
+            state.job_id,
+            status="parsing",
+            from_statuses=("queued", "parsing"),
+            max_claims=2,
+        )
+        assert await job_queries.delete_finished(connection, state.job_id) == "not_finished"
+        await job_queries.mark_failed(
+            connection, state.job_id, "parse_failed", from_statuses=("parsing",)
+        )
+        assert await job_queries.delete_finished(connection, state.job_id) == "deleted"
+    assert await _get(state.job_id) is None
+
+
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_a_write_does_not_require_a_valid_job_state(database: str) -> None:

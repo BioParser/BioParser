@@ -152,7 +152,15 @@ export interface paths {
         get: operations["job_status_api_jobs__job_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Job
+         * @description Delete a `done` or `failed` job.
+         *
+         *     Only the job row goes. The document, its PDF and the parser and extraction
+         *     artifacts stay, since other jobs of the same PDF can share them. A job in any
+         *     other status still has a queue message and is `409`.
+         */
+        delete: operations["delete_job_api_jobs__job_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -405,7 +413,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "missing_file" | "empty_file" | "invalid_pdf" | "unsupported_content_type" | "invalid_content_length" | "job_not_found" | "invalid_job_id" | "content_too_large" | "storage_unavailable" | "artifact_invalid" | "job_state_unreadable" | "database_unavailable" | "queue_unavailable" | "artifact_not_available" | "unauthorized" | "document_not_found" | "invalid_checksum";
+            code: "missing_file" | "empty_file" | "invalid_pdf" | "unsupported_content_type" | "invalid_content_length" | "job_not_found" | "job_not_finished" | "invalid_job_id" | "content_too_large" | "storage_unavailable" | "artifact_invalid" | "job_state_unreadable" | "database_unavailable" | "queue_unavailable" | "artifact_not_available" | "unauthorized" | "document_not_found" | "invalid_checksum";
             /** Message */
             message: string;
         };
@@ -1619,6 +1627,71 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_job_api_jobs__job_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The job was deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

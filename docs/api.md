@@ -7,8 +7,8 @@ module layout that implements it. The system context for these endpoints is in
 Status: **draft** — document and job management routes (`POST /api/documents`,
 `GET /api/documents`, `GET /api/documents/{checksum}`, `GET /api/documents/{checksum}/file`,
 `POST /api/extractions`, `POST /api/documents/{checksum}/jobs`, `GET /api/documents/{checksum}/jobs`, `GET /api/jobs`,
-`GET /api/jobs/{job_id}`, `GET /api/jobs/{job_id}/ets`, `GET /api/jobs/{job_id}/artifacts/parser`,
-`GET /api/jobs/{job_id}/artifacts/extraction`, `GET /health`, `GET /ready`)
+`GET /api/jobs/{job_id}`, `DELETE /api/jobs/{job_id}`, `GET /api/jobs/{job_id}/ets`,
+`GET /api/jobs/{job_id}/artifacts/parser`, `GET /api/jobs/{job_id}/artifacts/extraction`, `GET /health`, `GET /ready`)
 are implemented, along with upload validation and a configurable size limit. A done job's
 ETS rows are `GET /api/jobs/{job_id}/ets`.
 
@@ -345,6 +345,31 @@ Poll a job.
 
 The status read does not load the extraction artifact. A done job is `job_id` and `status`.
 
+### `DELETE /api/jobs/{job_id}`
+
+Delete a finished job. Only a `done` or `failed` job can be deleted: a job in any other
+status still has a message in the queue, and a worker that finds no job row retries that
+message until its retries run out.
+
+**Success — `204 No Content`**, with no body. The job no longer appears in `GET /api/jobs`
+or `GET /api/documents/{checksum}/jobs`, and `GET /api/jobs/{job_id}` is `404`.
+
+- Only the job row is deleted. The document, its PDF and the parser and extraction
+  artifacts stay. Artifacts are keyed by the PDF checksum and the parser and extractor
+  versions, so other jobs of the same PDF can share them.
+- The status check and the delete are one statement, so a job that moves to another
+  status in between is not deleted.
+
+**Failure:**
+
+| Status | When |
+|--------|------|
+| 401 | missing or invalid API key (`unauthorized`) |
+| 404 | no job with that id (`job_not_found`), including one already deleted |
+| 409 | the job is not `done` or `failed` (`job_not_finished`); the row stays |
+| 422 | `job_id` is not a version 4 UUID (`invalid_job_id`) |
+| 503 | the database is unavailable (`database_unavailable`) |
+
 ### `GET /api/jobs/{job_id}/ets`
 
 The ETS rows for a done job, in observation order.
@@ -527,6 +552,9 @@ Migrations stay on the sync psycopg driver.
 - `GET /api/jobs/{job_id}` — reads the job joined to its document. It does not read the
   extraction artifact. `?detail=full` adds the stored record, including the document's
   display name.
+- `DELETE /api/jobs/{job_id}` — deletes the job row with `bioparser.db.jobs.delete_finished`,
+  one `DELETE ... WHERE status IN ('done', 'failed')`. When no row was deleted, a second
+  read tells `404` from `409`. Storage is not touched.
 - `GET /api/jobs/{job_id}/ets` — for a done job, reads the extraction artifact off the
   event loop and returns the ETS rows. Another status is `409`.
 - `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`

@@ -505,6 +505,7 @@ class StubJobs:
         self.claim_error: Exception | None = None
         self.doc_create_error: Exception | None = None
         self.doc_get_error: Exception | None = None
+        self.delete_error: Exception | None = None
 
     @property
     def state(self) -> JobState | None:
@@ -599,6 +600,18 @@ class StubJobs:
             return "not_allowed"
         self.states[str(job_id)] = state.with_changes(status="failed", error_code=code)
         return "recorded"
+
+    async def delete_finished(self, connection: object, job_id: object) -> str:
+        self.events.append("job_state.delete")
+        if self.delete_error is not None:
+            raise self.delete_error
+        state = self.states.get(str(job_id))
+        if state is None:
+            return "missing"
+        if state.status not in ("done", "failed"):
+            return "not_finished"
+        del self.states[str(job_id)]
+        return "deleted"
 
     async def list_jobs(
         self,
@@ -716,6 +729,9 @@ def bind_jobs(monkeypatch: Any) -> None:
     ) -> str:
         return await tables[-1].mark_failed(connection, job_id, code, from_statuses=from_statuses)
 
+    async def delete_finished(connection: object, job_id: object) -> str:
+        return await tables[-1].delete_finished(connection, job_id)
+
     async def list_jobs(
         connection: object,
         *,
@@ -774,6 +790,7 @@ def bind_jobs(monkeypatch: Any) -> None:
     monkeypatch.setattr(job_queries, "record_parsed", record_parsed)
     monkeypatch.setattr(job_queries, "record_done", record_done)
     monkeypatch.setattr(job_queries, "mark_failed", mark_failed)
+    monkeypatch.setattr(job_queries, "delete_finished", delete_finished)
     monkeypatch.setattr(job_queries, "list_jobs", list_jobs)
     monkeypatch.setattr(job_queries, "list_jobs_for_document", list_jobs_for_document)
     monkeypatch.setattr(document_queries, "get", get_document)
