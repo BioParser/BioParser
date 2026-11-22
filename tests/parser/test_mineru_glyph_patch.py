@@ -25,6 +25,10 @@ _SPEC.loader.exec_module(_PATCH)
 
 _NATIVE = "mineru/backend/analysis/pdf/text/native.py"
 _CONTENT = "mineru/backend/analysis/pdf/text/content.py"
+_OCR = "mineru/backend/analysis/pdf/ocr.py"
+_RECOGNIZER = "mineru/model/_internal/pytorchocr/infer/predict_rec.py"
+_DECODE = "mineru/model/_internal/pytorchocr/postprocess/rec_postprocess.py"
+_PADDLE = "mineru/model/ocr/pytorch_paddle.py"
 _PAGES = "docvortex/postprocess/pages.py"
 _DOCUMENT = "docvortex/postprocess/document.py"
 _PAGE_BLOCKS = "docvortex/postprocess/page_blocks.py"
@@ -40,6 +44,14 @@ _ANCHORS: tuple[tuple[str, str], ...] = (
     (_NATIVE, _PATCH._DELETE_PREBUILT_OLD),
     (_NATIVE, _PATCH._ASSIGN_OLD),
     (_CONTENT, _PATCH._LINE_ITEMS_OLD),
+    (_CONTENT, _PATCH._OCR_SPAN_OLD),
+    (_OCR, _PATCH._OCR_IMPORT_OLD),
+    (_OCR, _PATCH._OCR_APPLY_OLD),
+    (_RECOGNIZER, _PATCH._REC_CALL_OLD),
+    (_RECOGNIZER, _PATCH._REC_POST_OLD),
+    (_RECOGNIZER, _PATCH._REC_NAN_OLD),
+    (_DECODE, _PATCH._DECODE_OLD),
+    (_PADDLE, _PATCH._PADDLE_REC_OLD),
     (_PAGES, _PATCH._PAGES_IMPORT_OLD),
     (_PAGES, _PATCH._PAGES_START_OLD),
     (_PAGES, _PATCH._PAGES_STAMP_OLD),
@@ -78,7 +90,17 @@ def _assert_rewritten(site: Path) -> None:
 
     content = _text(site, _CONTENT)
     assert 'span.metadata.get("bioparser_glyphs")' in content
-    assert 'glyphs.append({"t": text, "x0": box[0], "x1": box[2]})' in content
+    assert 'ocr_res.get("bioparser_chars")' in content
+    assert 'glyphs.append({"t": text, "x0": box[0], "x1": box[2]})' not in content
+
+    ocr = _text(site, _OCR)
+    assert "def _bioparser_ocr_chars" in ocr
+    assert 'need_ocr_res["bioparser_chars"]' in ocr
+    recognizer = _text(site, _RECOGNIZER)
+    assert "return_word_box=False" in recognizer
+    assert "wh_ratio_list=wh_ratio_list" in recognizer
+    assert "result_list.append((text, mean_conf, [column_count, centers]))" in _text(site, _DECODE)
+    assert "return_word_box=True" in _text(site, _PADDLE)
 
     pages = _text(site, _PAGES)
     assert pages.count("def _bioparser_note_flat") == 1

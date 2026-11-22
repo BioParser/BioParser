@@ -5,14 +5,16 @@ span text, and then deletes it. Basic and above can rebuild that text in Rust an
 the character list. The line builder runs after the delete, so a line box is
 all that remains. DocVortex 0.6.24 then deletes ``lines`` while it builds the public
 document. This rewrites those spots so the middle document gains
-``extensions.bioparser_lines``. A span with no character boxes keeps that span's box as one
-glyph. BioParser then shares the box evenly across the span text. MinerU can rebuild the
-text without character boxes, and the assigner still leaves some spans empty. It
-refuses to edit a file that does not still contain the functions it was written against.
+``extensions.bioparser_lines``. MinerU can rebuild text without character boxes, and the
+assigner still leaves some spans empty. Those spans contribute no glyphs. Flash OCR has
+no character list from the detector. The recognizer already has a column for each
+character, and this keeps that column and places it along the detection box. It refuses
+to edit a file that does not still contain the functions it was written against.
 """
 
 from __future__ import annotations
 
+import inspect
 import sys
 from pathlib import Path
 
@@ -114,11 +116,27 @@ def _build_ocr_det_line_items(lines: list[_AnalyzeLine], page_size: tuple[float,
             saved = span.metadata.get("bioparser_glyphs") if isinstance(span.metadata, dict) else None
             if not isinstance(saved, list):
                 continue
-            if saved:
+            for char in saved:
+                glyph = _bioparser_glyph(char, page_size)
+                if glyph is not None:
+                    glyphs.append(glyph)
+        line_items.append({"bbox": normalized_bbox, "glyphs": glyphs})
+    return line_items
+'''
+
+# A tree patched before recognizer columns still even-splits an empty span. Drop that.
+_SPAN_BOX_OLD = """            saved = span.metadata.get("bioparser_glyphs") if isinstance(span.metadata, dict) else None
+            if isinstance(saved, list) and saved:
                 for char in saved:
                     glyph = _bioparser_glyph(char, page_size)
                     if glyph is not None:
                         glyphs.append(glyph)
+                continue
+            # An empty list is a native span the assigner did not fill. Flash OCR never
+            # writes the list: the detected line is one text span and one box.
+            if not isinstance(saved, list) and (
+                saved is not None or getattr(span, "type", None) != ContentType.TEXT
+            ):
                 continue
             text = span.content if isinstance(getattr(span, "content", None), str) else ""
             if text == "":
@@ -130,9 +148,236 @@ def _build_ocr_det_line_items(lines: list[_AnalyzeLine], page_size: tuple[float,
             if box is None:
                 continue
             glyphs.append({"t": text, "x0": box[0], "x1": box[2]})
-        line_items.append({"bbox": normalized_bbox, "glyphs": glyphs})
-    return line_items
-'''
+"""
+
+_SPAN_BOX_NEW = """            saved = span.metadata.get("bioparser_glyphs") if isinstance(span.metadata, dict) else None
+            if not isinstance(saved, list):
+                continue
+            for char in saved:
+                glyph = _bioparser_glyph(char, page_size)
+                if glyph is not None:
+                    glyphs.append(glyph)
+"""
+
+_OCR_SPAN_OLD = """        page_spans.append(
+            _AnalyzeSpan(
+                type=ContentType.TEXT,
+                bbox=bbox,
+                content=str(ocr_res.get("text", "") or ""),
+                score=float(ocr_res.get("score", 0.0) or 0.0),
+            )
+        )
+"""
+
+_OCR_SPAN_NEW = """        span = _AnalyzeSpan(
+            type=ContentType.TEXT,
+            bbox=bbox,
+            content=str(ocr_res.get("text", "") or ""),
+            score=float(ocr_res.get("score", 0.0) or 0.0),
+        )
+        raw_chars = ocr_res.get("bioparser_chars") if isinstance(ocr_res, dict) else None
+        if isinstance(raw_chars, list) and raw_chars:
+            glyphs: list[dict[str, object]] = []
+            for char in raw_chars:
+                if not isinstance(char, dict):
+                    glyphs = []
+                    break
+                page_box = _sidecar_bbox_to_page_bbox(char.get("bbox"), page_size, render_scale)
+                char_text = char.get("char")
+                if page_box is None or not isinstance(char_text, str) or char_text == "":
+                    glyphs = []
+                    break
+                glyphs.append({"char": char_text, "bbox": list(page_box)})
+            if glyphs:
+                span.metadata["bioparser_glyphs"] = glyphs
+        page_spans.append(span)
+"""
+
+_DECODE_OLD = """            sequence = sequence[final_mask]
+            probs = None if probs is None else probs[final_mask]
+            text = "".join(self.character[sequence])
+
+            if text_prob is not None and probs is not None and len(probs) > 0:
+                mean_conf = np.mean(probs)
+            else:
+                # 如果没有提供概率或最终结果为空，则默认置信度为1.0
+                mean_conf = 1.0
+            result_list.append((text, mean_conf))
+"""
+
+_DECODE_NEW = """            column_count = int(text_index[batch_idx].shape[0])
+            kept = np.flatnonzero(final_mask)
+            centers: list[float] = []
+            if return_word_box:
+                raw = text_index[batch_idx]
+                for index in kept:
+                    token = raw[index]
+                    end = int(index) + 1
+                    while end < column_count and raw[end] == token:
+                        end += 1
+                    centers.append((int(index) + end - 1) / 2)
+
+            sequence = sequence[final_mask]
+            probs = None if probs is None else probs[final_mask]
+            text = "".join(self.character[sequence])
+
+            if text_prob is not None and probs is not None and len(probs) > 0:
+                mean_conf = np.mean(probs)
+            else:
+                # 如果没有提供概率或最终结果为空，则默认置信度为1.0
+                mean_conf = 1.0
+            if return_word_box:
+                result_list.append((text, mean_conf, [column_count, centers]))
+            else:
+                result_list.append((text, mean_conf))
+"""
+
+_REC_CALL_OLD = """    def __call__(self, img_list, tqdm_enable=False, tqdm_desc="OCR-rec Predict", tqdm_progress_bar=None):
+"""
+
+_REC_CALL_NEW = """    def __call__(self, img_list, tqdm_enable=False, tqdm_desc="OCR-rec Predict", tqdm_progress_bar=None, return_word_box=False):
+"""
+
+_REC_POST_OLD = """                with torch.inference_mode():
+                    rec_result = self.postprocess_op(preds)
+"""
+
+_REC_POST_NEW = """                with torch.inference_mode():
+                    if return_word_box:
+                        wh_ratio_list = [
+                            width_list[indices[ino]] for ino in range(beg_img_no, end_img_no)
+                        ]
+                        rec_result = self.postprocess_op(
+                            preds,
+                            return_word_box=True,
+                            wh_ratio_list=wh_ratio_list,
+                            max_wh_ratio=max_wh_ratio,
+                        )
+                    else:
+                        rec_result = self.postprocess_op(preds)
+"""
+
+_REC_NAN_OLD = """        for i in range(len(rec_res)):
+            text, score = rec_res[i]
+            if isinstance(score, float) and math.isnan(score):
+                rec_res[i] = (text, 0.0)
+"""
+
+_REC_NAN_NEW = """        for i in range(len(rec_res)):
+            item = rec_res[i]
+            score = item[1]
+            if isinstance(score, float) and math.isnan(score):
+                rec_res[i] = (item[0], 0.0, *item[2:])
+"""
+
+_PADDLE_REC_OLD = """                    rec_res, elapse = self.text_recognizer(
+                        img,
+                        tqdm_enable=tqdm_enable,
+                        tqdm_desc=tqdm_desc,
+                        tqdm_progress_bar=tqdm_progress_bar,
+                    )
+"""
+
+_PADDLE_REC_NEW = """                    rec_res, elapse = self.text_recognizer(
+                        img,
+                        tqdm_enable=tqdm_enable,
+                        tqdm_desc=tqdm_desc,
+                        tqdm_progress_bar=tqdm_progress_bar,
+                        return_word_box=True,
+                    )
+"""
+
+_OCR_IMPORT_OLD = """from ....model.ocr.image import mask_formula_regions_for_ocr_det, rgb_to_bgr
+"""
+
+_OCR_IMPORT_NEW = """from ....model.ocr.image import TEXT_REC_ROTATE_RATIO, mask_formula_regions_for_ocr_det, rgb_to_bgr
+"""
+
+
+def _bioparser_ocr_chars(
+    text: str,
+    info: object,
+    bbox: object,
+    rotate_ratio: float = 1.5,
+) -> list[dict[str, object]] | None:
+    """Place each recognized character along a horizontal detection box.
+
+    ``info`` is the column count after padding correction, then one column center
+    per character. A vertical crop is left alone: its columns run down the page.
+    """
+    if text == "":
+        return None
+    if not isinstance(info, (list, tuple)) or len(info) != 2:
+        return None
+    raw_columns = info[1]
+    if not isinstance(raw_columns, (list, tuple)):
+        return None
+    if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+        return None
+    try:
+        column_count = float(info[0])
+        columns = [float(value) for value in raw_columns]
+        x0, y0, x1, y1 = (float(value) for value in bbox)
+    except (TypeError, ValueError):
+        return None
+    width = x1 - x0
+    height = y1 - y0
+    if (
+        len(columns) != len(text)
+        or column_count <= 0
+        or width <= 0
+        or height <= 0
+        or height / width >= rotate_ratio
+    ):
+        return None
+    centers = [min(max(column / column_count, 0.0), 1.0) for column in columns]
+    bounds = [0.0]
+    previous: float | None = None
+    for center in centers:
+        if previous is not None:
+            bounds.append((previous + center) / 2)
+        previous = center
+    bounds.append(1.0)
+    chars: list[dict[str, object]] = []
+    for char, left, right in zip(text, bounds[:-1], bounds[1:], strict=True):
+        if right <= left:
+            return None
+        chars.append({"char": char, "bbox": [x0 + left * width, y0, x0 + right * width, y1]})
+    return chars
+
+
+_OCR_CHARS_FN = inspect.getsource(_bioparser_ocr_chars)
+
+_OCR_FN_OLD = """def _apply_ocr_rec_results(
+"""
+
+_OCR_FN_NEW = (
+    _OCR_CHARS_FN
+    + "\n\n"
+    + """def _apply_ocr_rec_results(
+"""
+)
+
+_OCR_APPLY_OLD = """    items_to_remove = []
+    for index, (page_ocr_res_list, need_ocr_res) in enumerate(need_ocr_list):
+        ocr_text, ocr_score = ocr_result_list[index]
+        need_ocr_res["text"] = ocr_text
+        need_ocr_res["score"] = float(f"{ocr_score:.3f}")
+"""
+
+_OCR_APPLY_NEW = """    items_to_remove = []
+    for index, (page_ocr_res_list, need_ocr_res) in enumerate(need_ocr_list):
+        ocr_result = ocr_result_list[index]
+        ocr_text, ocr_score = ocr_result[0], ocr_result[1]
+        need_ocr_res["text"] = ocr_text
+        need_ocr_res["score"] = float(f"{ocr_score:.3f}")
+        info = ocr_result[2] if len(ocr_result) > 2 else None
+        chars = _bioparser_ocr_chars(
+            ocr_text, info, need_ocr_res.get("bbox"), TEXT_REC_ROTATE_RATIO
+        )
+        if chars is not None:
+            need_ocr_res["bioparser_chars"] = chars
+"""
 
 _PAGES_IMPORT_OLD = """from copy import deepcopy
 from typing import Any
@@ -304,6 +549,13 @@ _DV_DOCUMENT_NEW = '''def model_json_to_middle_json(model_json: ModelJson) -> Mi
 '''
 
 
+def _replace_present(path: Path, old: str, new: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if old not in text:
+        return
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
 def _replace(path: Path, old: str, new: str, *, already: str) -> None:
     text = path.read_text(encoding="utf-8")
     if already in text:
@@ -342,6 +594,35 @@ def _patch_mineru(site_packages: Path) -> None:
         already="assigned_span_indices = _owned_span_assignments(_native_text, spans, median_span_height)\n",
     )
     _replace(content, _LINE_ITEMS_OLD, _LINE_ITEMS_NEW, already="def _bioparser_glyph")
+    _replace_present(content, _SPAN_BOX_OLD, _SPAN_BOX_NEW)
+    _replace(content, _OCR_SPAN_OLD, _OCR_SPAN_NEW, already='ocr_res.get("bioparser_chars")')
+    rec_post = (
+        site_packages
+        / "mineru"
+        / "model"
+        / "_internal"
+        / "pytorchocr"
+        / "postprocess"
+        / "rec_postprocess.py"
+    )
+    predict_rec = (
+        site_packages / "mineru" / "model" / "_internal" / "pytorchocr" / "infer" / "predict_rec.py"
+    )
+    paddle_ocr = site_packages / "mineru" / "model" / "ocr" / "pytorch_paddle.py"
+    ocr = site_packages / "mineru" / "backend" / "analysis" / "pdf" / "ocr.py"
+    _replace(
+        rec_post,
+        _DECODE_OLD,
+        _DECODE_NEW,
+        already="result_list.append((text, mean_conf, [column_count, centers]))",
+    )
+    _replace(predict_rec, _REC_CALL_OLD, _REC_CALL_NEW, already="return_word_box=False")
+    _replace(predict_rec, _REC_POST_OLD, _REC_POST_NEW, already="wh_ratio_list=wh_ratio_list")
+    _replace(predict_rec, _REC_NAN_OLD, _REC_NAN_NEW, already="item = rec_res[i]")
+    _replace(paddle_ocr, _PADDLE_REC_OLD, _PADDLE_REC_NEW, already="return_word_box=True")
+    _replace(ocr, _OCR_IMPORT_OLD, _OCR_IMPORT_NEW, already="TEXT_REC_ROTATE_RATIO")
+    _replace(ocr, _OCR_FN_OLD, _OCR_FN_NEW, already="def _bioparser_ocr_chars")
+    _replace(ocr, _OCR_APPLY_OLD, _OCR_APPLY_NEW, already='need_ocr_res["bioparser_chars"]')
 
 
 def _patch_docvortex(site_packages: Path) -> None:

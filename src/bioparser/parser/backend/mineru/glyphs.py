@@ -2,9 +2,8 @@
 
 MinerU's text can insert ``^{}`` and ``_{}`` around a superscript or subscript, and it can
 drop a line-end hyphen when the next line continues the word. The edges belong to the
-characters MinerU actually measured. That removed hyphen is not given a box. A span
-MinerU rebuilt without character boxes arrives as one glyph, the span box, and that box
-is shared evenly across the span text.
+characters MinerU actually measured. That removed hyphen is not given a box. A glyph
+whose text is longer than one character shares that glyph's box evenly.
 """
 
 from __future__ import annotations

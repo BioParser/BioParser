@@ -443,7 +443,7 @@ def test_glyph_edges_highlight_inside_a_superscript() -> None:
 
 
 def test_an_unmeasured_span_does_not_take_the_next_glyphs() -> None:
-    # catapult had no character boxes, so the harvest stored one glyph for its span box.
+    # A glyph longer than one character shares its own box. The measured letters keep theirs.
     middle = _middle([_block("text", 0, "catapult catalog")])
     middle["extensions"]["bioparser_lines"] = {
         "version": 1,
@@ -545,6 +545,25 @@ def test_a_removed_line_end_hyphen_does_not_take_a_later_hyphen() -> None:
     assert len(kept) == 1
     assert kept[0].x0 == pytest.approx(0.24)
     assert kept[0].y0 == pytest.approx(0.14)
+
+
+def test_recognizer_columns_place_each_character() -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "mineru_glyph_edges",
+        Path(__file__).resolve().parents[2] / "docker" / "patches" / "mineru_glyph_edges.py",
+    )
+    assert spec is not None and spec.loader is not None
+    patch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(patch)
+    chars = patch._bioparser_ocr_chars("AB", [10.0, [1.0, 5.0]], [0.0, 10.0, 100.0, 30.0])
+    assert chars is not None
+    assert [item["char"] for item in chars] == ["A", "B"]
+    assert chars[0]["bbox"] == pytest.approx([0.0, 10.0, 30.0, 30.0])
+    assert chars[1]["bbox"] == pytest.approx([30.0, 10.0, 100.0, 30.0])
+    assert patch._bioparser_ocr_chars("A", [4.0, [1.0]], [0.0, 0.0, 10.0, 40.0]) is None
+    assert patch._bioparser_ocr_chars("AB", [10.0, [1.0]], [0.0, 0.0, 10.0, 4.0]) is None
 
 
 def test_balanced_span_product_is_capped() -> None:
