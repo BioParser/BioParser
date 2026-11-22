@@ -750,9 +750,10 @@ async def job_status(
 async def delete_job(request: Request, job_id: str) -> Response:
     """Delete a `done` or `failed` job.
 
-    Only the job row goes. The document, its PDF and the parser and extraction
-    artifacts stay, since other jobs of the same PDF can share them. A job in any
-    other status still has a queue message and is `409`.
+    The job leaves the job lists and its reads are `404`. It is a soft delete: the
+    row is marked deleted and stays in the database. The document, its PDF and the
+    parser and extraction artifacts stay too, since other jobs of the same PDF can
+    share them. A job in any other status is still running and is `409`.
     """
     parsed_job_id = _parse_job_id(job_id)
     fields = {"job_id": str(parsed_job_id)}

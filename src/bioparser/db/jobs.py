@@ -16,7 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     Uuid,
-    delete,
+    and_,
     insert,
     select,
     text,
@@ -47,6 +47,8 @@ class Job(Base):
 
     The database fills created_at and updated_at. The update trigger that
     refreshes updated_at lives in the migration; a column cannot express it.
+    deleted_at is set when a finished job is deleted: the row stays, and the API
+    reads leave it out.
     """
 
     __tablename__ = "jobs"
@@ -66,6 +68,10 @@ class Job(Base):
         ),
         CheckConstraint("parsing_claims >= 0", name="jobs_parsing_claims_check"),
         CheckConstraint("extracting_claims >= 0", name="jobs_extracting_claims_check"),
+        CheckConstraint(
+            "deleted_at IS NULL OR status IN ('done', 'failed')",
+            name="jobs_deleted_at_check",
+        ),
     )
 
     job_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
@@ -88,10 +94,12 @@ class Job(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 # Every JobState field is a column of the jobs table. created_at and updated_at
-# are columns only: the database fills them. A test checks the two stay in step.
+# are columns only: the database fills them. deleted_at is a column only too. A
+# test checks the two stay in step.
 _COLUMNS = tuple(JobState.model_fields)
 
 
@@ -123,7 +131,12 @@ async def create(connection: AsyncConnection, state: JobState) -> JobState:
 
 
 async def get(connection: AsyncConnection, job_id: UUID) -> JobState | None:
-    """Load one job, or None when the row is missing. An invalid row is corrupt."""
+    """Load one job, or None when the row is missing. An invalid row is corrupt.
+
+    A deleted job is returned too. The workers read jobs here, and they decide by
+    status: a deleted job is `done` or `failed`, so a late delivery for it is
+    skipped. The API reads through `list_jobs`, which leaves deleted jobs out.
+    """
     row = (
         (await connection.execute(select(Job.__table__).where(Job.job_id == job_id)))
         .mappings()
@@ -141,9 +154,11 @@ async def list_jobs(
     status: JobStatus | None = None,
     parser: str | None = None,
 ) -> list[tuple[JobState, str | None]]:
-    """Jobs joined to their document names, newest first."""
-    stmt = select(Job.__table__, Document.display_name).join(
-        Document, Document.checksum == Job.document_checksum
+    """Jobs joined to their document names, newest first. Deleted jobs are left out."""
+    stmt = (
+        select(Job.__table__, Document.display_name)
+        .join(Document, Document.checksum == Job.document_checksum)
+        .where(Job.deleted_at.is_(None))
     )
     if job_id is not None:
         stmt = stmt.where(Job.job_id == job_id)
@@ -160,11 +175,14 @@ async def list_jobs_for_document(
     connection: AsyncConnection,
     checksum: Sha256Hex,
 ) -> list[tuple[JobState, str | None]] | None:
-    """Jobs for one document, newest first. None when that document does not exist."""
+    """Jobs for one document, newest first. None when that document does not exist.
+
+    Deleted jobs are left out. A document whose jobs are all deleted has an empty list.
+    """
     stmt = (
         select(Document.display_name, Job.__table__)
         .select_from(Document)
-        .outerjoin(Job, Job.document_checksum == Document.checksum)
+        .outerjoin(Job, and_(Job.document_checksum == Document.checksum, Job.deleted_at.is_(None)))
         .where(Document.checksum == checksum)
         .order_by(Job.created_at.desc())
     )
@@ -177,27 +195,37 @@ async def list_jobs_for_document(
 
 
 # Only a finished job can be deleted. A queued or running job still has a queue
-# message, and a worker that finds no row retries it until its retries run out.
+# message and a worker that moves it on. The jobs_deleted_at_check constraint
+# holds the same rule in the database.
 DELETABLE_STATUSES: tuple[JobStatus, ...] = ("done", "failed")
 
 DeleteOutcome = Literal["deleted", "not_finished", "missing"]
 
 
 async def delete_finished(connection: AsyncConnection, job_id: UUID) -> DeleteOutcome:
-    """Delete one job row while its status is in `DELETABLE_STATUSES`.
+    """Soft-delete one job while its status is in `DELETABLE_STATUSES`.
 
-    The status check and the delete are one statement, so a job that moves on in
-    between is not deleted. The document, the PDF and the artifacts stay: other jobs
-    of the same PDF can share them. `not_finished` means the row is still there with
-    another status. `missing` means no row.
+    Sets deleted_at; the row stays. The status check and the write are one
+    statement, so a job that moves on in between is not deleted. The document, the
+    PDF and the artifacts stay too: other jobs of the same PDF can share them.
+    `not_finished` means the row is there, not deleted, with another status.
+    `missing` means no row, or a row that is already deleted.
     """
     result = await connection.execute(
-        delete(Job).where(Job.job_id == job_id, Job.status.in_(DELETABLE_STATUSES))
+        sql_update(Job)
+        .where(
+            Job.job_id == job_id,
+            Job.status.in_(DELETABLE_STATUSES),
+            Job.deleted_at.is_(None),
+        )
+        .values(deleted_at=text("now()"))
     )
     if result.rowcount == 1:
         return "deleted"
-    found = (await connection.execute(select(Job.job_id).where(Job.job_id == job_id))).one_or_none()
-    if found is None:
+    row = (
+        await connection.execute(select(Job.deleted_at).where(Job.job_id == job_id))
+    ).one_or_none()
+    if row is None or row.deleted_at is not None:
         return "missing"
     return "not_finished"
 

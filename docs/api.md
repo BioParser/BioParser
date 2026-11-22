@@ -348,17 +348,20 @@ The status read does not load the extraction artifact. A done job is `job_id` an
 ### `DELETE /api/jobs/{job_id}`
 
 Delete a finished job. Only a `done` or `failed` job can be deleted: a job in any other
-status still has a message in the queue, and a worker that finds no job row retries that
-message until its retries run out.
+status still has a message in the queue and a worker that moves it on.
 
 **Success — `204 No Content`**, with no body. The job no longer appears in `GET /api/jobs`
-or `GET /api/documents/{checksum}/jobs`, and `GET /api/jobs/{job_id}` is `404`.
+or `GET /api/documents/{checksum}/jobs`, and `GET /api/jobs/{job_id}` and the job's
+`/ets` and `/artifacts/...` routes are `404`.
 
-- Only the job row is deleted. The document, its PDF and the parser and extraction
-  artifacts stay. Artifacts are keyed by the PDF checksum and the parser and extractor
-  versions, so other jobs of the same PDF can share them.
-- The status check and the delete are one statement, so a job that moves to another
-  status in between is not deleted.
+- It is a soft delete. The job row stays in the database with `deleted_at` set, so a
+  later undo or trash view can bring it back. No route does that yet.
+- The document, its PDF and the parser and extraction artifacts stay. Artifacts are
+  keyed by the PDF checksum and the parser and extractor versions, so other jobs of the
+  same PDF can share them.
+- The status check and the write are one statement, so a job that moves to another
+  status in between is not deleted. The `jobs_deleted_at_check` constraint also keeps
+  `deleted_at` off a job that is not `done` or `failed`.
 
 **Failure:**
 
@@ -552,9 +555,12 @@ Migrations stay on the sync psycopg driver.
 - `GET /api/jobs/{job_id}` — reads the job joined to its document. It does not read the
   extraction artifact. `?detail=full` adds the stored record, including the document's
   display name.
-- `DELETE /api/jobs/{job_id}` — deletes the job row with `bioparser.db.jobs.delete_finished`,
-  one `DELETE ... WHERE status IN ('done', 'failed')`. When no row was deleted, a second
-  read tells `404` from `409`. Storage is not touched.
+- `DELETE /api/jobs/{job_id}` — soft-deletes the job with `bioparser.db.jobs.delete_finished`,
+  one `UPDATE jobs SET deleted_at = now() WHERE status IN ('done', 'failed') AND
+  deleted_at IS NULL`. When no row changed, a second read tells `404` (no row, or already
+  deleted) from `409`. Storage is not touched. `list_jobs` and `list_jobs_for_document`
+  leave deleted jobs out, so every job read of the API does too. `jobs.get`, which only
+  the workers use, still returns a deleted job: they skip a `done` or `failed` job.
 - `GET /api/jobs/{job_id}/ets` — for a done job, reads the extraction artifact off the
   event loop and returns the ETS rows. Another status is `409`.
 - `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`

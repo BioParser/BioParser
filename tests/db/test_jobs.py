@@ -100,6 +100,17 @@ async def _get(job_id: uuid.UUID) -> JobState | None:
         return await job_queries.get(connection, job_id)
 
 
+async def _deleted_at(job_id: uuid.UUID) -> datetime | None:
+    """The stored deleted_at. The row must exist."""
+    async with db_engine.transaction() as connection:
+        deleted_at: datetime | None = (
+            await connection.execute(
+                text("SELECT deleted_at FROM jobs WHERE job_id = :job_id"), {"job_id": job_id}
+            )
+        ).scalar_one()
+        return deleted_at
+
+
 def _create_database(admin_url: str, name: str) -> None:
     engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
     with engine.connect() as connection:
@@ -477,7 +488,10 @@ async def test_delete_finished_removes_only_a_done_or_failed_job(database: str) 
         "parsed",
         "extracting",
     }
-    assert await _get(states["done"].job_id) is None
+    # A soft delete: the rows stay, marked deleted, and the active jobs are not marked.
+    for status, state in states.items():
+        deleted_at = await _deleted_at(state.job_id)
+        assert (deleted_at is not None) == (status in ("done", "failed")), status
 
 
 @pytest.mark.integration
@@ -522,7 +536,61 @@ async def test_delete_finished_checks_the_status_it_deletes(database: str) -> No
             connection, state.job_id, "parse_failed", from_statuses=("parsing",)
         )
         assert await job_queries.delete_finished(connection, state.job_id) == "deleted"
-    assert await _get(state.job_id) is None
+    assert await _deleted_at(state.job_id) is not None
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_a_deleted_job_leaves_the_lists_and_keeps_its_row(database: str) -> None:
+    state = _queued(uuid.uuid4(), status="done", **_STATUS_FIELDS["done"])
+    await _create(state)
+
+    async with db_engine.transaction() as connection:
+        assert await job_queries.delete_finished(connection, state.job_id) == "deleted"
+        listed = await job_queries.list_jobs(connection)
+        by_id = await job_queries.list_jobs(connection, job_id=state.job_id)
+        for_document = await job_queries.list_jobs_for_document(connection, CHECKSUM)
+        stored = await job_queries.get(connection, state.job_id)
+
+    assert listed == []
+    assert by_id == []
+    # The document is still there, with no jobs to list.
+    assert for_document == []
+    # The workers still read it, and skip it by its status.
+    assert stored is not None
+    assert stored.status == "done"
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_deleting_a_deleted_job_is_missing_and_keeps_the_first_time(database: str) -> None:
+    state = _queued(uuid.uuid4(), status="failed", **_STATUS_FIELDS["failed"])
+    await _create(state)
+    async with db_engine.transaction() as connection:
+        assert await job_queries.delete_finished(connection, state.job_id) == "deleted"
+    first = await _deleted_at(state.job_id)
+
+    async with db_engine.transaction() as connection:
+        assert await job_queries.delete_finished(connection, state.job_id) == "missing"
+
+    assert await _deleted_at(state.job_id) == first
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_the_database_refuses_to_delete_an_active_job(database: str) -> None:
+    """jobs_deleted_at_check holds the rule even for a write that skips delete_finished."""
+    state = _queued(uuid.uuid4())
+    await _create(state)
+
+    with pytest.raises(DatabaseError):
+        async with db_engine.transaction() as connection:
+            await connection.execute(
+                text("UPDATE jobs SET deleted_at = now() WHERE job_id = :job_id"),
+                {"job_id": state.job_id},
+            )
+
+    assert await _deleted_at(state.job_id) is None
 
 
 @pytest.mark.integration
@@ -805,7 +873,7 @@ async def test_transaction_passes_through_an_unrelated_error(
 
 def test_job_columns_match_the_job_state_fields() -> None:
     columns = {column.name for column in job_queries.Job.__table__.columns}
-    assert columns - {"updated_at"} == set(JobState.model_fields)
+    assert columns - {"updated_at", "deleted_at"} == set(JobState.model_fields)
 
 
 @pytest.mark.integration

@@ -1456,7 +1456,7 @@
       },
       "delete": {
         "summary": "Delete Job",
-        "description": "Delete a `done` or `failed` job.\n\nOnly the job row goes. The document, its PDF and the parser and extraction\nartifacts stay, since other jobs of the same PDF can share them. A job in any\nother status still has a queue message and is `409`.",
+        "description": "Delete a `done` or `failed` job.\n\nThe job leaves the job lists and its reads are `404`. It is a soft delete: the\nrow is marked deleted and stays in the database. The document, its PDF and the\nparser and extraction artifacts stay too, since other jobs of the same PDF can\nshare them. A job in any other status is still running and is `409`.",
         "operationId": "delete_job_api_jobs__job_id__delete",
         "security": [
           {
