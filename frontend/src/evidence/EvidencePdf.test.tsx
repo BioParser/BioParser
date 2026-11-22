@@ -32,8 +32,13 @@ afterEach(() => {
 
 const BOX = { x0: 0.1, y0: 0.2, x1: 0.9, y1: 0.3 };
 
-function block(blockId: string, pageNumber: number, bbox: QuotedBlock["bbox"] = BOX): QuotedBlock {
-  return { blockId, pageNumber, bbox, segments: [] };
+function block(
+  blockId: string,
+  pageNumber: number,
+  bbox: QuotedBlock["bbox"] = BOX,
+  highlights: QuotedBlock["highlights"] = [],
+): QuotedBlock {
+  return { blockId, pageNumber, bbox, segments: [], highlights };
 }
 
 function error(status: number, code: string): Response {
@@ -64,7 +69,7 @@ function renderPdf(quotation: QuotedBlock[]) {
 describe("pagesOf", () => {
   it("outlines a block on its page", () => {
     expect(pagesOf([block("b0", 1)])).toEqual([
-      { pageNumber: 1, outlines: [{ blockId: "b0", bbox: BOX }], unplaced: [] },
+      { pageNumber: 1, outlines: [{ blockId: "b0", bbox: BOX }], highlights: [], unplaced: [] },
     ]);
   });
 
@@ -82,7 +87,24 @@ describe("pagesOf", () => {
 
   it("does not outline a block without a box", () => {
     expect(pagesOf([block("b1", 1, null)])).toEqual([
-      { pageNumber: 1, outlines: [], unplaced: ["b1"] },
+      { pageNumber: 1, outlines: [], highlights: [], unplaced: ["b1"] },
+    ]);
+  });
+
+  it("puts each block's value and unit boxes on its page", () => {
+    const value = { mark: "value" as const, bbox: { x0: 0.2, y0: 0.2, x1: 0.3, y1: 0.25 } };
+    const unit = { mark: "unit" as const, bbox: { x0: 0.31, y0: 0.2, x1: 0.35, y1: 0.25 } };
+    const pages = pagesOf([block("b3", 2, BOX, [value]), block("b8", 3, BOX, [unit])]);
+    expect(pages.map((page) => page.highlights)).toEqual([
+      [{ blockId: "b3", ...value }],
+      [{ blockId: "b8", ...unit }],
+    ]);
+  });
+
+  it("keeps the boxes of a block that has no box of its own", () => {
+    const value = { mark: "value" as const, bbox: BOX };
+    expect(pagesOf([block("b1", 1, null, [value])])[0]?.highlights).toEqual([
+      { blockId: "b1", ...value },
     ]);
   });
 });

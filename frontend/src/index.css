@@ -313,14 +313,34 @@ mark.evidence-unit {
   aspect-ratio: 1 / 1.3;
 }
 
-/* A thick line shows the block by shape, not only by color. It is drawn outside the box:
-   the parser's box fits the text closely, and a border inside it would cover the letters. */
+/* A line shows the block by shape, not only by color. It is drawn outside the box: the
+   parser's box fits the text closely, and a border inside it would cover the letters. It is
+   lighter than the value and unit boxes below, which mark the text itself. */
 .pdf-outline {
   position: absolute;
-  outline: 3px solid #d70;
-  outline-offset: 2px;
-  background: #fc02;
+  outline: 2px dashed #d708;
+  outline-offset: 3px;
   pointer-events: none;
+}
+
+/* The value and the unit on the page, in the styles of their marks in the quotation: a fill
+   with a solid line for the value, a lighter fill with a dashed line for the unit. The line
+   sits under the glyph box (content-box), so it does not cover the letters. */
+.pdf-highlight {
+  position: absolute;
+  box-sizing: content-box;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+}
+
+.pdf-highlight-value {
+  background: #fc06;
+  border-bottom: 2px solid #a60;
+}
+
+.pdf-highlight-unit {
+  background: #4af4;
+  border-bottom: 2px dashed #27b;
 }
 
 .evidence-subheading {

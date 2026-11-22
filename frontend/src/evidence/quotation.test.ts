@@ -101,6 +101,7 @@ describe("indexTextBlocks", () => {
       pageNumber: 1,
       text: "Mus musculus weighed 12.5 kg",
       bbox: BOX,
+      lines: [],
     });
     expect(BLOCKS.get("b1")?.bbox).toBeNull();
     expect(BLOCKS.get("b3")?.pageNumber).toBe(2);
@@ -134,6 +135,7 @@ describe("buildQuotation", () => {
           { text: " ", mark: null },
           { text: "kg", mark: "unit" },
         ],
+        highlights: [],
       },
     ]);
   });
@@ -217,5 +219,128 @@ describe("buildQuotation", () => {
         BLOCKS,
       ),
     ).toThrow(EvidenceMismatchError);
+  });
+});
+
+// Glyph edges for one line of text: each character is 0.02 wide from x = 0.1, and a space
+// has no ink. Indexes are code points, as in the parser artifact.
+function left(index: number): number {
+  return 0.1 + index * 0.02;
+}
+
+function right(index: number): number {
+  return left(index) + 0.02;
+}
+
+function line(text: string, start: number, end: number, y0: number) {
+  const chars = [...text].slice(start, end);
+  return {
+    start,
+    end,
+    y0,
+    y1: y0 + 0.05,
+    x0: chars.map((char, i) => (char === " " ? null : left(start + i))),
+    x1: chars.map((char, i) => (char === " " ? null : right(start + i))),
+  };
+}
+
+function textBlock(blockId: string, text: string, lines: ReturnType<typeof line>[]) {
+  return {
+    block_id: blockId,
+    order: 0,
+    kind: "text" as const,
+    role: "body" as const,
+    content: { type: "text" as const, text, lines },
+    bbox: BOX,
+  };
+}
+
+const ONE_LINE = "Mus musculus weighed 12.5 kg";
+const TWO_LINES = "means were 12.5 to 14.0 g";
+const NON_BMP = "\u{1d440} = 12.5 kg";
+
+const GLYPHS = indexTextBlocks({
+  schema_version: "2",
+  checksum: "abc",
+  parser: { name: "default", version: "2", configuration: {} },
+  pages: [
+    {
+      page_number: 1,
+      width: 612,
+      height: 792,
+      blocks: [
+        textBlock("g0", ONE_LINE, [line(ONE_LINE, 0, 28, 0.2)]),
+        // The line breaks after "to ": the value 12.5 to 14.0 is on both lines.
+        textBlock("g1", TWO_LINES, [line(TWO_LINES, 0, 19, 0.2), line(TWO_LINES, 19, 25, 0.3)]),
+        textBlock("g2", NON_BMP, [line(NON_BMP, 0, 11, 0.5)]),
+      ],
+    },
+  ],
+});
+
+describe("buildQuotation highlights", () => {
+  it("boxes the value and the unit on one line", () => {
+    const [block] = buildQuotation(
+      observation(citation("12.5", ["g0", 21, 25]), citation("kg", ["g0", 26, 28])),
+      GLYPHS,
+    );
+    expect(block?.highlights).toEqual([
+      { mark: "value", bbox: { x0: left(21), y0: 0.2, x1: right(24), y1: 0.25 } },
+      { mark: "unit", bbox: { x0: left(26), y0: 0.2, x1: right(27), y1: 0.25 } },
+    ]);
+  });
+
+  it("boxes a value over a line break once on each line", () => {
+    const [block] = buildQuotation(
+      observation(citation("12.5 to 14.0", ["g1", 11, 23]), citation("g", ["g1", 24, 25])),
+      GLYPHS,
+    );
+    expect(block?.highlights).toEqual([
+      { mark: "value", bbox: { x0: left(11), y0: 0.2, x1: right(17), y1: 0.25 } },
+      { mark: "value", bbox: { x0: left(19), y0: 0.3, x1: right(22), y1: 0.35 } },
+      { mark: "unit", bbox: { x0: left(24), y0: 0.3, x1: right(24), y1: 0.35 } },
+    ]);
+  });
+
+  it("keeps the value's box where the unit overlaps it", () => {
+    const [block] = buildQuotation(
+      observation(citation("12.5", ["g0", 21, 25]), citation("5 kg", ["g0", 24, 28])),
+      GLYPHS,
+    );
+    expect(block?.highlights).toEqual([
+      { mark: "value", bbox: { x0: left(21), y0: 0.2, x1: right(24), y1: 0.25 } },
+      { mark: "unit", bbox: { x0: left(26), y0: 0.2, x1: right(27), y1: 0.25 } },
+    ]);
+  });
+
+  it("reads the glyph edges by code point after a character outside the BMP", () => {
+    const [block] = buildQuotation(
+      observation(citation("12.5", ["g2", 4, 8]), citation("kg", ["g2", 9, 11])),
+      GLYPHS,
+    );
+    expect(block?.segments.map((segment) => segment.text)).toEqual([
+      "\u{1d440} = ",
+      "12.5",
+      " ",
+      "kg",
+    ]);
+    expect(block?.highlights.map((highlight) => highlight.bbox.x0)).toEqual([left(4), left(9)]);
+  });
+
+  it("draws no box for a marked range with no ink", () => {
+    const [block] = buildQuotation(
+      observation(citation("12.5", ["g0", 21, 25]), citation(" ", ["g0", 25, 26])),
+      GLYPHS,
+    );
+    expect(block?.highlights.map((highlight) => highlight.mark)).toEqual(["value"]);
+  });
+
+  it("draws no box in a block of schema 1, which has no lines", () => {
+    const [block] = buildQuotation(
+      observation(citation("12.5", ["b0", 21, 25]), citation("kg", ["b0", 26, 28])),
+      BLOCKS,
+    );
+    expect(block?.highlights).toEqual([]);
+    expect(block?.bbox).toEqual(BOX);
   });
 });
