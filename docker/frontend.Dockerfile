@@ -1,5 +1,5 @@
 # Vite dev server for the local Compose overlay. Not an OKD image.
-# Node 26.13.0, the same pin as the Node stage in docker/api.Dockerfile and .nvmrc.
+# Same Node pin as .nvmrc and the ui stage in docker/api.Dockerfile.
 
 FROM node:26.13.1-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc
 
