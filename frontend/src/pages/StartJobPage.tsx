@@ -23,6 +23,10 @@ const PARSERS = Object.entries(PARSER_LABELS) as [ParserName, string][];
 const EXTRACTOR = { name: "default", label: "Default" };
 const TRAITS = ["Body mass", "Body length", "Tail length"];
 
+// The most files that can wait in the list to be sent. The API has no such limit: this only
+// keeps an accidental drop of a whole folder from starting a job for every file in it.
+export const MAX_FILES_PER_BATCH = 10;
+
 // What happened to one file. A row without a result has not been sent yet.
 type FileResult =
   | { state: "rejected"; reason: string }
@@ -35,14 +39,35 @@ type Row = { id: number; file: File; result: FileResult | null };
 // Row ids only have to be unique on this page, for React's keys.
 let nextRowId = 0;
 
+// The same file picked twice: the browser gives no path, so name, size and change time.
+function fileKey(file: File): string {
+  return `${file.name}\u0000${file.size}\u0000${file.lastModified}`;
+}
+
+// A file in the list blocks the same file from being added again while it waits or after it
+// started a job. One whose upload or start failed can be added again, to try once more.
+function blocksDuplicate(row: Row): boolean {
+  return row.result === null || row.result.state !== "failed";
+}
+
+function fileCount(count: number): string {
+  return count === 1 ? "1 file" : `${count} files`;
+}
+
 export function StartJobPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [parser, setParser] = useState<ParserName>("default");
   const [sending, setSending] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [maxBytes, setMaxBytes] = useState(DEFAULT_MAX_UPLOAD_BYTES);
+  // Why some of the files just picked or dropped were not added, or null.
+  const [notice, setNotice] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const batch = useRef<AbortController | null>(null);
+  // Each unsent row's Remove button, so focus can move on when a row goes away.
+  const removeButtons = useRef(new Map<number, HTMLButtonElement>());
+  // After a removal: the row whose button gets focus, or null for the file input.
+  const focusAfterRemove = useRef<number | null | undefined>(undefined);
 
   // Leaving the page (a nav link, or the key screen after a 401) stops the batch, so no
   // upload or job starts that the curator cannot see.
@@ -76,11 +101,68 @@ export function StartJobPage() {
     };
   }, []);
 
-  function chooseFiles(files: FileList | null) {
-    if (files === null || files.length === 0) {
+  // Keyboard focus was on a Remove button that is gone: it moves to the next row's button,
+  // or to the file input when no unsent row is left.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs after each change to the rows.
+  useEffect(() => {
+    const target = focusAfterRemove.current;
+    if (target === undefined) {
       return;
     }
-    setRows(Array.from(files, (file) => ({ id: nextRowId++, file, result: null })));
+    focusAfterRemove.current = undefined;
+    const button = target === null ? undefined : removeButtons.current.get(target);
+    (button ?? inputRef.current)?.focus();
+  }, [rows]);
+
+  // Adds the files to the end of the list. Rows already there keep their place and result.
+  function addFiles(files: File[]) {
+    if (files.length === 0) {
+      return;
+    }
+    const taken = new Set(rows.filter(blocksDuplicate).map((row) => fileKey(row.file)));
+    let room = MAX_FILES_PER_BATCH - rows.filter((row) => row.result === null).length;
+    const added: Row[] = [];
+    const duplicates: string[] = [];
+    let overCap = 0;
+    for (const file of files) {
+      const key = fileKey(file);
+      if (taken.has(key)) {
+        duplicates.push(file.name);
+      } else if (room <= 0) {
+        overCap++;
+      } else {
+        taken.add(key);
+        room--;
+        added.push({ id: nextRowId++, file, result: null });
+      }
+    }
+    setRows([...rows, ...added]);
+    const reasons: string[] = [];
+    if (duplicates.length === 1) {
+      reasons.push(`${duplicates[0]} is already in the list.`);
+    } else if (duplicates.length > 1) {
+      reasons.push(`${fileCount(duplicates.length)} are already in the list.`);
+    }
+    if (overCap > 0) {
+      reasons.push(
+        `${fileCount(overCap)} not added: up to ${MAX_FILES_PER_BATCH} PDFs can wait to be sent.`,
+      );
+    }
+    setNotice(reasons.length > 0 ? reasons.join(" ") : null);
+  }
+
+  function removeRow(id: number) {
+    const unsent = rows.filter((row) => row.result === null);
+    const index = unsent.findIndex((row) => row.id === id);
+    const next = unsent[index + 1] ?? unsent[index - 1];
+    focusAfterRemove.current = next?.id ?? null;
+    setRows(rows.filter((row) => row.id !== id));
+    setNotice(null);
+  }
+
+  function clearRows() {
+    setRows([]);
+    setNotice(null);
   }
 
   function setResult(id: number, result: FileResult) {
@@ -106,16 +188,7 @@ export function StartJobPage() {
     if (sending) {
       return;
     }
-    const files = event.dataTransfer.files;
-    if (files.length === 0) {
-      return;
-    }
-    // The list below now shows the dropped files. Empty the file input, so it no longer
-    // names the files picked before, and picking those same files again still fires onChange.
-    if (inputRef.current !== null) {
-      inputRef.current.value = "";
-    }
-    chooseFiles(files);
+    addFiles(Array.from(event.dataTransfer.files));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -123,6 +196,7 @@ export function StartJobPage() {
     const controller = new AbortController();
     batch.current = controller;
     setSending(true);
+    setNotice(null);
     try {
       // One file at a time: the API reads each upload into memory, and the results then show
       // in the order of the list.
@@ -165,17 +239,26 @@ export function StartJobPage() {
             onDrop={handleDrop}
           >
             <label className="job-field">
-              PDF files
+              Add PDF files
               <input
                 ref={inputRef}
                 type="file"
                 name="files"
                 multiple
                 accept="application/pdf,.pdf"
-                onChange={(event) => chooseFiles(event.currentTarget.files)}
+                onChange={(event) => {
+                  const input = event.currentTarget;
+                  // Copied first: emptying the input also empties its FileList.
+                  addFiles(Array.from(input.files ?? []));
+                  // The list below shows what was added. An empty input does not name only
+                  // the last pick, and picking a removed file again still fires onChange.
+                  input.value = "";
+                }}
               />
             </label>
-            <p className="job-drop-hint">or drop them here. Up to {formatMiB(maxBytes)} each.</p>
+            <p className="job-drop-hint">
+              or drop them here. Up to {MAX_FILES_PER_BATCH} PDFs, {formatMiB(maxBytes)} each.
+            </p>
           </div>
           <fieldset className="job-parsers">
             <legend>Parser</legend>
@@ -204,16 +287,43 @@ export function StartJobPage() {
             <dd>{TRAITS.join(", ")}</dd>
           </dl>
         </section>
-        <button type="submit" disabled={sending || !unsent}>
-          {sending ? "Starting jobs…" : "Start jobs"}
-        </button>
+        <div className="job-actions">
+          <button type="submit" disabled={sending || !unsent}>
+            {sending ? "Starting jobs…" : "Start jobs"}
+          </button>
+          <button type="button" onClick={clearRows} disabled={sending || rows.length === 0}>
+            Clear list
+          </button>
+        </div>
       </form>
+      {/* Not a status region: the batch summary below is the page's status. */}
+      <p className="job-notice" aria-live="polite">
+        {notice}
+      </p>
       {rows.length > 0 && (
         <ul aria-label="Files" className="job-files">
           {rows.map((row) => (
             <li key={row.id} className="job-file">
               <span className="job-file-name">{row.file.name}</span>
               <FileStatus result={row.result} />
+              {row.result === null && (
+                <button
+                  type="button"
+                  className="job-file-remove"
+                  aria-label={`Remove ${row.file.name}`}
+                  disabled={sending}
+                  onClick={() => removeRow(row.id)}
+                  ref={(button) => {
+                    if (button === null) {
+                      removeButtons.current.delete(row.id);
+                    } else {
+                      removeButtons.current.set(row.id, button);
+                    }
+                  }}
+                >
+                  Remove
+                </button>
+              )}
             </li>
           ))}
         </ul>
