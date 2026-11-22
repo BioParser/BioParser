@@ -439,7 +439,7 @@ export interface components {
             /** Scientificname */
             scientificName?: string | null;
             /** Verbatimscientificname */
-            verbatimScientificName: string;
+            verbatimScientificName?: string | null;
             /** Taxonid */
             taxonID?: string | null;
             /** Traitvalue */
@@ -708,11 +708,13 @@ export interface components {
          *     printed, read with ``verbatimTraitUnit``. ``statisticalMethod`` is the
          *     phrase the paper printed, or empty.
          *
-         *     ``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations
-         *     beside a verbatim citation. The interpretation is omitted when the printed
-         *     token is already the value. ``scientificName`` is the model's reading of the
-         *     accepted name. ``traitValue`` and ``traitUnit`` stay empty until a trait
-         *     list standardizes them.
+         *     ``verbatimScientificName`` is the printed subject. It is omitted when the
+         *     paper does not name one. ``scientificName``, ``traitValue``, and
+         *     ``traitUnit`` are interpretations beside a verbatim citation. The
+         *     interpretation is omitted when the printed token is already the value.
+         *     ``scientificName`` is the model's reading of the accepted name.
+         *     ``traitValue`` and ``traitUnit`` stay empty until a trait list
+         *     standardizes them.
          *
          *     The artifact does not enforce a closed set of values. An interpretation's
          *     ``value`` is any non-empty string, including ``traitCode``. An extractor may
@@ -724,7 +726,7 @@ export interface components {
             traitCode?: components["schemas"]["Interpretation"] | null;
             verbatimTraitName: components["schemas"]["Citation"];
             scientificName?: components["schemas"]["Interpretation"] | null;
-            verbatimScientificName: components["schemas"]["Citation"];
+            verbatimScientificName?: components["schemas"]["Citation"] | null;
             traitValue?: components["schemas"]["Interpretation"] | null;
             verbatimTraitValue?: components["schemas"]["Citation"] | null;
             traitUnit?: components["schemas"]["Interpretation"] | null;

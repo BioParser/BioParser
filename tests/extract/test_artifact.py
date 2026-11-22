@@ -157,7 +157,16 @@ def test_a_scientific_name_can_expand_the_printed_citation() -> None:
 
     assert isinstance(observation.scientificName, Interpretation)
     assert observation.scientificName.value == "Mus musculus"
-    assert observation.verbatimScientificName.text == "M. musculus"
+    printed = observation.verbatimScientificName
+    assert printed is not None
+    assert printed.text == "M. musculus"
+
+
+def test_a_measurement_may_omit_the_printed_name() -> None:
+    observation = _observation(verbatimScientificName=None)
+
+    assert observation.verbatimScientificName is None
+    assert observation.verbatimTraitName.text == "body mass"
 
 
 def test_a_range_without_a_central_value_is_kept() -> None:

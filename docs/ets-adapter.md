@@ -41,7 +41,7 @@ An extractor may store `traitValue` and `traitUnit` as its own reading of the pr
 
 ### Name and taxon
 
-`verbatimScientificName` stays the printed span, including forms such as `M. musculus`.
+`verbatimScientificName` stays the printed span, including forms such as `M. musculus`. When the paper does not print a subject, the observation omits the field and the row leaves the column empty.
 
 A stored `scientificName` is the model's reading of the accepted name, such as `Mus musculus` for a printed `M. musculus`. The row copies it. `taxonID` stays empty, and the row warns `not_verified:scientificName`, because the name was not checked against a taxonomy. An empty reading leaves the column empty and does not warn.
 
