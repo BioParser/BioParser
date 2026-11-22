@@ -36,6 +36,7 @@ _STRUCTURE = "docvortex/postprocess/pdf_structure.py"
 _MODELS = "docvortex/analyzers/native/pdf/models.py"
 _PIPELINE = "docvortex/analyzers/native/pdf/pipeline.py"
 _MERGING = "docvortex/analyzers/native/pdf/line_merging.py"
+_TAGGED = "docvortex/analyzers/native/pdf/tagged.py"
 
 # Each search string must occur in the published file. The patch module is not the source.
 _ANCHORS: tuple[tuple[str, str], ...] = (
@@ -64,6 +65,8 @@ _ANCHORS: tuple[tuple[str, str], ...] = (
     (_PIPELINE, _PATCH._NATIVE_CLEAR_OLD),
     (_PIPELINE, _PATCH._NATIVE_OUTPUT_OLD),
     *((_MERGING, old) for old, _new, _already in _PATCH._MERGE_COPIES),
+    (_TAGGED, _PATCH._TAGGED_CLASS_OLD),
+    (_TAGGED, _PATCH._TAGGED_CALL_OLD),
 )
 
 
@@ -143,6 +146,10 @@ def _assert_rewritten(site: Path) -> None:
 
     merging = _text(site, _MERGING)
     assert merging.count("merged.bioparser_glyphs") == 3
+
+    tagged = _text(site, _TAGGED)
+    assert tagged.count("def _bioparser_tagged_lines") == 1
+    assert "_bioparser_tagged_lines(measured, self.page.size)" in tagged
 
 
 def _wheel_bytes(project: str, version: str) -> bytes:

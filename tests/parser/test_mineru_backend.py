@@ -547,6 +547,33 @@ def test_a_removed_line_end_hyphen_does_not_take_a_later_hyphen() -> None:
     assert kept[0].y0 == pytest.approx(0.14)
 
 
+def test_tagged_characters_keep_a_line_each() -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "mineru_glyph_edges_tagged",
+        Path(__file__).resolve().parents[2] / "docker" / "patches" / "mineru_glyph_edges.py",
+    )
+    assert spec is not None and spec.loader is not None
+    patch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(patch)
+    chars = [
+        {"char": "A", "bbox": [10.0, 10.0, 20.0, 22.0]},
+        {"char": "B", "bbox": [24.0, 11.0, 34.0, 23.0]},
+        {"char": "C", "bbox": [10.0, 40.0, 20.0, 52.0]},
+    ]
+    lines = patch._bioparser_tagged_lines(chars, (200.0, 100.0))
+    assert len(lines) == 2
+    assert [glyph["t"] for glyph in lines[0]["glyphs"]] == ["A", "B"]
+    assert [glyph["t"] for glyph in lines[1]["glyphs"]] == ["C"]
+    assert lines[0]["bbox"][1] == pytest.approx(0.10)
+    assert lines[0]["bbox"][3] == pytest.approx(0.23)
+    assert lines[1]["glyphs"][0]["x0"] == pytest.approx(0.05)
+    assert lines[1]["bbox"][1] == pytest.approx(0.40)
+    assert patch._bioparser_tagged_lines([{"char": "A", "bbox": [0, 0, 0, 1]}], (10.0, 10.0)) == []
+    assert patch._bioparser_tagged_lines(chars, (0.0, 10.0)) == []
+
+
 def test_recognizer_columns_place_each_character() -> None:
     import importlib.util
 

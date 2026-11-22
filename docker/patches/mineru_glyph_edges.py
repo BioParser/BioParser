@@ -8,8 +8,10 @@ document. This rewrites those spots so the middle document gains
 ``extensions.bioparser_lines``. MinerU can rebuild text without character boxes, and the
 assigner still leaves some spans empty. Those spans contribute no glyphs. Flash OCR has
 no character list from the detector. The recognizer already has a column for each
-character, and this keeps that column and places it along the detection box. It refuses
-to edit a file that does not still contain the functions it was written against.
+character, and this keeps that column and places it along the detection box. Tagged
+text keeps one box for the whole block. Each character box is copied onto the visual
+line it belongs to. It refuses to edit a file that does not still contain the functions
+it was written against.
 """
 
 from __future__ import annotations
@@ -780,12 +782,118 @@ _MERGE_COPIES = (
 )
 
 
+def _bioparser_tagged_lines(chars: object, page_size: object) -> list[dict[str, object]]:
+    """One normalized line per visual run, with each character's own horizontal edges.
+
+    Characters stay in the order the structure tree produced. A character joins the
+    current line when their boxes overlap vertically. The next run starts its own line,
+    so a paragraph is not one tall box.
+    """
+    try:
+        width = float(page_size[0])  # type: ignore[index]
+        height = float(page_size[1])  # type: ignore[index]
+    except (TypeError, ValueError, IndexError):
+        return []
+    if width <= 0 or height <= 0 or not isinstance(chars, list):
+        return []
+    pending: list[tuple[str, tuple[float, float, float, float]]] = []
+    for char in chars:
+        if not isinstance(char, dict) or char.get("text_is_visible") is False:
+            continue
+        text = char.get("char")
+        if not isinstance(text, str):
+            continue
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        if text == "" or text == "\x00" or "\n" in text:
+            continue
+        try:
+            raw = tuple(float(value) for value in char.get("bbox"))
+        except (TypeError, ValueError):
+            continue
+        if len(raw) != 4 or raw[2] <= raw[0] or raw[3] <= raw[1]:
+            continue
+        pending.append((text, (raw[0], raw[1], raw[2], raw[3])))
+    groups: list[list[int]] = []
+    bounds: list[list[float]] = []
+    for index, (_text, raw) in enumerate(pending):
+        top, bottom = raw[1], raw[3]
+        chosen: int | None = None
+        if bounds:
+            line_top, line_bottom = bounds[-1]
+            overlap = min(bottom, line_bottom) - max(top, line_top)
+            limit = min(bottom - top, line_bottom - line_top)
+            if limit > 0 and overlap >= 0.4 * limit:
+                chosen = len(bounds) - 1
+        if chosen is None:
+            groups.append([index])
+            bounds.append([top, bottom])
+        else:
+            groups[chosen].append(index)
+            bounds[chosen][0] = min(bounds[chosen][0], top)
+            bounds[chosen][1] = max(bounds[chosen][1], bottom)
+    lines: list[dict[str, object]] = []
+    for group in groups:
+        glyphs: list[dict[str, object]] = []
+        lefts: list[float] = []
+        tops: list[float] = []
+        rights: list[float] = []
+        bottoms: list[float] = []
+        for index in group:
+            text, raw = pending[index]
+            left = min(max(raw[0] / width, 0.0), 1.0)
+            right = min(max(raw[2] / width, 0.0), 1.0)
+            top = min(max(raw[1] / height, 0.0), 1.0)
+            bottom = min(max(raw[3] / height, 0.0), 1.0)
+            if right <= left or bottom <= top:
+                continue
+            glyphs.append({"t": text, "x0": left, "x1": right})
+            lefts.append(left)
+            tops.append(top)
+            rights.append(right)
+            bottoms.append(bottom)
+        if glyphs:
+            lines.append(
+                {
+                    "bbox": [min(lefts), min(tops), max(rights), max(bottoms)],
+                    "glyphs": glyphs,
+                }
+            )
+    return lines
+
+
+_TAGGED_FN = inspect.getsource(_bioparser_tagged_lines)
+
+_TAGGED_CLASS_OLD = "class _PageAssembler:\n"
+
+_TAGGED_CLASS_NEW = _TAGGED_FN + "\n\nclass _PageAssembler:\n"
+
+_TAGGED_CALL_OLD = """            block["lines"] = [{"bbox": box}]
+"""
+
+_TAGGED_CALL_NEW = """            measured: list[dict[str, object]] = []
+            if node.actual_text is None:
+                measured = [
+                    char
+                    for obj in members
+                    for char in getattr(obj, "chars", ())
+                    if isinstance(char, dict) and char.get("char_idx") not in self.suppressed_spaces
+                ]
+            block["lines"] = _bioparser_tagged_lines(measured, self.page.size) or [{"bbox": box}]
+"""
+
+
 def _patch_docvortex_native(site_packages: Path) -> None:
     root = site_packages / "docvortex" / "analyzers" / "native" / "pdf"
     models = root / "models.py"
     pipeline = root / "pipeline.py"
     merging = root / "line_merging.py"
-    if not models.is_file() or not pipeline.is_file() or not merging.is_file():
+    tagged = root / "tagged.py"
+    if (
+        not models.is_file()
+        or not pipeline.is_file()
+        or not merging.is_file()
+        or not tagged.is_file()
+    ):
         raise SystemExit(
             f"mineru glyph patch does not match {root}. The installed DocVortex is not 0.6.24."
         )
@@ -810,6 +918,13 @@ def _patch_docvortex_native(site_packages: Path) -> None:
     )
     for old, new, already in _MERGE_COPIES:
         _replace(merging, old, new, already=already)
+    _replace(tagged, _TAGGED_CLASS_OLD, _TAGGED_CLASS_NEW, already="def _bioparser_tagged_lines")
+    _replace(
+        tagged,
+        _TAGGED_CALL_OLD,
+        _TAGGED_CALL_NEW,
+        already="_bioparser_tagged_lines(measured, self.page.size)",
+    )
 
 
 def apply(site_packages: Path) -> None:
