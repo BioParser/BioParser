@@ -3,22 +3,28 @@
 # http://localhost:5173/ui/ for UI work.
 
 services:
-  # Dependencies are installed in docker/frontend.Dockerfile. The source mount
-  # is read-only. node_modules stays on its volume so that mount does not hide them.
+  # Dependencies are installed in docker/frontend.Dockerfile. These mounts cover
+  # the files Vite reloads. They stay off node_modules, which lives in the image.
+  # A dependency change needs a rebuild.
   frontend:
     image: bioparser-frontend-dev
     build:
       context: .
       dockerfile: docker/frontend.Dockerfile
+    init: true
     environment:
       # 127.0.0.1 inside this container is the frontend, not the API.
       BIOPARSER_DEV_API_ORIGIN: http://bioparser:8080
     ports:
       - "127.0.0.1:5173:5173"
     volumes:
-      - ./frontend:/frontend:ro
-      - frontend-node-modules:/frontend/node_modules
-    networks: [backend, edge]
+      - ./frontend/src:/frontend/src:ro
+      - ./frontend/index.html:/frontend/index.html:ro
+      - ./frontend/vite.config.ts:/frontend/vite.config.ts:ro
+    # backend reaches the API. A container only on that internal network cannot
+    # publish 5173, so the second network exists to publish the port and has
+    # no outbound masquerade.
+    networks: [backend, frontend-publish]
     mem_limit: 2g
     memswap_limit: 2g
     cap_drop: [ALL]
@@ -54,5 +60,8 @@ services:
     volumes:
       - ./src:/src:ro
 
-volumes:
-  frontend-node-modules:
+networks:
+  frontend-publish:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"

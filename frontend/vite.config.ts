@@ -3,7 +3,7 @@ import { defineConfig } from "vitest/config";
 
 // Host `npm run dev` proxies to the API on this machine. Compose sets
 // BIOPARSER_DEV_API_ORIGIN=http://bioparser:8080 because 127.0.0.1 inside the
-// ui container is that container.
+// frontend container is that container.
 const devApiOrigin = process.env.BIOPARSER_DEV_API_ORIGIN || "http://127.0.0.1:8080";
 
 export default defineConfig({

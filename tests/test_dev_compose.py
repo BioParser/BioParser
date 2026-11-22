@@ -1,5 +1,7 @@
 """The dev overlay is opt-in. The default Compose file stays the local OKD stack."""
 
+import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -32,14 +34,80 @@ def test_base_compose_has_no_dev_services() -> None:
     assert "frontend" not in services
 
 
-def test_compose_wrapper_appends_the_overlay_and_does_not_edit_env() -> None:
-    script = (_ROOT / "bioparser-compose").read_text(encoding="utf-8")
-    assert 'exec docker compose "$@"' in script
-    assert "--build" not in script
-    assert "docker-compose.dev.yml" in script
-    assert "5173" in script
-    assert ">>" not in script
-    assert script.startswith("#!/bin/sh\n")
+def _run_wrapper(
+    tmp_path: Path, env_text: str | None, *args: str
+) -> subprocess.CompletedProcess[str]:
+    script = tmp_path / "bioparser-compose"
+    script.write_bytes((_ROOT / "bioparser-compose").read_bytes())
+    script.chmod(0o755)
+    if env_text is not None:
+        (tmp_path / ".env").write_text(env_text, encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    out = tmp_path / "docker-out"
+    fake = bin_dir / "docker"
+    fake.write_text(
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$COMPOSE_FILE" > "$BIOPARSER_FAKE_DOCKER_OUT"\n'
+        'printf "%s\\n" "$*" >> "$BIOPARSER_FAKE_DOCKER_OUT"\n',
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    env["BIOPARSER_FAKE_DOCKER_OUT"] = str(out)
+    return subprocess.run(
+        ["bash", str(script), *args],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_compose_wrapper_appends_the_overlay_and_does_not_edit_env(tmp_path: Path) -> None:
+    env_text = "COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml\n"
+    result = _run_wrapper(tmp_path, env_text, "up", "--build")
+    assert result.returncode == 0, result.stderr
+    recorded = (tmp_path / "docker-out").read_text(encoding="utf-8").splitlines()
+    assert recorded == [
+        "docker-compose.yml:docker-compose.gpu.yml:docker-compose.dev.yml",
+        "compose up --build",
+    ]
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == env_text
+
+
+def test_compose_wrapper_strips_quotes_and_does_not_repeat_the_overlay(tmp_path: Path) -> None:
+    quoted = [
+        '"docker-compose.yml:docker-compose.cpu.yml"\n',
+        "'docker-compose.yml:docker-compose.cpu.yml'\n",
+    ]
+    for index, env_value in enumerate(quoted):
+        case = tmp_path / f"case-{index}"
+        case.mkdir()
+        result = _run_wrapper(case, f"COMPOSE_FILE={env_value}", "config")
+        assert result.returncode == 0, result.stderr
+        recorded = (case / "docker-out").read_text(encoding="utf-8").splitlines()
+        assert recorded[0] == "docker-compose.yml:docker-compose.cpu.yml:docker-compose.dev.yml"
+        assert (case / ".env").read_text(encoding="utf-8") == f"COMPOSE_FILE={env_value}"
+
+    already = tmp_path / "already"
+    already.mkdir()
+    env_text = "COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml\n"
+    result = _run_wrapper(already, env_text, "down")
+    assert result.returncode == 0, result.stderr
+    recorded = (already / "docker-out").read_text(encoding="utf-8").splitlines()
+    assert recorded[0] == "docker-compose.yml:docker-compose.dev.yml"
+    assert recorded[1] == "compose down"
+    assert (already / ".env").read_text(encoding="utf-8") == env_text
+
+
+def test_compose_wrapper_refuses_a_missing_env(tmp_path: Path) -> None:
+    result = _run_wrapper(tmp_path, None, "up")
+    assert result.returncode == 1
+    assert ".env is missing" in result.stderr
+    assert not (tmp_path / "docker-out").exists()
 
 
 def _stage_names(text: str) -> list[str]:
@@ -70,12 +138,25 @@ def test_dev_overlay_reloads_edited_code_only() -> None:
     assert "command" not in frontend
     assert "USER node" in frontend_dockerfile
     assert "npm ci --no-audit --no-fund" in frontend_dockerfile
+    assert frontend["init"] is True
+    assert frontend["networks"] == ["backend", "frontend-publish"]
+    publish = yaml.safe_load((_ROOT / "docker-compose.dev.yml").read_text(encoding="utf-8"))
+    assert (
+        publish["networks"]["frontend-publish"]["driver_opts"][
+            "com.docker.network.bridge.enable_ip_masquerade"
+        ]
+        == "false"
+    )
     assert frontend["ports"] == ["127.0.0.1:5173:5173"]
     assert frontend["environment"]["BIOPARSER_DEV_API_ORIGIN"] == "http://bioparser:8080"
     assert frontend["volumes"] == [
-        "./frontend:/frontend:ro",
-        "frontend-node-modules:/frontend/node_modules",
+        "./frontend/src:/frontend/src:ro",
+        "./frontend/index.html:/frontend/index.html:ro",
+        "./frontend/vite.config.ts:/frontend/vite.config.ts:ro",
     ]
+    assert "frontend-node-modules" not in (_ROOT / "docker-compose.dev.yml").read_text(
+        encoding="utf-8"
+    )
 
     assert "command" not in services["bioparser"]
     assert "environment" not in services["bioparser"]
