@@ -188,6 +188,7 @@ input {
 /* Always in the page, so a screen reader announces the text when it appears. */
 .job-notice {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .job-detail-progress {

@@ -458,13 +458,17 @@ describe("StartJobPage", () => {
   it("sends only the new files in a second batch", async () => {
     const fetchMock = stubApi();
     renderPage();
-    chooseFiles(pdf("a.pdf"));
+    const a = pdf("a.pdf");
+    chooseFiles(a);
     await startJobs();
     chooseFiles(pdf("b.pdf"));
     expect(within(statusOf("a.pdf")).getByRole("link").textContent).toBe("job-a.pdf");
     expect(statusOf("b.pdf").textContent).toContain("Not sent yet");
     // The started file has no Remove button, and cannot be added again.
     expect(screen.queryByRole("button", { name: "Remove a.pdf" })).toBeNull();
+    chooseFiles(a);
+    expect(fileNames()).toEqual(["a.pdf", "b.pdf"]);
+    expect(screen.getByText("a.pdf is already in the list.")).toBeDefined();
     await startJobs();
     expect(uploadedNames(fetchMock)).toEqual(["a.pdf", "b.pdf"]);
     expect(screen.getByRole("status").textContent).toBe("2 of 2 files started a job.");
