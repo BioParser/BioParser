@@ -240,7 +240,7 @@ Convention:
 | Uploaded PDF | `pdf/<pdf-checksum>` | `pdf_path(checksum)` |
 | Parser artifact | `pdf/<pdf-checksum>/parsed/<backend>/<version>` | `parse_result_path(checksum, backend, version)` |
 | Parser artifact of a configured backend | `pdf/<pdf-checksum>/parsed/<backend>/<version>/<configuration>` | `parse_result_path(checksum, backend, version, configuration)` |
-| Extraction artifact | `<parse-result-path>/extracted/<extractor>/<extractor-version>` | `extract_result_path(parse_result_ref, extractor, extractor_version)` |
+| Extraction artifact | `<parse-result-path>/extracted/<extractor>/<extractor-version>/<job-id>` | `extract_result_path(parse_result_ref, extractor, extractor_version, job_id)` |
 
 - `<pdf-checksum>` is the sha256 of the PDF bytes, from `bioparser.hashing`.
 - `<backend>` is the parser backend name and `<version>` its version from
@@ -251,11 +251,14 @@ Convention:
   stored at `pdf/<pdf-checksum>/parsed/mineru/5/standard`. A different tier never reuses
   another tier's result. The configuration is not part of the version.
 - The extraction path starts from the job's `parse_result_ref`, so it keeps every segment
-  of that parse, including a MinerU tier. The extractor worker runs the extractor named
-  on the job and takes its version from `bioparser.extractor_names.EXTRACTOR_VERSIONS` when
-  the extraction runs. The job does not store that version. New jobs name the extractor
-  `default`, whose version is `2`. Bumping it gives new results a new path, so
-  results from the old version are not reused. The builders live in `bioparser.artifact_paths`.
+  of that parse, including a MinerU tier. Its last segment is the job id, so each job stores
+  its own result and runs extraction even when an earlier job already extracted that parse.
+  A retry of the same job keeps the path and reuses the result stored for that job. The
+  extractor worker runs the extractor named on the job and takes its version from
+  `bioparser.extractor_names.EXTRACTOR_VERSIONS` when the extraction runs. The job does not
+  store that version. New jobs name the extractor `default`, whose version is `2`. Bumping
+  it gives new results a new path, so results from the old version are not reused. The
+  builders live in `bioparser.artifact_paths`.
 - Build paths with the builders, never by string formatting. Each builder argument must be
   a single valid segment, so a value like `a/b` cannot change the shape of the path.
 

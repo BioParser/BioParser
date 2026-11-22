@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from uuid import UUID
 
 from pydantic import ValidationError
 
@@ -74,7 +75,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         if ref is None:
             LOGGER.error("job has no parser artifact. Marking the job failed (internal_error)")
             raise PermanentJobFailure("internal_error")
-        artifact_path = _extraction_artifact_path(ref, state.extractor)
+        artifact_path = _extraction_artifact_path(ref, state.extractor, state.job_id)
         parser_artifact = await self._load_parser_artifact(ref)
         stored = await _retrieve_or_none(self._storage, artifact_path)
         if stored is not None and _is_extraction_artifact(stored):
@@ -125,12 +126,13 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             raise PermanentJobFailure("internal_error") from exc
 
 
-def _extraction_artifact_path(parse_result_ref: str, extractor: str) -> str:
-    """The conventional path for this parser artifact's extraction result.
+def _extraction_artifact_path(parse_result_ref: str, extractor: str, job_id: UUID) -> str:
+    """The path for this job's extraction of this parser artifact.
 
-    The path is the parser artifact's own path plus the extractor, so two parses of one
-    PDF, such as two MinerU tiers, do not share a result. The version is whatever
-    ``EXTRACTOR_VERSIONS`` says for this extractor when the job runs.
+    The job id is its own segment, so another job extracts again even when the parser
+    artifact is the same. A retry of this job keeps the path and reuses a result already
+    stored for it. The version is whatever ``EXTRACTOR_VERSIONS`` says for this extractor
+    when the job runs.
     """
     try:
         version = EXTRACTOR_VERSIONS[extractor]
@@ -138,7 +140,7 @@ def _extraction_artifact_path(parse_result_ref: str, extractor: str) -> str:
         LOGGER.error(f"extractor {extractor!r} has no version")
         raise PermanentJobFailure("internal_error") from exc
     try:
-        return extract_result_path(parse_result_ref, extractor, version)
+        return extract_result_path(parse_result_ref, extractor, version, str(job_id))
     except ArtifactPathError as exc:
         LOGGER.error("parser artifact path cannot form an extraction path")
         raise PermanentJobFailure("internal_error") from exc
