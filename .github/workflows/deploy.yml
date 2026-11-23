@@ -1,12 +1,13 @@
 name: Deploy images
 
-# Publishes the application images after the ci.yml run on main succeeds.
+# Publishes the application images after GitHub CI succeeds on main.
+# workflow_run matches the name field in ci.yml, not the file name.
 # Staging imports ghcr.io/bioparser/bioparser/api:latest on its own schedule.
 # GitHub only runs a workflow_run workflow from the default branch.
 
 on:
   workflow_run:
-    workflows: [ci.yml]
+    workflows: ["GitHub CI"]
     types: [completed]
     branches: [main]
 
