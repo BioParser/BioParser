@@ -97,8 +97,8 @@ def test_the_stored_artifact_has_no_observation_cap() -> None:
 def test_the_model_payload_keeps_its_observation_cap() -> None:
     observation = ModelObservation(
         taxon="Mus musculus",
-        trait_code="body_mass",
-        value=12.5,
+        trait_name="body mass",
+        value="12.5",
         unit="g",
         evidence_block_id="b0",
         quotation="12.5 g",

@@ -73,18 +73,18 @@ PDF_CHECKSUM = "a" * 64
 RESULT_PATH = extract_result_path(
     PARSE_REF, "default", EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME], str(JOB_ID)
 )
-QUOTE = "Mus musculus adults averaged 12.5 kg in the sampled population."
+QUOTE = "Mus musculus adult body mass averaged 12.5 kg in the sampled population."
 CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _stub() -> StubVLLMService:
-    """A model answer whose name, value and unit each occur once in the quotation."""
+    """A model answer whose name, trait_name, value and unit each occur once in the quotation."""
     return StubVLLMService(
         observations=[
             {
                 "taxon": "Mus musculus",
-                "trait_code": "body_mass",
-                "value": 12.5,
+                "trait_name": "body mass",
+                "value": "12.5",
                 "unit": "kg",
                 "evidence_block_id": "b0",
                 "quotation": QUOTE,
@@ -299,8 +299,8 @@ def test_an_unlocated_observation_is_not_stored() -> None:
         observations=[
             {
                 "taxon": "Mus musculus",
-                "trait_code": "body_mass",
-                "value": 12.5,
+                "trait_name": "body mass",
+                "value": "12.5",
                 "unit": "kg",
                 "evidence_block_id": "b0",
                 "quotation": "not in the paper",
@@ -727,8 +727,8 @@ def test_a_parse_path_that_cannot_take_an_extraction_is_internal_error() -> None
 
 
 def test_two_mineru_tiers_get_two_extractions() -> None:
-    basic_text = "Mus musculus basic tier recorded 12.5 kg."
-    standard_text = "Mus musculus standard tier recorded 40.0 kg."
+    basic_text = "Mus musculus basic tier body mass recorded 12.5 kg."
+    standard_text = "Mus musculus standard tier body mass recorded 40.0 kg."
     basic_ref = parse_result_path(PDF_CHECKSUM, "mineru", "2", "basic")
     standard_ref = parse_result_path(PDF_CHECKSUM, "mineru", "2", "standard")
     storage = _storage()
@@ -742,8 +742,8 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
         seen.append(content.text)
         observation = ModelObservation(
             taxon="Mus musculus",
-            trait_code="body_mass",
-            value=12.5,
+            trait_name="body mass",
+            value="12.5",
             unit="kg",
             evidence_block_id="b0",
             quotation=content.text,
