@@ -1,6 +1,10 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
+  annotations:
+    alpha.image.policy.openshift.io/resolve-names: "*"
+    image.openshift.io/triggers: >-
+      [{"from":{"kind":"ImageStreamTag","name":"migrate:latest"},"fieldPath":"spec.template.spec.containers[?(@.name==\"migrate\")].image","pause":"false"}]
   name: migrate
 spec:
   backoffLimit: 3
@@ -19,13 +23,19 @@ spec:
             - until nc -z postgres 5432; do echo "waiting for postgres..."; sleep 2; done
       containers:
         - name: migrate
-          image: ghcr.io/bioparser/bioparser/migrate:latest
+          image: migrate:latest
           command: ["bioparser-migrate"]
-          envFrom:
-            - configMapRef:
-                name: bioparser-config
-            - secretRef:
-                name: bioparser-secret
+          env:
+            - name: BIOPARSER_DATABASE_URL
+              valueFrom:
+                  configMapKeyRef:
+                    name: bioparser-config
+                    key: BIOPARSER_DATABASE_URL
+            - name: POSTGRES_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bioparser-secret
+                  key: POSTGRES_APP_PASSWORD
           resources:
             requests:
               memory: "256Mi"
