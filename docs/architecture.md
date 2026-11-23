@@ -257,9 +257,10 @@ Convention:
   A retry of the same job keeps the path and reuses the result stored for that job. The
   extractor worker runs the extractor named on the job and takes its version from
   `bioparser.extractor_names.EXTRACTOR_VERSIONS` when the extraction runs. The job does not
-  store that version. New jobs name the extractor `default`, whose version is `2`. A
-  version bump changes that job's path, so a retry does not reuse the result stored
-  under the old version. The builders live in `bioparser.artifact_paths`.
+  store that version. New jobs name the extractor `default`, whose version is `2`.
+  `mendel` is a second extractor, at version `1`. A version bump changes that job's
+  path, so a retry does not reuse the result stored under the old version. The builders
+  live in `bioparser.artifact_paths`.
 - Build paths with the builders, never by string formatting. Each builder argument must be
   a single valid segment, so a value like `a/b` cannot change the shape of the path.
 

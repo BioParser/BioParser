@@ -173,34 +173,50 @@ describe("StartJobPage", () => {
     expect(router.state.location.pathname).toBe("/jobs/job-a.pdf");
   });
 
-  it("sends the chosen parser and the default extractor", async () => {
+  it("sends the chosen parser and extractor", async () => {
     const fetchMock = stubApi();
     renderPage();
-    fireEvent.click(screen.getByLabelText("MinerU"));
+    fireEvent.click(within(screen.getByRole("group", { name: "Parser" })).getByLabelText("MinerU"));
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Extractor" })).getByLabelText("Mendel"),
+    );
     chooseFiles(pdf("a.pdf"));
     await startJobs();
     const startCall = fetchMock.mock.calls.find(([path]) => String(path).endsWith("/jobs"));
     expect(JSON.parse(String(startCall?.[1]?.body))).toEqual({
       parser: "mineru",
-      extractor: "default",
+      extractor: "mendel",
     });
   });
 
-  it("uses the Default parser unless another is chosen", () => {
+  it("uses the Default parser and extractor unless another is chosen", () => {
     renderPage();
-    expect((screen.getByLabelText("Default") as HTMLInputElement).checked).toBe(true);
+    expect(
+      (
+        within(screen.getByRole("group", { name: "Parser" })).getByLabelText(
+          "Default",
+        ) as HTMLInputElement
+      ).checked,
+    ).toBe(true);
+    expect(
+      (
+        within(screen.getByRole("group", { name: "Extractor" })).getByLabelText(
+          "Default",
+        ) as HTMLInputElement
+      ).checked,
+    ).toBe(true);
   });
 
   it("says when to choose each parser", () => {
     renderPage();
-    expect(screen.getByLabelText("Default").getAttribute("aria-describedby")).toBe(
+    const parsers = within(screen.getByRole("group", { name: "Parser" }));
+    expect(parsers.getByLabelText("Default").getAttribute("aria-describedby")).toBe(
       "parser-hint-default",
     );
     expect(document.getElementById("parser-hint-mineru")?.textContent).toContain("OCR");
-    expect(screen.getAllByRole("radio").map((radio) => (radio as HTMLInputElement).value)).toEqual([
-      "default",
-      "mineru",
-    ]);
+    expect(parsers.getAllByRole("radio").map((radio) => (radio as HTMLInputElement).value)).toEqual(
+      ["default", "mineru"],
+    );
   });
 
   it("shows each file's size in the list", () => {

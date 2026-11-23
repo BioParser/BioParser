@@ -2425,6 +2425,10 @@
           },
           "extractor": {
             "type": "string",
+            "enum": [
+              "default",
+              "mendel"
+            ],
             "title": "Extractor",
             "description": "Extractor backend name",
             "default": "default"

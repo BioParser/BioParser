@@ -383,8 +383,9 @@ export interface components {
              * Extractor
              * @description Extractor backend name
              * @default default
+             * @enum {string}
              */
-            extractor: string;
+            extractor: "default" | "mendel";
         };
         /**
          * DocumentMetadataResponse

@@ -338,8 +338,13 @@ class StubParser:
 class StubVLLMService:
     """HTTP hop to vLLM"""
 
-    def __init__(self, observations: list[dict[str, Any]] | None = None) -> None:
+    def __init__(
+        self,
+        observations: list[dict[str, Any]] | None = None,
+        reply: str | None = None,
+    ) -> None:
         self.observations = observations
+        self.reply = reply
         self.prompts: list[str] = []
         self.system_prompts: list[str] = []
         self.up = True
@@ -357,6 +362,28 @@ class StubVLLMService:
         enable_thinking: bool = False,
     ) -> int:
         return len(parts)
+
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        system_prompt: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+        enable_thinking: bool = False,
+        timeout: float | None = None,
+    ) -> str:
+        del temperature, max_tokens, enable_thinking, timeout
+        self.prompts.append(prompt)
+        self.system_prompts.append(system_prompt or "")
+        if self.reply is not None:
+            return self.reply
+        return (
+            "verbatimScientificName: Mus musculus\n"
+            "verbatimTraitName: adults\n"
+            "verbatimTraitValue: 12.5\n"
+            "verbatimTraitUnit: kg\n"
+        )
 
     async def generate_model(
         self,
