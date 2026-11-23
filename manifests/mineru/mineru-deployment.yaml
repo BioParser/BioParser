@@ -1,11 +1,11 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mineru-dep
-  labels:
-    app: mineru
   annotations:
-    image.openshift.io/triggers: '[{"from":{"kind":"ImageStreamTag","name":"mineru:cpu"},"fieldPath":"spec.template.spec.containers[?(@.name==\"mineru-cpu\")].image"}]'
+    alpha.image.policy.openshift.io/resolve-names: "*"
+    image.openshift.io/triggers: >-
+      [{"from":{"kind":"ImageStreamTag","name":"mineru:cpu"},"fieldPath":"spec.template.spec.containers[?(@.name==\"mineru-cpu\")].image","pause":"false"}]
+  name: mineru
 spec:
   replicas: 1
   strategy:
@@ -20,8 +20,7 @@ spec:
     spec:
       containers:
         - name: mineru-cpu
-          image: ghcr.io/bioparser/bioparser/mineru:cpu
-          imagePullPolicy: IfNotPresent
+          image: mineru:cpu
           ports:
             - containerPort: 8000
           startupProbe:
