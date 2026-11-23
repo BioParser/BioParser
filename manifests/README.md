@@ -23,3 +23,9 @@ This folder includes files [bioparser-configmap-example.yaml](/manifests/biopars
 - POSTGRES_APP_PASSWORD - generate using `openssl rand -hex 32`
 - HF_TOKEN - your huggingface **read** token for downloading the required models
 - BIOPARSER_API_KEY - generate with python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+
+
+## Other variables that need to be manually set/changed
+In [api-route.yaml](/manifests/api/api-route.yaml), the following variables need to be updated:
+- namespace
+- host - host URL of the BioParser API
