@@ -4,7 +4,7 @@ metadata:
   annotations:
     alpha.image.policy.openshift.io/resolve-names: "*"
     image.openshift.io/triggers: >-
-      [{"from":{"kind":"ImageStreamTag","name":"bioparser-api:latest","namespace":"biogpt-ohtu-s2026"},"fieldPath":"spec.template.spec.containers[?(@.name==\"bioparser-api\")].image","pause":"false"}]
+      [{"from":{"kind":"ImageStreamTag","name":"bioparser-api:latest"},"fieldPath":"spec.template.spec.containers[?(@.name==\"bioparser-api\")].image","pause":"false"}]
   name: bioparser-api-dep
 spec:
   replicas: 1
@@ -22,12 +22,6 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
-          env:
-            - name: BIOPARSER_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: bioparser-secret
-                  key: BIOPARSER_API_KEY
           envFrom:
             - configMapRef:
                 name: bioparser-config
@@ -37,12 +31,12 @@ spec:
             - mountPath: /data
               name: artifact-storage
           resources:
-            limits:
-              memory: "4Gi"
-              cpu: "1"
             requests:
               memory: "2Gi"
               cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "1"
           livenessProbe:
             httpGet:
               path: /health

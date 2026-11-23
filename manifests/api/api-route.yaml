@@ -2,11 +2,13 @@ apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   name: bioparser-route
+  # set your own namespace
   namespace: biogpt-ohtu-s2026
   labels:
     app: bioparser
     router: external
 spec:
+  # set your own host URL
   host: bioparser-biogpt-ohtu-s2026.ext.okd-cs-test-0.k8s.cs.helsinki.fi
   port:
     targetPort: 8080
