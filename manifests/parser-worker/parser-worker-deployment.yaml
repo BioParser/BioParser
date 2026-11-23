@@ -1,6 +1,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  annotations:
+    alpha.image.policy.openshift.io/resolve-names: "*"
+    image.openshift.io/triggers: >-
+      [{"from":{"kind":"ImageStreamTag","name":"parser-worker:latest"},"fieldPath":"spec.template.spec.containers[?(@.name==\"parser-worker\")].image","pause":"false"}]
   name: parser-worker
 spec:
   replicas: 1
@@ -14,7 +18,7 @@ spec:
     spec:
       containers:
         - name: parser-worker
-          image: ghcr.io/bioparser/bioparser/parser-worker:latest
+          image: parser-worker:latest
           imagePullPolicy: Always
           envFrom:
             - configMapRef:
