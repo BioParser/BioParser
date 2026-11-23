@@ -38,4 +38,6 @@ jobs:
       - name: Build and push images
         env:
           SHA: ${{ github.event.workflow_run.head_sha }}
+          # gh reads the tip of main before moving floating tags.
+          GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/publish_images.sh

@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 _NEEDS_POSIX = pytest.mark.skipif(
     sys.platform == "win32" or shutil.which("bash") is None,
@@ -91,6 +92,16 @@ def _publish(
 
 def _pushes(lines: list[str]) -> list[str]:
     return [line for line in lines if line.startswith("push ")]
+
+
+def test_publish_step_sets_gh_token() -> None:
+    workflow = yaml.safe_load((_ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8"))
+    step = next(
+        item
+        for item in workflow["jobs"]["deploy"]["steps"]
+        if item.get("name") == "Build and push images"
+    )
+    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
 
 
 @_NEEDS_POSIX
