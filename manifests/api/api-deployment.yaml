@@ -19,6 +19,7 @@ spec:
       containers:
         - name: bioparser-api
           image: bioparser-api:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
           envFrom:

@@ -21,6 +21,7 @@ spec:
       containers:
         - name: mineru-cpu
           image: mineru:cpu
+          imagePullPolicy: Always
           ports:
             - containerPort: 8000
           startupProbe:

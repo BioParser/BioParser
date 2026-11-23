@@ -24,6 +24,7 @@ spec:
       containers:
         - name: migrate
           image: migrate:latest
+          imagePullPolicy: Always
           command: ["bioparser-migrate"]
           env:
             - name: BIOPARSER_DATABASE_URL
