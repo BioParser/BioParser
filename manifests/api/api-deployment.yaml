@@ -18,8 +18,7 @@ spec:
     spec:
       containers:
         - name: bioparser-api
-          image: ghcr.io/bioparser/bioparser/api:latest
-          imagePullPolicy: Always
+          image: bioparser-api:latest
           ports:
             - containerPort: 8080
           envFrom:
