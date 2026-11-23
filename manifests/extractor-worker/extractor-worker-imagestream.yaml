@@ -11,7 +11,7 @@ spec:
     - name: latest
       from:
         kind: DockerImage
-        name: ghcr.io/bioparser/bioparser/parser-worker:latest
+        name: ghcr.io/bioparser/bioparser/extractor-worker:latest
       importPolicy:
         scheduled: true
       referencePolicy:
