@@ -143,11 +143,12 @@ export interface paths {
          * @description The job.
          *
          *     `queued`, `parsing`, `parsed`, and `extracting` are `job_id` and `status`. `failed`
-         *     adds `error`. `done` is `job_id` and `status`. The ETS rows are
-         *     `GET /api/jobs/{job_id}/ets`. This route does not read the extraction artifact.
+         *     adds `error` and `failed_stage`, the status the job had when it failed. `done` is
+         *     `job_id` and `status`. The ETS rows are `GET /api/jobs/{job_id}/ets`. This route
+         *     does not read the extraction artifact.
          *
          *     `?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,
-         *     `extractor`, `document_checksum`, and `has_parse_result`.
+         *     `extractor`, and `document_checksum`.
          */
         get: operations["job_status_api_jobs__job_id__get"];
         put?: never;
@@ -587,8 +588,6 @@ export interface components {
             extractor: string;
             /** Document Checksum */
             document_checksum: string;
-            /** Has Parse Result */
-            has_parse_result: boolean;
             /**
              * Job Id
              * Format: uuid
@@ -600,8 +599,16 @@ export interface components {
              */
             status: "failed";
             error: components["schemas"]["SafeError"];
+            /**
+             * Failed Stage
+             * @enum {string}
+             */
+            failed_stage: "queued" | "parsing" | "parsed" | "extracting";
         };
-        /** FailedJobResponse */
+        /**
+         * FailedJobResponse
+         * @description A failed job. ``failed_stage`` is the status the job had when it failed.
+         */
         FailedJobResponse: {
             /**
              * Job Id
@@ -614,6 +621,11 @@ export interface components {
              */
             status: "failed";
             error: components["schemas"]["SafeError"];
+            /**
+             * Failed Stage
+             * @enum {string}
+             */
+            failed_stage: "queued" | "parsing" | "parsed" | "extracting";
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -665,8 +677,6 @@ export interface components {
             extractor: string;
             /** Document Checksum */
             document_checksum: string;
-            /** Has Parse Result */
-            has_parse_result: boolean;
             /**
              * Job Id
              * Format: uuid
@@ -912,7 +922,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "invalid_pdf" | "parse_failed" | "extraction_failed" | "timeout" | "internal_error";
+            code: "invalid_pdf" | "parse_failed" | "extraction_failed" | "timeout" | "deferral_expired" | "retries_exhausted" | "internal_error";
         };
         /** TableCell */
         TableCell: {

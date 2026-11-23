@@ -31,10 +31,12 @@ class CorruptJobStateError(JobStateError):
 
 
 # One linear pipeline. The parse worker owns queued -> parsing -> parsed.
-# The extract worker owns parsed -> extracting -> done. `failed` ends the stage
-# that is running. `parsed` waits for an extract message: it has no transition
-# to `failed`, so a lost wake-up stays retryable.
+# The extract worker owns parsed -> extracting -> done. `failed` records the
+# status it replaced in `failed_stage`. `parsed` can fail when the extract queue
+# gives up. A delivery that is skipped does not mark it failed, so a later
+# wake-up can still claim it.
 JobStatus = Literal["queued", "parsing", "parsed", "extracting", "done", "failed"]
+FailedStage = Literal["queued", "parsing", "parsed", "extracting"]
 
 # Every legal status change, keyed by the stored status. A store must refuse any write
 # whose status is not listed for the stored one, so a stale or duplicate writer cannot
@@ -45,14 +47,20 @@ ALLOWED_TRANSITIONS: Mapping[JobStatus, frozenset[JobStatus]] = MappingProxyType
     {
         "queued": frozenset({"parsing", "failed"}),
         "parsing": frozenset({"parsing", "parsed", "failed"}),
-        "parsed": frozenset({"extracting"}),
+        "parsed": frozenset({"extracting", "failed"}),
         "extracting": frozenset({"extracting", "done", "failed"}),
         "done": frozenset(),
         "failed": frozenset(),
     }
 )
 SafeErrorCode = Literal[
-    "invalid_pdf", "parse_failed", "extraction_failed", "timeout", "internal_error"
+    "invalid_pdf",
+    "parse_failed",
+    "extraction_failed",
+    "timeout",
+    "deferral_expired",
+    "retries_exhausted",
+    "internal_error",
 ]
 
 # Schema version for the JobState contract. Bump the version up when the shape of JobState
@@ -82,6 +90,8 @@ class JobState(BaseModel):
     parse_result_ref: ArtifactPath | None = None
     extract_result_ref: ArtifactPath | None = None
     error_code: SafeErrorCode | None = None
+    # The status this job had when it was marked failed. Empty for every other status.
+    failed_stage: FailedStage | None = None
     parsing_claims: int = Field(default=0, ge=0)
     extracting_claims: int = Field(default=0, ge=0)
     created_at: AwareDatetime
@@ -121,37 +131,34 @@ class JobState(BaseModel):
         has_parse = self.parse_result_ref is not None
         has_extract = self.extract_result_ref is not None
         has_error = self.error_code is not None
-        # `failed` may keep the parser artifact. Extraction fails after that artifact exists,
-        # and dropping the reference would hide a successful parse. The extraction artifact
-        # is only recorded on `done`.
-        if (
-            self.status in ("parsed", "extracting")
-            and has_parse
-            and not has_extract
-            and not has_error
-        ):
-            return self
-        if self.status == "done" and has_parse and has_extract and not has_error:
-            return self
-        if self.status == "failed" and has_error and not has_extract:
-            return self
-        if (
-            self.status in ("queued", "parsing")
-            and not has_parse
-            and not has_extract
-            and not has_error
-        ):
-            return self
+        stage = self.failed_stage
+        # The parser artifact is stored when the job becomes `parsed`, and failure does not
+        # clear it. So a failed job kept that artifact exactly when it failed at `parsed`
+        # or `extracting`. The extraction artifact is only recorded on `done`.
+        kept = stage in ("parsed", "extracting")
         if self.status == "failed":
-            required = "an error and no extract_result_ref"
-        elif self.status in ("queued", "parsing"):
-            required = "no artifact refs and no error"
+            ok = has_error and not has_extract and stage is not None and has_parse is kept
+            required = (
+                "an error, no extract_result_ref, and a failed_stage that matches "
+                "whether the parser artifact was stored"
+            )
+        elif stage is not None:
+            ok = False
+            required = "no failed_stage"
+        elif self.status in ("parsed", "extracting"):
+            ok = has_parse and not has_extract and not has_error
+            required = "a parse_result_ref, no extract_result_ref, and no error"
         elif self.status == "done":
+            ok = has_parse and has_extract and not has_error
             required = "both artifact refs and no error"
         else:
-            required = "a parse_result_ref, no extract_result_ref, and no error"
+            ok = not has_parse and not has_extract and not has_error
+            required = "no artifact refs and no error"
+        if ok:
+            return self
         raise ValueError(
             f"status={self.status!r} requires {required}, "
             f"got parse_result_ref={self.parse_result_ref!r}, "
-            f"extract_result_ref={self.extract_result_ref!r}, error_code={self.error_code!r}"
+            f"extract_result_ref={self.extract_result_ref!r}, error_code={self.error_code!r}, "
+            f"failed_stage={self.failed_stage!r}"
         )

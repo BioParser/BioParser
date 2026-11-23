@@ -18,7 +18,6 @@ const job = {
   extractor: "default",
   created_at: "2026-11-10T10:00:00Z",
   document_checksum: "a".repeat(64),
-  has_parse_result: true,
 };
 
 function etsRow(overrides: Partial<EtsRow> = {}): EtsRow {

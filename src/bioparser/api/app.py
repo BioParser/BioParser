@@ -723,11 +723,12 @@ async def job_status(
     """The job.
 
     `queued`, `parsing`, `parsed`, and `extracting` are `job_id` and `status`. `failed`
-    adds `error`. `done` is `job_id` and `status`. The ETS rows are
-    `GET /api/jobs/{job_id}/ets`. This route does not read the extraction artifact.
+    adds `error` and `failed_stage`, the status the job had when it failed. `done` is
+    `job_id` and `status`. The ETS rows are `GET /api/jobs/{job_id}/ets`. This route
+    does not read the extraction artifact.
 
     `?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,
-    `extractor`, `document_checksum`, and `has_parse_result`.
+    `extractor`, and `document_checksum`.
     """
     state, display_name = await _read_job(request, _parse_job_id(job_id))
     if detail == "full":

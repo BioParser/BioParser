@@ -22,12 +22,8 @@ function job(id: string, status: JobStatus = "done"): JobList[number] {
     document_checksum: "abc",
   };
   return status === "failed"
-    ? { ...metadata, status, error: { code: "extraction_failed" }, has_parse_result: true }
-    : {
-        ...metadata,
-        status,
-        has_parse_result: status === "parsed" || status === "extracting" || status === "done",
-      };
+    ? { ...metadata, status, error: { code: "extraction_failed" }, failed_stage: "extracting" }
+    : { ...metadata, status };
 }
 
 function mount(path = "/") {
@@ -108,7 +104,7 @@ describe("Dashboard", () => {
         ...job("failed", "failed"),
         status: "failed",
         error: { code: "timeout" },
-        has_parse_result: true,
+        failed_stage: "extracting",
       },
     ];
     mount();
@@ -126,7 +122,7 @@ describe("Dashboard", () => {
         ...job("failed", "failed"),
         status: "failed",
         error: { code: "parse_failed" },
-        has_parse_result: false,
+        failed_stage: "parsing",
       },
     ];
     mount();

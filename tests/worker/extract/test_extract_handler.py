@@ -545,7 +545,7 @@ def test_vllm_answering_still_extracts() -> None:
     assert vllm.prompts
 
 
-def test_on_failed_on_a_parsed_job_says_it_cannot_be_marked_failed(
+def test_on_failed_on_a_parsed_job_records_the_wait_for_extraction(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     jobs = StubJobs(_parsed())
@@ -555,9 +555,11 @@ def test_on_failed_on_a_parsed_job_says_it_cannot_be_marked_failed(
     asyncio.run(handler.aclose())
 
     assert jobs.state is not None
-    assert jobs.state.status == "parsed"
-    assert "cannot be marked failed" in caplog.text
-    assert "already finished or moved on" not in caplog.text
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "retries_exhausted"
+    assert jobs.state.failed_stage == "parsed"
+    assert jobs.state.parse_result_ref == PARSE_REF
+    assert "Marked the job failed (retries_exhausted)" in caplog.text
 
 
 def test_vllm_errors_are_retried() -> None:
@@ -645,7 +647,21 @@ def test_deferral_expiry_marks_an_extracting_job_failed() -> None:
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error_code == "internal_error"
+    assert jobs.state.error_code == "deferral_expired"
+    assert jobs.state.failed_stage == "extracting"
+    assert jobs.state.parse_result_ref == PARSE_REF
+
+
+def test_deferral_expiry_while_still_parsed_keeps_the_parser_artifact() -> None:
+    jobs = StubJobs(_parsed())
+    handler = _handler(jobs, _storage(), _real_extract(_stub()))
+    asyncio.run(handler.on_failed(_message(), JobDeferralExpired()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "deferral_expired"
+    assert jobs.state.failed_stage == "parsed"
     assert jobs.state.parse_result_ref == PARSE_REF
 
 
@@ -658,6 +674,7 @@ def test_on_failed_records_timeout_and_keeps_the_parser_artifact() -> None:
     assert jobs.state is not None
     assert jobs.state.status == "failed"
     assert jobs.state.error_code == "timeout"
+    assert jobs.state.failed_stage == "extracting"
     assert jobs.state.parse_result_ref == PARSE_REF
 
 
@@ -976,13 +993,15 @@ def test_an_unknown_extractor_is_internal_error() -> None:
     assert jobs.state.error_code == "internal_error"
 
 
-def test_malformed_message_cannot_fail_a_parsed_job() -> None:
-    """`parsed` has no transition to `failed`. The job stays for a valid wake-up."""
+def test_a_malformed_extract_message_fails_a_parsed_job() -> None:
+    """The extract queue gave up before claiming, so the parse result stays."""
     jobs = StubJobs(_parsed())
     handler = _handler(jobs, _storage(), _real_extract(_stub()))
     asyncio.run(handler.on_malformed({"job_id": str(JOB_ID), "extra": "nope"}))
     asyncio.run(handler.aclose())
 
     assert jobs.state is not None
-    assert jobs.state.status == "parsed"
-    assert jobs.state.error_code is None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "internal_error"
+    assert jobs.state.failed_stage == "parsed"
+    assert jobs.state.parse_result_ref == PARSE_REF

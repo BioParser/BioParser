@@ -25,7 +25,7 @@ from bioparser.jobs import (
     JobStatus,
     SafeErrorCode,
 )
-from bioparser.jobs.queue import JobDeferred, JobTimeLimitExceeded
+from bioparser.jobs.queue import JobDeferralExpired, JobDeferred, JobTimeLimitExceeded
 from bioparser.logging_config import log_context
 
 LOGGER = logging.getLogger(__name__)
@@ -100,9 +100,7 @@ class StageJobHandler[T: JobMessage]:
             await self._mark_failed(job_id, "internal_error")
 
     async def on_failed(self, message: T, exc: BaseException) -> None:
-        code: SafeErrorCode = (
-            "timeout" if isinstance(exc, JobTimeLimitExceeded) else "internal_error"
-        )
+        code = _give_up_code(exc)
         with log_context(job_id=str(message.job_id)):
             recorded = await self._mark_failed(message.job_id, code)
             if recorded:
@@ -169,7 +167,7 @@ class StageJobHandler[T: JobMessage]:
         if outcome == "exhausted":
             LOGGER.error(
                 f"{claim} was already claimed {self._max_claims} times. "
-                "Marked the job failed (internal_error)"
+                "Marked the job failed (retries_exhausted)"
             )
             return False
         if outcome == "missing":
@@ -194,3 +192,12 @@ class StageJobHandler[T: JobMessage]:
             return False
         LOGGER.info(f"job already finished or moved on. Not marking it failed ({code})")
         return False
+
+
+def _give_up_code(exc: BaseException) -> SafeErrorCode:
+    """The safe code for a queue that will not send this message again."""
+    if isinstance(exc, JobTimeLimitExceeded):
+        return "timeout"
+    if isinstance(exc, JobDeferralExpired):
+        return "deferral_expired"
+    return "retries_exhausted"

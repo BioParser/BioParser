@@ -14,7 +14,8 @@ function Progress({ job }: { job: JobList[number] }) {
   const parseCompleted =
     job.status === "parsed" ||
     job.status === "extracting" ||
-    (job.status === "failed" && job.has_parse_result);
+    (job.status === "failed" &&
+      (job.failed_stage === "parsed" || job.failed_stage === "extracting"));
   // Two steps: a done job has both complete, and the status beside them says Done.
   const completed = job.status === "done" ? 2 : parseCompleted ? 1 : 0;
   const active = job.status === "parsing" ? 0 : job.status === "extracting" ? 1 : -1;
