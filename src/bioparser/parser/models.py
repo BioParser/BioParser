@@ -224,6 +224,35 @@ class ParserInfo(BaseModel):
     configuration: dict[str, str | int | float | bool]
 
 
+class RepairStatus(StrEnum):
+    """Whether the symbol-font repair changed the PDF the parsers read."""
+
+    SKIPPED = "skipped"
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
+class ProblemCode(StrEnum):
+    """A gap the parse noticed. The parse still succeeded."""
+
+    # The Advent 3B2 repair did not run, so the original PDF was read.
+    ADVENT_FONTS_UNCHECKED = "advent_fonts_unchecked"
+    # Drawn Advent symbols replaced with the Unicode replacement character.
+    ADVENT_SYMBOLS_REPLACED = "advent_symbols_replaced"
+    # Drawn characters in an Advent font that has not been verified. They were kept.
+    ADVENT_CHARACTERS_UNVERIFIED = "advent_characters_unverified"
+    # Pages whose Advent content stream could not be counted.
+    ADVENT_PAGES_UNCOUNTED = "advent_pages_uncounted"
+
+
+class ParseProblem(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    code: ProblemCode
+    # How many items this code counts. Zero when the problem is that a check did not run.
+    count: int = Field(default=0, ge=0)
+
+
 class ParserArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
@@ -231,3 +260,5 @@ class ParserArtifact(BaseModel):
     checksum: Sha256Hex
     parser: ParserInfo
     pages: list[Page]
+    # Empty when the parse finished with nothing to warn about.
+    problems: list[ParseProblem] = Field(default_factory=list)

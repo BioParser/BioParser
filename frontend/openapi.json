@@ -4565,6 +4565,25 @@
         ],
         "title": "Page"
       },
+      "ParseProblem": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ProblemCode"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Count",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "ParseProblem"
+      },
       "ParserArtifact": {
         "properties": {
           "schema_version": {
@@ -4585,6 +4604,13 @@
             },
             "type": "array",
             "title": "Pages"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/ParseProblem"
+            },
+            "type": "array",
+            "title": "Problems"
           }
         },
         "additionalProperties": false,
@@ -4636,6 +4662,17 @@
           "configuration"
         ],
         "title": "ParserInfo"
+      },
+      "ProblemCode": {
+        "type": "string",
+        "enum": [
+          "advent_fonts_unchecked",
+          "advent_symbols_replaced",
+          "advent_characters_unverified",
+          "advent_pages_uncounted"
+        ],
+        "title": "ProblemCode",
+        "description": "A gap the parse noticed. The parse still succeeded."
       },
       "ReadinessResponse": {
         "properties": {

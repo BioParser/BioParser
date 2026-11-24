@@ -14,6 +14,7 @@ export type DocumentMetadataResponse = Schemas["DocumentMetadataResponse"];
 export type CreateJobRequest = Schemas["CreateJobRequest"];
 export type UploadLimitsResponse = Schemas["UploadLimitsResponse"];
 export type ParserArtifact = Schemas["ParserArtifact"];
+export type ParseProblem = Schemas["ParseProblem"];
 export type ExtractionArtifact = Schemas["ExtractionArtifact"];
 // A done job's results: one ETS row per observation, in observation order.
 export type EtsRowsResponse = Schemas["EtsRowsResponse"];

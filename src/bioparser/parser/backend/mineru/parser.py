@@ -4,6 +4,8 @@ import asyncio
 from pathlib import Path
 
 from bioparser.hashing import sha256_bytes
+from bioparser.parser.advent_repair.symbol_child import repair_pdf_in_child
+from bioparser.parser.advent_repair.symbol_fonts import symbol_font_problems
 from bioparser.parser.backend.mineru.mapper import (
     MiddleJsonContractError,
     artifact_from_middle_json,
@@ -47,6 +49,7 @@ class MinerUParser:
             raise FileNotFoundError("PDF not found")
         content = await asyncio.to_thread(pdf_path.read_bytes)
         checksum = await asyncio.to_thread(sha256_bytes, content)
+        repaired = await repair_pdf_in_child(pdf_path, original=content)
         wait_s = MAX_WAIT_SECONDS if self._timeout_s is None else self._timeout_s
 
         try:
@@ -54,7 +57,7 @@ class MinerUParser:
                 self._base_url, wait_s, connect_timeout=_CONNECT_TIMEOUT_S, tier=self._tier
             )
             try:
-                middle = await client.parse(filename=f"{checksum}.pdf", content=content)
+                middle = await client.parse(filename=f"{checksum}.pdf", content=repaired.data)
             finally:
                 await client.aclose()
         except MinerUTimeoutError as exc:
@@ -76,6 +79,7 @@ class MinerUParser:
                 parser_name=MINERU_PARSER_NAME,
                 parser_version=PARSER_VERSIONS[MINERU_PARSER_NAME],
                 configuration=parse_configuration(self._tier),
+                problems=symbol_font_problems(repaired),
             )
         except MiddleJsonContractError as exc:
             # The service and this mapper disagree (a MinerU upgrade on one side): not the PDF.

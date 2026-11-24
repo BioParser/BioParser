@@ -823,6 +823,15 @@ export interface components {
             /** Blocks */
             blocks: components["schemas"]["ContentBlock"][];
         };
+        /** ParseProblem */
+        ParseProblem: {
+            code: components["schemas"]["ProblemCode"];
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+        };
         /** ParserArtifact */
         ParserArtifact: {
             /** Schema Version */
@@ -832,6 +841,8 @@ export interface components {
             parser: components["schemas"]["ParserInfo"];
             /** Pages */
             pages: components["schemas"]["Page"][];
+            /** Problems */
+            problems?: components["schemas"]["ParseProblem"][];
         };
         /** ParserInfo */
         ParserInfo: {
@@ -844,6 +855,12 @@ export interface components {
                 [key: string]: string | number | boolean;
             };
         };
+        /**
+         * ProblemCode
+         * @description A gap the parse noticed. The parse still succeeded.
+         * @enum {string}
+         */
+        ProblemCode: "advent_fonts_unchecked" | "advent_symbols_replaced" | "advent_characters_unverified" | "advent_pages_uncounted";
         /**
          * ReadinessResponse
          * @example {

@@ -68,9 +68,10 @@ function textBlock(block_id: string, text: string) {
 }
 
 const PARSER: ParserArtifact = {
-  schema_version: "1",
+  schema_version: "2",
   checksum: "abc",
   parser: { name: "default", version: "1", configuration: {} },
+  problems: [],
   pages: [
     {
       page_number: 1,
@@ -289,6 +290,94 @@ describe("EvidenceView", () => {
     renderView(0);
     await screen.findByRole("blockquote");
     expect(await screen.findByRole("img", { name: "Page 1 of the PDF" })).toBeDefined();
+  });
+
+  it("does not warn when every symbol was matched", async () => {
+    renderView(0);
+    await screen.findByRole("blockquote");
+    expect(screen.queryByText(/3B2 typesetter/)).toBeNull();
+  });
+
+  it("warns when the parser replaced symbols it could not match", async () => {
+    stubArtifacts(() =>
+      Response.json({
+        ...PARSER,
+        problems: [{ code: "advent_symbols_replaced", count: 2 }],
+      }),
+    );
+    renderView(0);
+    expect((await screen.findByText(/3B2 typesetter/)).textContent).toBe(
+      "This paper uses the 3B2 typesetter. 2 Advent symbols in the parsed text were replaced with the Unicode replacement character because the printed symbols could not be named.",
+    );
+  });
+
+  it("warns when the symbol repair did not run", async () => {
+    stubArtifacts(() =>
+      Response.json({
+        ...PARSER,
+        problems: [{ code: "advent_fonts_unchecked", count: 0 }],
+      }),
+    );
+    renderView(0);
+    expect((await screen.findByText(/symbol check did not finish/)).textContent).toBe(
+      "The symbol check did not finish, so this paper could not be confirmed free of the rare 3B2 typesetter. If it uses 3B2, a symbol in the parsed text may not be the symbol printed on the page.",
+    );
+  });
+
+  it("warns when an unseen Advent face was left as the font claims", async () => {
+    stubArtifacts(() =>
+      Response.json({
+        ...PARSER,
+        problems: [{ code: "advent_characters_unverified", count: 58 }],
+      }),
+    );
+    renderView(0);
+    expect((await screen.findByText(/3B2 typesetter/)).textContent).toBe(
+      "This paper uses the 3B2 typesetter. 58 Advent characters in the parsed text were left unchanged because the font has not been verified.",
+    );
+  });
+
+  it("warns when a page of Advent fonts could not be counted", async () => {
+    stubArtifacts(() =>
+      Response.json({
+        ...PARSER,
+        problems: [{ code: "advent_pages_uncounted", count: 1 }],
+      }),
+    );
+    renderView(0);
+    expect((await screen.findByText(/3B2 typesetter/)).textContent).toBe(
+      "This paper uses the 3B2 typesetter. On 1 page, the drawing commands could not be counted, so an Advent symbol in the parsed text may have been replaced with the Unicode replacement character without that replacement being reported.",
+    );
+  });
+
+  it("names a single unmatched symbol", async () => {
+    stubArtifacts(() =>
+      Response.json({
+        ...PARSER,
+        problems: [{ code: "advent_symbols_replaced", count: 1 }],
+      }),
+    );
+    renderView(0);
+    expect((await screen.findByText(/3B2 typesetter/)).textContent).toBe(
+      "This paper uses the 3B2 typesetter. 1 Advent symbol in the parsed text was replaced with the Unicode replacement character because the printed symbol could not be named.",
+    );
+  });
+
+  it("puts every Advent problem in one notice", async () => {
+    stubArtifacts(() =>
+      Response.json({
+        ...PARSER,
+        problems: [
+          { code: "advent_symbols_replaced", count: 2 },
+          { code: "advent_characters_unverified", count: 58 },
+          { code: "advent_pages_uncounted", count: 1 },
+        ],
+      }),
+    );
+    renderView(0);
+    expect((await screen.findByText(/3B2 typesetter/)).textContent).toBe(
+      "This paper uses the 3B2 typesetter. 2 Advent symbols in the parsed text were replaced with the Unicode replacement character because the printed symbols could not be named. 58 Advent characters in the parsed text were left unchanged because the font has not been verified. On 1 page, the drawing commands could not be counted, so an Advent symbol in the parsed text may have been replaced with the Unicode replacement character without that replacement being reported.",
+    );
   });
 
   it("keeps the quotation when the PDF is missing", async () => {
