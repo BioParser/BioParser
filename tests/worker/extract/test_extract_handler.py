@@ -244,7 +244,9 @@ def test_success_stores_the_report_and_marks_done() -> None:
     assert value is not None
     assert value.text == "12.5"
     assert QUOTE[value.evidence[0].start : value.evidence[0].end] == "12.5"
-    assert stored.observations[0].verbatimScientificName.text == "Mus musculus"
+    printed = stored.observations[0].verbatimScientificName
+    assert printed is not None
+    assert printed.text == "Mus musculus"
     assert stored.extractor == "default"
     assert stored.extractor_version == EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME]
     assert "model" not in stored.model_dump()

@@ -99,6 +99,21 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
     assert set(dumped) == aliases
 
 
+def test_a_measurement_without_a_printed_name_is_a_row() -> None:
+    data = _observation().model_dump()
+    del data["verbatimScientificName"]
+    observation = Observation.model_validate(data)
+    artifact = ExtractionArtifact.model_validate(_artifact(observation).model_dump())
+
+    row = to_ets(artifact, references=_DOCUMENT_ID).rows[0]
+
+    assert row.verbatimScientificName is None
+    assert row.verbatimTraitName == "body mass"
+    assert row.verbatimTraitValue == "12.5"
+    with pytest.raises(ValidationError):
+        EtsRow.model_validate(row.model_dump() | {"verbatimScientificName": ""})
+
+
 def test_a_stored_name_is_copied_and_not_verified() -> None:
     """The model's name is the column until a taxonomy hit replaces it."""
     observation = _observation(scientificName=_read("Mus musculus", "M. musculus", start=0))
