@@ -51,26 +51,37 @@ def parse_measurements(text: str) -> list[ModelObservation]:
     """Read the line format Mendel asks the model to write.
 
     A measurement names the trait and a value or a bound. The printed scientific
-    name may be absent. A blank line separates measurements. Unit, dispersion,
-    and method may be absent. A record that is missing a required field, or that
-    is too long, is skipped.
+    name may be absent. A blank line separates measurements. A repeated key
+    starts a new measurement, so a missing blank line does not merge two
+    records. Unit, dispersion, and method may be absent. A record that is
+    missing a required field, or that is too long, is skipped.
     """
     found: list[ModelObservation] = []
+    fields: dict[str, str] = {}
+
+    def store() -> None:
+        nonlocal fields
+        current = fields
+        fields = {}
+        if "trait_name" not in current:
+            return
+        if "value" not in current and "minimum" not in current and "maximum" not in current:
+            return
+        try:
+            found.append(ModelObservation.model_validate(current))
+        except ValidationError:
+            return
+
     for chunk in text.split("\n\n"):
-        fields: dict[str, str] = {}
         for line in chunk.splitlines():
             key, separator, raw = line.partition(":")
             if separator != ":":
                 continue
             mapped = _KEYS.get(key.strip().lower())
-            if mapped is not None:
-                fields[mapped] = raw.strip()
-        if "trait_name" not in fields:
-            continue
-        if "value" not in fields and "minimum" not in fields and "maximum" not in fields:
-            continue
-        try:
-            found.append(ModelObservation.model_validate(fields))
-        except ValidationError:
-            continue
+            if mapped is None:
+                continue
+            if mapped in fields:
+                store()
+            fields[mapped] = raw.strip()
+        store()
     return found
