@@ -196,9 +196,27 @@ describe("JobDetailPage", () => {
     ],
     [
       "deferral_expired",
+      "queued",
+      "The parser did not answer for an hour, so the job could not start.",
+      "Queued — failed",
+    ],
+    [
+      "deferral_expired",
+      "parsing",
+      "The parser did not answer for an hour, so the job could not start.",
+      "Parsing — failed",
+    ],
+    [
+      "deferral_expired",
       "parsed",
-      "Extraction never started. The job waited an hour for a dependency that did not answer.",
+      "The extractor did not answer for an hour, so the job could not start.",
       "Waiting to extract — failed",
+    ],
+    [
+      "deferral_expired",
+      "extracting",
+      "The extractor did not answer for an hour, so the job could not start.",
+      "Extracting — failed",
     ],
   ] as const)("explains $code at $stage", async (code, stage, message, step) => {
     vi.stubGlobal(

@@ -31,10 +31,10 @@ const STAGE_WHEN: Record<FailedStage, string> = {
 
 function failureMessage(stage: FailedStage, code: FailureCode): string {
   if (code === "deferral_expired") {
-    if (stage === "parsed") {
-      return "Extraction never started. The job waited an hour for a dependency that did not answer.";
-    }
-    return `The job waited an hour for a dependency that did not answer ${STAGE_WHEN[stage]}.`;
+    // queued and parsing are waiting on the parser; parsed and extracting on the extractor.
+    // A deferral at parsing is a wait to be parsed again, not a parse already underway.
+    const service = stage === "queued" || stage === "parsing" ? "parser" : "extractor";
+    return `The ${service} did not answer for an hour, so the job could not start.`;
   }
   if (code === "retries_exhausted") {
     return `The job was tried until its attempt limit ${STAGE_WHEN[stage]}.`;
