@@ -197,25 +197,25 @@ describe("JobDetailPage", () => {
     [
       "deferral_expired",
       "queued",
-      "The parser did not answer for an hour, so the job could not start.",
+      "A service the job needs did not answer for an hour while the job was queued.",
       "Queued — failed",
     ],
     [
       "deferral_expired",
       "parsing",
-      "The parser did not answer for an hour, so the job could not start.",
+      "A service the job needs did not answer for an hour while the PDF was being parsed.",
       "Parsing — failed",
     ],
     [
       "deferral_expired",
       "parsed",
-      "The extractor did not answer for an hour, so the job could not start.",
+      "A service the job needs did not answer for an hour while the job was waiting to be extracted.",
       "Waiting to extract — failed",
     ],
     [
       "deferral_expired",
       "extracting",
-      "The extractor did not answer for an hour, so the job could not start.",
+      "A service the job needs did not answer for an hour while traits were being extracted.",
       "Extracting — failed",
     ],
   ] as const)("explains $code at $stage", async (code, stage, message, step) => {
