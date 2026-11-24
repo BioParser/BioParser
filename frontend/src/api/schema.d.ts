@@ -712,6 +712,8 @@ export interface components {
          *     paper does not name one. ``scientificName``, ``traitValue``, and
          *     ``traitUnit`` are interpretations beside a verbatim citation. The
          *     interpretation is omitted when the printed token is already the value.
+         *     An interpretation may be stored when its printed citation is absent.
+         *     A consumer checks that citation when it needs the printed token.
          *     ``scientificName`` is the model's reading of the accepted name.
          *     ``traitValue`` and ``traitUnit`` stay empty until a trait list
          *     standardizes them.
