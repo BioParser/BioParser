@@ -163,10 +163,20 @@ def test_a_scientific_name_can_expand_the_printed_citation() -> None:
 
 
 def test_a_measurement_may_omit_the_printed_name() -> None:
-    observation = _observation(verbatimScientificName=None)
+    data = _observation().model_dump()
+    del data["verbatimScientificName"]
+    observation = Observation.model_validate(data)
+    artifact = ExtractionArtifact.model_validate(
+        {
+            "extractor": "default",
+            "extractor_version": "2",
+            "observations": [data],
+        }
+    )
 
     assert observation.verbatimScientificName is None
     assert observation.verbatimTraitName.text == "body mass"
+    assert artifact.observations[0].verbatimScientificName is None
 
 
 def test_a_range_without_a_central_value_is_kept() -> None:

@@ -100,9 +100,12 @@ def test_a_located_observation_becomes_one_ets_row() -> None:
 
 
 def test_a_measurement_without_a_printed_name_is_a_row() -> None:
-    observation = _observation(verbatimScientificName=None)
+    data = _observation().model_dump()
+    del data["verbatimScientificName"]
+    observation = Observation.model_validate(data)
+    artifact = ExtractionArtifact.model_validate(_artifact(observation).model_dump())
 
-    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+    row = to_ets(artifact, references=_DOCUMENT_ID).rows[0]
 
     assert row.verbatimScientificName is None
     assert row.verbatimTraitName == "body mass"
