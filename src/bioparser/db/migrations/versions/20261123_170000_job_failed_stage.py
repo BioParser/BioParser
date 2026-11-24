@@ -50,6 +50,18 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Drop failed_stage. A failed job no longer says which status it replaced."""
+    """Drop failed_stage after rewriting codes an older app cannot read.
+
+    `deferral_expired` and `retries_exhausted` become `internal_error`, the code
+    main stored for both. Downgrade this revision before reverting the app. An
+    older app rejects the new codes, and one such row makes every job list fail.
+    """
+    op.execute(
+        """
+        UPDATE jobs
+        SET error_code = 'internal_error'
+        WHERE error_code IN ('deferral_expired', 'retries_exhausted')
+        """
+    )
     op.drop_constraint("jobs_failed_stage_check", "jobs", type_="check")
     op.drop_column("jobs", "failed_stage")
