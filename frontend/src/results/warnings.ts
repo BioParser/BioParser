@@ -1,3 +1,5 @@
+import { type EtsColumn, FIELD_LABELS } from "./fieldLabels";
+
 // The ETS `warnings` column is one string. format_warning in src/bioparser/ets/notices.py
 // writes each code as `kind:field`, and to_ets in src/bioparser/ets/adapter.py joins them
 // with " | ". A row without warnings has an empty string.
@@ -9,31 +11,15 @@ export function parseWarnings(warnings: string): string[] {
     .filter((code) => code !== "");
 }
 
-// Plain-language names for the fields a warning can name.
-const FIELD_LABELS: Record<string, string> = {
-  scientificName: "The scientific name",
-  individualCount: "The individual count",
-  age: "The age",
-  measurementValue_min: "The minimum",
-  measurementValue_max: "The maximum",
-  dispersion: "The dispersion",
-  year: "The year",
-  month: "The month",
-  day: "The day",
-  decimalLongitude: "The longitude",
-  decimalLatitude: "The latitude",
-  elevation: "The elevation",
-  sex: "The sex",
-  basisOfRecord: "The basis of record",
-  aggregateMeasure: "The aggregate measure",
-  countryCode: "The country code",
-  measurementDeterminedDate: "The measurement date",
-  eventDate: "The event date",
-};
+// A column as the subject of a warning sentence: "The verbatim trait value", using the same
+// words as the column's label in the field list and the table.
+function subject(column: EtsColumn): string {
+  return `The ${FIELD_LABELS[column].toLowerCase()}`;
+}
 
 // Each kind with the fields it can name, as the Notice models in notices.py define them.
 // A code outside this table is unknown, and the UI shows it as it is (#290 catalogues codes).
-const KINDS: Record<string, { fields: readonly string[]; text: (label: string) => string }> = {
+const KINDS: Record<string, { fields: readonly EtsColumn[]; text: (label: string) => string }> = {
   not_numeric: {
     fields: [
       "individualCount",
@@ -111,8 +97,22 @@ const COMBINED: Record<string, string> = {
     "The aggregate measure is not one of the accepted values. The column is left empty.",
   "not_a_date:year,month,day": "The year, month, and day together are not a calendar day.",
   "bounds_reversed:measurementValue_min,measurementValue_max":
-    "The minimum is greater than the maximum. Both are kept as printed.",
+    "The measurement value min is greater than the measurement value max. Both are kept as printed.",
 };
+
+// The columns a code names: the comma-separated list after its colon, as format_warning
+// writes it. An unknown kind still names its columns. A code without a colon names none.
+export function namedFields(code: string): string[] {
+  const separator = code.indexOf(":");
+  if (separator < 0) {
+    return [];
+  }
+  return code
+    .slice(separator + 1)
+    .split(",")
+    .map((field) => field.trim())
+    .filter((field) => field !== "");
+}
 
 // The plain-language line for a known code, or null for an unknown one.
 export function warningText(code: string): string | null {
@@ -126,8 +126,9 @@ export function warningText(code: string): string | null {
   const kind = code.slice(0, separator);
   const field = code.slice(separator + 1);
   const known = Object.hasOwn(KINDS, kind) ? KINDS[kind] : undefined;
-  if (known === undefined || !known.fields.includes(field)) {
+  const column = known?.fields.find((name) => name === field);
+  if (known === undefined || column === undefined) {
     return null;
   }
-  return known.text(FIELD_LABELS[field]);
+  return known.text(subject(column));
 }

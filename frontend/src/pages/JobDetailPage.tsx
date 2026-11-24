@@ -170,7 +170,10 @@ function JobStatus({
       {job.status === "done" && (
         <section aria-labelledby="job-results-heading">
           <h2 id="job-results-heading">Results</h2>
+          {/* Keyed by job: the route keeps the page mounted when it moves to another job,
+              and the expanded rows and the hide-flagged choice belong to one job. */}
           <JobResults
+            key={job.job_id}
             jobId={job.job_id}
             displayName={job.display_name}
             selectedIndex={observationIndex}

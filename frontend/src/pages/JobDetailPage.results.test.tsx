@@ -75,6 +75,20 @@ async function bodyRows(): Promise<HTMLElement[]> {
   return within(table).getAllByRole("row").slice(1);
 }
 
+// The field list under an expanded row: [label, value text] for each field.
+function fieldList(observationNumber: number): HTMLElement | null {
+  return document.querySelector(`dl[aria-label="Fields of observation ${observationNumber}"]`);
+}
+
+function listedFields(observationNumber = 1): [string, string][] {
+  const list = fieldList(observationNumber);
+  if (list === null) throw new Error(`observation ${observationNumber} is not expanded`);
+  return [...list.querySelectorAll(".results-field")].map((field) => [
+    field.querySelector("dt")?.textContent ?? "",
+    field.querySelector("dd")?.textContent ?? "",
+  ]);
+}
+
 async function savedText(call: number): Promise<{ name: string; type: string; text: string }> {
   const [name, blob] = vi.mocked(saveFile).mock.calls[call];
   const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -101,7 +115,7 @@ describe("JobDetailPage results", () => {
     const cells = within(rows[0])
       .getAllByRole("cell")
       .map((cell) => cell.textContent);
-    expect(cells).toEqual(["1", "Mus musculus", "body mass", "21.5 g", "None"]);
+    expect(cells).toEqual(["1", "Mus musculus", "body mass", "21.5 g", "None", "▸ 7 fields"]);
     // No scientificName: the printed name is shown.
     expect(within(rows[1]).getByText("Sorex sp.")).toBeDefined();
     expect(fetchMock).toHaveBeenCalledWith(`/api/jobs/${JOB_ID}/ets`, expect.anything());
@@ -117,21 +131,24 @@ describe("JobDetailPage results", () => {
     expect(within(row).getByText("21.5 g")).toBeDefined();
     expect(within(row).queryByText("Body mass")).toBeNull();
     expect(within(row).queryByText("0.0215 kg")).toBeNull();
+    expect(screen.getByRole("columnheader", { name: "Verbatim trait name" })).toBeDefined();
     expect(screen.queryByRole("columnheader", { name: "Normalized value" })).toBeNull();
   });
 
-  it("flags a row with one warning and explains the code", async () => {
+  it("flags a row with one warning, as text, and explains it in the field list", async () => {
     stubRows([etsRow({ warnings: "not_numeric:age" })]);
     renderPage();
     const [row] = await bodyRows();
-    const summary = within(row).getByText("1 warning").closest("summary");
-    expect(summary).not.toBeNull();
-    const items = within(row).getAllByRole("listitem");
-    expect(items).toHaveLength(1);
-    expect(items[0].textContent).toBe(
-      "not_numeric:age — The age is not a number. The printed text is kept.",
-    );
+    const flag = within(row).getAllByRole("cell")[4];
+    expect(flag.textContent).toBe("⚑ 1 warning");
+    // Not a disclosure: the field list explains each warning.
+    expect(flag.querySelector("details, summary, button")).toBeNull();
     expect(screen.getByText("1 row of 1 flagged.")).toBeDefined();
+
+    fireEvent.click(within(row).getByRole("button", { name: /fields of observation 1/ }));
+    expect(new Map(listedFields()).get("Age")).toBe(
+      "Empty⚑ The age is not a number. The printed text is kept. not_numeric:age",
+    );
   });
 
   it("lists an unverified name without flagging the row", async () => {
@@ -141,18 +158,16 @@ describe("JobDetailPage results", () => {
     ]);
     renderPage();
     const [row] = await bodyRows();
-    const summary = within(row).getByText("Name not verified");
-    expect(summary.tagName).toBe("SUMMARY");
+    expect(within(row).getAllByRole("cell")[4].textContent).toBe("Name not verified");
     expect(within(row).queryByText("⚑", { exact: false })).toBeNull();
-    expect(within(row).getAllByRole("listitem")[0].textContent).toBe(
-      "not_verified:scientificName — The scientific name is the model's reading. No taxonomy lookup has confirmed it.",
-    );
     expect(screen.getByText("1 row of 2 flagged.")).toBeDefined();
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Hide flagged rows" }));
     const visible = await bodyRows();
     expect(visible).toHaveLength(1);
-    expect(within(visible[0]).getByRole("button").textContent).toBe("1");
+    expect(within(visible[0]).getByRole("button", { name: /^Show evidence/ }).textContent).toBe(
+      "1",
+    );
   });
 
   it("flags a row for a code the UI does not know", async () => {
@@ -163,22 +178,28 @@ describe("JobDetailPage results", () => {
     expect(screen.getByText("1 row of 1 flagged.")).toBeDefined();
   });
 
-  it("lists several warnings, and an unknown code as it is", async () => {
+  it("lists the codes that name no field after the fields", async () => {
     stubRows([
       etsRow({
-        warnings: "not_verified:scientificName | not_a_date:year,month,day | unmapped:traitName",
+        warnings: "not_numeric:age | no_colon | new_kind:notAColumn | no_colon",
       }),
     ]);
     renderPage();
     const [row] = await bodyRows();
-    expect(within(row).getByText("3 warnings")).toBeDefined();
-    const items = within(row)
-      .getAllByRole("listitem")
-      .map((item) => item.textContent);
-    expect(items[1]).toBe(
-      "not_a_date:year,month,day — The year, month, and day together are not a calendar day.",
-    );
-    expect(items[2]).toBe("unmapped:traitName");
+    expect(within(row).getByText("4 warnings")).toBeDefined();
+    fireEvent.click(within(row).getByRole("button", { name: /fields of observation 1/ }));
+    const fields = listedFields();
+    // Each code once, after the last field.
+    expect(fields.at(-1)).toEqual(["Other warnings", "⚑ no_colon⚑ new_kind:notAColumn"]);
+    expect(fields.filter(([label]) => label === "Other warnings")).toHaveLength(1);
+  });
+
+  it("has no other warnings item when every code names a field", async () => {
+    stubRows([etsRow({ warnings: "not_numeric:age" })]);
+    renderPage();
+    const [row] = await bodyRows();
+    fireEvent.click(within(row).getByRole("button", { name: /fields of observation 1/ }));
+    expect(listedFields().map(([label]) => label)).not.toContain("Other warnings");
   });
 
   it("hides flagged rows, says how many, and still downloads every row", async () => {
@@ -195,7 +216,9 @@ describe("JobDetailPage results", () => {
     const visible = await bodyRows();
     expect(visible).toHaveLength(1);
     // The row keeps its observation number.
-    expect(within(visible[0]).getByRole("button").textContent).toBe("2");
+    expect(within(visible[0]).getByRole("button", { name: /^Show evidence/ }).textContent).toBe(
+      "2",
+    );
     expect(screen.getByText("2 rows hidden. Showing 1 of 3.").getAttribute("role")).toBe("status");
 
     fireEvent.click(screen.getByRole("button", { name: "Download CSV" }));
@@ -240,12 +263,179 @@ describe("JobDetailPage results", () => {
     expect(router.state.location.search).toBe("?observation=0");
   });
 
-  it("does not open evidence when the warnings toggle is clicked", async () => {
+  it("opens evidence from a click on the flag text, like the rest of the row", async () => {
     stubRows([etsRow({ warnings: "not_numeric:age" })]);
     const { router } = renderPage();
     const [row] = await bodyRows();
     fireEvent.click(within(row).getByText("1 warning"));
+    expect(router.state.location.search).toBe("?observation=0");
+  });
+
+  it("lists a row's filled fields in ETS column order when it is expanded", async () => {
+    stubRows([
+      etsRow({
+        traitID: "T1",
+        lifeStage: "adult",
+        sex: "",
+        individualCount: "   ",
+        aggregateMeasure: false,
+        measurementRemarks: "line 1\nline 2",
+        verbatimLocality: "Åland",
+        warnings: "not_numeric:age",
+      }),
+    ]);
+    renderPage();
+    const [row] = await bodyRows();
+    const toggle = within(row).getByRole("button", { name: "13 fields of observation 1" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(fieldList(1)).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const rows = await bodyRows();
+    expect(rows).toHaveLength(2);
+    expect(toggle.getAttribute("aria-controls")).toBe(rows[1].id);
+    expect(listedFields()).toEqual([
+      ["Trait ID", "T1"],
+      ["Verbatim trait name", "body mass"],
+      ["Scientific name", "Mus musculus"],
+      ["Verbatim scientific name", "M. musculus"],
+      ["Verbatim trait value", "21.5"],
+      ["Verbatim trait unit", "g"],
+      ["Life stage", "adult"],
+      // age is empty, but its warning gives it a place.
+      ["Age", "Empty⚑ The age is not a number. The printed text is kept. not_numeric:age"],
+      ["Measurement remarks", "line 1\nline 2"],
+      ["Aggregate measure", "No"],
+      ["Measurement ID", "1"],
+      ["References", "a".repeat(64)],
+      ["Verbatim locality", "Åland"],
+    ]);
+    // Empty and blank columns, and the warnings column itself, are not listed.
+    expect(within(rows[1]).queryByText("Sex")).toBeNull();
+    expect(within(rows[1]).queryByText("Individual count")).toBeNull();
+    expect(within(rows[1]).queryByText("Warnings")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(await bodyRows()).toHaveLength(1);
+  });
+
+  it("marks each field that a warning names next to its value", async () => {
+    stubRows([
+      etsRow({
+        age: "about 3",
+        year: "2001",
+        month: "13",
+        day: "40",
+        warnings:
+          "not_verified:scientificName | not_numeric:age | not_a_date:year,month,day | " +
+          "not_in_vocabulary:basisOfRecord | new_kind:habitat",
+      }),
+    ]);
+    renderPage();
+    const [row] = await bodyRows();
+    fireEvent.click(within(row).getByRole("button", { name: /fields of observation 1/ }));
+    const fields = new Map(listedFields());
+    // An informational code is explained without the flag mark.
+    expect(fields.get("Scientific name")).toBe(
+      "Mus musculusThe scientific name is the model's reading. No taxonomy lookup has confirmed it. not_verified:scientificName",
+    );
+    expect(fields.get("Age")).toBe(
+      "about 3⚑ The age is not a number. The printed text is kept. not_numeric:age",
+    );
+    // One code that names three columns marks each of them.
+    for (const label of ["Year", "Month", "Day"]) {
+      expect(fields.get(label)).toContain(
+        "⚑ The year, month, and day together are not a calendar day. not_a_date:year,month,day",
+      );
+    }
+    // The adapter left the column empty, and the warning says why.
+    expect(fields.get("Basis of record")).toBe(
+      "Empty⚑ The basis of record is not one of the accepted values. The column is left empty. not_in_vocabulary:basisOfRecord",
+    );
+    // A kind the UI does not know is shown as its code.
+    expect(fields.get("Habitat")).toBe("Empty⚑ new_kind:habitat");
+    // The flag sign is not read out: the text says what is wrong.
+    const mark = within(fieldList(1) as HTMLElement).getByText("new_kind:habitat").parentElement;
+    expect(mark?.querySelector('[aria-hidden="true"]')?.textContent).toBe("⚑ ");
+  });
+
+  it("expands a row without opening its evidence, and opens evidence without expanding", async () => {
+    stubRows([etsRow(), etsRow({ measurementID: "2" })]);
+    const { router } = renderPage();
+    const [first] = await bodyRows();
+    fireEvent.click(within(first).getByRole("button", { name: /fields of observation 1/ }));
     expect(router.state.location.search).toBe("");
+    // A click in the field list does not open the evidence either.
+    fireEvent.click(screen.getByText("Verbatim scientific name"));
+    expect(router.state.location.search).toBe("");
+
+    const second = (await bodyRows())[2];
+    fireEvent.click(
+      within(second).getByRole("button", { name: "Show evidence for observation 2" }),
+    );
+    expect(router.state.location.search).toBe("?observation=1");
+    expect(
+      await screen.findByRole("heading", { name: "Evidence for observation 2" }),
+    ).toBeDefined();
+    // The first row stays expanded beside the evidence, and the second was not expanded.
+    const rows = await bodyRows();
+    expect(rows).toHaveLength(3);
+    expect(
+      within(rows[2])
+        .getByRole("button", { name: /fields of observation 2/ })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
+  });
+
+  it("keeps a row expanded when flagged rows are hidden and shown again", async () => {
+    stubRows([etsRow({ warnings: "not_numeric:age" }), etsRow({ measurementID: "2" })]);
+    renderPage();
+    const [flagged] = await bodyRows();
+    fireEvent.click(within(flagged).getByRole("button", { name: /fields of observation 1/ }));
+    const hide = screen.getByRole("checkbox", { name: "Hide flagged rows" });
+    fireEvent.click(hide);
+    expect(await bodyRows()).toHaveLength(1);
+    fireEvent.click(hide);
+    const rows = await bodyRows();
+    expect(rows).toHaveLength(3);
+    expect(rows[1].classList.contains("results-fields-row")).toBe(true);
+  });
+
+  it("resets the expanded rows and hide-flagged when the page moves to another job", async () => {
+    const OTHER_ID = "c4e2d3b5-9e8f-4b76-8f42-23456789abcd";
+    fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const path = String(input);
+      if (path.endsWith("/ets")) {
+        return Response.json({
+          rows: [etsRow({ warnings: "not_numeric:age" }), etsRow({ measurementID: "2" })],
+        });
+      }
+      return Response.json({ ...job, job_id: path.includes(OTHER_ID) ? OTHER_ID : JOB_ID });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { router } = renderPage();
+    await bodyRows();
+    await act(async () => {
+      await router.navigate(`/jobs/${OTHER_ID}`);
+    });
+    const [, second] = await bodyRows();
+    fireEvent.click(within(second).getByRole("button", { name: /fields of observation 2/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Hide flagged rows" }));
+    expect(fieldList(2)).not.toBeNull();
+
+    // Back to the first job, whose record is cached, so the page shows it at once and the
+    // results stay mounted unless they are keyed by job.
+    await act(async () => {
+      await router.navigate(-1);
+    });
+    expect(screen.getByText(JOB_ID)).toBeDefined();
+    expect(await bodyRows()).toHaveLength(2);
+    expect(fieldList(2)).toBeNull();
+    expect(
+      (screen.getByRole("checkbox", { name: "Hide flagged rows" }) as HTMLInputElement).checked,
+    ).toBe(false);
   });
 
   it("downloads the CSV in API column order, UTF-8, with RFC 4180 quoting", async () => {
