@@ -156,8 +156,8 @@ def test_a_configuration_is_one_more_segment_after_the_version() -> None:
 
 def test_extract_result_path_keeps_the_parse_path() -> None:
     parsed = parse_result_path(CHECKSUM, "mineru", "2", "standard")
-    path = extract_result_path(parsed, "default", "0")
-    assert path == f"{parsed}/extracted/default/0"
+    path = extract_result_path(parsed, "default", "0", "job-1")
+    assert path == f"{parsed}/extracted/default/0/job-1"
 
 
 @pytest.mark.parametrize(
@@ -176,11 +176,13 @@ def test_builders_reject_a_value_that_is_not_one_segment(bad: str) -> None:
     # The parse ref is a whole path, so a value with a slash can be one.
     if bad != "a/b":
         with pytest.raises(ArtifactPathError):
-            extract_result_path(bad, "default", "1")
+            extract_result_path(bad, "default", "1", "job-1")
     with pytest.raises(ArtifactPathError):
-        extract_result_path(parsed, bad, "1")
+        extract_result_path(parsed, bad, "1", "job-1")
     with pytest.raises(ArtifactPathError):
-        extract_result_path(parsed, "default", bad)
+        extract_result_path(parsed, "default", bad, "job-1")
+    with pytest.raises(ArtifactPathError):
+        extract_result_path(parsed, "default", "1", bad)
 
 
 @pytest.mark.parametrize("bad", [".", ".."])
@@ -191,9 +193,11 @@ def test_builders_reject_dot_segments(bad: str) -> None:
         parse_result_path(CHECKSUM, "mineru", "2", bad)
     parsed = parse_result_path(CHECKSUM, "mineru", "2")
     with pytest.raises(ArtifactPathTraversalError):
-        extract_result_path(bad, "default", "1")
+        extract_result_path(bad, "default", "1", "job-1")
     with pytest.raises(ArtifactPathTraversalError):
-        extract_result_path(parsed, bad, "1")
+        extract_result_path(parsed, bad, "1", "job-1")
+    with pytest.raises(ArtifactPathTraversalError):
+        extract_result_path(parsed, "default", "1", bad)
 
 
 @pytest.mark.parametrize("segment", ["a", CHECKSUM, "doc_123.v1-final", "..."])

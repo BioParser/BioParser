@@ -70,7 +70,9 @@ from bioparser.worker.extract.handler import ExtractJobHandler
 JOB_ID = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
 PARSE_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
 PDF_CHECKSUM = "a" * 64
-RESULT_PATH = extract_result_path(PARSE_REF, "default", EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME])
+RESULT_PATH = extract_result_path(
+    PARSE_REF, "default", EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME], str(JOB_ID)
+)
 QUOTE = "Mus musculus adults averaged 12.5 kg in the sampled population."
 CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -270,6 +272,24 @@ def test_duplicate_delivery_does_not_call_the_model_again() -> None:
     assert storage.stores == 1
     assert jobs.state is not None
     assert jobs.state.status == "done"
+
+
+def test_a_retry_reuses_an_extraction_stored_before_done() -> None:
+    jobs = StubJobs(_parsed().with_changes(status="extracting", extracting_claims=1))
+    storage = _storage()
+    storage.payloads[RESULT_PATH] = _artifact([]).model_dump_json().encode()
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        raise AssertionError("model was called")
+
+    handler = _handler(jobs, storage, extract)
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert storage.stores == 0
+    assert jobs.state is not None
+    assert jobs.state.status == "done"
+    assert jobs.state.extract_result_ref == RESULT_PATH
 
 
 def test_an_unlocated_observation_is_not_stored() -> None:
@@ -641,7 +661,7 @@ def test_on_failed_records_timeout_and_keeps_the_parser_artifact() -> None:
     assert jobs.state.parse_result_ref == PARSE_REF
 
 
-def test_second_job_with_the_same_parser_artifact_reuses_the_result() -> None:
+def test_second_job_with_the_same_parser_artifact_extracts_again() -> None:
     storage = _storage()
     vllm = _stub()
     first = StubJobs(_parsed())
@@ -655,11 +675,14 @@ def test_second_job_with_the_same_parser_artifact_reuses_the_result() -> None:
     asyncio.run(handler.handle(ExtractJobMessage(job_id=other_id)))
     asyncio.run(handler.aclose())
 
-    assert len(vllm.prompts) == 1
-    assert storage.stores == 1
+    assert len(vllm.prompts) == 2
+    assert storage.stores == 2
     assert second.state is not None
     assert second.state.status == "done"
-    assert second.state.extract_result_ref == RESULT_PATH
+    assert second.state.extract_result_ref == extract_result_path(
+        PARSE_REF, "default", EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME], str(other_id)
+    )
+    assert second.state.extract_result_ref != RESULT_PATH
 
 
 def test_an_invalid_stored_extraction_fails_without_calling_the_model() -> None:
@@ -683,7 +706,7 @@ def test_an_invalid_stored_extraction_fails_without_calling_the_model() -> None:
 
 
 def test_a_parse_path_that_cannot_take_an_extraction_is_internal_error() -> None:
-    suffix = "/extracted/default/2"
+    suffix = f"/extracted/default/2/{JOB_ID}"
     ref = "/".join(("a" * 200, "b" * 200, "c" * 93))
     assert len(ref) <= ARTIFACT_PATH_MAX_LENGTH
     assert len(ref) + len(suffix) > ARTIFACT_PATH_MAX_LENGTH
@@ -739,8 +762,8 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
     asyncio.run(handler.aclose())
 
     version = EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME]
-    basic_path = extract_result_path(basic_ref, "default", version)
-    standard_path = extract_result_path(standard_ref, "default", version)
+    basic_path = extract_result_path(basic_ref, "default", version, str(JOB_ID))
+    standard_path = extract_result_path(standard_ref, "default", version, str(other_id))
     assert basic.state is not None and standard.state is not None
     assert basic.state.extract_result_ref == basic_path
     assert standard.state.extract_result_ref == standard_path
@@ -787,7 +810,9 @@ def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPa
 
     assert seen == ["other"]
     assert jobs.state is not None
-    assert jobs.state.extract_result_ref == extract_result_path(PARSE_REF, "other", "4")
+    assert jobs.state.extract_result_ref == extract_result_path(
+        PARSE_REF, "other", "4", str(JOB_ID)
+    )
 
 
 def _range(start: int, end: int, text: str) -> Citation:
@@ -860,7 +885,7 @@ def test_registered_extractor_stores_the_resolved_version() -> None:
     assert jobs.state is not None
     assert jobs.state.status == "done"
     assert jobs.state.extract_result_ref == extract_result_path(
-        PARSE_REF, DEFAULT_EXTRACTOR_NAME, version
+        PARSE_REF, DEFAULT_EXTRACTOR_NAME, version, str(JOB_ID)
     )
     assert vllm.prompts
 
@@ -884,7 +909,7 @@ def test_artifact_path_uses_the_version_resolved_for_the_run(
 
     assert jobs.state is not None
     assert jobs.state.extract_result_ref == extract_result_path(
-        PARSE_REF, DEFAULT_EXTRACTOR_NAME, "4"
+        PARSE_REF, DEFAULT_EXTRACTOR_NAME, "4", str(JOB_ID)
     )
 
 
