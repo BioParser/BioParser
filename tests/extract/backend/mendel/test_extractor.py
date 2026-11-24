@@ -5,6 +5,9 @@ import pytest
 from stubs import StubVLLMService
 
 from bioparser.extract.backend.mendel.extractor import extract_observations, prompt_pieces
+from bioparser.extract.checks import checked_artifact
+from bioparser.extract.models import ExtractionArtifact
+from bioparser.extractor_names import EXTRACTOR_VERSIONS, MENDEL_EXTRACTOR_NAME
 from bioparser.parser.models import (
     PARSER_ARTIFACT_SCHEMA_VERSION,
     BlockKind,
@@ -102,6 +105,36 @@ def test_eligible_text_that_does_not_fit_is_a_context_length_error() -> None:
 
     with pytest.raises(VLLMContextLengthError, match="context window"):
         asyncio.run(prompt_pieces(cast(VLLMService, NoneFit()), [("b0", "12", 0)]))
+
+
+def test_a_block_that_starts_with_whitespace_keeps_the_printed_slice() -> None:
+    text = "  Mus musculus body mass was 12.5 g."
+    reply = (
+        "verbatimScientificName: Mus musculus\n"
+        "verbatimTraitName: body mass\n"
+        "verbatimTraitValue: 12.5\n"
+        "verbatimTraitUnit: g\n"
+    )
+    paper = _paper(text)
+    service = StubVLLMService(reply=reply)
+    result = asyncio.run(extract_observations(cast(VLLMService, service), paper))
+    artifact = checked_artifact(
+        ExtractionArtifact(
+            extractor=MENDEL_EXTRACTOR_NAME,
+            extractor_version=EXTRACTOR_VERSIONS[MENDEL_EXTRACTOR_NAME],
+            observations=result.observations,
+        ),
+        paper,
+        extractor=MENDEL_EXTRACTOR_NAME,
+        version=EXTRACTOR_VERSIONS[MENDEL_EXTRACTOR_NAME],
+    )
+
+    assert service.prompts == [text]
+    value = artifact.observations[0].verbatimTraitValue
+    assert value is not None
+    assert value.text == "12.5"
+    evidence = value.evidence[0]
+    assert text[evidence.start : evidence.end] == "12.5"
 
 
 def test_a_paper_with_no_eligible_text_stays_empty() -> None:

@@ -81,7 +81,8 @@ def measurement_pages(artifact: ParserArtifact) -> list[list[Source]]:
     References, headers, footers, and tables are omitted. A page is sent when
     one of its blocks has a digit and a letter. The other text on that page is
     included, so the model sees the sentences around the numbers. A block that
-    is only digits, such as a page number, is omitted.
+    is only digits, such as a page number, is omitted. The text is the parser
+    text, so a citation offset matches the stored block.
     """
     pages: list[list[Source]] = []
     for page in artifact.pages:
@@ -92,12 +93,13 @@ def measurement_pages(artifact: ParserArtifact) -> list[list[Source]]:
                 continue
             if not isinstance(block.content, TextContent):
                 continue
-            text = block.content.text.strip()
+            raw = block.content.text
+            text = raw.strip()
             if not text or not any(char.isalpha() for char in text):
                 continue
             if any(char.isdigit() for char in text):
                 has_measurement = True
-            blocks.append((block.block_id, text, 0))
+            blocks.append((block.block_id, raw, 0))
         if has_measurement:
             pages.append(blocks)
     return pages
