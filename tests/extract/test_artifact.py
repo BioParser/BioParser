@@ -179,6 +179,19 @@ def test_a_measurement_may_omit_the_printed_name() -> None:
     assert artifact.observations[0].verbatimScientificName is None
 
 
+def test_a_name_reading_may_stand_without_the_printed_name() -> None:
+    data = _observation().model_dump()
+    del data["verbatimScientificName"]
+    data["scientificName"] = Interpretation(
+        value="Mus musculus", passage=_cite("the mouse")
+    ).model_dump()
+    observation = Observation.model_validate(data)
+
+    assert observation.verbatimScientificName is None
+    assert isinstance(observation.scientificName, Interpretation)
+    assert observation.scientificName.value == "Mus musculus"
+
+
 def test_a_range_without_a_central_value_is_kept() -> None:
     observation = _observation(
         verbatimTraitValue=None,
