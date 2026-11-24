@@ -47,7 +47,9 @@ describe("warningText", () => {
   it.each([
     ["not_verified:scientificName", "The scientific name is the model's reading."],
     ["not_numeric:individualCount", "The individual count is not a number."],
-    ["out_of_range:decimalLatitude", "The latitude is outside the range of its column."],
+    ["not_numeric:measurementValue_min", "The measurement value min is not a number."],
+    ["not_numeric:decimalLongitude", "The decimal longitude is not a number."],
+    ["out_of_range:decimalLatitude", "The decimal latitude is outside the range of its column."],
     [
       "not_in_vocabulary:sex",
       "The sex is not one of the accepted values. The printed text is kept.",
@@ -67,10 +69,13 @@ describe("warningText", () => {
     ["not_a_date:eventDate", "The event date is not a calendar day."],
     ["not_a_date:year,month,day", "The year, month, and day together are not a calendar day."],
     ["ambiguous_date:eventDate", "The event date can be read day first or month first."],
-    ["ambiguous_date:measurementDeterminedDate", "The measurement date can be read day first"],
+    [
+      "ambiguous_date:measurementDeterminedDate",
+      "The measurement determined date can be read day first",
+    ],
     [
       "bounds_reversed:measurementValue_min,measurementValue_max",
-      "The minimum is greater than the maximum.",
+      "The measurement value min is greater than the measurement value max.",
     ],
   ])("explains %s", (code, start) => {
     expect(warningText(code)).toContain(start);

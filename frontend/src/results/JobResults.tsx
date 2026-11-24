@@ -2,7 +2,8 @@ import { Fragment, type MouseEvent, useState } from "react";
 import { ApiError, type EtsRow, type EtsRowsResponse } from "../api/client";
 import { shouldRetry } from "../api/queryClient";
 import { toCsv } from "./csv";
-import { type Field, rowFields } from "./fields";
+import { FIELD_LABELS } from "./fieldLabels";
+import { type Field, otherCodes, rowFields } from "./fields";
 import { downloadName } from "./fileName";
 import { reportedText, taxonText } from "./format";
 import { saveFile } from "./saveFile";
@@ -145,7 +146,16 @@ interface Entry {
   flagged: boolean;
 }
 
-const HEADINGS = ["No.", "Taxon", "Trait", "Reported value", "Flag", "Fields"];
+// Trait shows one ETS column, so it has that column's label. Taxon and Reported value each
+// combine several columns (see format.ts), so they keep names of their own.
+const HEADINGS = [
+  "No.",
+  "Taxon",
+  FIELD_LABELS.verbatimTraitName,
+  "Reported value",
+  "Flag",
+  "Fields",
+];
 
 function ResultsTable({
   entries,
@@ -161,10 +171,10 @@ function ResultsTable({
   onToggleFields: (observationIndex: number) => void;
 }) {
   // A click anywhere on a row opens its evidence, except on a control inside it, such as
-  // the warnings or fields toggle. The button in the first cell is the keyboard path. The
-  // fields row below an expanded row does not open the evidence.
+  // the fields toggle. The button in the first cell is the keyboard path. The fields row
+  // below an expanded row does not open the evidence.
   function handleRowClick(event: MouseEvent<HTMLTableRowElement>, index: number) {
-    if (event.target instanceof Element && event.target.closest("button, a, input, details")) {
+    if (event.target instanceof Element && event.target.closest("button, a, input")) {
       return;
     }
     onSelect(index);
@@ -235,7 +245,11 @@ function ResultsTable({
                     }
                   >
                     <td colSpan={HEADINGS.length}>
-                      <FieldList fields={fields} observationNumber={index + 1} />
+                      <FieldList
+                        fields={fields}
+                        otherCodes={otherCodes(fields, codes)}
+                        observationNumber={index + 1}
+                      />
                     </td>
                   </tr>
                 )}
@@ -248,45 +262,36 @@ function ResultsTable({
   );
 }
 
-// A disclosure, so the warnings open by click, Enter, or Space, and are not hover-only.
-// A row with only informational codes is not flagged: its summary names them without the
-// flag mark, and the list still explains each code.
+// How many warnings the row has, as text. Each warning is explained in the row's field list,
+// next to the field it names. A row with only informational codes is not flagged: the cell
+// names them without the flag mark.
 function Flag({ codes, flagged }: { codes: string[]; flagged: boolean }) {
   if (codes.length === 0) {
     return <span className="results-empty">None</span>;
   }
+  if (!flagged) {
+    return <span>{[...new Set(codes.map((code) => informationalLabel(code)))].join(", ")}</span>;
+  }
   return (
-    <details className={flagged ? "results-flag" : "results-flag results-note"}>
-      <summary>
-        {flagged ? (
-          <>
-            <span aria-hidden="true">⚑ </span>
-            {codes.length === 1 ? "1 warning" : `${codes.length} warnings`}
-          </>
-        ) : (
-          [...new Set(codes.map((code) => informationalLabel(code)))].join(", ")
-        )}
-      </summary>
-      <ul>
-        {codes.map((code, position) => {
-          const text = warningText(code);
-          return (
-            // A code can repeat in principle, so its position is part of the key.
-            // biome-ignore lint/suspicious/noArrayIndexKey: the list never reorders.
-            <li key={`${position}-${code}`}>
-              <code>{code}</code>
-              {text !== null && <> — {text}</>}
-            </li>
-          );
-        })}
-      </ul>
-    </details>
+    <span className="results-flag">
+      <span aria-hidden="true">⚑ </span>
+      {codes.length === 1 ? "1 warning" : `${codes.length} warnings`}
+    </span>
   );
 }
 
 // The fields of one observation, in ETS column order. A field that a warning names shows the
-// warning next to its value, with the same flag mark and text as the Flag column.
-function FieldList({ fields, observationNumber }: { fields: Field[]; observationNumber: number }) {
+// warning next to its value. Codes that name none of the fields come last, so every code of
+// the row is explained here.
+function FieldList({
+  fields,
+  otherCodes,
+  observationNumber,
+}: {
+  fields: Field[];
+  otherCodes: string[];
+  observationNumber: number;
+}) {
   return (
     <div className="results-fields">
       <dl aria-label={`Fields of observation ${observationNumber}`}>
@@ -305,20 +310,31 @@ function FieldList({ fields, observationNumber }: { fields: Field[]; observation
             </dd>
           </div>
         ))}
+        {otherCodes.length > 0 && (
+          <div className="results-field">
+            <dt>Other warnings</dt>
+            <dd>
+              {otherCodes.map((code) => (
+                <FieldWarning key={code} code={code} />
+              ))}
+            </dd>
+          </div>
+        )}
       </dl>
     </div>
   );
 }
 
+// A warning's explanation and its code, so the code can be found in the CSV. A code that flags
+// the row has the flag mark. An unknown code is shown only as its code.
 function FieldWarning({ code }: { code: string }) {
-  if (!flagsRow(code)) {
-    return <span className="results-field-warning results-note">{informationalLabel(code)}</span>;
-  }
+  const flagged = flagsRow(code);
   const text = warningText(code);
   return (
-    <span className="results-field-warning">
-      <span aria-hidden="true">⚑ </span>
-      {text ?? <code>{code}</code>}
+    <span className={flagged ? "results-field-warning" : "results-field-warning results-note"}>
+      {flagged && <span aria-hidden="true">⚑ </span>}
+      {text !== null && `${text} `}
+      <code className="results-field-code">{code}</code>
     </span>
   );
 }

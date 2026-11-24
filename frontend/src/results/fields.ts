@@ -1,69 +1,7 @@
 import type { EtsRow } from "../api/client";
 import { ETS_COLUMNS } from "./etsColumns";
+import { type EtsColumn, FIELD_LABELS } from "./fieldLabels";
 import { namedFields } from "./warnings";
-
-export type EtsColumn = (typeof ETS_COLUMNS)[number];
-
-// A readable label for each ETS column. The type makes a new column fail to compile until it
-// has a label, and etsColumns.test.ts makes a new API column fail until ETS_COLUMNS lists it.
-export const FIELD_LABELS: Record<EtsColumn, string> = {
-  traitID: "Trait ID",
-  traitName: "Trait name",
-  verbatimTraitName: "Trait as printed",
-  scientificName: "Scientific name",
-  verbatimScientificName: "Name as printed",
-  taxonID: "Taxon ID",
-  traitValue: "Trait value",
-  verbatimTraitValue: "Value as printed",
-  traitUnit: "Unit",
-  verbatimTraitUnit: "Unit as printed",
-  taxonRank: "Taxon rank",
-  kingdom: "Kingdom",
-  phylum: "Phylum",
-  class: "Class",
-  order: "Order",
-  family: "Family",
-  genus: "Genus",
-  sex: "Sex",
-  lifeStage: "Life stage",
-  age: "Age",
-  morphotype: "Morphotype",
-  basisOfRecord: "Basis of record",
-  basisOfRecordDescription: "Basis of record description",
-  measurementMethod: "Measurement method",
-  measurementResolution: "Measurement resolution",
-  measurementRemarks: "Measurement remarks",
-  measurementDeterminedBy: "Measured by",
-  measurementDeterminedDate: "Measurement date",
-  aggregateMeasure: "Aggregate measure",
-  statisticalMethod: "Statistical method",
-  individualCount: "Individual count",
-  dispersion: "Dispersion",
-  measurementValue_min: "Minimum",
-  measurementValue_max: "Maximum",
-  measurementAccuracy: "Measurement accuracy",
-  measurementID: "Measurement ID",
-  occurrenceID: "Occurrence ID",
-  warnings: "Warnings",
-  references: "References",
-  eventID: "Event ID",
-  preparations: "Preparations",
-  samplingProtocol: "Sampling protocol",
-  year: "Year",
-  month: "Month",
-  day: "Day",
-  eventDate: "Event date",
-  locationID: "Location ID",
-  habitat: "Habitat",
-  decimalLongitude: "Longitude",
-  decimalLatitude: "Latitude",
-  elevation: "Elevation",
-  geodeticDatum: "Geodetic datum",
-  verbatimLocality: "Locality as printed",
-  country: "Country",
-  countryCode: "Country code",
-  occurrenceRemarks: "Occurrence remarks",
-};
 
 export interface Field {
   column: EtsColumn;
@@ -76,8 +14,8 @@ export interface Field {
 
 // The row's fields in ETS column order: every column with a value, and an empty column when a
 // warning names it, so a warning such as not_in_vocabulary:basisOfRecord, whose column the
-// adapter leaves empty, still shows where it belongs. `warnings` is left out: the Flag column
-// lists the codes, and each field shows the codes that name it.
+// adapter leaves empty, still shows where it belongs. `warnings` is left out: each field shows
+// the codes that name it, and otherCodes() lists the rest.
 export function rowFields(row: EtsRow, codes: readonly string[]): Field[] {
   const byColumn = new Map<string, string[]>();
   for (const code of codes) {
@@ -102,6 +40,14 @@ export function rowFields(row: EtsRow, codes: readonly string[]): Field[] {
     }
   }
   return fields;
+}
+
+// The row's codes that name none of its fields, each once: a code without a column, or one
+// that names only columns ETS does not have. The field list shows them after the fields, so
+// every code of the row has a place.
+export function otherCodes(fields: readonly Field[], codes: readonly string[]): string[] {
+  const placed = new Set(fields.flatMap((field) => field.codes));
+  return [...new Set(codes)].filter((code) => !placed.has(code));
 }
 
 // aggregateMeasure is the only column that is not text.

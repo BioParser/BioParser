@@ -575,22 +575,10 @@ mark.evidence-unit {
   opacity: 0.75;
 }
 
-.results-flag summary {
-  cursor: pointer;
+.results-flag {
   white-space: nowrap;
   color: light-dark(#8a4b00, #ffc680);
   font-weight: 600;
-}
-
-.results-note summary {
-  color: inherit;
-  font-weight: normal;
-}
-
-.results-flag ul {
-  min-width: 16rem;
-  margin: 0.5rem 0 0;
-  padding-left: 1.25rem;
 }
 
 /* The fields of an expanded row (#402). The scroll box is a container, so the list can be as
@@ -669,6 +657,12 @@ mark.evidence-unit {
   color: inherit;
   font-weight: normal;
   opacity: 0.75;
+}
+
+/* The code as the CSV writes it, after its explanation. */
+.results-field-code {
+  font-size: 0.8125rem;
+  font-weight: normal;
 }
 
 @container (max-width: 30rem) {
