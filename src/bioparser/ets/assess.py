@@ -11,6 +11,7 @@ from bioparser.ets.notices import (
     AmbiguousDate,
     BoundsReversed,
     DateField,
+    DateMismatch,
     NotACalendarDay,
     NotADate,
     Notice,
@@ -136,6 +137,29 @@ def assess(observation: Observation) -> Assessment:
     year = _parse_integer(observation.year, "year", warnings, low=1000, high=9999)
     month = _parse_integer(observation.month, "month", warnings, low=1, high=12)
     day = _parse_integer(observation.day, "day", warnings, low=1, high=31)
+    event_date = _parse_date(observation.eventDate, "eventDate", warnings)
+
+    parsed_event_date = None if event_date is None else parse_date(event_date)
+    if parsed_event_date is not None:
+        parts = parsed_event_date.split("-")
+
+        if year is None:
+            year = parts[0]
+        elif parse_integer(year) != int(parts[0]):
+            warnings.append(DateMismatch(field="year"))
+
+        if len(parts) >= 2:
+            if month is None:
+                month = parts[1]
+            elif parse_integer(month) != int(parts[1]):
+                warnings.append(DateMismatch(field="month"))
+
+        if len(parts) == 3:
+            if day is None:
+                day = parts[2]
+            elif parse_integer(day) != int(parts[2]):
+                warnings.append(DateMismatch(field="day"))
+
     parsed_year = None if year is None else parse_integer(year)
     parsed_month = None if month is None else parse_integer(month)
     parsed_day = None if day is None else parse_integer(day)
@@ -144,7 +168,7 @@ def assess(observation: Observation) -> Assessment:
             datetime(parsed_year, parsed_month, parsed_day)
         except ValueError:
             warnings.append(NotACalendarDay())
-    event_date = _parse_date(observation.eventDate, "eventDate", warnings)
+
     measurement_determined_date = _parse_date(
         observation.measurementDeterminedDate, "measurementDeterminedDate", warnings
     )

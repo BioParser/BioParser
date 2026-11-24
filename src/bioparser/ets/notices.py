@@ -139,6 +139,15 @@ class AmbiguousDate(BaseModel):
     field: DateField
 
 
+class DateMismatch(BaseModel):
+    """A stored date part disagrees with eventDate. The stored value is kept."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["date_mismatch"] = "date_mismatch"
+    field: Literal["year", "month", "day"]
+
+
 Notice = (
     NotNumeric
     | OutOfRange
@@ -148,6 +157,7 @@ Notice = (
     | AmbiguousDate
     | NotACalendarDay
     | BoundsReversed
+    | DateMismatch
 )
 
 

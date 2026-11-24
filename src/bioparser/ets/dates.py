@@ -1,4 +1,4 @@
-"""Parse a printed date into one ETS calendar day."""
+"""Parse a printed ETS date while preserving its precision."""
 
 import re
 from datetime import datetime
@@ -44,12 +44,23 @@ _DASHES = str.maketrans({"\u2013": "-", "\u2014": "-"})
 
 
 def parse_date(text: str) -> str | None:
-    """Calendar day as ``YYYY-MM-DD``, or None when the text is not one.
+    """Date as ``YYYY``, ``YYYY-MM``, or ``YYYY-MM-DD``, or None if invalid or ambiguous.
 
     A numeric day and month is accepted when one number is greater than 12,
-    because that number is the day. ``08/03/1963`` is left empty.
+    because that number is the day. ``08/03/1963`` returns None.
     """
     prepared = _prepare(text)
+
+    if re.fullmatch(r"[0-9]{4}", prepared):
+        return prepared if int(prepared) >= 1 else None
+
+    if re.fullmatch(r"[0-9]{4}-[0-9]{2}", prepared):
+        try:
+            datetime.strptime(prepared, "%Y-%m")
+        except ValueError:
+            return None
+        return prepared
+
     for fmt in _DATE_FORMATS:
         try:
             return datetime.strptime(prepared, fmt).date().isoformat()
