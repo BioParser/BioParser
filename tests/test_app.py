@@ -690,7 +690,11 @@ ACTIVE_STATUSES: list[JobStatus] = ["queued", "parsing", "parsed", "extracting"]
 
 def _add_document(jobs: StubJobs) -> None:
     jobs.documents[DOCUMENT_CHECKSUM] = DocumentRecord(
-        checksum=DOCUMENT_CHECKSUM, display_name="paper.pdf", size_bytes=10, created_at=CREATED_AT
+        checksum=DOCUMENT_CHECKSUM,
+        display_name="paper.pdf",
+        title=None,
+        size_bytes=10,
+        created_at=CREATED_AT,
     )
 
 

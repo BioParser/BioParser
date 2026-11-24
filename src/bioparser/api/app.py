@@ -8,10 +8,10 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any, Literal, NamedTuple
+from typing import Annotated, Any, Literal, NamedTuple
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -97,6 +97,7 @@ from .uploads import (
     read_upload,
     require_file,
     sanitize_display_name,
+    sanitize_title,
     validate_content_length,
     validate_content_type,
     validate_pdf_content,
@@ -232,7 +233,7 @@ async def _store_pdf(
 
 
 async def _insert_document(
-    connection: AsyncConnection, stored: StoredPdf
+    connection: AsyncConnection, stored: StoredPdf, title: str | None = None
 ) -> tuple[DocumentRecord, bool]:
     """Insert the document for a stored PDF, or return the row that checksum already has."""
     return await document_queries.create(
@@ -240,6 +241,7 @@ async def _insert_document(
         checksum=stored.checksum,
         display_name=stored.display_name,
         size_bytes=stored.size_bytes,
+        title=title,
     )
 
 
@@ -291,6 +293,7 @@ def _document_response(doc: DocumentRecord) -> DocumentMetadataResponse:
         display_name=doc.display_name,
         upload_time=doc.created_at,
         size_bytes=doc.size_bytes,
+        title=doc.title,
     )
 
 
@@ -370,13 +373,16 @@ async def _stored_artifact(request: Request, job: JobState, ref: str | None, kin
     },
 )
 async def upload_document_and_submit_job(
-    request: Request, file: UploadFile | None = None
+    request: Request,
+    file: UploadFile | None = None,
+    title: Annotated[str | None, Form()] = None,
 ) -> AcceptedJobResponse:
     """Store the PDF and queue a job.
 
     The document row and the job row are inserted in one transaction. A checksum
     that already has a document keeps that row. The request does not parse or extract.
     """
+    title = sanitize_title(title)
     file, pdf_bytes = await _validated_upload(request, file)
     job_id = uuid.uuid4()
     stored = await _store_pdf(
@@ -401,7 +407,7 @@ async def upload_document_and_submit_job(
     # pooled connection. A failed enqueue marks that job failed afterwards.
     try:
         async with database.transaction() as connection:
-            await _insert_document(connection, stored)
+            await _insert_document(connection, stored, title=title)
             job_state = await job_queries.create(connection, job_state)
     except DatabaseError as exc:
         LOGGER.error("extraction insert failed", extra=fields | error_fields(exc))
@@ -435,13 +441,15 @@ async def upload_document(
     request: Request,
     response: Response,
     file: UploadFile | None = None,
+    title: Annotated[str | None, Form()] = None,
 ) -> DocumentMetadataResponse:
+    title = sanitize_title(title)
     file, pdf_bytes = await _validated_upload(request, file)
     stored = await _store_pdf(request.app.state.artifact_storage, file, pdf_bytes)
 
     try:
         async with database.transaction() as connection:
-            doc, is_new = await _insert_document(connection, stored)
+            doc, is_new = await _insert_document(connection, stored, title=title)
     except DatabaseError as exc:
         LOGGER.error(
             "document insert failed",

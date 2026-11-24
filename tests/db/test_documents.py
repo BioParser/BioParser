@@ -21,17 +21,19 @@ def test_row_to_document_record() -> None:
         "display_name": "sample.pdf",
         "size_bytes": 1024,
         "created_at": now,
+        "title": "Example paper",
     }
     record = _row_to_document_record(row)
     assert record.checksum == "a" * 64
     assert record.display_name == "sample.pdf"
     assert record.size_bytes == 1024
     assert record.created_at == now
+    assert record.title == "Example paper"
 
 
 def test_document_model_tablename() -> None:
     assert Document.__tablename__ == "documents"
-    assert len(Document.__table__.columns) == 4
+    assert len(Document.__table__.columns) == 5
     assert Document.__table__.c.checksum.primary_key is True
 
 
@@ -39,6 +41,7 @@ def test_document_record_frozen() -> None:
     record = DocumentRecord(
         checksum="b" * 64,
         display_name=None,
+        title=None,
         size_bytes=500,
         created_at=datetime.now(UTC),
     )

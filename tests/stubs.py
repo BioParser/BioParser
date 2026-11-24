@@ -664,15 +664,21 @@ class StubJobs:
         checksum: str,
         display_name: str | None,
         size_bytes: int,
+        title: str | None = None,
     ) -> tuple[DocumentRecord, bool]:
         self.events.append("document.create")
         if self.doc_create_error is not None:
             raise self.doc_create_error
         if checksum in self.documents:
+            if title:
+                self.documents[checksum] = self.documents[checksum].model_copy(
+                    update={"title": title}
+                )
             return self.documents[checksum], False
         record = DocumentRecord(
             checksum=checksum,
             display_name=display_name,
+            title=title,
             size_bytes=size_bytes,
             created_at=datetime.now(UTC),
         )
@@ -756,9 +762,14 @@ def bind_jobs(monkeypatch: Any) -> None:
         checksum: str,
         display_name: str | None,
         size_bytes: int,
+        title: str | None = None,
     ) -> tuple[DocumentRecord, bool]:
         return await tables[-1].create_document(
-            connection, checksum=checksum, display_name=display_name, size_bytes=size_bytes
+            connection,
+            checksum=checksum,
+            display_name=display_name,
+            size_bytes=size_bytes,
+            title=title,
         )
 
     async def list_documents(connection: object) -> list[DocumentRecord]:
