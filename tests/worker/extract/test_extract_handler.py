@@ -274,6 +274,24 @@ def test_duplicate_delivery_does_not_call_the_model_again() -> None:
     assert jobs.state.status == "done"
 
 
+def test_a_retry_reuses_an_extraction_stored_before_done() -> None:
+    jobs = StubJobs(_parsed().with_changes(status="extracting", extracting_claims=1))
+    storage = _storage()
+    storage.payloads[RESULT_PATH] = _artifact([]).model_dump_json().encode()
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        raise AssertionError("model was called")
+
+    handler = _handler(jobs, storage, extract)
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert storage.stores == 0
+    assert jobs.state is not None
+    assert jobs.state.status == "done"
+    assert jobs.state.extract_result_ref == RESULT_PATH
+
+
 def test_an_unlocated_observation_is_not_stored() -> None:
     jobs = StubJobs(_parsed())
     storage = _storage()
