@@ -64,8 +64,9 @@ updates:
       # Node is pinned in the Dockerfiles and .nvmrc. Dependabot cannot
       # update .nvmrc, so bump the image tag, the digest, and .nvmrc by hand.
       - dependency-name: "node"
-      # This image is the uv release CI pins by hand. Bump both manually.
-      - dependency-name: "ghcr.io/astral-sh/uv"
+      # Dependabot reports this image as astral-sh/uv, without the registry host.
+      # CI and the uv-pre-commit hook pin the same release. Bump them together by hand.
+      - dependency-name: "astral-sh/uv"
     groups:
       base-images:
         patterns:
