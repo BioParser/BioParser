@@ -8,13 +8,17 @@ import { useRemovedReason } from "../api/useRemovedReason";
 // app, cannot be sent in an HTTP header at all.
 const VALID_KEY = /^[\x21-\x7e]+$/;
 
+// A card in the middle of the page, like a sign-in screen. It is also what every page shows
+// while no key is stored (Layout), and the API key tab keeps Forget key one step away.
 export function ApiKeyPage() {
   const hasApiKey = useHasApiKey();
   return (
-    <>
-      <h1>API key</h1>
-      {hasApiKey ? <StoredKey /> : <KeyForm />}
-    </>
+    <div className="key-screen">
+      <div className="key-card">
+        <h1>API key</h1>
+        {hasApiKey ? <StoredKey /> : <KeyForm />}
+      </div>
+    </div>
   );
 }
 
@@ -22,7 +26,7 @@ function StoredKey() {
   return (
     <>
       <p>An API key is stored. The UI sends it with every request and never shows it.</p>
-      <button type="button" onClick={() => clearApiKey("forgotten")}>
+      <button type="button" className="key-forget" onClick={() => clearApiKey("forgotten")}>
         Forget key
       </button>
     </>
@@ -53,6 +57,7 @@ function KeyForm() {
 
   return (
     <>
+      <p className="key-intro">Enter the API key to use BioParser.</p>
       {removedReason === "rejected" && (
         <p role="alert" className="key-message">
           The API did not accept the key. Enter it again.

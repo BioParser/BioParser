@@ -1,66 +1,70 @@
 /* Rules for one page or view each, on top of the tokens, elements and components. */
 
 /* API key. */
-.key-form {
+/* The key card sits in the middle of the page, across and down, like a sign-in screen. The
+   page area fills the window below the header (layout.css), so there is room to center it. */
+.layout-main:has(> .key-screen) {
+  display: grid;
+  place-items: center;
+}
+
+.key-screen {
+  width: 100%;
+  max-width: 26rem;
+}
+
+.key-card {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   gap: var(--space-4);
-  max-width: 28rem;
-  padding: var(--space-5);
+  padding: var(--space-6) var(--space-5);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
 }
 
+.key-card h1 {
+  margin: 0;
+  font-size: var(--text-2xl);
+}
+
+.key-card p {
+  margin: 0;
+}
+
+.key-intro {
+  color: var(--color-text-muted);
+}
+
+.key-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
 .key-field {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  align-self: stretch;
 }
 
 .key-field input {
   font-family: var(--font-mono);
 }
 
-.key-form button[type="submit"] {
+.key-form button[type="submit"],
+.key-forget {
   align-self: stretch;
 }
 
-.key-message {
-  max-width: 28rem;
-}
-
-/* Start a job. On a wide screen the summary and the actions sit beside the fields. */
+/* Start a job: one column, in the order of the work. The page is narrower than the others,
+   so the parser choice and the file list stay close to the drop zone. */
 .job-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-4);
-  align-items: start;
-}
-
-@media (min-width: 56rem) {
-  .job-form {
-    grid-template-columns: minmax(0, 1fr) 20rem;
-    grid-template-areas:
-      "fields summary"
-      "fields actions";
-  }
-
-  .job-fieldset {
-    grid-area: fields;
-    grid-row: span 2;
-  }
-
-  .job-form .job-summary {
-    grid-area: summary;
-  }
-
-  .job-actions {
-    grid-area: actions;
-  }
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: 44rem;
 }
 
 /* The outer fieldset only disables the controls while sending; it draws nothing. */
@@ -108,76 +112,63 @@
   font-size: var(--text-sm);
 }
 
-/* The parser choice: each radio is a card, and the chosen one is filled and outlined. */
+/* The parser choice: a card for each, with a line on when to choose it. The chosen card is
+   filled and outlined. The cards keep their width, so the choice does not stretch across. */
 .job-parsers {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 17rem));
   gap: var(--space-3);
   min-width: 0;
   margin: 0;
-  padding: var(--space-5);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
+  padding: 0;
+  border: 0;
 }
 
-/* Floated, so it sits inside the box instead of on its border, and on its own grid row. */
+/* Floated, so it sits on its own grid row like a heading. */
 .job-parsers legend {
   float: left;
   grid-column: 1 / -1;
   width: 100%;
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-1);
   padding: 0;
   font-size: var(--text-lg);
   font-weight: 600;
 }
 
-.job-parsers label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-height: var(--control-height);
+.job-parser {
+  position: relative;
   padding: var(--space-3) var(--space-4);
   border: 1.5px solid var(--color-border-strong);
   border-radius: var(--radius-md);
-  cursor: pointer;
+  background: var(--color-surface);
 }
 
-.job-parsers label:has(input:checked) {
+.job-parser:has(input:checked) {
   border-color: var(--color-accent);
   background: var(--color-accent-soft);
   box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+.job-parser label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 1.75rem;
   font-weight: 600;
+  cursor: pointer;
 }
 
-.job-summary {
-  padding: var(--space-5);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-card);
+/* The whole card picks the parser, the hint under the label too. */
+.job-parser label::after {
+  content: "";
+  position: absolute;
+  inset: 0;
 }
 
-.job-summary h2 {
-  margin: 0;
-}
-
-.job-summary dl {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: var(--space-2) var(--space-4);
-  margin: var(--space-3) 0 0;
-  font-size: var(--text-sm);
-}
-
-.job-summary dt {
+.job-parser-hint {
+  margin: var(--space-1) 0 0 1.75rem;
   color: var(--color-text-muted);
-}
-
-.job-summary dd {
-  margin: 0;
-  font-weight: 500;
-  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
 }
 
 .job-actions {
@@ -187,21 +178,21 @@
 }
 
 .job-actions button[type="submit"] {
-  flex: 1 1 10rem;
+  min-width: 12rem;
 }
 
 .job-notice {
-  margin: var(--space-3) 0 0;
+  margin: 0;
   color: var(--color-warning);
   font-weight: 500;
 }
 
 .job-notice:empty {
-  margin: 0;
+  display: none;
 }
 
 .job-files {
-  margin: var(--space-4) 0 0;
+  margin: 0;
   padding: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -233,6 +224,7 @@
   font-weight: 600;
 }
 
+.job-file-size,
 .job-file-status {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
@@ -333,14 +325,6 @@
   background: var(--color-surface-muted);
 }
 
-.job-error {
-  display: block;
-  margin-top: var(--space-1);
-  color: var(--color-danger);
-  font-size: var(--text-xs);
-  font-weight: 500;
-}
-
 .job-pagination {
   display: flex;
   flex-wrap: wrap;
@@ -433,6 +417,15 @@
   .job-detail-with-evidence {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
+
+  /* Beside the results the view stays on screen while the page scrolls, and scrolls inside
+     itself. Selecting a row far down the table then leaves the page where it is. */
+  .job-detail-with-evidence .evidence-panel {
+    position: sticky;
+    top: var(--space-4);
+    max-height: calc(100dvh - 2 * var(--space-4));
+    overflow-y: auto;
+  }
 }
 
 .job-id {
@@ -449,7 +442,35 @@
   margin-top: var(--space-4);
 }
 
+/* The job's file, parser, extractor and creation time. */
+.job-summary {
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
 .job-summary h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.job-summary dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+}
+
+.job-summary dt {
+  color: var(--color-text-muted);
+}
+
+.job-summary dd {
+  margin: 0;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 

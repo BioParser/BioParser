@@ -18,7 +18,7 @@ function Progress({ job }: { job: JobList[number] }) {
   const completed = job.status === "done" ? 3 : parseCompleted ? 1 : 0;
   const active = job.status === "parsing" ? 0 : job.status === "extracting" ? 1 : -1;
   // The step a failed job stopped at. Only its bar's color says so: the status beside it
-  // already says Failed, with the error code.
+  // already says Failed.
   const failed = job.status === "failed" ? completed : -1;
   return (
     <ol className="job-progress" aria-label={`Progress: ${JOB_STATUS_LABELS[job.status]}`}>
@@ -195,12 +195,10 @@ export function DashboardPage() {
                           </Link>
                         </td>
                         <td>
+                          {/* The error code is on the job's page, with what it means. */}
                           <span className={`job-status status-badge status-${job.status}`}>
                             {JOB_STATUS_LABELS[job.status]}
                           </span>
-                          {job.status === "failed" && (
-                            <code className="job-error">{job.error.code}</code>
-                          )}
                         </td>
                         <td>
                           <Progress job={job} />

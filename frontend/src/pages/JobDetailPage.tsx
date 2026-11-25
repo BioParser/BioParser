@@ -165,7 +165,8 @@ function JobStatus({
             >
               {JOB_STATUS_LABELS[status]}
               {index === stage && job.status === "failed" ? " — failed" : ""}
-              {index < stage ? " — complete" : ""}
+              {/* The check mark shows it; screen readers hear it. */}
+              {index < stage && <span className="visually-hidden"> — complete</span>}
             </li>
           ))}
         </ol>

@@ -130,7 +130,9 @@ describe("Dashboard", () => {
     const link = await screen.findByRole("link", { name: "newer.pdf" });
     expect(link.getAttribute("href")).toBe("/jobs/newer");
     expect(screen.getByRole("link", { name: "Unnamed file" })).toBeDefined();
-    expect(screen.getByText("extraction_failed")).toBeDefined();
+    // The code is on the job's page; the dashboard shows the Failed badge only.
+    expect(screen.queryByText("extraction_failed")).toBeNull();
+    expect(screen.getAllByRole("row")[1].querySelector(".job-status")?.textContent).toBe("Failed");
     expect(screen.getByText("Jobs, newest first")).toBeDefined();
     const rows = screen.getAllByRole("row");
     expect(rows[1].textContent).toContain("newer.pdf");
