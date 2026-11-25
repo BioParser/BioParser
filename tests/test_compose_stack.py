@@ -1,8 +1,10 @@
 """The Compose stack in real containers: a secret shows only in /run/secrets.
 
-The test builds the API and migrate images and starts redis, postgres, migrate and the
-API with new secrets. It needs the Docker daemon and some minutes. It uses its own
-project, image names, port and secrets, and removes them at the end. Opt in:
+The test builds the API, migrate and worker images. It starts redis, postgres, migrate, the
+API and the two workers with new secrets. The workers start without mineru and vllm: a
+worker calls those services only before it claims a job. The test needs the Docker daemon
+and some minutes. It uses its own project, image names, port and secrets, and removes them
+at the end. Opt in:
 
     BIOPARSER_TEST_COMPOSE_STACK=1 uv run pytest tests/test_compose_stack.py
 """
@@ -33,11 +35,18 @@ pytestmark = [
 
 ROOT = Path(__file__).resolve().parents[1]
 PDF = ("paper.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf")
+# A paper of 3 pages. The default parser reads it, and then the job goes to the extractor.
+PAPER = ROOT / "tests" / "parser" / "fixtures" / "plos-biology-3000248.pdf"
+# The warning of src/bioparser/worker/extract/before_claim.py, after the load of the job.
+VLLM_DOWN = "vLLM is not answering"
+WORKERS = ("parser-worker", "extractor-worker")
 # The files in /run/secrets of each service: each target is the name of a setting.
 MOUNTS = {
     "redis": {"redis_password"},
     "postgres": {"postgres_password"},
     "bioparser": {"bioparser_redis_password", "bioparser_database_password", "bioparser_api_key"},
+    "parser-worker": {"bioparser_redis_password", "bioparser_database_password"},
+    "extractor-worker": {"bioparser_redis_password", "bioparser_database_password"},
 }
 # psql reads the new password from the secret file, not from a command line.
 SET_SUPERUSER_PASSWORD = (
@@ -56,11 +65,15 @@ class Stack:
             probe.bind(("127.0.0.1", 0))
             self.port: int = probe.getsockname()[1]
         # Own image names: the build does not replace the images of your own stack.
-        self.images = [f"{self.project}-api", f"{self.project}-migrate"]
+        self.built = ("bioparser", "migrate", *WORKERS)
+        self.images = [f"{self.project}-{service}" for service in self.built]
         self.override = directory / "override.yml"
         self.override.write_text(
-            f"services:\n  bioparser: {{image: {self.images[0]}}}\n"
-            f"  migrate: {{image: {self.images[1]}}}\n",
+            "services:\n"
+            + "".join(
+                f"  {service}: {{image: {image}}}\n"
+                for service, image in zip(self.built, self.images, strict=True)
+            ),
             encoding="utf-8",
         )
         self.env = {k: v for k, v in os.environ.items() if not k.startswith("COMPOSE_")}
@@ -120,14 +133,44 @@ class Stack:
             time.sleep(1)
         raise AssertionError("the API did not start")
 
+    def submit_paper(self, key: str) -> str:
+        """Queue the paper through the API, and return the job id."""
+        with self.api(key) as client:
+            file = (PAPER.name, PAPER.read_bytes(), "application/pdf")
+            submitted = client.post("/api/extractions", files={"file": file})
+        assert submitted.status_code == 202, submitted.text
+        return str(submitted.json()["job_id"])
+
+    def wait_for_the_workers(self, key: str, job_id: str) -> None:
+        """Each worker reads the job from Redis and from Postgres with its secret files.
+
+        The parser worker parses the paper: the status becomes parsed. The extractor worker
+        loads the job, and it stops before its claim, because vllm does not answer. Its
+        warning has the job id.
+        """
+        status = ""
+        for _ in range(180):
+            with self.api(key) as client:
+                job = client.get(f"/api/jobs/{job_id}").json()
+            status = job["status"]
+            assert status != "failed", job
+            logs = self.compose("logs", "--no-color", "extractor-worker").stdout.splitlines()
+            if status == "parsed" and any(job_id in line and VLLM_DOWN in line for line in logs):
+                return
+            time.sleep(1)
+        raise AssertionError(f"the workers did not take job {job_id}: status {status!r}")
+
 
 @pytest.fixture(scope="module")
 def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
     stack = Stack(tmp_path_factory.mktemp("stack"))
     make_secrets(stack.secrets)
     try:
+        stack.compose("build", *stack.built)
         # up waits until redis and postgres are healthy and migrate exited with 0.
-        stack.compose("up", "--detach", "--build", "bioparser")
+        stack.compose("up", "--detach", "bioparser")
+        # A worker calls mineru or vllm only before it claims a job. It starts without them.
+        stack.compose("up", "--detach", "--no-deps", *WORKERS)
         stack.wait_for_api()
         yield stack
     finally:
@@ -149,6 +192,8 @@ def test_the_stack_works_with_the_secret_files(stack: Stack) -> None:
         assert set(stack.run_in(service, "ls /run/secrets").split()) == names, service
     migrate = stack.compose("run", "--rm", "--no-deps", "migrate", "ls", "/run/secrets")
     assert set(migrate.stdout.split()) == {"bioparser_database_password", "postgres_app_password"}
+    key = stack.value("bioparser_api_key")
+    stack.wait_for_the_workers(key, stack.submit_paper(key))
 
 
 def test_no_secret_shows_outside_run_secrets(stack: Stack) -> None:
@@ -191,12 +236,15 @@ def test_the_documented_rotation_works(stack: Stack) -> None:
     # up fails when migrate cannot log in with the new superuser password.
     stack.compose("up", "--detach", "--force-recreate", "redis", "migrate", "bioparser")
     stack.wait_for_api()
+    # The docs recreate the workers too. --no-deps: this stack has no mineru and no vllm.
+    stack.compose("up", "--detach", "--force-recreate", "--no-deps", *WORKERS)
 
     with stack.api(old_key) as client:
         assert client.get("/api/jobs").status_code == 401
-    with stack.api(stack.value("bioparser_api_key")) as client:
-        # 202: the new Redis password, and the bioparser_app password that migrate set.
-        assert client.post("/api/extractions", files={"file": PDF}).status_code == 202
+    # The API queues the job (202) with the new Redis password and the bioparser_app password
+    # that migrate set. Then the workers take the job with the new files.
+    new_key = stack.value("bioparser_api_key")
+    stack.wait_for_the_workers(new_key, stack.submit_paper(new_key))
     old_works = "PONG" in stack.run_in("redis", f"REDISCLI_AUTH={old_redis} redis-cli ping")
     assert not old_works, "Redis takes the old password"  # no password in the message
 

@@ -222,7 +222,7 @@ jobs:
           validate -f docker-compose.yml -f docker-compose.cpu.yml -f docker-compose.logging.yml -f docker-compose.traefik.yml -f docker-compose.dev.yml
           validate -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.logging.yml -f docker-compose.traefik.yml -f docker-compose.dev.yml
 
-      # The stack test builds two images and starts the stack: only for a change that can
+      # The stack test builds four images and starts the stack: only for a change that can
       # move a secret. It is in GitHub CI: on main, the deploy waits for it.
       - name: Find a change that can move a secret
         id: changes
