@@ -6,7 +6,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from uuid import UUID
 
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from bioparser.artifact_paths import ArtifactPathError, extract_result_path
 from bioparser.db import engine as database
@@ -37,6 +37,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         self,
         *,
         database_url: str,
+        database_password: SecretStr | None = None,
         storage: ArtifactStorage,
         extractor_factory: Callable[[str], Extractor],
         max_claims: int,
@@ -45,6 +46,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
     ) -> None:
         super().__init__(
             database_url=database_url,
+            database_password=database_password,
             owned=_EXTRACT_STAGE,
             claim_status="extracting",
             max_claims=max_claims,

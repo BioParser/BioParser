@@ -21,6 +21,7 @@ def build_worker(
     storage = FileSystemArtifactStorage(settings.artifact_storage_path)
     queue: JobConsumer[ExtractJobMessage] = DramatiqJobConsumer.from_redis(
         str(settings.redis_url),
+        password=settings.redis_password,
         name=settings.extract_queue_name,
         model=ExtractJobMessage,
         timeout_s=settings.redis_timeout_seconds,
@@ -34,6 +35,7 @@ def build_worker(
 
     handler = ExtractJobHandler(
         database_url=str(settings.database_url),
+        database_password=settings.database_password,
         storage=storage,
         extractor_factory=extractor_factory,
         max_claims=settings.extract_max_claims,

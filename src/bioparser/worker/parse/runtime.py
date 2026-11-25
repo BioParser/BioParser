@@ -21,6 +21,7 @@ def build_worker(
     storage = FileSystemArtifactStorage(settings.artifact_storage_path)
     queue: JobConsumer[ParseJobMessage] = DramatiqJobConsumer.from_redis(
         str(settings.redis_url),
+        password=settings.redis_password,
         name=settings.parse_queue_name,
         model=ParseJobMessage,
         timeout_s=settings.redis_timeout_seconds,
@@ -30,6 +31,7 @@ def build_worker(
     # The extractor process owns retries and the time limit.
     extract_queue: JobSubmitter[ExtractJobMessage] = DramatiqJobSubmitter.from_redis(
         str(settings.redis_url),
+        password=settings.redis_password,
         name=settings.extract_queue_name,
         timeout_s=settings.redis_timeout_seconds,
     )
@@ -48,6 +50,7 @@ def build_worker(
 
     handler = ParseJobHandler(
         database_url=str(settings.database_url),
+        database_password=settings.database_password,
         storage=storage,
         parser_factory=parser_factory,
         max_claims=settings.parse_max_claims,
