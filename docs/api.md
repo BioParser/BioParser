@@ -54,7 +54,7 @@ All endpoints require a shared API key, except the explicit public endpoints: `/
 
 - **Header:** `X-API-Key: <key>`
 - **Configuration:**
-  - `BIOPARSER_API_KEY`: The expected secret key (stored as `SecretStr`). Must be at least 32 visible ASCII characters (without spaces). Generate with `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`. Required unless `BIOPARSER_AUTH_DISABLED=true`.
+  - `BIOPARSER_API_KEY`: The expected secret key (stored as `SecretStr`). Compose gives it as the Docker secret `/run/secrets/bioparser_api_key`. Must be at least 32 visible ASCII characters (without spaces). Generate with `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`. Required unless `BIOPARSER_AUTH_DISABLED=true`.
   - `BIOPARSER_AUTH_DISABLED`: Boolean flag (`true`/`false`, default `false`). If `true`, authentication checks are bypassed and a warning is logged at startup. If `false` and `BIOPARSER_API_KEY` is not set or invalid, the API refuses to start.
 - **Validation:**
   - Enforced before body parsing by a pure ASGI middleware (`ApiKeyMiddleware`). Unauthenticated requests are rejected with 401 before any upload body is buffered or written to disk.
@@ -631,7 +631,9 @@ Error types and the named `ErrorDetail` instances used across `uploads.py` and `
 
 Process configuration via pydantic `BaseSettings` (`ApiSettings`), loaded once
 through `get_api_settings()` (cached) and read from a `.env` file plus
-`BIOPARSER_`-prefixed environment variables. Fields:
+`BIOPARSER_`-prefixed environment variables. A field can also come from a Docker secret:
+the file with the variable's name in `/run/secrets`, for example
+`/run/secrets/bioparser_redis_password`. A variable has priority over the file. Fields:
 
 | Field | Default | Meaning |
 |-------|---------|---------|
@@ -639,8 +641,10 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 | `dependency_check_timeout_seconds` | `1.0` | timeout for each readiness dependency check |
 | `artifact_storage_path` | required | filesystem artifact root |
 | `redis_url` | required | Redis URL for the parse queue |
+| `redis_password` | `None` | Redis password (`SecretStr`), for a `redis_url` without one |
 | `redis_timeout_seconds` | `5.0` | Redis connect and operation timeout |
 | `database_url` | required | `postgresql` URL (`PostgresDsn`) for job state; `/ready` runs `SELECT 1` through the API's pool |
+| `database_password` | `None` | Postgres password (`SecretStr`), for a `database_url` without one |
 | `parse_queue_name` | `parse` | Redis/Dramatiq queue name shared with the parser worker |
 | `api_key` | `None` | Shared API key (`BIOPARSER_API_KEY`). Required when `auth_disabled` is false. Redacted in logs and errors (`SecretStr`). |
 | `auth_disabled` | `False` | Disables authentication checks for local development (`BIOPARSER_AUTH_DISABLED`). Emits a warning at startup if true. |

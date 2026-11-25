@@ -138,9 +138,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 )
             redis_url = str(settings.redis_url)
             redis_timeout = settings.redis_timeout_seconds
-            await database.open(str(settings.database_url))
+            await database.open(str(settings.database_url), password=settings.database_password)
             parse_queue: JobSubmitter[ParseJobMessage] = DramatiqJobSubmitter.from_redis(
                 redis_url,
+                password=settings.redis_password,
                 name=settings.parse_queue_name,
                 timeout_s=redis_timeout,
             )

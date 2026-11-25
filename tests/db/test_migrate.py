@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -111,6 +112,47 @@ def test_main_requires_an_app_password(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: pytest.fail("upgraded"))
     with pytest.raises(SystemExit, match="POSTGRES_APP_PASSWORD is required"):
         main()
+
+
+def test_main_reads_both_passwords_from_docker_secrets(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The Compose way: the URL holds no password, and each password is a Docker secret."""
+    (tmp_path / "bioparser_database_password").write_text("login-secret\n", encoding="utf-8")
+    (tmp_path / "postgres_app_password").write_text("app-secret\n", encoding="utf-8")
+    monkeypatch.setattr("bioparser.db.migrate.SECRETS_DIR", tmp_path)
+    monkeypatch.setenv("BIOPARSER_DATABASE_URL", "postgresql://bioparser@postgres:5432/bioparser")
+    monkeypatch.delenv("BIOPARSER_DATABASE_PASSWORD", raising=False)
+    monkeypatch.delenv("POSTGRES_APP_PASSWORD", raising=False)
+    calls: list[tuple[str | None, str]] = []
+    monkeypatch.setattr("bioparser.db.migrate.upgrade", lambda url: None)
+    monkeypatch.setattr(
+        "bioparser.db.migrate.bootstrap",
+        lambda url, password: calls.append((make_url(url).password, password)),
+    )
+
+    main()
+
+    assert calls == [("login-secret", "app-secret")]
+
+
+def test_main_hides_a_login_password_from_a_docker_secret(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "bioparser_database_password").write_text("pa@ss/secret", encoding="utf-8")
+    monkeypatch.setattr("bioparser.db.migrate.SECRETS_DIR", tmp_path)
+    monkeypatch.setenv("BIOPARSER_DATABASE_URL", "postgresql://bioparser@postgres:5432/bioparser")
+    monkeypatch.setenv("POSTGRES_APP_PASSWORD", "app-secret")
+    monkeypatch.setattr("bioparser.db.migrate.bootstrap", lambda url, password: None)
+
+    def fail(url: str) -> None:
+        raise RuntimeError(f"could not connect to {url}")
+
+    monkeypatch.setattr("bioparser.db.migrate.upgrade", fail)
+    with pytest.raises(SystemExit, match="database migration failed") as raised:
+        main()
+    assert "pa@ss/secret" not in str(raised.value)
+    assert "pa%40ss%2Fsecret" not in str(raised.value)
 
 
 def test_main_rejects_the_same_password(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -16,7 +16,7 @@ from typing import Any, NamedTuple
 from urllib.parse import unquote
 
 import httpx2
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 
 from bioparser.db import documents as document_queries
 from bioparser.db import engine as database
@@ -764,7 +764,7 @@ def bind_jobs(monkeypatch: Any) -> None:
     async def list_documents(connection: object) -> list[DocumentRecord]:
         return await tables[-1].list_documents(connection)
 
-    async def open_pool(url: str) -> None:
+    async def open_pool(url: str, *, password: SecretStr | None = None) -> None:
         return None
 
     async def close_pool() -> None:

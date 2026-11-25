@@ -33,7 +33,7 @@ from dramatiq.brokers.redis import RedisBroker
 from dramatiq.common import compute_backoff, current_millis
 from dramatiq.middleware import CurrentMessage
 from dramatiq.middleware.time_limit import TimeLimitExceeded
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, SecretStr, ValidationError
 
 from ..errors import (
     JobDeferralExpired,
@@ -132,6 +132,7 @@ class DramatiqJobConsumer[T: BaseModel](JobConsumer[T]):
         cls,
         url: str,
         *,
+        password: SecretStr | None = None,
         name: str,
         model: type[T],
         timeout_s: float = _DEFAULT_REDIS_TIMEOUT_S,
@@ -141,11 +142,16 @@ class DramatiqJobConsumer[T: BaseModel](JobConsumer[T]):
         min_backoff_ms: int = _DEFAULT_MIN_BACKOFF_MS,
         worker_timeout_ms: int = _DEFAULT_WORKER_TIMEOUT_MS,
     ) -> "DramatiqJobConsumer[T]":
-        """A queue backed by Redis. The broker stays inside this backend."""
+        """A queue backed by Redis. The broker stays inside this backend.
+
+        password is for a url that holds none.
+        """
         return cls(
             name=name,
             model=model,
-            broker=_create_redis_broker(url, timeout_s=timeout_s, namespace=namespace),
+            broker=_create_redis_broker(
+                url, password=password, timeout_s=timeout_s, namespace=namespace
+            ),
             time_limit_ms=time_limit_ms,
             max_retries=max_retries,
             min_backoff_ms=min_backoff_ms,
@@ -490,14 +496,20 @@ class DramatiqJobSubmitter(JobSubmitter[BaseModel]):
         cls,
         url: str,
         *,
+        password: SecretStr | None = None,
         name: str,
         timeout_s: float = _DEFAULT_REDIS_TIMEOUT_S,
         namespace: str = _DEFAULT_BROKER_NAMESPACE,
     ) -> "DramatiqJobSubmitter":
-        """A submitter backed by Redis. The broker stays inside this object."""
+        """A submitter backed by Redis. The broker stays inside this object.
+
+        password is for a url that holds none.
+        """
         return cls(
             name=name,
-            broker=_create_redis_broker(url, timeout_s=timeout_s, namespace=namespace),
+            broker=_create_redis_broker(
+                url, password=password, timeout_s=timeout_s, namespace=namespace
+            ),
         )
 
     async def submit(self, message: BaseModel) -> None:
@@ -530,15 +542,20 @@ def _require_queue_name(name: str) -> None:
 def _create_redis_broker(
     url: str,
     *,
+    password: SecretStr | None = None,
     timeout_s: float = _DEFAULT_REDIS_TIMEOUT_S,
     namespace: str = _DEFAULT_BROKER_NAMESPACE,
 ) -> RedisBroker:
-    """The Redis broker for one queue. `from_redis` builds a new one on each call."""
+    """The Redis broker for one queue. `from_redis` builds a new one on each call.
+
+    password is for a url that holds none. In redis-py, a password in url has priority.
+    """
     if timeout_s <= 0:
         raise JobQueueConfigError("timeout_s must be > 0")
     try:
         client = redis.Redis.from_url(
             url,
+            password=password.get_secret_value() if password is not None else None,
             socket_timeout=timeout_s,
             socket_connect_timeout=timeout_s,
         )

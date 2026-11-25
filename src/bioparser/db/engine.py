@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from pydantic import SecretStr
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import InterfaceError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
@@ -59,7 +61,7 @@ def _database_error_from_driver(exc: BaseException) -> DatabaseError:
 
 
 _engine: AsyncEngine | None = None
-_engine_url: str | None = None
+_engine_url: URL | None = None
 
 
 def sync_database_url(url: str) -> str:
@@ -82,10 +84,16 @@ def async_database_url(url: str) -> str:
     raise ValueError("database URL must use the postgresql scheme")
 
 
-async def open(url: str) -> None:
-    """Open this process's pool. The same URL keeps it. A different URL is refused."""
+async def open(url: str, *, password: SecretStr | None = None) -> None:
+    """Open this process's pool. The same URL keeps it. A different URL is refused.
+
+    password is for a url that holds none. A password in url has priority, as in redis-py.
+    SQLAlchemy's URL hides the password in repr() and str().
+    """
     global _engine, _engine_url
-    normalized = async_database_url(url)
+    normalized = make_url(async_database_url(url))
+    if password is not None and not normalized.password:
+        normalized = normalized.set(password=password.get_secret_value())
     if _engine is not None:
         if normalized != _engine_url:
             raise RuntimeError("Postgres is already open with a different URL")
