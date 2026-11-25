@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from uuid import UUID
 
 from pydantic import ValidationError
 
@@ -75,7 +74,12 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
         if ref is None:
             LOGGER.error("job has no parser artifact. Marking the job failed (internal_error)")
             raise PermanentJobFailure("internal_error")
-        artifact_path = _extraction_artifact_path(ref, state.extractor, state.job_id)
+        expected_version = EXTRACTOR_VERSIONS.get(state.extractor)
+        if expected_version is None:
+            LOGGER.error(f"extractor {state.extractor!r} has no version")
+            raise PermanentJobFailure("internal_error")
+        extractor = self._build_extractor(state.extractor)
+        artifact_path = _extraction_artifact_path(ref, extractor, state)
         parser_artifact = await self._load_parser_artifact(ref)
         stored = await _retrieve_or_none(self._storage, artifact_path)
         if stored is not None and _is_extraction_artifact(stored):
@@ -85,12 +89,11 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             LOGGER.error("stored extraction artifact is invalid and cannot be replaced")
             raise PermanentJobFailure("internal_error")
         try:
-            extractor = self._extractor_factory(state.extractor)
             artifact = checked_artifact(
                 await extractor.extract(parser_artifact),
                 parser_artifact,
                 extractor=state.extractor,
-                version=EXTRACTOR_VERSIONS.get(state.extractor),
+                version=expected_version,
             )
         except ExtractorBackendUnavailableError as exc:
             LOGGER.error(f"extractor {state.extractor!r} cannot run: {exc}")
@@ -113,6 +116,13 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             kind="extraction artifact",
         )
 
+    def _build_extractor(self, extractor_name: str) -> Extractor:
+        try:
+            return self._extractor_factory(extractor_name)
+        except ExtractorBackendUnavailableError as exc:
+            LOGGER.error(f"extractor {extractor_name!r} cannot run: {exc}")
+            raise PermanentJobFailure("internal_error") from exc
+
     async def _load_parser_artifact(self, ref: str) -> ParserArtifact:
         try:
             raw = await self._storage.retrieve(ref)
@@ -126,23 +136,18 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             raise PermanentJobFailure("internal_error") from exc
 
 
-def _extraction_artifact_path(parse_result_ref: str, extractor: str, job_id: UUID) -> str:
-    """The path for this job's extraction of this parser artifact.
+def _extraction_artifact_path(parse_result_ref: str, extractor: Extractor, state: JobState) -> str:
+    """The conventional path for this parser artifact's extraction result.
 
-    The job id is its own segment, so another job extracts again even when the parser
-    artifact is the same. A retry of this job keeps the path and reuses a result already
-    stored for it. The version is whatever ``EXTRACTOR_VERSIONS`` says for this extractor
-    when the job runs.
+    The path starts from the parser artifact's own path followed by the extractor-defined
+    segments for the job state, so two parses of one PDF (such as two MinerU tiers) or
+    distinct extractor configurations/jobs do not share a result when their segments differ.
     """
     try:
-        version = EXTRACTOR_VERSIONS[extractor]
-    except KeyError as exc:
-        LOGGER.error(f"extractor {extractor!r} has no version")
-        raise PermanentJobFailure("internal_error") from exc
-    try:
-        return extract_result_path(parse_result_ref, extractor, version, str(job_id))
-    except ArtifactPathError as exc:
-        LOGGER.error("parser artifact path cannot form an extraction path")
+        segments = extractor.artifact_path_segments(state)
+        return extract_result_path(parse_result_ref, segments)
+    except (ArtifactPathError, KeyError) as exc:
+        LOGGER.error(f"extractor cannot form an artifact path: {exc}")
         raise PermanentJobFailure("internal_error") from exc
 
 

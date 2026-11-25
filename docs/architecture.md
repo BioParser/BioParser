@@ -238,29 +238,32 @@ Convention:
 | Artifact | Path | Builder |
 |---|---|---|
 | Uploaded PDF | `pdf/<pdf-checksum>` | `pdf_path(checksum)` |
-| Parser artifact | `pdf/<pdf-checksum>/parsed/<backend>/<version>` | `parse_result_path(checksum, backend, version)` |
-| Parser artifact of a configured backend | `pdf/<pdf-checksum>/parsed/<backend>/<version>/<configuration>` | `parse_result_path(checksum, backend, version, configuration)` |
-| Extraction artifact | `<parse-result-path>/extracted/<extractor>/<extractor-version>/<job-id>` | `extract_result_path(parse_result_ref, extractor, extractor_version, job_id)` |
+| Parser artifact | `pdf/<pdf-checksum>/parsed/<backend-segments>` | `parse_result_path(checksum, segments)` |
+| Extraction artifact | `<parse-result-path>/extracted/<extractor-segments>` | `extract_result_path(parse_result_ref, segments)` |
 
 - `<pdf-checksum>` is the sha256 of the PDF bytes, from `bioparser.hashing`.
-- `<backend>` is the parser backend name and `<version>` its version from
-  `bioparser.parser_names.PARSER_VERSIONS`. Bumping a backend's version gives new results
-  a new path, so results from the old version are not reused.
-- `<configuration>` is the backend setting that also changes the output, as one readable
-  segment. Today only MinerU has one: its tier (`basic`, `standard`, …), so a MinerU result is
-  stored at `pdf/<pdf-checksum>/parsed/mineru/5/standard`. A different tier never reuses
-  another tier's result. The configuration is not part of the version.
+- `<backend-segments>` and `<extractor-segments>` are defined by each parser or extractor
+  via `artifact_path_segments(job)` on `PdfParser` and `Extractor`. Typically this starts
+  with the backend name and its version from `bioparser.parser_names.PARSER_VERSIONS` or
+  `bioparser.extractor_names.EXTRACTOR_VERSIONS`, followed by any configuration or job-scoped
+  segments (for example, `default/3` for the default parser, `mineru/5/standard` for MinerU's
+  `standard` tier, or `default/2/<job-id>` for the `default` extractor).
+- Because the `default` extractor includes `<job-id>`, each job stores its own result and runs
+  extraction again even when an earlier job already extracted that parse, while a retry of the
+  same job keeps its path and reuses any stored result for that job. Parsers do not include
+  `<job-id>`, so parses stay shared across jobs for the same PDF and parser settings. Bumping a
+  backend's version or changing its segments gives a new path so older results are not reused.
+- When any segment exceeds 200 characters or the combined path would exceed 512 characters,
+  the backend segments are replaced by a single sha256 hex digest segment of the JSON-encoded
+  segment list.
 - The extraction path starts from the job's `parse_result_ref`, so it keeps every segment
-  of that parse, including a MinerU tier. Its last segment is the job id, so each job stores
-  its own result and runs extraction even when an earlier job already extracted that parse.
-  A retry of the same job keeps the path and reuses the result stored for that job. The
-  extractor worker runs the extractor named on the job and takes its version from
+  of that parse, including a MinerU tier. The extractor worker runs the extractor named
+  on the job and checks the artifact's recorded version against
   `bioparser.extractor_names.EXTRACTOR_VERSIONS` when the extraction runs. The job does not
-  store that version. New jobs name the extractor `default`, whose version is `2`. A
-  version bump changes that job's path, so a retry does not reuse the result stored
-  under the old version. The builders live in `bioparser.artifact_paths`.
-- Build paths with the builders, never by string formatting. Each builder argument must be
-  a single valid segment, so a value like `a/b` cannot change the shape of the path.
+  store that version. New jobs name the extractor `default`, whose version is `2`. The
+  builders live in `bioparser.artifact_paths`.
+- Build paths with the builders, never by string formatting. Each short segment must satisfy
+  the segment character rules, so a value like `a/b` cannot change the shape of the path.
 
 Job state holds the document checksum and the artifact paths, typed `ArtifactPath`:
 

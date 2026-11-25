@@ -321,11 +321,20 @@ class StubParser:
         *,
         error: Exception | None = None,
         delay_s: float = 0.0,
+        segments: list[str] | Callable[[JobState], list[str]] | None = None,
     ) -> None:
         self.artifact = artifact if artifact is not None else stub_parser_artifact()
         self.error = error
         self.delay_s = delay_s
+        self._segments = segments
         self.pdfs: list[bytes] = []
+
+    def artifact_path_segments(self, job: JobState) -> list[str]:
+        if callable(self._segments):
+            return self._segments(job)
+        if self._segments is not None:
+            return list(self._segments)
+        return [self.artifact.parser.name, self.artifact.parser.version]
 
     async def parse(self, path: Path) -> ParserArtifact:
         self.pdfs.append(path.read_bytes())

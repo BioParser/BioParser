@@ -51,7 +51,6 @@ def build_worker(
         storage=storage,
         parser_factory=parser_factory,
         max_claims=settings.parse_max_claims,
-        mineru_tier=settings.mineru_tier,
         before_claim=mineru_before_claim(str(settings.mineru_base_url)),
         enqueue_extraction=enqueue_extraction,
     )

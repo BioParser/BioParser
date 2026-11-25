@@ -8,6 +8,7 @@ from bioparser.extract.backend.default.schema import Extraction
 from bioparser.extract.errors import ExtractionFailedError, ExtractorProcessError
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
+from bioparser.jobs import JobState
 from bioparser.parser.models import BlockRole, ParserArtifact, TextContent
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.vllm import (
@@ -106,6 +107,13 @@ class DefaultExtractor:
     """The extractor registered as ``default``."""
 
     vllm: VLLMService
+
+    def artifact_path_segments(self, job: JobState) -> list[str]:
+        return [
+            DEFAULT_EXTRACTOR_NAME,
+            EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME],
+            str(job.job_id),
+        ]
 
     async def extract(self, artifact: ParserArtifact) -> ExtractionArtifact:
         try:
