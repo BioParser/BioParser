@@ -103,6 +103,8 @@ docker compose exec -T grafana grafana cli --homepath /usr/share/grafana admin r
 
 **A stack with passwords in `.env`.** Before you run the script, write each old value from `.env` to its file: `REDIS_PASSWORD` to `secrets/redis_password`, `POSTGRES_PASSWORD` to `secrets/postgres_password`, `POSTGRES_APP_PASSWORD` to `secrets/postgres_app_password`, `BIOPARSER_API_KEY` to `secrets/bioparser_api_key`, `GRAFANA_ADMIN_PASSWORD` to `secrets/grafana_admin_password` and `HF_TOKEN` to `secrets/hf_token`. Do not copy an empty value: the script makes a new one. Then remove those lines from `.env`. If `postgres_password` gets a new value, do the `psql` steps above, or `migrate` cannot log in. vLLM no longer reads the token of `hf auth login`: copy that token to `secrets/hf_token`.
 
+`tests/test_compose_stack.py` starts the stack with new secrets. It checks `docker inspect`, `/proc`, the logs, the image layers and the rotation steps above. It needs the Docker daemon and `BIOPARSER_TEST_COMPOSE_STACK=1`.
+
 ## Start
 
 All services are included in the Compose stack. `migrate` starts after `postgres` is healthy, upgrades the database, creates `bioparser_app`, and exits. The API container starts only after that exit and after `redis` and `postgres` are healthy. The parser worker starts after `mineru`, `redis`, `postgres`, and `migrate`. The extractor worker starts after `vllm`, `redis`, `postgres`, and `migrate`. MinerU's check passes once its models are loaded. The first model download can take several minutes (vLLM's health-check `start_period` is 180s for GPU and 600s for CPU).
