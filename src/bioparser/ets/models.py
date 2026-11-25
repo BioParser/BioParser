@@ -6,7 +6,7 @@ term. The artifact trait code is not a column.
 """
 
 import re
-from typing import Self
+from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -38,7 +38,8 @@ class EtsRow(BaseModel):
 
     # Accepted name. A taxonomy hit fills this with taxonID. A model reading fills it alone.
     scientificName: str | None = None
-    verbatimScientificName: str = Field(min_length=1)
+    # Printed subject. Absent when the paper does not name one.
+    verbatimScientificName: Annotated[str, Field(min_length=1)] | None = None
     taxonID: str | None = None
 
     # The trait list fills the value and the unit. The verbatim fields are printed.

@@ -26,6 +26,8 @@ from bioparser.parser.errors import (
     ParserTimeoutError,
     UnsupportedDocumentError,
 )
+from bioparser.parser.models import ParseProblem, ProblemCode
+from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 from bioparser.services.mineru import client as client_module
 from bioparser.services.mineru.client import MAX_WAIT_SECONDS, MinerUClient
 
@@ -51,7 +53,10 @@ def test_the_reply_is_mapped_with_the_pdf_checksum_and_settings(pdf: Path) -> No
 
     checksum = hashlib.sha256(PDF).hexdigest()
     assert artifact.checksum == checksum
-    assert (artifact.parser.name, artifact.parser.version) == ("mineru", "3")
+    assert (artifact.parser.name, artifact.parser.version) == (
+        MINERU_PARSER_NAME,
+        PARSER_VERSIONS[MINERU_PARSER_NAME],
+    )
     assert artifact.parser.configuration == {"tier": "basic", "ocr_mode": "auto"}
     assert artifact.pages[0].blocks[0].content.type == "text"
     assert mineru.created == [
@@ -70,12 +75,20 @@ def test_the_reply_is_mapped_with_the_pdf_checksum_and_settings(pdf: Path) -> No
     ]
 
 
+def test_a_failed_repair_is_recorded_when_mineru_parses(pdf: Path) -> None:
+    with fake_mineru(parsed_task()) as mineru:
+        artifact = asyncio.run(MinerUParser(mineru.url, timeout_s=120.0).parse(pdf))
+
+    assert artifact.problems == [ParseProblem(code=ProblemCode.ADVENT_FONTS_UNCHECKED)]
+    assert artifact.pages[0].blocks[0].content.type == "text"
+
+
 def test_the_tier_is_asked_for_and_recorded(pdf: Path) -> None:
     with fake_mineru(parsed_task()) as mineru:
         artifact = asyncio.run(MinerUParser(mineru.url, tier="standard").parse(pdf))
 
     assert mineru.created[0]["tier"] == "standard"
-    assert artifact.parser.version == "3"
+    assert artifact.parser.version == PARSER_VERSIONS[MINERU_PARSER_NAME]
     assert artifact.parser.configuration["tier"] == "standard"
 
 

@@ -8,13 +8,26 @@ from typing import Literal, cast, get_args
 from uuid import UUID
 
 from pydantic import ValidationError
-from sqlalchemy import CheckConstraint, DateTime, String, Text, Uuid, insert, select, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    Uuid,
+    and_,
+    insert,
+    select,
+    text,
+)
 from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.orm import InstrumentedAttribute, Mapped, mapped_column
 
-from bioparser.artifact_paths import ARTIFACT_PATH_MAX_LENGTH, pdf_path
+from bioparser.artifact_paths import ARTIFACT_PATH_MAX_LENGTH
 from bioparser.db.base import Base
+from bioparser.db.documents import Document
 from bioparser.hashing import Sha256Hex
 from bioparser.jobs.state import (
     ALLOWED_TRANSITIONS,
@@ -34,6 +47,8 @@ class Job(Base):
 
     The database fills created_at and updated_at. The update trigger that
     refreshes updated_at lives in the migration; a column cannot express it.
+    deleted_at is set when a finished job is deleted: the row stays, and the API
+    reads leave it out.
     """
 
     __tablename__ = "jobs"
@@ -42,7 +57,7 @@ class Job(Base):
             f"status IN ({', '.join(repr(status) for status in _STATUSES)})",
             name="jobs_status_check",
         ),
-        CheckConstraint("pdf_ref <> ''", name="jobs_pdf_ref_check"),
+        Index("jobs_document_checksum_idx", "document_checksum"),
         CheckConstraint(
             "parse_result_ref IS NULL OR parse_result_ref <> ''",
             name="jobs_parse_result_ref_check",
@@ -53,6 +68,10 @@ class Job(Base):
         ),
         CheckConstraint("parsing_claims >= 0", name="jobs_parsing_claims_check"),
         CheckConstraint("extracting_claims >= 0", name="jobs_extracting_claims_check"),
+        CheckConstraint(
+            "deleted_at IS NULL OR status IN ('done', 'failed')",
+            name="jobs_deleted_at_check",
+        ),
     )
 
     job_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
@@ -60,7 +79,10 @@ class Job(Base):
     status: Mapped[str] = mapped_column(Text)
     parser: Mapped[str] = mapped_column(Text)
     extractor: Mapped[str] = mapped_column(Text)
-    pdf_ref: Mapped[str] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
+    document_checksum: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("documents.checksum", name="jobs_document_checksum_fkey"),
+    )
     parse_result_ref: Mapped[str | None] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
     extract_result_ref: Mapped[str | None] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
     error_code: Mapped[str | None] = mapped_column(Text)
@@ -72,10 +94,12 @@ class Job(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 # Every JobState field is a column of the jobs table. created_at and updated_at
-# are columns only: the database fills them. A test checks the two stay in step.
+# are columns only: the database fills them. deleted_at is a column only too. A
+# test checks the two stay in step.
 _COLUMNS = tuple(JobState.model_fields)
 
 
@@ -85,7 +109,15 @@ def _job_state_to_columns(state: JobState) -> dict[str, object]:
 
 
 def _row_to_job_state(row: Mapping[str, object]) -> JobState:
-    return JobState.model_validate({name: row[name] for name in _COLUMNS})
+    try:
+        return JobState.model_validate({name: row[name] for name in _COLUMNS})
+    except ValidationError as exc:
+        raise CorruptJobStateError(str(row["job_id"])) from exc
+
+
+def _job_and_name(row: Mapping[str, object]) -> tuple[JobState, str | None]:
+    """The stored job and the display name from the joined document row."""
+    return _row_to_job_state(row), cast(str | None, row["display_name"])
 
 
 async def create(connection: AsyncConnection, state: JobState) -> JobState:
@@ -99,7 +131,12 @@ async def create(connection: AsyncConnection, state: JobState) -> JobState:
 
 
 async def get(connection: AsyncConnection, job_id: UUID) -> JobState | None:
-    """Load one job, or None when the row is missing. An invalid row is corrupt."""
+    """Load one job, or None when the row is missing. An invalid row is corrupt.
+
+    A deleted job is returned too. The workers read jobs here, and they decide by
+    status: a deleted job is `done` or `failed`, so a late delivery for it is
+    skipped. The API reads through `list_jobs`, which leaves deleted jobs out.
+    """
     row = (
         (await connection.execute(select(Job.__table__).where(Job.job_id == job_id)))
         .mappings()
@@ -107,50 +144,90 @@ async def get(connection: AsyncConnection, job_id: UUID) -> JobState | None:
     )
     if row is None:
         return None
-    try:
-        return _row_to_job_state(cast(Mapping[str, object], row))
-    except ValidationError as exc:
-        raise CorruptJobStateError(str(job_id)) from exc
+    return _row_to_job_state(cast(Mapping[str, object], row))
 
 
 async def list_jobs(
     connection: AsyncConnection,
     *,
+    job_id: UUID | None = None,
     status: JobStatus | None = None,
     parser: str | None = None,
-) -> list[JobState]:
-    """List jobs, optionally filtered by status and parser, ordered newest first."""
-    stmt = select(Job.__table__)
+) -> list[tuple[JobState, str | None]]:
+    """Jobs joined to their document names, newest first. Deleted jobs are left out."""
+    stmt = (
+        select(Job.__table__, Document.display_name)
+        .join(Document, Document.checksum == Job.document_checksum)
+        .where(Job.deleted_at.is_(None))
+    )
+    if job_id is not None:
+        stmt = stmt.where(Job.job_id == job_id)
     if status is not None:
         stmt = stmt.where(Job.status == status)
     if parser is not None:
         stmt = stmt.where(Job.parser == parser)
     stmt = stmt.order_by(Job.created_at.desc())
     rows = (await connection.execute(stmt)).mappings().all()
-    results: list[JobState] = []
-    for row in rows:
-        try:
-            results.append(_row_to_job_state(cast(Mapping[str, object], row)))
-        except ValidationError as exc:
-            raise CorruptJobStateError(str(row["job_id"])) from exc
-    return results
+    return [_job_and_name(cast(Mapping[str, object], row)) for row in rows]
 
 
 async def list_jobs_for_document(
     connection: AsyncConnection,
     checksum: Sha256Hex,
-) -> list[JobState]:
-    """List all jobs associated with a document checksum, ordered newest first."""
-    target = pdf_path(checksum)
-    stmt = select(Job.__table__).where(Job.pdf_ref == target).order_by(Job.created_at.desc())
+) -> list[tuple[JobState, str | None]] | None:
+    """Jobs for one document, newest first. None when that document does not exist.
+
+    Deleted jobs are left out. A document whose jobs are all deleted has an empty list.
+    """
+    stmt = (
+        select(Document.display_name, Job.__table__)
+        .select_from(Document)
+        .outerjoin(Job, and_(Job.document_checksum == Document.checksum, Job.deleted_at.is_(None)))
+        .where(Document.checksum == checksum)
+        .order_by(Job.created_at.desc())
+    )
     rows = (await connection.execute(stmt)).mappings().all()
-    results: list[JobState] = []
-    for row in rows:
-        try:
-            results.append(_row_to_job_state(cast(Mapping[str, object], row)))
-        except ValidationError as exc:
-            raise CorruptJobStateError(str(row["job_id"])) from exc
-    return results
+    if not rows:
+        return None
+    return [
+        _job_and_name(cast(Mapping[str, object], row)) for row in rows if row["job_id"] is not None
+    ]
+
+
+# Only a finished job can be deleted. A queued or running job still has a queue
+# message and a worker that moves it on. The jobs_deleted_at_check constraint
+# holds the same rule in the database.
+DELETABLE_STATUSES: tuple[JobStatus, ...] = ("done", "failed")
+
+DeleteOutcome = Literal["deleted", "not_finished", "missing"]
+
+
+async def delete_finished(connection: AsyncConnection, job_id: UUID) -> DeleteOutcome:
+    """Soft-delete one job while its status is in `DELETABLE_STATUSES`.
+
+    Sets deleted_at; the row stays. The status check and the write are one
+    statement, so a job that moves on in between is not deleted. The document, the
+    PDF and the artifacts stay too: other jobs of the same PDF can share them.
+    `not_finished` means the row is there, not deleted, with another status.
+    `missing` means no row, or a row that is already deleted.
+    """
+    result = await connection.execute(
+        sql_update(Job)
+        .where(
+            Job.job_id == job_id,
+            Job.status.in_(DELETABLE_STATUSES),
+            Job.deleted_at.is_(None),
+        )
+        .values(deleted_at=text("now()"))
+    )
+    if result.rowcount == 1:
+        return "deleted"
+    row = (
+        await connection.execute(select(Job.deleted_at).where(Job.job_id == job_id))
+    ).one_or_none()
+    if row is None or row.deleted_at is not None:
+        return "missing"
+    return "not_finished"
 
 
 ClaimOutcome = Literal["claimed", "exhausted", "skipped", "missing"]

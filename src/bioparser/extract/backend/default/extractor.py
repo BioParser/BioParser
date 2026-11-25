@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from bioparser.extract.backend.default.locate import cited_observations
@@ -10,17 +11,19 @@ from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS
 from bioparser.parser.models import BlockRole, ParserArtifact, TextContent
 from bioparser.services.vllm import VLLMService
 from bioparser.services.vllm.vllm import (
+    VLLMContextLengthError,
     VLLMError,
     VLLMRequestRejectedError,
     VLLMSchemaError,
     VLLMTruncatedError,
 )
 
+LOGGER = logging.getLogger(__name__)
+
 # Dropping references to cut tokens
 SKIP_ROLES = frozenset({BlockRole.REFERENCE, BlockRole.HEADER, BlockRole.FOOTER})
 
 # TODO: Change SYSTEM_PROMPT for ETS
-# TODO: check render_prompt
 SYSTEM_PROMPT = """You extract mammal trait measurements from scientific text.
 
 Return only measurements stated explicitly in the text. For each one, set
@@ -35,8 +38,6 @@ class Prompt:
 
     text: str
     blocks: dict[str, str]
-    # Was it too long for the character budget?
-    truncated: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,12 +48,12 @@ class ModelResult:
     prompt: Prompt
 
 
-def render_prompt(artifact: ParserArtifact, *, char_budget: int) -> Prompt:
-    parts: list[str] = []
-    blocks: dict[str, str] = {}
-    used = 0
-    truncated = False
+async def render_prompt(artifact: ParserArtifact, *, vllm: VLLMService) -> Prompt:
+    """Eligible text blocks, joined for one model call.
 
+    References, headers, and footers are omitted. Tables are omitted.
+    """
+    eligible: list[tuple[str, str]] = []
     for page in artifact.pages:
         for block in page.blocks:
             if block.role in SKIP_ROLES:
@@ -62,27 +63,33 @@ def render_prompt(artifact: ParserArtifact, *, char_budget: int) -> Prompt:
             text = block.content.text.strip()
             if not text:
                 continue
-            rendered = f"[{block.block_id}] {text}"
-            cost = len(rendered) + (2 if parts else 0)  # +2 for the joining "\n\n"
-            if used + cost > char_budget:
-                # maximimize token budget, but blocks get truncated
-                # NOTE: could also just stop early here
-                truncated = True
-                continue
-            blocks[block.block_id] = text
-            parts.append(rendered)
-            used += cost
+            eligible.append((block.block_id, text))
 
-    return Prompt(text="\n\n".join(parts), blocks=blocks, truncated=truncated)
+    parts = [f"[{block_id}] {text}" for block_id, text in eligible]
+    kept_count = await vllm.fit_prefix(parts, system_prompt=SYSTEM_PROMPT)
+    # No eligible block fits. An empty extraction would look like a paper with
+    # no measurements. TODO: A finished extractor covers the whole paper or fails.
+    # This one keeps a shorter prefix, because the current window rejects most papers.
+    if eligible and kept_count == 0:
+        raise VLLMContextLengthError("the prompt does not fit in the context window")
+    if kept_count < len(eligible):
+        LOGGER.warning(
+            "extraction prompt kept %s of %s eligible blocks",
+            kept_count,
+            len(eligible),
+        )
+    kept = eligible[:kept_count]
+    return Prompt(
+        text="\n\n".join(parts[:kept_count]),
+        blocks={block_id: text for block_id, text in kept},
+    )
 
 
 async def extract_observations(
     vllm: VLLMService,
     artifact: ParserArtifact,
-    *,
-    char_budget: int,
 ) -> ModelResult:
-    prompt = render_prompt(artifact, char_budget=char_budget)
+    prompt = await render_prompt(artifact, vllm=vllm)
     if not prompt.text:
         return ModelResult(output=Extraction(), prompt=prompt)
 
@@ -99,15 +106,10 @@ class DefaultExtractor:
     """The extractor registered as ``default``."""
 
     vllm: VLLMService
-    char_budget: int
 
     async def extract(self, artifact: ParserArtifact) -> ExtractionArtifact:
         try:
-            result = await extract_observations(
-                self.vllm,
-                artifact,
-                char_budget=self.char_budget,
-            )
+            result = await extract_observations(self.vllm, artifact)
             return ExtractionArtifact(
                 extractor=DEFAULT_EXTRACTOR_NAME,
                 extractor_version=EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME],

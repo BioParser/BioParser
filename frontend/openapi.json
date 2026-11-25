@@ -1453,6 +1453,137 @@
             "description": "Service Unavailable"
           }
         }
+      },
+      "delete": {
+        "summary": "Delete Job",
+        "description": "Delete a `done` or `failed` job.\n\nThe job leaves the job lists and its reads are `404`. It is a soft delete: the\nrow is marked deleted and stays in the database. The document, its PDF and the\nparser and extraction artifacts stay too, since other jobs of the same PDF can\nshare them. A job in any other status is still running and is `409`.",
+        "operationId": "delete_job_api_jobs__job_id__delete",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The job was deleted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "unauthorized": {
+                    "summary": "Invalid or missing API key",
+                    "value": {
+                      "detail": {
+                        "code": "unauthorized",
+                        "message": "Invalid or missing API key"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "job_not_found": {
+                    "summary": "Job not found",
+                    "value": {
+                      "detail": {
+                        "code": "job_not_found",
+                        "message": "Job not found"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "job_not_finished": {
+                    "summary": "Only a done or failed job can be deleted. GET /api/jobs/{job_id} shows the job status",
+                    "value": {
+                      "detail": {
+                        "code": "job_not_finished",
+                        "message": "Only a done or failed job can be deleted. GET /api/jobs/{job_id} shows the job status"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_job_id": {
+                    "summary": "job_id must be a version 4 UUID",
+                    "value": {
+                      "detail": {
+                        "code": "invalid_job_id",
+                        "message": "job_id must be a version 4 UUID"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "database_unavailable": {
+                    "summary": "Database is unavailable",
+                    "value": {
+                      "detail": {
+                        "code": "database_unavailable",
+                        "message": "Database is unavailable"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
       }
     },
     "/api/jobs/{job_id}/ets": {
@@ -2364,6 +2495,7 @@
               "unsupported_content_type",
               "invalid_content_length",
               "job_not_found",
+              "job_not_finished",
               "invalid_job_id",
               "content_too_large",
               "storage_unavailable",
@@ -2443,8 +2575,15 @@
             "title": "Scientificname"
           },
           "verbatimScientificName": {
-            "type": "string",
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Verbatimscientificname"
           },
           "taxonID": {
@@ -3001,7 +3140,6 @@
         "type": "object",
         "required": [
           "verbatimTraitName",
-          "verbatimScientificName",
           "measurementID",
           "warnings",
           "references"
@@ -3329,7 +3467,14 @@
             ]
           },
           "verbatimScientificName": {
-            "$ref": "#/components/schemas/Citation"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Citation"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "traitValue": {
             "anyOf": [
@@ -4395,11 +4540,10 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "verbatimTraitName",
-          "verbatimScientificName"
+          "verbatimTraitName"
         ],
         "title": "Observation",
-        "description": "One measurement.\n\nA citation-only field is the printed token. A citation or correction is that\ntoken, or the token kept beside a reading of a wider phrase. A citation or\ninterpretation is the printed token, or a value read from a wider phrase.\n``basisOfRecord`` and ``aggregateMeasure`` are interpretations only. A paper\ndoes not print those tokens.\n\nThe minimum, the maximum, and the dispersion are the numbers the paper\nprinted, read with ``verbatimTraitUnit``. ``statisticalMethod`` is the\nphrase the paper printed, or empty.\n\n``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations\nbeside a verbatim citation. The interpretation is omitted when the printed\ntoken is already the value. ``scientificName`` is the model's reading of the\naccepted name. ``traitValue`` and ``traitUnit`` stay empty until a trait\nlist standardizes them.\n\nThe artifact does not enforce a closed set of values. An interpretation's\n``value`` is any non-empty string, including ``traitCode``. An extractor may\nconstrain it, and the adapter decides what a value means.\n\nEvery other column a paper can state is optional. An extractor leaves it null."
+        "description": "One measurement.\n\nA citation-only field is the printed token. A citation or correction is that\ntoken, or the token kept beside a reading of a wider phrase. A citation or\ninterpretation is the printed token, or a value read from a wider phrase.\n``basisOfRecord`` and ``aggregateMeasure`` are interpretations only. A paper\ndoes not print those tokens.\n\nThe minimum, the maximum, and the dispersion are the numbers the paper\nprinted, read with ``verbatimTraitUnit``. ``statisticalMethod`` is the\nphrase the paper printed, or empty.\n\n``verbatimScientificName`` is the printed subject. It is omitted when the\npaper does not name one. ``scientificName``, ``traitValue``, and\n``traitUnit`` are interpretations beside a verbatim citation. The\ninterpretation is omitted when the printed token is already the value.\nAn interpretation may be stored when its printed citation is absent.\nA consumer checks that citation when it needs the printed token.\n``scientificName`` is the model's reading of the accepted name.\n``traitValue`` and ``traitUnit`` stay empty until a trait list\nstandardizes them.\n\nThe artifact does not enforce a closed set of values. An interpretation's\n``value`` is any non-empty string, including ``traitCode``. An extractor may\nconstrain it, and the adapter decides what a value means.\n\nEvery other column a paper can state is optional. An extractor leaves it null."
       },
       "Page": {
         "properties": {
@@ -4433,6 +4577,25 @@
         ],
         "title": "Page"
       },
+      "ParseProblem": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ProblemCode"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Count",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "ParseProblem"
+      },
       "ParserArtifact": {
         "properties": {
           "schema_version": {
@@ -4453,6 +4616,13 @@
             },
             "type": "array",
             "title": "Pages"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/ParseProblem"
+            },
+            "type": "array",
+            "title": "Problems"
           }
         },
         "additionalProperties": false,
@@ -4504,6 +4674,17 @@
           "configuration"
         ],
         "title": "ParserInfo"
+      },
+      "ProblemCode": {
+        "type": "string",
+        "enum": [
+          "advent_fonts_unchecked",
+          "advent_symbols_replaced",
+          "advent_characters_unverified",
+          "advent_pages_uncounted"
+        ],
+        "title": "ProblemCode",
+        "description": "A gap the parse noticed. The parse still succeeded."
       },
       "ReadinessResponse": {
         "properties": {
@@ -4681,12 +4862,12 @@
             ],
             "title": "Heading Level"
           },
-          "spans": {
+          "lines": {
             "items": {
-              "$ref": "#/components/schemas/TextSpan"
+              "$ref": "#/components/schemas/TextLine"
             },
             "type": "array",
-            "title": "Spans"
+            "title": "Lines"
           }
         },
         "additionalProperties": false,
@@ -4695,6 +4876,66 @@
           "text"
         ],
         "title": "TextContent"
+      },
+      "TextLine": {
+        "properties": {
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "y0": {
+            "type": "number",
+            "title": "Y0"
+          },
+          "y1": {
+            "type": "number",
+            "title": "Y1"
+          },
+          "x0": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "X0"
+          },
+          "x1": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "X1"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "start",
+          "end",
+          "y0",
+          "y1",
+          "x0",
+          "x1"
+        ],
+        "title": "TextLine",
+        "description": "One horizontal line, with a horizontal edge for each stored character.\n\n``x0[i]`` and ``x1[i]`` are the glyph edges of ``text[start + i]`` on the block\nthat owns this line. A null pair is a stored character with no ink: a space\ninserted between words, a hyphen removed at a line join, or MinerU's ``^{}``\nand ``_{}`` markers. A glyph that covers several characters shares its box in equal slices.\nCoordinates are stored to four decimal places."
       },
       "TextRange": {
         "properties": {
@@ -4721,35 +4962,6 @@
         ],
         "title": "TextRange",
         "description": "Half-open character range in one parser block.\n\n``start`` and ``end`` are Unicode code points, the same indexes as a Python\n``str``. ``end`` is greater than ``start``."
-      },
-      "TextSpan": {
-        "properties": {
-          "start": {
-            "type": "integer",
-            "title": "Start"
-          },
-          "end": {
-            "type": "integer",
-            "title": "End"
-          },
-          "line": {
-            "type": "integer",
-            "title": "Line"
-          },
-          "bbox": {
-            "$ref": "#/components/schemas/BoundingBox"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "start",
-          "end",
-          "line",
-          "bbox"
-        ],
-        "title": "TextSpan",
-        "description": "Word box mapped onto `TextContent.text` as a half-open character range."
       },
       "UploadLimitsResponse": {
         "properties": {

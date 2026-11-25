@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef } from "react";
-import { ApiError } from "../api/client";
+import { ApiError, type ParseProblem } from "../api/client";
 import { EvidencePdf } from "./EvidencePdf";
 import {
   buildQuotation,
@@ -20,7 +20,8 @@ interface EvidenceViewProps {
 // Where a value came from: the quotation from the parser block, with the value and the unit
 // marked. Shown only once an observation is selected, so nothing loads before that.
 export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewProps) {
-  const { blocks, observations } = useEvidenceArtifacts(jobId, true);
+  const { parser, observations } = useEvidenceArtifacts(jobId, true);
+  const notices = problemNotices(parser.data?.problems ?? []);
   const panelRef = useRef<HTMLElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -48,7 +49,7 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
     panelRef.current
       ?.querySelector(".evidence-quote mark.evidence-value")
       ?.scrollIntoView({ block: "center" });
-  }, [observationIndex, observations.data, blocks.data]);
+  }, [observationIndex, observations.data, parser.data]);
 
   function close() {
     const opener = openerRef.current;
@@ -80,6 +81,11 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
           Close
         </button>
       </div>
+      {notices.map((notice) => (
+        <p key={notice.code} role="status">
+          {notice.text}
+        </p>
+      ))}
       {observations.isPending ? (
         <p role="status">Loading the evidence…</p>
       ) : observations.isError ? (
@@ -91,17 +97,63 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
       ) : (
         <>
           <ValueAndUnit observation={observation} />
-          {blocks.isPending ? (
+          {parser.isPending ? (
             <p role="status">Loading the quotation…</p>
-          ) : blocks.isError ? (
-            <EvidenceError>{artifactError(blocks.error, "parser")}</EvidenceError>
+          ) : parser.isError ? (
+            <EvidenceError>{artifactError(parser.error, "parser")}</EvidenceError>
           ) : (
-            <Quotation jobId={jobId} observation={observation} blocks={blocks.data} />
+            <Quotation jobId={jobId} observation={observation} blocks={parser.data.blocks} />
           )}
         </>
       )}
     </section>
   );
+}
+
+// Advent problems share one notice. The lead names the typesetter, then one sentence each.
+// A failed check does not know the typesetter, so that notice has no lead.
+// An unknown code has no sentence yet.
+function problemNotices(problems: ParseProblem[]): { code: string; text: string }[] {
+  const details: string[] = [];
+  for (const problem of problems) {
+    const text = problemText(problem);
+    if (text !== null) {
+      details.push(text);
+    }
+  }
+  if (details.length === 0) {
+    return [];
+  }
+  const failed = problems.every((problem) => problem.code === "advent_fonts_unchecked");
+  const text = failed
+    ? details.join(" ")
+    : `This paper uses the 3B2 typesetter. ${details.join(" ")}`;
+  return [{ code: "advent", text }];
+}
+
+function problemText(problem: ParseProblem): string | null {
+  if (problem.code === "advent_fonts_unchecked") {
+    return "The symbol check did not finish, so this paper could not be confirmed free of the rare 3B2 typesetter. If it uses 3B2, a symbol in the parsed text may not be the symbol printed on the page.";
+  }
+  if (problem.code === "advent_symbols_replaced" && problem.count >= 1) {
+    if (problem.count === 1) {
+      return "1 Advent symbol in the parsed text was replaced with the Unicode replacement character because the printed symbol could not be named.";
+    }
+    return `${problem.count} Advent symbols in the parsed text were replaced with the Unicode replacement character because the printed symbols could not be named.`;
+  }
+  if (problem.code === "advent_characters_unverified" && problem.count >= 1) {
+    if (problem.count === 1) {
+      return "1 Advent character in the parsed text was left unchanged because the font has not been verified.";
+    }
+    return `${problem.count} Advent characters in the parsed text were left unchanged because the font has not been verified.`;
+  }
+  if (problem.code === "advent_pages_uncounted" && problem.count >= 1) {
+    if (problem.count === 1) {
+      return "On 1 page, the drawing commands could not be counted, so an Advent symbol in the parsed text may have been replaced with the Unicode replacement character without that replacement being reported.";
+    }
+    return `On ${problem.count} pages, the drawing commands could not be counted, so an Advent symbol in the parsed text may have been replaced with the Unicode replacement character without that replacement being reported.`;
+  }
+  return null;
 }
 
 // The printed value and unit, from the extraction artifact alone, so they stay when the

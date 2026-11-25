@@ -2,10 +2,10 @@
 #   docker build -f docker/migrate.Dockerfile -t bioparser-migrate .
 
 # uv 0.13.7, the same pin as CI. Index digest so amd64 and arm64 both resolve.
-FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
 # python 3.13.16-slim-trixie; index digest so amd64 and arm64 both resolve.
-FROM python:3.13-slim@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f AS base
+FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90 AS base
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tini \
@@ -36,6 +36,33 @@ COPY src ./src
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-editable --no-default-groups --group migrate
+
+#-------------------------------------------
+
+# Dev stage for the Compose overlay. Not the last stage, so the default build
+# stays the production image. Compose mounts the source on /src. No watcher.
+
+FROM base AS migrate-dev
+
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid 10001 --home-dir /home/app --no-create-home \
+        --shell /usr/sbin/nologin app \
+    && install -d -o 10001 -g 0 -m 0770 /home/app
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/src \
+    HOME=/home/app
+
+WORKDIR /app
+
+COPY --from=build /app/.venv /app/.venv
+
+USER 10001:10001
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["bioparser-migrate"]
 
 #-------------------------------------------
 

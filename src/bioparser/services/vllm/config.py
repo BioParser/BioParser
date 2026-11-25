@@ -22,12 +22,8 @@ class Settings(BaseSettings):
         gt=0,
     )
 
-    # --max-model-len is server-side cap e.g. 4096
-    # from that we use tokens to system_prompt ~100
-    #               CHAR_BUDGET (extract.py)  ~2400 ?
-    #               and client side cap 1024  ~1024
-    #
-    # So if this is raised, --max-model-len should be changed in docker-compose.
+    # Reserved completion tokens. --max-model-len is the prompt and this reservation
+    # together. The prompt is packed to the reported window minus this ceiling.
     # A caller may ask for fewer tokens. A larger request is capped here.
     vllm_max_tokens: int = Field(default=1024, ge=1)
 

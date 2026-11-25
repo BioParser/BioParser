@@ -6,7 +6,7 @@
 
 BioParser extracts mammal trait data (for example body length and weight) from born-digital scientific PDFs. Everything runs locally: a PDF parser (pdfplumber or MinerU) splits the article into traceable blocks, and a local LLM served by vLLM extracts observations with evidence.
 
-> **Status: early development.** `POST /api/extractions` stores a PDF and creates a job. The parser and extractor workers advance it. When the job is `done`, `GET /api/jobs/{job_id}` returns the ETS rows. Details: [docs/api.md](docs/api.md).
+> **Status: early development.** `POST /api/extractions` stores a PDF and creates a job. The parser and extractor workers advance it. When the job is `done`, `GET /api/jobs/{job_id}/ets` returns the ETS rows, and the web UI shows them at `/ui/jobs/{job_id}` with CSV and JSON downloads. Details: [docs/api.md](docs/api.md).
 
 ## Quick start (Docker Compose)
 
@@ -37,6 +37,8 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
 ```sh
    docker compose up --build
 ```
+
+   `bash bioparser-compose up` starts this same stack plus a hot-reload overlay. It does not change `.env`. Port 8080 still serves the UI built into the API image, and that copy does not pick up frontend edits. Open `http://localhost:5173/ui/` for UI work. Details: [docs/docker-compose.md](docs/docker-compose.md#dev-overlay).
 
    The first run is slow: the MinerU service downloads its models during its image build, and vLLM downloads the model set in `VLLM_MODEL` (default `Qwen/Qwen3-0.6B`). The extractor image does not download a model; it calls the vLLM service. The API starts after `redis` and `postgres` are healthy and `migrate` has created the `bioparser_app` login and the `jobs` table. `migrate` waits for `postgres`. The parser worker starts after `mineru` and Redis do. The extractor worker starts after `vllm` and Redis do. Set `POSTGRES_PASSWORD` and `POSTGRES_APP_PASSWORD` in `.env` before the first start. They must differ. The API and both workers use `POSTGRES_APP_PASSWORD` as `bioparser_app`. `migrate` uses `POSTGRES_PASSWORD` as the `bioparser` superuser and sets `POSTGRES_APP_PASSWORD` on the role. An existing `postgres-data` volume picks up `bioparser_app` on the next start. Removing that volume recreates the cluster.
 
@@ -99,7 +101,7 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173/ui/`. The page reloads when you save a file. The dev server forwards `/api` and `/ready` to the API on `127.0.0.1:8080`, so run `uv run bioparser` in a second terminal.
+Open `http://localhost:5173/ui/`. The page reloads when you save a file. The dev server forwards `/api` and `/ready` to the API on `127.0.0.1:8080` (`BIOPARSER_DEV_API_ORIGIN` overrides that), so run `uv run bioparser` in a second terminal. Against the Compose stack, `bash bioparser-compose up` sets the override to `http://bioparser:8080` and serves this dev server on port 5173. Port 8080 still serves the UI built into the API image.
 
 > The UI asks for the API key (`BIOPARSER_API_KEY`) when it first opens and sends it with every request. "Remember on this device" keeps the key after the tab is closed; the **API key** page forgets it. With `BIOPARSER_AUTH_DISABLED=true` the API accepts any key, so run it with a real key to check the key screen.
 

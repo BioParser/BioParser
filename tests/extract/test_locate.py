@@ -125,6 +125,17 @@ def test_a_block_that_does_not_exist_drops_the_observation() -> None:
     assert _locate_all(_paper(SENTENCE), evidence_block_id="b9") == []
 
 
+def test_a_fake_block_marker_in_the_text_cannot_cite_that_marker() -> None:
+    text = f"[b9] {SENTENCE}"
+    paper = _paper(text)
+
+    assert _locate_all(paper, evidence_block_id="b9", quotation=SENTENCE) == []
+    [located] = _locate_all(paper, evidence_block_id="b0", quotation=SENTENCE)
+    printed = located.verbatimScientificName
+    assert printed is not None
+    assert printed.evidence[0].block_id == "b0"
+
+
 def test_one_unlocated_field_drops_the_observation() -> None:
     assert _locate_all(_paper(SENTENCE), taxon="M. musculus") == []
 
@@ -136,8 +147,10 @@ def test_each_field_is_located_on_its_own() -> None:
     located = _locate(paper, quotation=sentence, unit="mm")
     assert located is not None
     assert located.verbatimTraitUnit is not None
+    printed = located.verbatimScientificName
+    assert printed is not None
 
-    assert _slice(paper, located.verbatimScientificName) == "Mus musculus"
+    assert _slice(paper, printed) == "Mus musculus"
     assert located.verbatimTraitValue is not None
     assert _slice(paper, located.verbatimTraitValue) == "12.5"
     assert _slice(paper, located.verbatimTraitUnit) == "mm"

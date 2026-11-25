@@ -46,8 +46,10 @@ flowchart TB
 ```
 
 Redis is the job queue. Queue messages carry only a job ID and a schema version.
-Postgres holds one `jobs` row per job, including that job's artifact paths
-(`pdf_ref`, `parse_result_ref`, `extract_result_ref`). The API and both workers
+Postgres holds one `jobs` row per job. The row points at its document with
+`document_checksum` and stores the later artifact paths (`parse_result_ref`,
+`extract_result_ref`). The uploaded PDF is `pdf/<document_checksum>`, built with
+`pdf_path`. The API and both workers
 read and write those rows. Neither Redis nor Postgres holds PDF bytes or model
 results; those stay in artifact storage.
 
@@ -67,6 +69,7 @@ FastAPI owns the public HTTP contract:
 
 - `POST /api/extractions` stores a PDF, inserts its document and a job in one transaction, and queues that job
 - `GET /api/jobs/{job_id}` for job status and results
+- `DELETE /api/jobs/{job_id}` soft-deletes a done or failed job: it leaves the job lists, and its row, document and artifacts stay
 - `/health` for process liveness
 - `/ready` a readiness endpoint for Redis and artifact storage availability
 
@@ -206,7 +209,7 @@ are addressed by stable artifact paths using typed Pydantic models:
   - `media_type`: MIME media type (`application/pdf`, `application/json`, etc.).
   - `creation_info`: timestamp (`created_at` in UTC) and creator identifier (`created_by`).
   - `content_schema_version`: explicit schema version of structured content where applicable
-    (e.g., `"1"` for parser artifacts; omitted for raw PDFs).
+    (e.g., `"2"` for parser artifacts; omitted for raw PDFs).
   - `size_bytes`: payload size in bytes.
 - `StoredArtifact`: composite container bundling raw `content` (`bytes`) and `metadata` (`ArtifactMetadata`).
 
@@ -237,7 +240,7 @@ Convention:
 | Uploaded PDF | `pdf/<pdf-checksum>` | `pdf_path(checksum)` |
 | Parser artifact | `pdf/<pdf-checksum>/parsed/<backend>/<version>` | `parse_result_path(checksum, backend, version)` |
 | Parser artifact of a configured backend | `pdf/<pdf-checksum>/parsed/<backend>/<version>/<configuration>` | `parse_result_path(checksum, backend, version, configuration)` |
-| Extraction artifact | `<parse-result-path>/extracted/<extractor>/<extractor-version>` | `extract_result_path(parse_result_ref, extractor, extractor_version)` |
+| Extraction artifact | `<parse-result-path>/extracted/<extractor>/<extractor-version>/<job-id>` | `extract_result_path(parse_result_ref, extractor, extractor_version, job_id)` |
 
 - `<pdf-checksum>` is the sha256 of the PDF bytes, from `bioparser.hashing`.
 - `<backend>` is the parser backend name and `<version>` its version from
@@ -245,25 +248,28 @@ Convention:
   a new path, so results from the old version are not reused.
 - `<configuration>` is the backend setting that also changes the output, as one readable
   segment. Today only MinerU has one: its tier (`basic`, `standard`, …), so a MinerU result is
-  stored at `pdf/<pdf-checksum>/parsed/mineru/3/standard`. A different tier never reuses
+  stored at `pdf/<pdf-checksum>/parsed/mineru/5/standard`. A different tier never reuses
   another tier's result. The configuration is not part of the version.
 - The extraction path starts from the job's `parse_result_ref`, so it keeps every segment
-  of that parse, including a MinerU tier. The extractor worker runs the extractor named
-  on the job and takes its version from `bioparser.extractor_names.EXTRACTOR_VERSIONS` when
-  the extraction runs. The job does not store that version. New jobs name the extractor
-  `default`, whose version is `2`. Bumping it gives new results a new path, so
-  results from the old version are not reused. The builders live in `bioparser.artifact_paths`.
+  of that parse, including a MinerU tier. Its last segment is the job id, so each job stores
+  its own result and runs extraction even when an earlier job already extracted that parse.
+  A retry of the same job keeps the path and reuses the result stored for that job. The
+  extractor worker runs the extractor named on the job and takes its version from
+  `bioparser.extractor_names.EXTRACTOR_VERSIONS` when the extraction runs. The job does not
+  store that version. New jobs name the extractor `default`, whose version is `2`. A
+  version bump changes that job's path, so a retry does not reuse the result stored
+  under the old version. The builders live in `bioparser.artifact_paths`.
 - Build paths with the builders, never by string formatting. Each builder argument must be
   a single valid segment, so a value like `a/b` cannot change the shape of the path.
 
-Job state holds artifact paths, typed `ArtifactPath`:
+Job state holds the document checksum and the artifact paths, typed `ArtifactPath`:
 
 | Field | Type | Set |
 |---|---|---|
-| `pdf_ref` | `ArtifactPath` | Always. The uploaded PDF, set when the job is created. |
+| `document_checksum` | sha256 hex | Always. The document this job belongs to. The PDF is `pdf_path(document_checksum)`. |
 | `parse_result_ref` | `ArtifactPath \| None` | In `parsed`, `extracting` and `done`. `None` in `queued`, `parsing` and `failed`. |
 
-Queue messages carry only `job_id`. Workers read the paths from job state.
+Queue messages carry only `job_id`. Workers read the checksum and the result paths from job state.
 
 ### Artifact storage interface
 
@@ -296,7 +302,7 @@ source coordinates.
 
 A finished extraction stores one observation per measurement. Each paper field keeps the printed text and a character range in a parser block. A field that cannot be located is not stored, and an observation missing a required field is dropped by its extractor.
 
-The stored file checks shape only. `verbatimScientificName` and `verbatimTraitName` are required. `verbatimTraitValue` is required unless the observation has a minimum or a maximum. `traitCode` is optional. Text is a non-empty string, and a range is ordered. The worker checks every range against the slice it names before storing, for any extractor. A mismatch fails the job. An unresolved name and a unit that cannot be converted are still stored. The file does not decide whether a measurement is good enough to show.
+The stored file checks shape only. `verbatimTraitName` is required. `verbatimScientificName` is omitted when the paper does not print a subject. `verbatimTraitValue` is required unless the observation has a minimum or a maximum. `traitCode` is optional. Text is a non-empty string, and a range is ordered. The worker checks every range against the slice it names before storing, for any extractor. A mismatch fails the job. An unresolved name and a unit that cannot be converted are still stored. The file does not decide whether a measurement is good enough to show.
 
 The ETS adapter is the quality gate for what a user is shown. It copies printed tokens onto the row and warns when a value fails its check. A stored `scientificName` is copied and warns `not_verified:scientificName` until a taxonomy hit replaces it. `traitName`, `traitID`, `traitValue`, and `traitUnit` stay empty until a later lookup. It does not drop the row. An extractor may check a field while it is still working, and drop or repair it before storing. It does not have to. The stored file can hold a reading the row does not copy.
 

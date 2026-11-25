@@ -20,7 +20,7 @@ Compose runs eight services:
 
 `docker-compose.traefik.yml` adds an encrypted reverse proxy with HTTP Basic Authentication in front of the API:
 
-- `traefik` terminates TLS/HTTPS on host port `TRAEFIK_HTTPS_PORT` (default 443), enforces Basic Authentication (users from the file in `TRAEFIK_USERS_FILE`, which you make; the repository ships none), and routes internally to `http://bioparser:8080`. Plain HTTP is disabled so credentials never travel unencrypted. It runs as unprivileged user `65534:65534` (`nobody`), uses file-based configuration (`docker/traefik/bioparser.yml`), and requires no Docker socket access.
+- `traefik` terminates TLS/HTTPS on host port `TRAEFIK_HTTPS_PORT` (default 443), limits the request rate of each client IP address, enforces Basic Authentication (users from the file in `TRAEFIK_USERS_FILE`, which you make; the repository ships none), and routes internally to `http://bioparser:8080`. Plain HTTP is disabled so credentials never travel unencrypted. It runs as unprivileged user `65534:65534` (`nobody`), uses file-based configuration (`docker/traefik/bioparser.yml`), and requires no Docker socket access.
 
 The README has the default install and start commands. This page covers env vars, networking, logs, HTTPS, and `test_prompt`.
 
@@ -34,7 +34,7 @@ cp .env.example .env
 
 Required:
 
-`COMPOSE_FILE`: Compose configuration preference, e.g. `docker-compose.yml:docker-compose.gpu.yml` (GPU) or `docker-compose.yml:docker-compose.cpu.yml` (CPU).  
+`COMPOSE_FILE`: Compose configuration preference, e.g. `docker-compose.yml:docker-compose.gpu.yml` (GPU) or `docker-compose.yml:docker-compose.cpu.yml` (CPU). Do not add `docker-compose.dev.yml` here. `bash bioparser-compose` appends it for one run.  
 `VLLM_MODEL`: Hugging Face repo id, for example `Qwen/Qwen3-0.6B` (already set in `.env.example`).  
 `VLLM_PORT`: host port for vLLM (default `8000`).  
 `BIOPARSER_PORT`: host port for the API (default `8080`).  
@@ -75,7 +75,27 @@ docker compose up --build
 curl localhost:8080/health
 ```
 
-Stop with `Ctrl+C`, or `docker compose down`.
+`bash bioparser-compose up` starts this same stack plus the dev overlay. Port 8080 still serves the UI that was built into the API image. That copy does not pick up frontend edits. Use port 5173 for UI work.
+
+Stop with `Ctrl+C`, or `docker compose down`. Stop the dev overlay with `bash bioparser-compose down`.
+
+## Dev overlay
+
+`bioparser-compose` at the repository root is a wrapper for `docker compose`. `bash bioparser-compose up` appends the dev file for that run only. A `COMPOSE_FILE` already set in the shell wins. Otherwise the last literal `COMPOSE_FILE` assignment in the env file wins. A `$` or `\` in that value is an error. Set `COMPOSE_FILE` in the shell when the list is built from other variables. `--env-file` replaces `.env`. `-f` adds the dev file as another `-f`. It does not edit `.env`. GPU or CPU and logging stay whatever that value already selects. `docker-compose.dev.yml` is not part of the default `COMPOSE_FILE`. The same wrapper applies to the other Compose commands, so `bash bioparser-compose down` includes the dev services. Arguments are passed through unchanged.
+
+```sh
+bash bioparser-compose up
+```
+
+The overlay reloads the code under edit. MinerU, vLLM, Postgres, Redis, Loki, Alloy, Grafana, and Traefik stay on their built images. Reloading MinerU or vLLM reloads the models.
+
+- `frontend` is the Vite dev server from `docker/frontend.Dockerfile` (the Node pin in `.nvmrc`, the same pin as the `ui` stage in `docker/api.Dockerfile`). Open `http://localhost:5173/ui/`. It publishes `127.0.0.1:5173`, runs as the image user `node`, and mounts `./frontend/src`, `index.html`, and `vite.config.ts` read-only. Dependencies are installed in the image. `npm ci` runs when that image is built. A dependency change needs a rebuild. It shares an internal network with the API only. `VITE_GRAFANA_URL` is `http://localhost:` plus `GRAFANA_PORT` (3000 when that is unset). A save that replaces `index.html` or `vite.config.ts` with a new file can leave the container on the old one. Save those two in place, or restart `frontend`.
+- `frontend/vite.config.ts` proxies `/api` and `/ready` to `BIOPARSER_DEV_API_ORIGIN`, which defaults to `http://127.0.0.1:8080`, so `npm run dev` on the host is unchanged. The dev file sets `http://bioparser:8080`, because `127.0.0.1` inside the `frontend` container is that container.
+- `bioparser`, `parser-worker`, `extractor-worker`, and `migrate` build a dev stage of their own Dockerfile. That stage is not the last one, so a build without a target stays the production image. Each dev stage reads `/src` ahead of the package installed in the image. The overlay only mounts `./src` there.
+- The API dev stage runs Uvicorn `--reload` and restarts when a Python file under `./src` changes. The worker dev stages install the `dev-reload` group (`watchfiles`) on the production virtualenv and restart `python -m bioparser.worker.parse` and `python -m bioparser.worker.extract` when any file under `./src` changes. A worker reload stops the running job after 5 seconds and that job is run again. Waiting for it to finish is not useful during local editing. The production stages and the OKD images do not install that group. The workers stay on the internal network.
+- The migrate dev stage runs once and exits. It is not wrapped in a watcher.
+
+Port 8080 still serves the UI that was built into the API image. That copy does not pick up frontend edits. Use port 5173 for UI work.
 
 ## Logs
 
@@ -122,8 +142,10 @@ When started:
 
 - Traefik binds to `TRAEFIK_BIND_ADDRESS` (default `127.0.0.1` for loopback security) on HTTPS port `TRAEFIK_HTTPS_PORT` (default 443). Plain HTTP is disabled so credentials are never transmitted unencrypted.
 - All requests require HTTP Basic Authentication. Traefik reads the users from the Compose secret `traefik_users` (`/run/secrets/traefik_users`), which comes from `TRAEFIK_USERS_FILE` (format: `name:bcrypt_hash`, one line per user). Add a user with `htpasswd -nbB <name> '<password>' >> docker/traefik/users`, then run `docker compose up -d --force-recreate traefik`.
+- Traefik limits the requests from each client IP address. A client can send 20 requests at one time. After that, Traefik accepts 20 requests each second. It answers the other requests with `429 Too Many Requests` and a `Retry-After` header (in seconds). The limit runs before Basic Authentication, and it also limits password tries. The values are `burst`, `average` and `period` of the `bioparser-ratelimit` middleware in `docker/traefik/bioparser.yml`. Traefik loads a changed file without a restart.
+- Traefik takes the client address from the TCP connection, not from `X-Forwarded-For`. If a proxy or a NAT in front of Traefik hides the client addresses, these clients share one limit. With the default `TRAEFIK_BIND_ADDRESS=127.0.0.1`, Docker forwards all local connections from one address. By default, rootless Docker also does not keep the client addresses. In these two cases, all clients share one limit. Traefik keeps the counters in memory, and a restart of Traefik clears them.
 - HTTPS connections are encrypted with TLS and routed internally across the `edge` network to `http://bioparser:8080`.
-- Direct plain HTTP to the API remains accessible on loopback (`http://127.0.0.1:8080`).
+- Direct plain HTTP to the API remains accessible on loopback (`http://127.0.0.1:8080`), without the rate limit.
 - Through Traefik, `/api/*` needs both the Traefik user and the `X-API-Key` header. The default Traefik user is public, so the API key is the lock that matters on a LAN.
 - By default, Traefik generates an internal self-signed TLS certificate (`TRAEFIK DEFAULT CERT`) regenerated on restart, so encrypted connections work immediately without external domain setup. To use custom certificates, define a `tls.certificates` block in `docker/traefik/bioparser.yml` and mount your cert files.
 - Note: On rootless Docker hosts, binding privileged host ports below 1024 requires setting `TRAEFIK_HTTPS_PORT=8443` in `.env` (or configuring `net.ipv4.ip_unprivileged_port_start=0`).

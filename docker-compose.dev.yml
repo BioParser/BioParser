@@ -1,0 +1,72 @@
+# Hot reload for code we edit. `bash bioparser-compose` appends this file for one run.
+# Port 8080 still serves the UI built into the API image. That copy does not pick up frontend edits. 
+# http://localhost:5173/ui/ for UI work.
+
+services:
+  # Dependencies are installed in docker/frontend.Dockerfile. These mounts cover
+  # the files Vite reloads. They stay off node_modules, which lives in the image.
+  # A dependency change needs a rebuild.
+  frontend:
+    image: bioparser-frontend-dev
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    init: true
+    environment:
+      # 127.0.0.1 inside this container is the frontend, not the API.
+      BIOPARSER_DEV_API_ORIGIN: http://bioparser:8080
+      # The browser opens Grafana on the host. Vite reads this when it starts.
+      VITE_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3000}
+    ports:
+      - "127.0.0.1:5173:5173"
+    volumes:
+      - ./frontend/src:/frontend/src:ro
+      - ./frontend/index.html:/frontend/index.html:ro
+      - ./frontend/vite.config.ts:/frontend/vite.config.ts:ro
+    # dev-api reaches only the API. frontend-publish exists so the host port
+    # works, and it has no outbound masquerade.
+    networks: [dev-api, frontend-publish]
+    mem_limit: 2g
+    memswap_limit: 2g
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  # Dev stages read /src ahead of the installed package and reload from that mount.
+  # They are not the last stage, and they are not the images OKD runs.
+  bioparser:
+    image: bioparser-api-dev
+    build:
+      target: api-dev
+    # Merged with the base networks. The frontend is not on those.
+    networks: [dev-api]
+    volumes:
+      - ./src:/src:ro
+
+  parser-worker:
+    image: bioparser-parser-worker-dev
+    build:
+      target: parser-worker-dev
+    volumes:
+      - ./src:/src:ro
+
+  extractor-worker:
+    image: bioparser-extractor-worker-dev
+    build:
+      target: extractor-worker-dev
+    volumes:
+      - ./src:/src:ro
+
+  migrate:
+    image: bioparser-migrate-dev
+    build:
+      target: migrate-dev
+    volumes:
+      - ./src:/src:ro
+
+networks:
+  dev-api:
+    internal: true
+  frontend-publish:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"

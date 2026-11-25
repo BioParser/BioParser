@@ -1,9 +1,11 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { clearApiKey, setApiKey } from "../api/apiKey";
 import { routes } from "../routes";
 import { DEFAULT_MAX_UPLOAD_BYTES, NO_PDF_HEADER, NOT_PDF, tooLarge } from "../upload/checkPdf";
+import { MAX_FILES_PER_BATCH } from "./StartJobPage";
 
 // Vitest globals are off, so Testing Library cannot register its cleanup by itself.
 afterEach(cleanup);
@@ -60,6 +62,9 @@ function stubApi({
     if (path === "/api/upload-limits") {
       return Response.json({ max_upload_bytes: maxUploadBytes });
     }
+    if (path.startsWith("/api/jobs/")) {
+      return new Response(null, { status: 404 });
+    }
     if (path === "/api/documents") {
       const file = uploadedFile(init);
       return (
@@ -100,12 +105,33 @@ function errorBody(status: number, code: string, message: string): Response {
 
 function renderPage(): ReturnType<typeof createMemoryRouter> {
   const router = createMemoryRouter(routes, { initialEntries: ["/jobs/new"] });
-  render(<RouterProvider router={router} />);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
   return router;
 }
 
 function chooseFiles(...files: File[]): void {
-  fireEvent.change(screen.getByLabelText("PDF files"), { target: { files } });
+  fireEvent.change(screen.getByLabelText("Add PDF files"), { target: { files } });
+}
+
+function dropFiles(...files: File[]): void {
+  const zone = screen.getByText(/or drop them here/).parentElement as HTMLElement;
+  fireEvent.drop(zone, { dataTransfer: { files } });
+}
+
+// The names in the file list, in order.
+function fileNames(): string[] {
+  const list = screen.queryByRole("list", { name: "Files" });
+  if (list === null) {
+    return [];
+  }
+  return within(list)
+    .getAllByRole("listitem")
+    .map((item) => item.querySelector(".job-file-name")?.textContent ?? "");
 }
 
 // Presses Start and waits until every file has a result.
@@ -265,7 +291,7 @@ describe("StartJobPage", () => {
     const oneMiB = 1024 * 1024;
     const fetchMock = stubApi({ maxUploadBytes: oneMiB });
     renderPage();
-    await screen.findByText(/Up to 1 MiB each\./);
+    await screen.findByText(/Up to 10 PDFs, 1 MiB each\./);
     chooseFiles(pdfOfSize("big.pdf", oneMiB + 1), pdf("small.pdf"));
     await startJobs();
     expect(uploadedNames(fetchMock)).toEqual(["small.pdf"]);
@@ -280,7 +306,9 @@ describe("StartJobPage", () => {
       }),
     );
     renderPage();
-    expect(screen.getByText(/or drop them here/).textContent).toContain("Up to 20 MiB each.");
+    expect(screen.getByText(/or drop them here/).textContent).toContain(
+      "Up to 10 PDFs, 20 MiB each.",
+    );
   });
 
   it("stops the batch when the API refuses the key", async () => {
@@ -318,7 +346,8 @@ describe("StartJobPage", () => {
     expect(uploadedNames(fetchMock)).toEqual(["a.pdf"]);
     // An aborted request is never sent, so only the ones that were not aborted count.
     const jobStarts = fetchMock.mock.calls.filter(
-      ([path, init]) => String(path).endsWith("/jobs") && !init?.signal?.aborted,
+      ([path, init]) =>
+        String(path).endsWith("/jobs") && init?.method === "POST" && !init.signal?.aborted,
     );
     expect(jobStarts).toEqual([]);
   });
@@ -336,5 +365,161 @@ describe("StartJobPage", () => {
     expect(statusOf("gone.pdf").textContent).toContain("The file cannot be read.");
     expect(uploadedNames(fetchMock)).toEqual(["good.pdf"]);
     expect(screen.getByRole("button", { name: "Start jobs" })).toBeTruthy();
+  });
+
+  it("adds a second pick to the list instead of replacing the first", async () => {
+    const fetchMock = stubApi();
+    renderPage();
+    chooseFiles(pdf("a.pdf"));
+    chooseFiles(pdf("b.pdf"), pdf("c.pdf"));
+    expect(fileNames()).toEqual(["a.pdf", "b.pdf", "c.pdf"]);
+    await startJobs();
+    expect(uploadedNames(fetchMock)).toEqual(["a.pdf", "b.pdf", "c.pdf"]);
+    expect(screen.getByRole("status").textContent).toBe("3 of 3 files started a job.");
+  });
+
+  it("adds dropped files after the picked ones", () => {
+    stubApi();
+    renderPage();
+    chooseFiles(pdf("a.pdf"));
+    dropFiles(pdf("b.pdf"));
+    expect(fileNames()).toEqual(["a.pdf", "b.pdf"]);
+  });
+
+  it("does not add a file that is already in the list, and says so", () => {
+    stubApi();
+    renderPage();
+    const a = pdf("a.pdf");
+    chooseFiles(a);
+    chooseFiles(a, pdf("b.pdf"));
+    expect(fileNames()).toEqual(["a.pdf", "b.pdf"]);
+    expect(screen.getByText("a.pdf is already in the list.")).toBeDefined();
+  });
+
+  it("adds a file with the same name when it is a different file", () => {
+    stubApi();
+    renderPage();
+    chooseFiles(pdf("a.pdf", "%PDF-1.7\n"));
+    chooseFiles(pdf("a.pdf", "%PDF-1.7\nmore"));
+    expect(fileNames()).toEqual(["a.pdf", "a.pdf"]);
+  });
+
+  it("removes a file before it is sent, and can add it again", async () => {
+    const fetchMock = stubApi();
+    renderPage();
+    const b = pdf("b.pdf");
+    chooseFiles(pdf("a.pdf"), b, pdf("c.pdf"));
+    fireEvent.click(screen.getByRole("button", { name: "Remove b.pdf" }));
+    expect(fileNames()).toEqual(["a.pdf", "c.pdf"]);
+    // Focus moves to the next file's button, so a keyboard user can go on removing.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Remove c.pdf" }));
+    await startJobs();
+    expect(uploadedNames(fetchMock)).toEqual(["a.pdf", "c.pdf"]);
+    chooseFiles(b);
+    expect(fileNames()).toEqual(["a.pdf", "c.pdf", "b.pdf"]);
+  });
+
+  it("moves focus to the file input when the last unsent file is removed", () => {
+    stubApi();
+    renderPage();
+    chooseFiles(pdf("a.pdf"));
+    fireEvent.click(screen.getByRole("button", { name: "Remove a.pdf" }));
+    expect(screen.queryByRole("list", { name: "Files" })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByLabelText("Add PDF files"));
+  });
+
+  it("empties the list with Clear list", () => {
+    stubApi();
+    renderPage();
+    const clear = screen.getByRole("button", { name: "Clear list" }) as HTMLButtonElement;
+    expect(clear.disabled).toBe(true);
+    chooseFiles(pdf("a.pdf"), pdf("b.pdf"));
+    fireEvent.click(clear);
+    expect(screen.queryByRole("list", { name: "Files" })).toBeNull();
+    expect(clear.disabled).toBe(true);
+  });
+
+  it("keeps at most 10 unsent files and says how many were left out", async () => {
+    const fetchMock = stubApi();
+    renderPage();
+    const twelve = Array.from({ length: 12 }, (_, i) => pdf(`f${i + 1}.pdf`));
+    chooseFiles(...twelve);
+    expect(fileNames()).toHaveLength(MAX_FILES_PER_BATCH);
+    expect(screen.getByText("2 files not added: up to 10 PDFs can wait to be sent.")).toBeDefined();
+    chooseFiles(pdf("late.pdf"));
+    expect(fileNames()).toHaveLength(MAX_FILES_PER_BATCH);
+    // Sent files do not count: after the batch, there is room again.
+    await startJobs();
+    expect(uploadedNames(fetchMock)).toHaveLength(MAX_FILES_PER_BATCH);
+    chooseFiles(pdf("late.pdf"));
+    expect(fileNames()).toHaveLength(MAX_FILES_PER_BATCH + 1);
+  });
+
+  it("sends only the new files in a second batch", async () => {
+    const fetchMock = stubApi();
+    renderPage();
+    const a = pdf("a.pdf");
+    chooseFiles(a);
+    await startJobs();
+    chooseFiles(pdf("b.pdf"));
+    expect(within(statusOf("a.pdf")).getByRole("link").textContent).toBe("job-a.pdf");
+    expect(statusOf("b.pdf").textContent).toContain("Not sent yet");
+    // The started file has no Remove button, and cannot be added again.
+    expect(screen.queryByRole("button", { name: "Remove a.pdf" })).toBeNull();
+    chooseFiles(a);
+    expect(fileNames()).toEqual(["a.pdf", "b.pdf"]);
+    expect(screen.getByText("a.pdf is already in the list.")).toBeDefined();
+    await startJobs();
+    expect(uploadedNames(fetchMock)).toEqual(["a.pdf", "b.pdf"]);
+    expect(screen.getByRole("status").textContent).toBe("2 of 2 files started a job.");
+  });
+
+  it("adds a file again whose upload failed, to try once more", async () => {
+    let reachable = false;
+    const fetchMock = stubApi({
+      upload: () =>
+        reachable ? undefined : errorBody(503, "storage_unavailable", "Storage is down"),
+    });
+    renderPage();
+    const a = pdf("a.pdf");
+    chooseFiles(a);
+    await startJobs();
+    reachable = true;
+    chooseFiles(a);
+    await startJobs();
+    expect(uploadedNames(fetchMock)).toEqual(["a.pdf", "a.pdf"]);
+    expect(screen.getByRole("status").textContent).toBe("1 of 2 files started a job.");
+  });
+
+  it("does not change the list while a batch is running", async () => {
+    let answer: (response: Response) => void = () => {};
+    stubApi({
+      upload: () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    });
+    renderPage();
+    chooseFiles(pdf("a.pdf"), pdf("b.pdf"));
+    fireEvent.click(screen.getByRole("button", { name: "Start jobs" }));
+    await waitFor(() => expect(statusOf("a.pdf").textContent).toContain("Sending"));
+    // The fieldset disables it, which the property does not show but :disabled does.
+    expect(screen.getByLabelText("Add PDF files").matches(":disabled")).toBe(true);
+    expect((screen.getByRole("button", { name: "Clear list" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(
+      (screen.getByRole("button", { name: "Remove b.pdf" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    dropFiles(pdf("c.pdf"));
+    expect(fileNames()).toEqual(["a.pdf", "b.pdf"]);
+    await act(async () =>
+      answer(
+        Response.json(
+          { checksum: "sum-a.pdf", upload_time: "2026-11-05T12:00:00Z", size_bytes: 9 },
+          { status: 201 },
+        ),
+      ),
+    );
   });
 });

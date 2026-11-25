@@ -17,9 +17,10 @@ const UNIT = {
 };
 
 const PARSER: ParserArtifact = {
-  schema_version: "1",
+  schema_version: "2",
   checksum: "abc",
   parser: { name: "default", version: "1", configuration: {} },
+  problems: [],
   pages: [
     {
       page_number: 1,
@@ -94,7 +95,7 @@ describe("useEvidenceArtifacts", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.current.blocks.fetchStatus).toBe("idle");
+    expect(result.current.parser.fetchStatus).toBe("idle");
   });
 
   it("indexes the parser blocks and returns the observations", async () => {
@@ -103,8 +104,8 @@ describe("useEvidenceArtifacts", () => {
       wrapper: wrapperFor(newQueryClient()),
     });
     await waitFor(() => expect(result.current.observations.isSuccess).toBe(true));
-    await waitFor(() => expect(result.current.blocks.isSuccess).toBe(true));
-    expect(result.current.blocks.data?.get("b0")?.pageNumber).toBe(1);
+    await waitFor(() => expect(result.current.parser.isSuccess).toBe(true));
+    expect(result.current.parser.data?.blocks.get("b0")?.pageNumber).toBe(1);
     expect(result.current.observations.data).toHaveLength(1);
   });
 
@@ -112,12 +113,12 @@ describe("useEvidenceArtifacts", () => {
     const fetchMock = stubArtifacts();
     const wrapper = wrapperFor(newQueryClient());
     const first = renderHook(() => useEvidenceArtifacts("job-1", true), { wrapper });
-    await waitFor(() => expect(first.result.current.blocks.isSuccess).toBe(true));
+    await waitFor(() => expect(first.result.current.parser.isSuccess).toBe(true));
     await waitFor(() => expect(first.result.current.observations.isSuccess).toBe(true));
     // Another observation of the same job opens the view again.
     first.unmount();
     const second = renderHook(() => useEvidenceArtifacts("job-1", true), { wrapper });
-    expect(second.result.current.blocks.isSuccess).toBe(true);
+    expect(second.result.current.parser.isSuccess).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -127,7 +128,7 @@ describe("useEvidenceArtifacts", () => {
       wrapper: wrapperFor(newQueryClient()),
     });
     await waitFor(() => expect(result.current.observations.isError).toBe(true));
-    await waitFor(() => expect(result.current.blocks.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.parser.isSuccess).toBe(true));
     expect(result.current.observations.error).toMatchObject({ status: 409 });
   });
 
@@ -136,7 +137,7 @@ describe("useEvidenceArtifacts", () => {
     const { result } = renderHook(() => useEvidenceArtifacts("job-1", true), {
       wrapper: wrapperFor(newQueryClient()),
     });
-    await waitFor(() => expect(result.current.blocks.isError).toBe(true));
+    await waitFor(() => expect(result.current.parser.isError).toBe(true));
     const parserCalls = fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/parser"));
     expect(parserCalls).toHaveLength(1);
   });

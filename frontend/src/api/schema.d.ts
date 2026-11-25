@@ -152,7 +152,16 @@ export interface paths {
         get: operations["job_status_api_jobs__job_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Job
+         * @description Delete a `done` or `failed` job.
+         *
+         *     The job leaves the job lists and its reads are `404`. It is a soft delete: the
+         *     row is marked deleted and stays in the database. The document, its PDF and the
+         *     parser and extraction artifacts stay too, since other jobs of the same PDF can
+         *     share them. A job in any other status is still running and is `409`.
+         */
+        delete: operations["delete_job_api_jobs__job_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -405,7 +414,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "missing_file" | "empty_file" | "invalid_pdf" | "unsupported_content_type" | "invalid_content_length" | "job_not_found" | "invalid_job_id" | "content_too_large" | "storage_unavailable" | "artifact_invalid" | "job_state_unreadable" | "database_unavailable" | "queue_unavailable" | "artifact_not_available" | "unauthorized" | "document_not_found" | "invalid_checksum";
+            code: "missing_file" | "empty_file" | "invalid_pdf" | "unsupported_content_type" | "invalid_content_length" | "job_not_found" | "job_not_finished" | "invalid_job_id" | "content_too_large" | "storage_unavailable" | "artifact_invalid" | "job_state_unreadable" | "database_unavailable" | "queue_unavailable" | "artifact_not_available" | "unauthorized" | "document_not_found" | "invalid_checksum";
             /** Message */
             message: string;
         };
@@ -430,7 +439,7 @@ export interface components {
             /** Scientificname */
             scientificName?: string | null;
             /** Verbatimscientificname */
-            verbatimScientificName: string;
+            verbatimScientificName?: string | null;
             /** Taxonid */
             taxonID?: string | null;
             /** Traitvalue */
@@ -699,11 +708,15 @@ export interface components {
          *     printed, read with ``verbatimTraitUnit``. ``statisticalMethod`` is the
          *     phrase the paper printed, or empty.
          *
-         *     ``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations
-         *     beside a verbatim citation. The interpretation is omitted when the printed
-         *     token is already the value. ``scientificName`` is the model's reading of the
-         *     accepted name. ``traitValue`` and ``traitUnit`` stay empty until a trait
-         *     list standardizes them.
+         *     ``verbatimScientificName`` is the printed subject. It is omitted when the
+         *     paper does not name one. ``scientificName``, ``traitValue``, and
+         *     ``traitUnit`` are interpretations beside a verbatim citation. The
+         *     interpretation is omitted when the printed token is already the value.
+         *     An interpretation may be stored when its printed citation is absent.
+         *     A consumer checks that citation when it needs the printed token.
+         *     ``scientificName`` is the model's reading of the accepted name.
+         *     ``traitValue`` and ``traitUnit`` stay empty until a trait list
+         *     standardizes them.
          *
          *     The artifact does not enforce a closed set of values. An interpretation's
          *     ``value`` is any non-empty string, including ``traitCode``. An extractor may
@@ -715,7 +728,7 @@ export interface components {
             traitCode?: components["schemas"]["Interpretation"] | null;
             verbatimTraitName: components["schemas"]["Citation"];
             scientificName?: components["schemas"]["Interpretation"] | null;
-            verbatimScientificName: components["schemas"]["Citation"];
+            verbatimScientificName?: components["schemas"]["Citation"] | null;
             traitValue?: components["schemas"]["Interpretation"] | null;
             verbatimTraitValue?: components["schemas"]["Citation"] | null;
             traitUnit?: components["schemas"]["Interpretation"] | null;
@@ -814,6 +827,15 @@ export interface components {
             /** Blocks */
             blocks: components["schemas"]["ContentBlock"][];
         };
+        /** ParseProblem */
+        ParseProblem: {
+            code: components["schemas"]["ProblemCode"];
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+        };
         /** ParserArtifact */
         ParserArtifact: {
             /** Schema Version */
@@ -823,6 +845,8 @@ export interface components {
             parser: components["schemas"]["ParserInfo"];
             /** Pages */
             pages: components["schemas"]["Page"][];
+            /** Problems */
+            problems?: components["schemas"]["ParseProblem"][];
         };
         /** ParserInfo */
         ParserInfo: {
@@ -835,6 +859,12 @@ export interface components {
                 [key: string]: string | number | boolean;
             };
         };
+        /**
+         * ProblemCode
+         * @description A gap the parse noticed. The parse still succeeded.
+         * @enum {string}
+         */
+        ProblemCode: "advent_fonts_unchecked" | "advent_symbols_replaced" | "advent_characters_unverified" | "advent_pages_uncounted";
         /**
          * ReadinessResponse
          * @example {
@@ -925,8 +955,32 @@ export interface components {
             text: string;
             /** Heading Level */
             heading_level?: number | null;
-            /** Spans */
-            spans?: components["schemas"]["TextSpan"][];
+            /** Lines */
+            lines?: components["schemas"]["TextLine"][];
+        };
+        /**
+         * TextLine
+         * @description One horizontal line, with a horizontal edge for each stored character.
+         *
+         *     ``x0[i]`` and ``x1[i]`` are the glyph edges of ``text[start + i]`` on the block
+         *     that owns this line. A null pair is a stored character with no ink: a space
+         *     inserted between words, a hyphen removed at a line join, or MinerU's ``^{}``
+         *     and ``_{}`` markers. A glyph that covers several characters shares its box in equal slices.
+         *     Coordinates are stored to four decimal places.
+         */
+        TextLine: {
+            /** Start */
+            start: number;
+            /** End */
+            end: number;
+            /** Y0 */
+            y0: number;
+            /** Y1 */
+            y1: number;
+            /** X0 */
+            x0: (number | null)[];
+            /** X1 */
+            x1: (number | null)[];
         };
         /**
          * TextRange
@@ -942,19 +996,6 @@ export interface components {
             start: number;
             /** End */
             end: number;
-        };
-        /**
-         * TextSpan
-         * @description Word box mapped onto `TextContent.text` as a half-open character range.
-         */
-        TextSpan: {
-            /** Start */
-            start: number;
-            /** End */
-            end: number;
-            /** Line */
-            line: number;
-            bbox: components["schemas"]["BoundingBox"];
         };
         /**
          * UploadLimitsResponse
@@ -1608,6 +1649,71 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_job_api_jobs__job_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The job was deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

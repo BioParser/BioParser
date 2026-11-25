@@ -1,68 +1,273 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
-import { clearApiKey, setApiKey } from "../api/apiKey";
-import { routes } from "../routes";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { JobStatusResponse } from "../api/client";
+import { JobDetailPage } from "./JobDetailPage";
 
-// Vitest globals are off, so Testing Library cannot register its cleanup by itself.
-afterEach(cleanup);
-
-let fetchMock: Mock<typeof fetch>;
-
-beforeEach(() => {
-  setApiKey("test-key", false);
-  // Both artifact routes answer 409, which is enough to show that the view opened.
-  fetchMock = vi.fn<typeof fetch>(async () =>
-    Response.json({ detail: { code: "artifact_not_available", message: "x" } }, { status: 409 }),
-  );
-  vi.stubGlobal("fetch", fetchMock);
-});
-
+const metadata = {
+  job_id: "abc",
+  display_name: "study.pdf",
+  parser: "mineru",
+  extractor: "default",
+  created_at: "2026-11-10T10:00:00Z",
+  document_checksum: "a".repeat(64),
+  has_parse_result: false,
+};
+const clients: QueryClient[] = [];
 afterEach(() => {
+  cleanup();
+  for (const client of clients) client.clear();
+  clients.length = 0;
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  clearApiKey("forgotten");
-  sessionStorage.clear();
 });
 
-function renderAt(path: string): ReturnType<typeof createMemoryRouter> {
-  const router = createMemoryRouter(routes, { initialEntries: [path] });
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderPage() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  clients.push(client);
+  const router = createMemoryRouter([{ path: "/jobs/:jobId", element: <JobDetailPage /> }], {
+    initialEntries: ["/jobs/abc"],
+  });
   render(
-    <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={client}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
   return router;
 }
 
-describe("JobDetailPage evidence", () => {
-  it("opens the evidence view for ?observation", async () => {
-    renderAt("/jobs/job-1?observation=0");
-    await screen.findByRole("heading", { name: "Evidence for observation 1" });
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/jobs/job-1/artifacts/extraction",
-      expect.anything(),
+// A done job's page also loads its results, so /ets answers with an empty result.
+function answer(path: RequestInfo | URL, job: object): Response {
+  return String(path).endsWith("/ets") ? Response.json({ rows: [] }) : Response.json(job);
+}
+
+function stubJob(status: JobStatusResponse["status"]) {
+  const fetchMock = vi.fn(async (path: RequestInfo | URL) => answer(path, { ...metadata, status }));
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+async function tick(ms = 10) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
+
+describe("JobDetailPage", () => {
+  it.each(["queued", "parsing", "parsed", "extracting", "done"] as const)(
+    "shows %s and all five stages",
+    async (status) => {
+      const fetchMock = stubJob(status);
+      renderPage();
+      expect((await screen.findByText(`Status: ${status}`)).getAttribute("role")).toBe("status");
+      const stages = within(screen.getByRole("list", { name: "Job progress" })).getAllByRole(
+        "listitem",
+      );
+      expect(stages).toHaveLength(5);
+      expect(
+        stages.find((li) => li.getAttribute("aria-current") === "step")?.textContent?.toLowerCase(),
+      ).toBe(status);
+      expect(screen.queryByRole("region", { name: "Results" }) !== null).toBe(status === "done");
+      // The job, and for a done job its results.
+      expect(fetchMock.mock.calls.length).toBe(status === "done" ? 2 : 1);
+    },
+  );
+
+  it("shows the file, job ID, parser, extractor and creation time", async () => {
+    stubJob("queued");
+    renderPage();
+    await screen.findByRole("heading", { name: "study.pdf" });
+    expect(screen.getByText("abc")).toBeDefined();
+    expect(screen.getByText("mineru")).toBeDefined();
+    expect(screen.getByText("default")).toBeDefined();
+    expect(document.querySelector("time")?.dateTime).toBe(metadata.created_at);
+  });
+
+  it("asks for the stored record with detail=full", async () => {
+    // Without detail=full the API answers only the job ID and the status.
+    const fetchMock = vi.fn<typeof fetch>(async (path) =>
+      Response.json(
+        path === "/api/jobs/abc?detail=full"
+          ? { ...metadata, status: "queued" }
+          : { job_id: "abc", status: "queued" },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+    await screen.findByText("Status: queued");
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(["/api/jobs/abc?detail=full"]);
+    expect(screen.getByRole("heading", { name: "study.pdf" })).toBeDefined();
+  });
+
+  it("handles an unnamed PDF and a retained parse result after a timeout", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          ...metadata,
+          display_name: null,
+          status: "failed",
+          has_parse_result: true,
+          error: { code: "timeout" },
+        }),
+      ),
+    );
+    renderPage();
+    await screen.findByRole("heading", { name: "Unnamed PDF" });
+    expect(screen.getByRole("alert").textContent).toContain("The parse result is kept.");
+  });
+
+  it("loads the next job and cancels an outstanding request when navigating", async () => {
+    let firstSignal: AbortSignal | null | undefined;
+    const fetchMock = vi.fn<typeof fetch>(async (path, init) => {
+      if (path === "/api/jobs/abc?detail=full") {
+        firstSignal = init?.signal;
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        });
+      }
+      return answer(path, {
+        ...metadata,
+        job_id: "second",
+        display_name: "second.pdf",
+        status: "done",
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const router = renderPage();
+    await act(() => router.navigate("/jobs/second"));
+    await screen.findByRole("heading", { name: "second.pdf" });
+    expect(firstSignal?.aborted).toBe(true);
+    expect(screen.getByText("second")).toBeDefined();
+    expect(screen.queryByText("abc")).toBeNull();
+  });
+
+  it("does not start a request while the tab is initially hidden", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    const fetchMock = stubJob("queued");
+    renderPage();
+    await tick(6000);
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await tick();
+    expect(screen.getByRole("status").textContent).toBe("Status: queued");
+  });
+
+  it.each(
+    [
+      ["invalid_pdf", "The file could not be read as a valid PDF."],
+      ["parse_failed", "The PDF could not be parsed."],
+      ["extraction_failed", "Traits could not be extracted from the parsed document."],
+      ["timeout", "The job took too long to complete."],
+      ["internal_error", "An unexpected error stopped the job."],
+    ].flatMap(([code, message]) =>
+      [false, true].map((hasParseResult) => ({ code, message, hasParseResult })),
+    ),
+  )("explains $code (parse result: $hasParseResult)", async ({ code, message, hasParseResult }) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          ...metadata,
+          status: "failed",
+          has_parse_result: hasParseResult,
+          error: { code },
+        }),
+      ),
+    );
+    renderPage();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(code);
+    expect(alert.textContent).toContain(message);
+    expect(alert.textContent?.includes("The parse result is kept.")).toBe(hasParseResult);
+    const stages = within(screen.getByRole("list", { name: "Job progress" })).getAllByRole(
+      "listitem",
+    );
+    const failedStage = stages.find((li) => li.getAttribute("aria-current") === "step");
+    expect(failedStage?.textContent).toBe(
+      hasParseResult ? "Extracting — failed" : "Parsing — failed",
+    );
+    expect(stages.filter((li) => li.textContent?.includes("— complete"))).toHaveLength(
+      hasParseResult ? 3 : 1,
     );
   });
 
-  it("loads nothing without an observation", async () => {
-    renderAt("/jobs/job-1");
-    await screen.findByRole("heading", { name: "Job" });
-    expect(screen.queryByRole("heading", { name: /Evidence/ })).toBeNull();
-    expect(fetchMock).not.toHaveBeenCalled();
+  it.each([404, 422])("stops polling and explains an unknown job on %s", async (status) => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => new Response(null, { status }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+    await tick();
+    expect(screen.getByRole("alert").textContent).toBe("There is no such job.");
+    await tick(12000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores an observation that is not a number", async () => {
-    renderAt("/jobs/job-1?observation=abc");
-    await screen.findByRole("heading", { name: "Job" });
-    expect(screen.queryByRole("heading", { name: /Evidence/ })).toBeNull();
+  it.each(["done", "failed"])("polls until %s and then stops", async (status) => {
+    vi.useFakeTimers();
+    let response = { ...metadata, status: "queued", error: { code: "parse_failed" } };
+    const fetchMock = vi.fn(async (path: RequestInfo | URL) => answer(path, response));
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+    await tick();
+    response = { ...response, status };
+    await tick(3000);
+    expect(screen.getByText(`Status: ${status}`).getAttribute("role")).toBe("status");
+    const calls = fetchMock.mock.calls.length;
+    await tick(12000);
+    expect(fetchMock.mock.calls.length).toBe(calls);
   });
 
-  it("removes ?observation on close", async () => {
-    const router = renderAt("/jobs/job-1?observation=0&other=1");
-    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
-    expect(screen.queryByRole("heading", { name: /Evidence/ })).toBeNull();
-    expect(router.state.location.search).toBe("?other=1");
+  it("pauses in a hidden tab and resumes when visible", async () => {
+    vi.useFakeTimers();
+    const fetchMock = stubJob("queued");
+    renderPage();
+    await tick();
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const calls = fetchMock.mock.calls.length;
+    await tick(12000);
+    expect(fetchMock.mock.calls.length).toBe(calls);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await tick(3000);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(calls);
+  });
+
+  it.each([false, true])("retries a 503 and recovers (cached job: %s)", async (cached) => {
+    vi.useFakeTimers();
+    let unavailable = !cached;
+    const fetchMock = vi.fn(async () =>
+      unavailable
+        ? new Response(null, { status: 503 })
+        : Response.json({ ...metadata, status: "queued" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+    await tick();
+    if (cached) {
+      unavailable = true;
+      await tick(3000);
+      expect(screen.getByText("study.pdf")).toBeDefined();
+    }
+    expect(screen.getByRole("alert").textContent).toContain("Retrying automatically");
+    unavailable = false;
+    await tick(3000);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("Status: queued");
   });
 });

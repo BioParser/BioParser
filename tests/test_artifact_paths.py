@@ -9,7 +9,6 @@ from bioparser.artifact_paths import (
     ArtifactPathTraversalError,
     extract_result_path,
     parse_result_path,
-    pdf_checksum,
     pdf_path,
     validate_artifact_path,
     validate_path_segment,
@@ -144,19 +143,6 @@ def test_pdf_path_follows_the_convention() -> None:
     assert pdf_path(CHECKSUM) == f"pdf/{CHECKSUM}"
 
 
-def test_pdf_checksum_inverts_pdf_path() -> None:
-    assert pdf_checksum(pdf_path(CHECKSUM)) == CHECKSUM
-
-
-@pytest.mark.parametrize(
-    "path",
-    ["art-pdf-test", f"pdf/{CHECKSUM}/parsed/default/1", "pdf/", f"x/{CHECKSUM}"],
-)
-def test_pdf_checksum_rejects_non_pdf_artifact_paths(path: str) -> None:
-    with pytest.raises(ArtifactPathError):
-        pdf_checksum(path)
-
-
 def test_parse_result_path_follows_the_convention() -> None:
     path = parse_result_path(CHECKSUM, "mineru", "1")
     assert path == f"pdf/{CHECKSUM}/parsed/mineru/1"
@@ -170,8 +156,8 @@ def test_a_configuration_is_one_more_segment_after_the_version() -> None:
 
 def test_extract_result_path_keeps_the_parse_path() -> None:
     parsed = parse_result_path(CHECKSUM, "mineru", "2", "standard")
-    path = extract_result_path(parsed, "default", "0")
-    assert path == f"{parsed}/extracted/default/0"
+    path = extract_result_path(parsed, "default", "0", "job-1")
+    assert path == f"{parsed}/extracted/default/0/job-1"
 
 
 @pytest.mark.parametrize(
@@ -190,11 +176,13 @@ def test_builders_reject_a_value_that_is_not_one_segment(bad: str) -> None:
     # The parse ref is a whole path, so a value with a slash can be one.
     if bad != "a/b":
         with pytest.raises(ArtifactPathError):
-            extract_result_path(bad, "default", "1")
+            extract_result_path(bad, "default", "1", "job-1")
     with pytest.raises(ArtifactPathError):
-        extract_result_path(parsed, bad, "1")
+        extract_result_path(parsed, bad, "1", "job-1")
     with pytest.raises(ArtifactPathError):
-        extract_result_path(parsed, "default", bad)
+        extract_result_path(parsed, "default", bad, "job-1")
+    with pytest.raises(ArtifactPathError):
+        extract_result_path(parsed, "default", "1", bad)
 
 
 @pytest.mark.parametrize("bad", [".", ".."])
@@ -205,9 +193,11 @@ def test_builders_reject_dot_segments(bad: str) -> None:
         parse_result_path(CHECKSUM, "mineru", "2", bad)
     parsed = parse_result_path(CHECKSUM, "mineru", "2")
     with pytest.raises(ArtifactPathTraversalError):
-        extract_result_path(bad, "default", "1")
+        extract_result_path(bad, "default", "1", "job-1")
     with pytest.raises(ArtifactPathTraversalError):
-        extract_result_path(parsed, bad, "1")
+        extract_result_path(parsed, bad, "1", "job-1")
+    with pytest.raises(ArtifactPathTraversalError):
+        extract_result_path(parsed, "default", "1", bad)
 
 
 @pytest.mark.parametrize("segment", ["a", CHECKSUM, "doc_123.v1-final", "..."])

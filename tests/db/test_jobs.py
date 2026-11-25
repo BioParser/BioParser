@@ -16,6 +16,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError, InterfaceError, Operation
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from bioparser.db import documents as document_queries
 from bioparser.db import engine as db_engine
 from bioparser.db import jobs as job_queries
 from bioparser.db.engine import (
@@ -28,6 +29,7 @@ from bioparser.db.migrate import upgrade
 from bioparser.jobs import CorruptJobStateError, JobState, JobStatus
 
 CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
+CHECKSUM = "ab" * 32
 
 
 def test_async_url_selects_asyncpg() -> None:
@@ -75,7 +77,7 @@ def _queued(job_id: uuid.UUID, **overrides: object) -> JobState:
         "status": "queued",
         "parser": "default",
         "extractor": "default",
-        "pdf_ref": str(uuid.uuid4()),
+        "document_checksum": CHECKSUM,
         "created_at": CREATED_AT,
     }
     fields.update(overrides)
@@ -84,12 +86,29 @@ def _queued(job_id: uuid.UUID, **overrides: object) -> JobState:
 
 async def _create(state: JobState) -> JobState:
     async with db_engine.transaction() as connection:
+        await document_queries.create(
+            connection,
+            checksum=state.document_checksum,
+            display_name=None,
+            size_bytes=0,
+        )
         return await job_queries.create(connection, state)
 
 
 async def _get(job_id: uuid.UUID) -> JobState | None:
     async with db_engine.transaction() as connection:
         return await job_queries.get(connection, job_id)
+
+
+async def _deleted_at(job_id: uuid.UUID) -> datetime | None:
+    """The stored deleted_at. The row must exist."""
+    async with db_engine.transaction() as connection:
+        deleted_at: datetime | None = (
+            await connection.execute(
+                text("SELECT deleted_at FROM jobs WHERE job_id = :job_id"), {"job_id": job_id}
+            )
+        ).scalar_one()
+        return deleted_at
 
 
 def _create_database(admin_url: str, name: str) -> None:
@@ -161,6 +180,74 @@ async def test_create_rejects_duplicate_job_id(database: str) -> None:
 
     with pytest.raises(DatabaseError, match="Postgres query failed"):
         await _create(state)
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_create_rejects_a_checksum_with_no_document(database: str) -> None:
+    state = _queued(uuid.uuid4(), document_checksum="11" * 32)
+    with pytest.raises(DatabaseError, match="Postgres query failed"):
+        async with db_engine.transaction() as connection:
+            await job_queries.create(connection, state)
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_job_reads_join_the_document_including_a_missing_name(database: str) -> None:
+    named_checksum = "ab" * 32
+    unnamed_checksum = "cd" * 32
+    named = _queued(uuid.uuid4(), document_checksum=named_checksum)
+    unnamed = _queued(uuid.uuid4(), document_checksum=unnamed_checksum)
+    async with db_engine.transaction() as connection:
+        await document_queries.create(
+            connection,
+            checksum=named_checksum,
+            display_name="paper.pdf",
+            size_bytes=4,
+        )
+        await document_queries.create(
+            connection,
+            checksum=unnamed_checksum,
+            display_name=None,
+            size_bytes=0,
+        )
+        await job_queries.create(connection, named)
+        await job_queries.create(connection, unnamed)
+
+    async with db_engine.transaction() as connection:
+        loaded_rows = await job_queries.list_jobs(connection, job_id=named.job_id)
+        missing_rows = await job_queries.list_jobs(connection, job_id=unnamed.job_id)
+        listed = await job_queries.list_jobs(connection)
+        named_jobs = await job_queries.list_jobs_for_document(connection, named_checksum)
+        absent = await job_queries.list_jobs_for_document(connection, "ef" * 32)
+
+    assert len(loaded_rows) == 1
+    loaded_state, loaded_name = loaded_rows[0]
+    assert loaded_state.document_checksum == named_checksum
+    assert loaded_name == "paper.pdf"
+    assert len(missing_rows) == 1
+    assert missing_rows[0][1] is None
+    names = {state.job_id: name for state, name in listed}
+    assert names[named.job_id] == "paper.pdf"
+    assert names[unnamed.job_id] is None
+    assert named_jobs is not None
+    assert [state.job_id for state, _name in named_jobs] == [named.job_id]
+    assert absent is None
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_a_document_with_no_jobs_lists_nothing(database: str) -> None:
+    checksum = "ef" * 32
+    async with db_engine.transaction() as connection:
+        await document_queries.create(
+            connection,
+            checksum=checksum,
+            display_name="empty.pdf",
+            size_bytes=1,
+        )
+        jobs = await job_queries.list_jobs_for_document(connection, checksum)
+    assert jobs == []
 
 
 @pytest.mark.integration
@@ -354,6 +441,158 @@ async def test_mark_failed_skips_a_missing_job(database: str) -> None:
         )
 
 
+# What each status needs on a stored job besides its id: refs and error
+_STATUS_FIELDS: dict[str, dict[str, object]] = {
+    "queued": {},
+    "parsing": {},
+    "parsed": {"parse_result_ref": "parsed"},
+    "extracting": {"parse_result_ref": "parsed"},
+    "done": {"parse_result_ref": "parsed", "extract_result_ref": "extracted"},
+    "failed": {"error_code": "invalid_pdf"},
+}
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_delete_finished_removes_only_a_done_or_failed_job(database: str) -> None:
+    states = {
+        status: _queued(uuid.uuid4(), status=status, **fields)
+        for status, fields in _STATUS_FIELDS.items()
+    }
+    for state in states.values():
+        await _create(state)
+
+    async with db_engine.transaction() as connection:
+        outcomes = {
+            status: await job_queries.delete_finished(connection, state.job_id)
+            for status, state in states.items()
+        }
+        missing = await job_queries.delete_finished(connection, uuid.uuid4())
+        document = await document_queries.get(connection, CHECKSUM)
+        remaining = await job_queries.list_jobs_for_document(connection, CHECKSUM)
+
+    assert outcomes == {
+        "queued": "not_finished",
+        "parsing": "not_finished",
+        "parsed": "not_finished",
+        "extracting": "not_finished",
+        "done": "deleted",
+        "failed": "deleted",
+    }
+    assert missing == "missing"
+    assert document is not None
+    assert remaining is not None
+    assert {state.status for state, _name in remaining} == {
+        "queued",
+        "parsing",
+        "parsed",
+        "extracting",
+    }
+    # A soft delete: the rows stay, marked deleted, and the active jobs are not marked.
+    for status, state in states.items():
+        deleted_at = await _deleted_at(state.job_id)
+        assert (deleted_at is not None) == (status in ("done", "failed")), status
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_delete_finished_removes_only_the_given_job(database: str) -> None:
+    """Other finished jobs of the same document and of other documents stay."""
+    other_checksum = "cd" * 32
+    deleted = _queued(uuid.uuid4(), status="done", **_STATUS_FIELDS["done"])
+    same_document = _queued(uuid.uuid4(), status="done", **_STATUS_FIELDS["done"])
+    other_document = _queued(
+        uuid.uuid4(), status="failed", document_checksum=other_checksum, **_STATUS_FIELDS["failed"]
+    )
+    for state in (deleted, same_document, other_document):
+        await _create(state)
+
+    async with db_engine.transaction() as connection:
+        assert await job_queries.delete_finished(connection, deleted.job_id) == "deleted"
+        listed = await job_queries.list_jobs(connection)
+
+    assert {state.job_id for state, _name in listed} == {
+        same_document.job_id,
+        other_document.job_id,
+    }
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_delete_finished_checks_the_status_it_deletes(database: str) -> None:
+    """A job that moves on after a read is not deleted by a stale decision."""
+    state = _queued(uuid.uuid4())
+    await _create(state)
+    async with db_engine.transaction() as connection:
+        await job_queries.claim(
+            connection,
+            state.job_id,
+            status="parsing",
+            from_statuses=("queued", "parsing"),
+            max_claims=2,
+        )
+        assert await job_queries.delete_finished(connection, state.job_id) == "not_finished"
+        await job_queries.mark_failed(
+            connection, state.job_id, "parse_failed", from_statuses=("parsing",)
+        )
+        assert await job_queries.delete_finished(connection, state.job_id) == "deleted"
+    assert await _deleted_at(state.job_id) is not None
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_a_deleted_job_leaves_the_lists_and_keeps_its_row(database: str) -> None:
+    state = _queued(uuid.uuid4(), status="done", **_STATUS_FIELDS["done"])
+    await _create(state)
+
+    async with db_engine.transaction() as connection:
+        assert await job_queries.delete_finished(connection, state.job_id) == "deleted"
+        listed = await job_queries.list_jobs(connection)
+        by_id = await job_queries.list_jobs(connection, job_id=state.job_id)
+        for_document = await job_queries.list_jobs_for_document(connection, CHECKSUM)
+        stored = await job_queries.get(connection, state.job_id)
+
+    assert listed == []
+    assert by_id == []
+    # The document is still there, with no jobs to list.
+    assert for_document == []
+    # The workers still read it, and skip it by its status.
+    assert stored is not None
+    assert stored.status == "done"
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_deleting_a_deleted_job_is_missing_and_keeps_the_first_time(database: str) -> None:
+    state = _queued(uuid.uuid4(), status="failed", **_STATUS_FIELDS["failed"])
+    await _create(state)
+    async with db_engine.transaction() as connection:
+        assert await job_queries.delete_finished(connection, state.job_id) == "deleted"
+    first = await _deleted_at(state.job_id)
+
+    async with db_engine.transaction() as connection:
+        assert await job_queries.delete_finished(connection, state.job_id) == "missing"
+
+    assert await _deleted_at(state.job_id) == first
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_the_database_refuses_to_delete_an_active_job(database: str) -> None:
+    """jobs_deleted_at_check holds the rule even for a write that skips delete_finished."""
+    state = _queued(uuid.uuid4())
+    await _create(state)
+
+    with pytest.raises(DatabaseError):
+        async with db_engine.transaction() as connection:
+            await connection.execute(
+                text("UPDATE jobs SET deleted_at = now() WHERE job_id = :job_id"),
+                {"job_id": state.job_id},
+            )
+
+    assert await _deleted_at(state.job_id) is None
+
+
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_a_write_does_not_require_a_valid_job_state(database: str) -> None:
@@ -362,10 +601,18 @@ async def test_a_write_does_not_require_a_valid_job_state(database: str) -> None
     with engine.begin() as connection:
         connection.execute(
             text(
-                "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
-                "VALUES (:job_id, 2, 'parsing', 'default', 'default', :pdf_ref)"
+                "INSERT INTO documents (checksum, display_name, size_bytes) "
+                "VALUES (:checksum, NULL, 0)"
             ),
-            {"job_id": job_id, "pdf_ref": str(uuid.uuid4())},
+            {"checksum": CHECKSUM},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, "
+                "document_checksum) "
+                "VALUES (:job_id, 1, 'parsing', 'default', 'default', :checksum)"
+            ),
+            {"job_id": job_id, "checksum": CHECKSUM},
         )
     engine.dispose()
 
@@ -438,10 +685,18 @@ async def test_corrupt_stored_state_raises(database: str) -> None:
     with engine.begin() as connection:
         connection.execute(
             text(
-                "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
-                "VALUES (:job_id, 2, 'queued', 'default', 'default', :pdf_ref)"
+                "INSERT INTO documents (checksum, display_name, size_bytes) "
+                "VALUES (:checksum, NULL, 0)"
             ),
-            {"job_id": job_id, "pdf_ref": str(uuid.uuid4())},
+            {"checksum": CHECKSUM},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, "
+                "document_checksum) "
+                "VALUES (:job_id, 1, 'queued', 'default', 'default', :checksum)"
+            ),
+            {"job_id": job_id, "checksum": CHECKSUM},
         )
     engine.dispose()
 
@@ -618,7 +873,7 @@ async def test_transaction_passes_through_an_unrelated_error(
 
 def test_job_columns_match_the_job_state_fields() -> None:
     columns = {column.name for column in job_queries.Job.__table__.columns}
-    assert columns - {"updated_at"} == set(JobState.model_fields)
+    assert columns - {"updated_at", "deleted_at"} == set(JobState.model_fields)
 
 
 @pytest.mark.integration
@@ -626,15 +881,27 @@ def test_job_columns_match_the_job_state_fields() -> None:
 async def test_migrated_status_check_accepts_exactly_the_job_statuses(database: str) -> None:
     """The migration lists the statuses by hand. This fails when the code adds one."""
     insert = text(
-        "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, pdf_ref) "
-        "VALUES (:job_id, 1, :status, 'default', 'default', 'ref')"
+        "INSERT INTO documents (checksum, display_name, size_bytes) "
+        "VALUES (:checksum, NULL, 0) ON CONFLICT (checksum) DO NOTHING"
+    )
+    job_insert = text(
+        "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, document_checksum) "
+        "VALUES (:job_id, 2, :status, 'default', 'default', :checksum)"
     )
     engine = create_engine(sync_database_url(database))
     try:
+        with engine.begin() as connection:
+            connection.execute(insert, {"checksum": CHECKSUM})
         for status in get_args(JobStatus):
             with engine.begin() as connection:
-                connection.execute(insert, {"job_id": uuid.uuid4(), "status": status})
+                connection.execute(
+                    job_insert,
+                    {"job_id": uuid.uuid4(), "status": status, "checksum": CHECKSUM},
+                )
         with pytest.raises(IntegrityError), engine.begin() as connection:
-            connection.execute(insert, {"job_id": uuid.uuid4(), "status": "not_a_status"})
+            connection.execute(
+                job_insert,
+                {"job_id": uuid.uuid4(), "status": "not_a_status", "checksum": CHECKSUM},
+            )
     finally:
         engine.dispose()

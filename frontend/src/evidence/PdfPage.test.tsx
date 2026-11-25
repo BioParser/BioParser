@@ -115,6 +115,32 @@ describe("PdfPage", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
+  it("boxes the value and the unit once the page is drawn", async () => {
+    const { container } = render(
+      <PdfPage
+        pdf={fakePdf()}
+        pageNumber={3}
+        outlines={[{ blockId: "b7", bbox: BOX }]}
+        highlights={[
+          { blockId: "b7", mark: "value", bbox: { x0: 0.2, y0: 0.25, x1: 0.3, y1: 0.3 } },
+          { blockId: "b7", mark: "unit", bbox: { x0: 0.31, y0: 0.25, x1: 0.35, y1: 0.3 } },
+        ]}
+      />,
+    );
+    act(() => resize(306));
+    await settle();
+    expect(container.querySelector(".pdf-highlight")).toBeNull();
+    await act(async () => draws[0]?.finish());
+    const [value, unit] = container.querySelectorAll<HTMLElement>(".pdf-highlight");
+    expect(value?.classList.contains("pdf-highlight-value")).toBe(true);
+    expect(value?.dataset.blockId).toBe("b7");
+    expect([value?.style.left, value?.style.width]).toEqual(["20%", "10%"]);
+    expect(unit?.classList.contains("pdf-highlight-unit")).toBe(true);
+    expect([unit?.style.left, unit?.style.width]).toEqual(["31%", "4%"]);
+    // The block outline stays beside the boxes.
+    expect(container.querySelector(".pdf-outline")).not.toBeNull();
+  });
+
   it("redraws at a new width and stops the draw in progress", async () => {
     render(<PdfPage pdf={fakePdf()} pageNumber={3} outlines={[]} />);
     act(() => resize(306));
@@ -138,6 +164,25 @@ describe("PdfPage", () => {
     act(() => resize(500));
     await settle();
     expect(container.querySelector(".pdf-outline")).not.toBeNull();
+  });
+
+  it("keeps the value box at the same place on the page after a resize", async () => {
+    const { container } = render(
+      <PdfPage
+        pdf={fakePdf()}
+        pageNumber={3}
+        outlines={[]}
+        highlights={[{ blockId: "b7", mark: "value", bbox: BOX }]}
+      />,
+    );
+    act(() => resize(306));
+    await settle();
+    await act(async () => draws[0]?.finish());
+    act(() => resize(500));
+    await settle();
+    await act(async () => draws[1]?.finish());
+    const box = container.querySelector<HTMLElement>(".pdf-highlight");
+    expect([box?.style.left, box?.style.top, box?.style.width]).toEqual(["10%", "25%", "50%"]);
   });
 
   it("stops drawing when it is removed", async () => {

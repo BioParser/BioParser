@@ -10,6 +10,7 @@ ErrorCode = Literal[
     "unsupported_content_type",
     "invalid_content_length",
     "job_not_found",
+    "job_not_finished",
     "invalid_job_id",
     "content_too_large",
     "storage_unavailable",
@@ -45,6 +46,10 @@ UNSUPPORTED_CONTENT_TYPE = ErrorDetail(
     message="Only application/pdf uploads are accepted",
 )
 JOB_NOT_FOUND = ErrorDetail(code="job_not_found", message="Job not found")
+JOB_NOT_FINISHED = ErrorDetail(
+    code="job_not_finished",
+    message="Only a done or failed job can be deleted. GET /api/jobs/{job_id} shows the job status",
+)
 INVALID_JOB_ID = ErrorDetail(code="invalid_job_id", message="job_id must be a version 4 UUID")
 CONTENT_TOO_LARGE = ErrorDetail(
     code="content_too_large",

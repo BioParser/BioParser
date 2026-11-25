@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from bioparser.jobs import JOB_STATE_SCHEMA_VERSION, JobState, SafeError
 from bioparser.jobs.state import ALLOWED_TRANSITIONS, JobStatus
 
-PDF_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
+CHECKSUM = "ab" * 32
 RESULT_REF = "7c2e1d3b-8e55-4f2b-ad4c-3a9f6b1e7d22"
 EXTRACT_REF = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
 CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
@@ -19,7 +19,7 @@ def _queued(**overrides: object) -> JobState:
         "status": "queued",
         "parser": "default",
         "extractor": "default",
-        "pdf_ref": PDF_REF,
+        "document_checksum": CHECKSUM,
         "created_at": CREATED_AT,
     }
     fields.update(overrides)
@@ -191,7 +191,7 @@ def test_job_state_is_frozen() -> None:
 
 def test_job_state_rejects_unknown_schema_version() -> None:
     with pytest.raises(ValidationError):
-        _queued(schema_version=2)
+        _queued(schema_version=1)
 
 
 # --- Jobstate fields --------------------------------------------------------
@@ -229,17 +229,16 @@ def test_job_id_must_be_uuid4() -> None:
 def test_artifact_refs_accept_artifact_paths() -> None:
     state = _queued(
         status="parsed",
-        pdf_ref="artifacts/doc-1/input.pdf",
         parse_result_ref="artifacts/doc-1/parsed.json",
     )
-    assert state.pdf_ref == "artifacts/doc-1/input.pdf"
+    assert state.document_checksum == CHECKSUM
     assert state.parse_result_ref == "artifacts/doc-1/parsed.json"
 
 
-@pytest.mark.parametrize("path", ["", "/abs", "a//b", "a/../b", "has space"])
-def test_malformed_pdf_ref_is_rejected(path: str) -> None:
+@pytest.mark.parametrize("checksum", ["", "abc", "A" * 64, "g" * 64, "ab" * 32 + " "])
+def test_malformed_document_checksum_is_rejected(checksum: str) -> None:
     with pytest.raises(ValidationError):
-        _queued(pdf_ref=path)
+        _queued(document_checksum=checksum)
 
 
 @pytest.mark.parametrize("path", ["", "/abs", "a//b", "a/../b", "has space"])
@@ -262,7 +261,7 @@ def test_stored_uuid_refs_stay_readable() -> None:
     """Records written before the type change hold UUID strings. They must still load."""
     raw = _queued(status="parsed", parse_result_ref=RESULT_REF).model_dump_json()
     restored = JobState.model_validate_json(raw)
-    assert restored.pdf_ref == PDF_REF
+    assert restored.document_checksum == CHECKSUM
     assert restored.parse_result_ref == RESULT_REF
 
 

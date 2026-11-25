@@ -15,6 +15,7 @@ from bioparser.logging_config import JsonFormatter
 from bioparser.services.vllm import config as vllm_config
 from bioparser.services.vllm import vllm as vllm_module
 from bioparser.services.vllm.vllm import (
+    VLLMContextLengthError,
     VLLMError,
     VLLMRequestRejectedError,
     VLLMSchemaError,
@@ -553,3 +554,245 @@ async def test_a_non_positive_token_count_is_rejected(
             await service.generate("hello", max_tokens=max_tokens)
     finally:
         await service.aclose()
+
+
+def _window(max_tokens: int, budget: int) -> VLLMService:
+    service = VLLMService()
+    service.model = "stub-model"
+    service._max_tokens = max_tokens
+    window = max_tokens + budget
+
+    async def cached_window() -> int:
+        return window
+
+    service.get_max_model_len = cached_window  # type: ignore[method-assign]
+    return service
+
+
+@pytest.mark.anyio
+async def test_an_exact_prefix_is_kept_and_one_token_over_is_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def count(_self: VLLMService, prompt: str, **_kwargs: object) -> int:
+        return len(prompt)
+
+    monkeypatch.setattr(VLLMService, "count_chat_tokens", count)
+    service = _window(max_tokens=4, budget=8)
+    try:
+        kept = await service.fit_prefix(["aaaa", "bbbb", "c"], separator="")
+    finally:
+        await service.aclose()
+
+    assert kept == 2
+
+
+@pytest.mark.anyio
+async def test_a_part_past_the_byte_bound_is_measured_and_the_tail_is_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[str] = []
+
+    async def count(_self: VLLMService, prompt: str, **_kwargs: object) -> int:
+        seen.append(prompt)
+        return len(prompt)
+
+    monkeypatch.setattr(VLLMService, "count_chat_tokens", count)
+    service = _window(max_tokens=4, budget=6)
+    try:
+        kept = await service.fit_prefix(["x" * 14, "y" * 30], separator="")
+    finally:
+        await service.aclose()
+
+    assert seen == ["", "x" * 14]
+    assert kept == 0
+
+
+@pytest.mark.anyio
+async def test_doubling_then_binary_search_finds_the_longest_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[int] = []
+
+    async def count(_self: VLLMService, prompt: str, **_kwargs: object) -> int:
+        seen.append(len(prompt))
+        return len(prompt) // 4
+
+    monkeypatch.setattr(VLLMService, "count_chat_tokens", count)
+    service = _window(max_tokens=4, budget=8)
+    try:
+        kept = await service.fit_prefix(["a"] * 80, separator="")
+    finally:
+        await service.aclose()
+
+    assert kept == 35
+    assert seen == [0, 16, 32, 64, 48, 40, 36, 34, 35]
+
+
+@pytest.mark.anyio
+async def test_an_empty_part_list_still_checks_the_system_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def count(
+        _self: VLLMService,
+        prompt: str,
+        *,
+        system_prompt: str | None = None,
+        enable_thinking: bool = False,
+    ) -> int:
+        return len(system_prompt or "") + len(prompt)
+
+    monkeypatch.setattr(VLLMService, "count_chat_tokens", count)
+    service = _window(max_tokens=4, budget=6)
+    try:
+        with pytest.raises(VLLMContextLengthError, match="context window"):
+            await service.fit_prefix([], system_prompt="x" * 20)
+    finally:
+        await service.aclose()
+
+
+@pytest.mark.anyio
+async def test_a_tokenize_404_clears_the_cached_model_and_rediscovers_it(
+    vllm_transport: Callable[[Handler], None],
+) -> None:
+    discoveries = 0
+    requested: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal discoveries
+        if request.url.path.endswith("/models"):
+            discoveries += 1
+            model = "old-model" if discoveries == 1 else "new-model"
+            return httpx2.Response(
+                200,
+                json=_model_list({"id": model, "max_model_len": 4096}),
+            )
+        body = json.loads(request.content)
+        requested.append(body["model"])
+        if body["model"] == "old-model":
+            return httpx2.Response(404, json={"error": {"message": "model not found"}})
+        return httpx2.Response(200, json={"count": 3, "tokens": [1, 2, 3]})
+
+    vllm_transport(handler)
+    service = VLLMService()
+    try:
+        with pytest.raises(VLLMError, match="404"):
+            await service.fit_prefix(["hello"])
+        assert service.model is None
+        assert await service.fit_prefix(["hello"]) == 1
+    finally:
+        await service.aclose()
+
+    assert discoveries == 2
+    assert requested == ["old-model", "new-model"]
+
+
+@pytest.mark.anyio
+async def test_a_restarted_server_reports_a_new_context_window(
+    vllm_transport: Callable[[Handler], None],
+) -> None:
+    windows = iter((4096, 28672))
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/models"):
+            return httpx2.Response(
+                200,
+                json=_model_list({"id": "served-model", "max_model_len": next(windows)}),
+            )
+        return httpx2.Response(200, json={"count": 1, "tokens": [1]})
+
+    vllm_transport(handler)
+    service = VLLMService()
+    try:
+        assert await service.get_max_model_len() == 4096
+        assert await service.get_max_model_len() == 28672
+        assert service.model == "served-model"
+    finally:
+        await service.aclose()
+
+
+@pytest.mark.anyio
+async def test_a_listed_model_replaces_a_stale_cached_id(
+    vllm_transport: Callable[[Handler], None],
+) -> None:
+    requested: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/models"):
+            return httpx2.Response(
+                200,
+                json=_model_list({"id": "new-model", "max_model_len": 4096}),
+            )
+        body = json.loads(request.content)
+        requested.append(body["model"])
+        return httpx2.Response(200, json={"count": 3, "tokens": [1, 2, 3]})
+
+    vllm_transport(handler)
+    service = VLLMService()
+    service.model = "old-model"
+    try:
+        assert await service.fit_prefix(["hello"]) == 1
+    finally:
+        await service.aclose()
+
+    assert service.model == "new-model"
+    assert requested == ["new-model"]
+
+
+@pytest.mark.anyio
+async def test_tokenize_sends_the_chat_the_completion_would_send(
+    vllm_log: pytest.LogCaptureFixture,
+    make_service: Callable[[Handler], VLLMService],
+) -> None:
+    seen: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        if request.url.path.endswith("/models"):
+            return httpx2.Response(
+                200,
+                json=_model_list({"id": "stub-model", "max_model_len": 4096}),
+            )
+        return httpx2.Response(200, json={"count": 3, "max_model_len": 4096, "tokens": [1, 2, 3]})
+
+    service = make_service(handler)
+    service._max_tokens = 4093
+    try:
+        kept = await service.fit_prefix(["hello"], system_prompt="sys")
+    finally:
+        await service.aclose()
+
+    assert kept == 1
+    assert [request.url.path for request in seen] == ["/v1/models", "/tokenize", "/tokenize"]
+    body = json.loads(seen[2].content)
+    assert body["model"] == "stub-model"
+    assert body["messages"] == [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "hello"},
+    ]
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert json.loads(seen[1].content)["messages"][1]["content"] == ""
+    assert "hello" not in json.dumps([record.getMessage() for record in vllm_log.records])
+
+
+@pytest.mark.anyio
+async def test_a_context_length_rejection_is_its_own_error(
+    make_service: Callable[[Handler], VLLMService],
+) -> None:
+    message = (
+        "This model's maximum context length is 4096 tokens. "
+        "However, you requested 5000 tokens (4000 in the messages, 1000 in the completion)."
+    )
+    service = make_service(
+        lambda _request: httpx2.Response(
+            400,
+            json={"error": {"message": message, "type": "invalid_request_error"}},
+        )
+    )
+    try:
+        with pytest.raises(VLLMContextLengthError, match="context window") as raised:
+            await service.generate("hello")
+    finally:
+        await service.aclose()
+
+    assert "4096" not in str(raised.value)
+    assert "4000" not in str(raised.value)

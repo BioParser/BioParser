@@ -23,6 +23,8 @@ from bioparser.api.schema import (
     JobStatusResponse,
 )
 from bioparser.api.uploads import max_body_bytes
+from bioparser.artifact_paths import pdf_path
+from bioparser.db.documents import DocumentRecord
 from bioparser.db.engine import DatabaseError
 from bioparser.ets.adapter import to_ets
 from bioparser.extract.models import (
@@ -72,7 +74,7 @@ def _job(status: JobStatus, **fields: Any) -> JobState:
         "parser": "default",
         "extractor": "default",
         "status": status,
-        "pdf_ref": PDF_REF,
+        "document_checksum": DOCUMENT_CHECKSUM,
         "created_at": CREATED_AT,
     }
     return JobState.model_validate(values | _STATUS_FIELDS[status] | fields)
@@ -106,7 +108,7 @@ def test_submit_and_retrieve_job(
     state = jobs.states[record["job_id"]]
     message = parse_queue.messages[0]
     assert message.schema_version == 1
-    assert state.pdf_ref in artifact_storage.artifacts
+    assert pdf_path(state.document_checksum) in artifact_storage.artifacts
     assert message.job_id == state.job_id
 
     response = client.get(f"/api/jobs/{record['job_id']}")
@@ -155,11 +157,13 @@ def test_submit_pdf(client: TestClient) -> None:
 async def test_duplicate_pdf_submission_reuses_stored_artifact(
     stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, jobs, parse_queue, _ = stub_api_adapters
     artifact_storage = FileSystemArtifactStorage(tmp_path / "artifacts")
-    monkeypatch.setattr(api_app.state, "artifact_storage", artifact_storage)
+    # pytest 9.2 records the previous value from the instance __dict__.
+    # Starlette State keeps attributes elsewhere, so a second
+    # monkeypatch.setattr deletes this attribute twice at teardown.
+    api_app.state.artifact_storage = artifact_storage
 
     async with httpx2.AsyncClient(
         transport=ASGITransport(api_app),
@@ -177,10 +181,10 @@ async def test_duplicate_pdf_submission_reuses_stored_artifact(
     assert [response.status_code for response in responses] == [202, 202]
     job_ids = [response.json()["job_id"] for response in responses]
     assert job_ids[0] != job_ids[1]
-    pdf_refs = {jobs.states[job_id].pdf_ref for job_id in job_ids}
-    assert len(pdf_refs) == 1
-    pdf_ref = pdf_refs.pop()
-    assert await artifact_storage.retrieve(pdf_ref) == MINIMAL_PDF
+    checksums = {jobs.states[job_id].document_checksum for job_id in job_ids}
+    assert len(checksums) == 1
+    checksum = checksums.pop()
+    assert await artifact_storage.retrieve(pdf_path(checksum)) == MINIMAL_PDF
     assert [str(message.job_id) for message in parse_queue.messages] == job_ids
 
 
@@ -475,7 +479,7 @@ def test_a_done_job_returns_its_ets_rows(
     jobs.states[str(state.job_id)] = state
     artifact = _body_mass_artifact()
     _store(artifact_storage, state.extract_result_ref or "", artifact.model_dump_json().encode())
-    references = state.pdf_ref.rsplit("/", 1)[-1]
+    references = state.document_checksum
     expected = to_ets(artifact, references=references)
 
     status = client.get(f"/api/jobs/{state.job_id}")
@@ -506,12 +510,13 @@ def test_a_done_job_record_has_no_rows(
     jobs.states[str(state.job_id)] = state
     first = _body_mass_artifact().observations[0]
     cited = first.verbatimScientificName
+    assert cited is not None
     second = first.model_copy(
         update={"traitCode": Interpretation(value="wing_length", passage=cited)}
     )
     artifact = _body_mass_artifact().model_copy(update={"observations": [first, second]})
     _store(artifact_storage, state.extract_result_ref or "", artifact.model_dump_json().encode())
-    references = state.pdf_ref.rsplit("/", 1)[-1]
+    references = state.document_checksum
     expected = to_ets(artifact, references=references)
 
     response = client.get(f"/api/jobs/{state.job_id}?detail=full")
@@ -675,6 +680,152 @@ def test_a_finished_stage_names_no_storage_path(
     response = client.get(f"/api/jobs/{state.job_id}")
 
     assert response.json() == _job_json(state)
+
+
+# --- deleting a job -------------------------------------------------------------
+
+FINISHED_STATUSES: list[JobStatus] = ["done", "failed"]
+ACTIVE_STATUSES: list[JobStatus] = ["queued", "parsing", "parsed", "extracting"]
+
+
+def _add_document(jobs: StubJobs) -> None:
+    jobs.documents[DOCUMENT_CHECKSUM] = DocumentRecord(
+        checksum=DOCUMENT_CHECKSUM, display_name="paper.pdf", size_bytes=10, created_at=CREATED_AT
+    )
+
+
+@pytest.mark.parametrize("status", FINISHED_STATUSES)
+def test_a_finished_job_is_deleted(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+    status: JobStatus,
+) -> None:
+    jobs = stub_api_adapters[1]
+    _add_document(jobs)
+    state = _job(status)
+    jobs.states[str(state.job_id)] = state
+
+    response = client.delete(f"/api/jobs/{state.job_id}")
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert client.get(f"/api/jobs/{state.job_id}").status_code == 404
+    assert client.get("/api/jobs").json() == []
+    assert client.get(f"/api/documents/{DOCUMENT_CHECKSUM}/jobs").json() == []
+
+
+@pytest.mark.parametrize("status", ACTIVE_STATUSES)
+def test_an_active_job_is_not_deleted(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+    status: JobStatus,
+) -> None:
+    jobs = stub_api_adapters[1]
+    state = _job(status)
+    jobs.states[str(state.job_id)] = state
+
+    response = client.delete(f"/api/jobs/{state.job_id}")
+
+    assert response.status_code == 409
+    ErrorResponse.model_validate(response.json())
+    assert response.json()["detail"]["code"] == "job_not_finished"
+    assert jobs.states[str(state.job_id)] == state
+
+
+def test_deleting_a_job_keeps_the_document_the_pdf_and_the_artifacts(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    artifact_storage, jobs = stub_api_adapters[:2]
+    _add_document(jobs)
+    deleted = _job("done")
+    other = _job("done")
+    jobs.states[str(deleted.job_id)] = deleted
+    jobs.states[str(other.job_id)] = other
+    for ref in (PDF_REF, PARSE_REF, EXTRACT_REF):
+        _store(artifact_storage, ref, b"{}")
+    stored = dict(artifact_storage.artifacts)
+
+    response = client.delete(f"/api/jobs/{deleted.job_id}")
+
+    assert response.status_code == 204
+    assert artifact_storage.artifacts == stored
+    assert client.get(f"/api/documents/{DOCUMENT_CHECKSUM}").status_code == 200
+    listed = client.get(f"/api/documents/{DOCUMENT_CHECKSUM}/jobs").json()
+    assert [row["job_id"] for row in listed] == [str(other.job_id)]
+    shared = client.get(f"/api/jobs/{other.job_id}/artifacts/extraction")
+    assert shared.status_code == 200
+
+
+def test_deleting_an_unknown_job_is_404(client: TestClient) -> None:
+    response = client.delete(f"/api/jobs/{uuid4()}")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "job_not_found"
+
+
+def test_deleting_a_job_twice_is_404_the_second_time(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    jobs = stub_api_adapters[1]
+    state = _job("failed")
+    jobs.states[str(state.job_id)] = state
+
+    assert client.delete(f"/api/jobs/{state.job_id}").status_code == 204
+    assert client.delete(f"/api/jobs/{state.job_id}").status_code == 404
+
+
+@pytest.mark.parametrize("job_id", ["not-a-uuid", "00000000-0000-1000-8000-000000000000"])
+def test_deleting_needs_a_version_4_job_id(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+    job_id: str,
+) -> None:
+    events = stub_api_adapters[3]
+
+    response = client.delete(f"/api/jobs/{job_id}")
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "invalid_job_id"
+    assert "job_state.delete" not in events
+
+
+def test_deleting_a_job_returns_503_when_postgres_unavailable(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    jobs = stub_api_adapters[1]
+    state = _job("done")
+    jobs.states[str(state.job_id)] = state
+    jobs.delete_error = DatabaseError("Postgres query failed: OperationalError")
+
+    response = client.delete(f"/api/jobs/{state.job_id}")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "database_unavailable"
+    assert str(state.job_id) in jobs.states
+
+
+def test_deleting_a_job_needs_the_api_key(
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    jobs = stub_api_adapters[1]
+    state = _job("done")
+    jobs.states[str(state.job_id)] = state
+
+    response = TestClient(api_app).delete(f"/api/jobs/{state.job_id}")
+
+    assert response.status_code == 401
+    assert str(state.job_id) in jobs.states
+
+
+def test_the_delete_route_is_documented() -> None:
+    operation = api_app.openapi()["paths"]["/api/jobs/{job_id}"]["delete"]
+
+    assert set(operation["responses"]) == {"204", "401", "404", "409", "422", "503"}
+    examples = operation["responses"]["409"]["content"]["application/json"]["examples"]
+    assert set(examples) == {"job_not_finished"}
 
 
 # --- job artifacts for the UI -------------------------------------------------
@@ -928,7 +1079,7 @@ def test_job_status_response_requires_an_aware_creation_time() -> None:
         JOB_STATUS_ADAPTER.validate_python(response)
 
 
-def test_job_status_returns_503_when_display_name_read_fails(
+def test_job_status_returns_503_when_the_joined_read_fails(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
@@ -937,33 +1088,11 @@ def test_job_status_returns_503_when_display_name_read_fails(
     jobs.states[str(state.job_id)] = state
     jobs.doc_get_error = DatabaseError("Postgres query failed: OperationalError")
 
-    plain = client.get(f"/api/jobs/{state.job_id}")
-    assert plain.status_code == 200
-
     response = client.get(f"/api/jobs/{state.job_id}?detail=full")
 
     assert response.status_code == 503
     ErrorResponse.model_validate(response.json())
     assert response.json()["detail"]["code"] == "database_unavailable"
-
-
-@pytest.mark.parametrize("route", ["status", "list"])
-def test_invalid_job_pdf_ref_returns_job_state_unreadable(
-    client: TestClient,
-    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
-    route: str,
-) -> None:
-    jobs = stub_api_adapters[1]
-    state = _job("queued", pdf_ref="legacy-ref")
-    jobs.states[str(state.job_id)] = state
-    path = f"/api/jobs/{state.job_id}" if route == "status" else "/api/jobs"
-
-    assert client.get(path).status_code == 200
-    response = client.get(path, params={"detail": "full"})
-
-    assert response.status_code == 500
-    ErrorResponse.model_validate(response.json())
-    assert response.json()["detail"]["code"] == "job_state_unreadable"
 
 
 def test_submit_returns_503_when_postgres_unavailable(

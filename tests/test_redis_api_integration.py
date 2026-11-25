@@ -172,7 +172,6 @@ async def test_redis_backed_submission_and_polling(
         assert submission == {"job_id": job_id, "status": "queued"}
         document_checksum = hashlib.sha256(MINIMAL_PDF).hexdigest()
 
-        expected_pdf_ref = f"pdf/{document_checksum}"
         parsed_job_id = UUID(job_id)
         async with database.transaction() as connection:
             queued = await job_queries.get(connection, parsed_job_id)
@@ -183,10 +182,10 @@ async def test_redis_backed_submission_and_polling(
             status="queued",
             parser=DEFAULT_PARSER_NAME,
             extractor=DEFAULT_EXTRACTOR_NAME,
-            pdf_ref=expected_pdf_ref,
+            document_checksum=document_checksum,
             created_at=queued.created_at,
         )
-        assert await artifact_storage.retrieve(queued.pdf_ref) == MINIMAL_PDF
+        assert await artifact_storage.retrieve(f"pdf/{queued.document_checksum}") == MINIMAL_PDF
 
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
@@ -276,9 +275,9 @@ async def test_same_pdf_can_be_submitted_twice(
         for job_id in job_ids:
             states.append(await job_queries.get(connection, job_id))
     assert all(state is not None for state in states)
-    pdf_refs = {state.pdf_ref for state in states if state is not None}
-    assert pdf_refs == {f"pdf/{hashlib.sha256(MINIMAL_PDF).hexdigest()}"}
-    assert await artifact_storage.retrieve(pdf_refs.pop()) == MINIMAL_PDF
+    checksums = {state.document_checksum for state in states if state is not None}
+    assert checksums == {hashlib.sha256(MINIMAL_PDF).hexdigest()}
+    assert await artifact_storage.retrieve(f"pdf/{checksums.pop()}") == MINIMAL_PDF
 
     recorder = _Recorder()
     await asyncio.to_thread(parse_queue.consume, recorder, until_empty=True)

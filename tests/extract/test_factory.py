@@ -14,7 +14,6 @@ def test_default_is_the_registered_extractor() -> None:
     extractor = get_extractor(
         DEFAULT_EXTRACTOR_NAME,
         vllm=cast(VLLMService, StubVLLMService()),
-        char_budget=8000,
     )
 
     assert isinstance(extractor, DefaultExtractor)
@@ -26,7 +25,6 @@ def test_every_versioned_extractor_can_be_built(name: str) -> None:
     extractor = get_extractor(
         name,
         vllm=cast(VLLMService, StubVLLMService()),
-        char_budget=8000,
     )
 
     assert callable(extractor.extract)
@@ -37,5 +35,4 @@ def test_unknown_extractor_name_is_unavailable() -> None:
         get_extractor(
             "other",
             vllm=cast(VLLMService, StubVLLMService()),
-            char_budget=8,
         )

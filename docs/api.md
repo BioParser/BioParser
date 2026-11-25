@@ -7,8 +7,8 @@ module layout that implements it. The system context for these endpoints is in
 Status: **draft** — document and job management routes (`POST /api/documents`,
 `GET /api/documents`, `GET /api/documents/{checksum}`, `GET /api/documents/{checksum}/file`,
 `POST /api/extractions`, `POST /api/documents/{checksum}/jobs`, `GET /api/documents/{checksum}/jobs`, `GET /api/jobs`,
-`GET /api/jobs/{job_id}`, `GET /api/jobs/{job_id}/ets`, `GET /api/jobs/{job_id}/artifacts/parser`,
-`GET /api/jobs/{job_id}/artifacts/extraction`, `GET /health`, `GET /ready`)
+`GET /api/jobs/{job_id}`, `DELETE /api/jobs/{job_id}`, `GET /api/jobs/{job_id}/ets`,
+`GET /api/jobs/{job_id}/artifacts/parser`, `GET /api/jobs/{job_id}/artifacts/extraction`, `GET /health`, `GET /ready`)
 are implemented, along with upload validation and a configurable size limit. A done job's
 ETS rows are `GET /api/jobs/{job_id}/ets`.
 
@@ -27,8 +27,8 @@ ETS rows are `GET /api/jobs/{job_id}/ets`.
   artifact and maps it. Other statuses do not. `?detail=full` on the job read adds the
   stored record and does not include the rows.
 - **Readiness (`/ready`) is supported.** The readiness endpoint performs
-  lightweight dependency checks only when corresponding environment variables are
-  set (see *Readiness behaviour* below).
+  concurrent checks of Redis, Postgres, and artifact storage (see *Readiness
+  behaviour* below).
 - **No `/api/v1` prefix or global exception handlers.** Routes raise
   `fastapi.HTTPException` directly and use structured `{"code", "message"}`
   details for the queued-job API's documented failures.
@@ -70,6 +70,10 @@ All endpoints require a shared API key, except the explicit public endpoints: `/
   }
   ```
 - **OpenAPI / Swagger UI:** The security scheme `ApiKeyAuth` is registered on the OpenAPI document (`/openapi.json`), enabling interactive authentication via the "Authorize" button in Swagger UI (`/docs`).
+
+### Rate limit
+
+Through Traefik (`docker-compose.traefik.yml`), each client IP address has a request limit. Traefik answers a request over the limit with `429 Too Many Requests`, and the request does not go to the API. The response has a `Retry-After` header (in seconds) and a plain-text body, not the error envelope above. Send the request again after that time. The API port itself has no rate limit. [docker-compose.md](docker-compose.md#https-and-traefik) gives the values.
 
 ### `POST /api/extractions`
 
@@ -259,7 +263,7 @@ If omitted or `{}` is sent, parameters default to `parser: "default"` and `extra
 
 ### `GET /api/documents/{checksum}/jobs`
 
-List all jobs associated with a specific document. The default row is `job_id` and `status`. `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and `document_checksum`. A done job does not include its ETS rows here. Those are `GET /api/jobs/{job_id}/ets`.
+List all jobs for `{checksum}`. The default row is `job_id` and `status`. `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and `document_checksum`. `display_name` is null when the document has no name. A done job does not include its ETS rows here. Those are `GET /api/jobs/{job_id}/ets`.
 
 **Success — `200 OK`:**
 
@@ -277,7 +281,7 @@ List all jobs associated with a specific document. The default row is `job_id` a
 
 ### `GET /api/jobs`
 
-List jobs across all documents, with optional query filters. The default row is `job_id` and `status`. `?detail=full` adds the stored record and still omits ETS rows.
+List jobs across all documents, with optional query filters. The default row is `job_id` and `status`. `?detail=full` adds the stored record from the job joined to its document, and still omits ETS rows. `display_name` is null when the document has no name.
 
 - **Query parameters:**
   - `status` (optional): Filter by job status (`queued`, `parsing`, `parsed`, `extracting`, `done`, `failed`).
@@ -322,9 +326,11 @@ Poll a job.
 - `done` is `job_id` and `status`. The ETS rows are `GET /api/jobs/{job_id}/ets`, in
   observation order. `references` on each row is the document checksum.
 - `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`,
-  `document_checksum`, and `has_parse_result`. The flag is true when the parser
-  artifact was stored. `timeout` and `internal_error` do not say which stage ended,
-  so a full read is what tells a reader that parsing finished. The full body has no rows.
+  `document_checksum`, and `has_parse_result`. That read is one query, the job
+  joined to its document. `display_name` is null when the document has no name.
+  The flag is true when the parser artifact was stored. `timeout` and
+  `internal_error` do not say which stage ended, so a full read is what tells a
+  reader that parsing finished. The full body has no rows.
 - The response holds no storage paths. The UI reads the internal artifacts from the
   [job artifact routes](#get-apijobsjob_idartifactsparser-and-artifactsextraction).
 
@@ -338,6 +344,34 @@ Poll a job.
 | 503 | the database is unavailable |
 
 The status read does not load the extraction artifact. A done job is `job_id` and `status`.
+
+### `DELETE /api/jobs/{job_id}`
+
+Delete a finished job. Only a `done` or `failed` job can be deleted: a job in any other
+status still has a message in the queue and a worker that moves it on.
+
+**Success — `204 No Content`**, with no body. The job no longer appears in `GET /api/jobs`
+or `GET /api/documents/{checksum}/jobs`, and `GET /api/jobs/{job_id}` and the job's
+`/ets` and `/artifacts/...` routes are `404`.
+
+- It is a soft delete. The job row stays in the database with `deleted_at` set, so a
+  later undo or trash view can bring it back. No route does that yet.
+- The document, its PDF and the parser and extraction artifacts stay. Artifacts are
+  keyed by the PDF checksum and the parser and extractor versions, so other jobs of the
+  same PDF can share them.
+- The status check and the write are one statement, so a job that moves to another
+  status in between is not deleted. The `jobs_deleted_at_check` constraint also keeps
+  `deleted_at` off a job that is not `done` or `failed`.
+
+**Failure:**
+
+| Status | When |
+|--------|------|
+| 401 | missing or invalid API key (`unauthorized`) |
+| 404 | no job with that id (`job_not_found`), including one already deleted |
+| 409 | the job is not `done` or `failed` (`job_not_finished`); the row stays |
+| 422 | `job_id` is not a version 4 UUID (`invalid_job_id`) |
+| 503 | the database is unavailable (`database_unavailable`) |
 
 ### `GET /api/jobs/{job_id}/ets`
 
@@ -433,8 +467,8 @@ built files (`frontend/dist`); the API image sets it. Without it, every `/ui` pa
 
 ### `GET /ready`
 
-Readiness. Checks Redis, Postgres, and the artifact directory, each with a bounded
-timeout, and returns `200 {"status": "ready"}` when all three succeed.
+Readiness. Checks Redis, Postgres, and the artifact directory concurrently, each
+with a bounded timeout, and returns `200 {"status": "ready"}` when all three succeed.
 
 **Success — `200 OK`:**
 
@@ -462,18 +496,21 @@ Readiness behaviour:
   (seconds, default `1.0`). On failure the endpoint returns `503`; FastAPI places the
   readiness payload under `detail`, e.g.
   `{"detail": {"status": "not ready", "unavailable": ["redis"]}}`.
-- It does the same kind of TCP connect against the Postgres URL (default port 5432),
-  with the same timeout. On failure `503` is returned with `"postgres"` in the
-  `unavailable` list. The response does not include the URL or its password.
+- It runs `SELECT 1` through the API's existing Postgres pool, using the configured
+  database credentials. The same per-check timeout covers borrowing a connection
+  and completing the transaction. A connection failure, failed query, or timeout
+  returns `503` with `"postgres"` in the `unavailable` list. The response does not
+  include the URL or its password.
 - It attempts to create and remove a temporary file in the artifact directory to confirm
   writability. On failure `503` is returned with `"storage"` in the `unavailable` list.
 - Invalid configuration, including an empty required setting, returns `503` with
   `"config"` in the `unavailable` list. The API also refuses to start when these
   settings are missing.
 
-Checks are intentionally minimal: they use a raw TCP connect for Redis and Postgres and a
-local file operation for storage so that checks are fast, require no credentials, and do
-not expose secrets in error messages.
+All three checks start together, so a slow dependency does not delay the start of
+the other checks. The endpoint waits for all results and lists every failed
+dependency in Redis, Postgres, storage order. Redis uses a raw TCP connection;
+Postgres must accept an authenticated query; storage uses a local file operation.
 
 ---
 
@@ -518,8 +555,15 @@ Migrations stay on the sync psycopg driver.
   Starlette's `RequestBodyLimitMiddleware` aborts an oversized body while it is still
   being received. A missing or understated `Content-Length` is still capped while
   reading the file in chunks.
-- `GET /api/jobs/{job_id}` — reads the typed state from Postgres. It does not read the
-  extraction artifact. `?detail=full` adds the stored record.
+- `GET /api/jobs/{job_id}` — reads the job joined to its document. It does not read the
+  extraction artifact. `?detail=full` adds the stored record, including the document's
+  display name.
+- `DELETE /api/jobs/{job_id}` — soft-deletes the job with `bioparser.db.jobs.delete_finished`,
+  one `UPDATE jobs SET deleted_at = now() WHERE status IN ('done', 'failed') AND
+  deleted_at IS NULL`. When no row changed, a second read tells `404` (no row, or already
+  deleted) from `409`. Storage is not touched. `list_jobs` and `list_jobs_for_document`
+  leave deleted jobs out, so every job read of the API does too. `jobs.get`, which only
+  the workers use, still returns a deleted job: they skip a `done` or `failed` job.
 - `GET /api/jobs/{job_id}/ets` — for a done job, reads the extraction artifact off the
   event loop and returns the ETS rows. Another status is `409`.
 - `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`
@@ -596,7 +640,7 @@ through `get_api_settings()` (cached) and read from a `.env` file plus
 | `artifact_storage_path` | required | filesystem artifact root |
 | `redis_url` | required | Redis URL for the parse queue |
 | `redis_timeout_seconds` | `5.0` | Redis connect and operation timeout |
-| `database_url` | required | `postgresql` URL (`PostgresDsn`) for job state; `/ready` TCP-connects to it |
+| `database_url` | required | `postgresql` URL (`PostgresDsn`) for job state; `/ready` runs `SELECT 1` through the API's pool |
 | `parse_queue_name` | `parse` | Redis/Dramatiq queue name shared with the parser worker |
 | `api_key` | `None` | Shared API key (`BIOPARSER_API_KEY`). Required when `auth_disabled` is false. Redacted in logs and errors (`SecretStr`). |
 | `auth_disabled` | `False` | Disables authentication checks for local development (`BIOPARSER_AUTH_DISABLED`). Emits a warning at startup if true. |
