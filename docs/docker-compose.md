@@ -103,7 +103,7 @@ docker compose exec -T grafana grafana cli --homepath /usr/share/grafana admin r
 
 **A stack with passwords in `.env`.** Before you run the script, write each old value from `.env` to its file: `REDIS_PASSWORD` to `secrets/redis_password`, `POSTGRES_PASSWORD` to `secrets/postgres_password`, `POSTGRES_APP_PASSWORD` to `secrets/postgres_app_password`, `BIOPARSER_API_KEY` to `secrets/bioparser_api_key`, `GRAFANA_ADMIN_PASSWORD` to `secrets/grafana_admin_password` and `HF_TOKEN` to `secrets/hf_token`. Do not copy an empty value: the script makes a new one. Then remove those lines from `.env`. If `postgres_password` gets a new value, do the `psql` steps above, or `migrate` cannot log in. vLLM no longer reads the token of `hf auth login`: copy that token to `secrets/hf_token`.
 
-`tests/test_compose_stack.py` starts the stack with new secrets. It checks `docker inspect`, `/proc`, the logs, the image layers and the rotation steps above. It needs the Docker daemon and `BIOPARSER_TEST_COMPOSE_STACK=1`.
+`tests/test_compose_stack.py` starts the stack with new secrets. It checks `docker inspect`, `/proc`, the logs, the image layers and the rotation steps above. It needs the Docker daemon and `BIOPARSER_TEST_COMPOSE_STACK=1`. GitHub CI runs it after a change to the Compose files, the Dockerfiles or the secret code.
 
 ## Start
 
