@@ -3,6 +3,7 @@
 import ast
 import os
 import re
+import runpy
 import stat
 import sys
 from pathlib import Path
@@ -10,7 +11,13 @@ from pathlib import Path
 import pytest
 
 from bioparser.scripts import generate_secrets
-from bioparser.scripts.generate_secrets import EXTERNAL, GENERATED, make_secrets
+from bioparser.scripts.generate_secrets import (
+    DIRECTORY_VARIABLE,
+    EXTERNAL,
+    GENERATED,
+    make_secrets,
+    secrets_directory,
+)
 
 
 def test_it_makes_the_missing_files_and_keeps_the_others(
@@ -55,6 +62,67 @@ def test_a_file_that_you_wrote_gets_mode_0644_and_a_link_stays(tmp_path: Path) -
     assert stat.S_IMODE(written.stat().st_mode) == 0o644
     assert target.read_text(encoding="ascii") == "linked-value"
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+def test_the_directory_is_the_one_that_compose_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """${BIOPARSER_SECRETS_DIR:-./secrets}: the shell wins, then the last value in .env."""
+    monkeypatch.delenv(DIRECTORY_VARIABLE, raising=False)
+    env_file = tmp_path / ".env"
+    assert secrets_directory(env_file) == Path("secrets")
+
+    env_file.write_text(
+        "# BIOPARSER_SECRETS_DIR=./commented\n"
+        "BIOPARSER_SECRETS_DIR=./first\n"
+        "export\tBIOPARSER_SECRETS_DIR = '../shared secrets' # note\n",
+        encoding="utf-8",
+    )
+    assert secrets_directory(env_file) == Path("../shared secrets")
+    env_file.write_text("BIOPARSER_SECRETS_DIR=~/bioparser-secrets # note\n", encoding="utf-8")
+    assert secrets_directory(env_file) == Path.home() / "bioparser-secrets"
+    env_file.write_text("BIOPARSER_SECRETS_DIR=\n", encoding="utf-8")
+    assert secrets_directory(env_file) == Path("secrets")
+
+    env_file.write_text("BIOPARSER_SECRETS_DIR=./from-env-file\n", encoding="utf-8")
+    monkeypatch.setenv(DIRECTORY_VARIABLE, "/srv/bioparser-secrets")
+    assert secrets_directory(env_file) == Path("/srv/bioparser-secrets")
+    monkeypatch.setenv(DIRECTORY_VARIABLE, "")  # set and empty: the default, not .env
+    assert secrets_directory(env_file) == Path("secrets")
+
+
+def test_an_expansion_or_an_open_quote_in_env_stops_the_script(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Compose expands ${HOME} in .env. The script does not, so it does not guess a path."""
+    monkeypatch.delenv(DIRECTORY_VARIABLE, raising=False)
+    env_file = tmp_path / ".env"
+    for value in ("${HOME}/secrets", "'$HOME'", '"secrets\\new"'):
+        env_file.write_text(f"BIOPARSER_SECRETS_DIR={value}\n", encoding="utf-8")
+        with pytest.raises(SystemExit, match="Write a literal value"):
+            secrets_directory(env_file)
+    env_file.write_text("BIOPARSER_SECRETS_DIR='secrets\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="unterminated quote"):
+        secrets_directory(env_file)
+
+    monkeypatch.setenv(DIRECTORY_VARIABLE, "/srv/bioparser-secrets")  # .env is not read
+    assert secrets_directory(env_file) == Path("/srv/bioparser-secrets")
+
+
+def test_the_script_writes_to_a_shared_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """For example one directory for many Git worktrees. The script makes the missing parents."""
+    shared = tmp_path / "shared" / "bioparser-secrets"
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    monkeypatch.chdir(checkout)
+    monkeypatch.setenv(DIRECTORY_VARIABLE, str(shared))
+
+    runpy.run_path(generate_secrets.__file__, run_name="__main__")
+
+    assert sorted(path.name for path in shared.iterdir()) == sorted(GENERATED + EXTERNAL)
+    assert not (checkout / "secrets").exists()
 
 
 def test_the_script_imports_only_the_standard_library() -> None:

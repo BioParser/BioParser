@@ -9,8 +9,9 @@ SECRET_NAME = re.compile(r"^(?!.*_(FILE|PATH|DIR)$).*(PASSWORD|SECRET|TOKEN|API_
 
 
 def test_git_and_the_image_build_leave_out_the_secrets_directory() -> None:
-    assert "/secrets/" in (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
-    assert "secrets/" in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    """The same line in both files. Each file then ignores only the secrets/ at the root."""
+    for name in (".gitignore", ".dockerignore"):
+        assert "/secrets/" in (ROOT / name).read_text(encoding="utf-8").splitlines(), name
 
 
 def test_no_dockerfile_and_no_env_example_line_sets_a_secret() -> None:

@@ -43,7 +43,7 @@ The passwords, the API key and the Hugging Face token are files, not variables: 
 
 Optional:
 
-`BIOPARSER_SECRETS_DIR`: the directory of the secret files (default `./secrets`).  
+`BIOPARSER_SECRETS_DIR`: the directory of the secret files (default `./secrets`). The script in [Secrets](#secrets) writes to the same directory.  
 `BIOPARSER_MINERU_TIER`: MinerU parse tier for the parser worker (CPU stack `basic`; GPU stack default `standard`, or `advanced`). See [docs/parser.md](parser.md).  
 `BIOPARSER_PARSE_TIME_LIMIT_SECONDS`: the worker's limit for one parse (default `1800`, at most `3600`).  
 `MINERU_API_CONCURRENCY`: how many parse jobs the `mineru` service runs at once (default `1`); more wait in its queue. Each running job needs its own memory, so raise the `mineru` `mem_limit` in the overlay with it.  
@@ -75,6 +75,8 @@ python3 src/bioparser/scripts/generate_secrets.py
 ```
 
 The script writes a random value of 64 hex digits to each file that does not exist. It does not change a file that exists. Your own value must be printable ASCII without spaces, double quotes or backslashes.
+
+The script writes to the directory that Compose reads: `BIOPARSER_SECRETS_DIR` from the shell, else its last value in `.env`, else `./secrets`. In `.env`, write a literal path without `$` or `\`. Git and the image build ignore only `./secrets`. Put another directory outside the checkout. One such directory can serve many Git worktrees. The commands on this page use `secrets/`. If you set `BIOPARSER_SECRETS_DIR`, replace `secrets/` with your directory.
 
 | File | Services |
 |---|---|
