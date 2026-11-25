@@ -1,6 +1,8 @@
 import asyncio
 import logging
+from importlib import import_module
 from pathlib import Path
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -90,7 +92,14 @@ def test_valid_api_key_succeeds(
     assert response.status_code == 201
 
 
-def test_health_and_ready_accessible_without_api_key(auth_enabled: None) -> None:
+def test_health_and_ready_accessible_without_api_key(
+    auth_enabled: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # This client skips lifespan, so it has no database pool. Exercise auth with
+    # Postgres unavailable; query behavior is covered by the readiness tests.
+    monkeypatch.setattr(
+        import_module("bioparser.api.app"), "_check_postgres", AsyncMock(return_value=False)
+    )
     client = TestClient(app)
 
     # No X-API-Key header sent

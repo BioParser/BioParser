@@ -13,6 +13,7 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ValidationError
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from bioparser.artifact_paths import pdf_path
@@ -854,6 +855,16 @@ async def _check_tcp(host: str | None, port: int, timeout: float) -> bool:
         return False
 
 
+async def _check_postgres(timeout: float) -> bool:
+    try:
+        async with asyncio.timeout(timeout):
+            async with database.transaction() as connection:
+                await connection.execute(text("SELECT 1"))
+        return True
+    except (DatabaseError, TimeoutError):
+        return False
+
+
 async def _check_storage(path: str, timeout: float) -> bool:
     def _attempt_storage_write() -> bool:
         try:
@@ -899,19 +910,15 @@ async def readiness() -> ReadinessResponse:
     timeout = settings.dependency_check_timeout_seconds
 
     redis = settings.redis_url
-    if not await _check_tcp(redis.host, redis.port or 6379, timeout):
-        unavailable.append("redis")
+    results = await asyncio.gather(
+        _check_tcp(redis.host, redis.port or 6379, timeout),
+        _check_postgres(timeout),
+        _check_storage(settings.artifact_storage_path, timeout),
+    )
 
-    # PostgresDsn can hold several hosts. Check the first, as libpq tries it first.
-    db = settings.database_url.hosts()[0]
-    if not await _check_tcp(db["host"], db["port"] or 5432, timeout):
-        unavailable.append("postgres")
-
-    if not await _check_storage(
-        settings.artifact_storage_path,
-        timeout,
-    ):
-        unavailable.append("storage")
+    for name, ready in zip(("redis", "postgres", "storage"), results, strict=True):
+        if not ready:
+            unavailable.append(name)
 
     if unavailable:
         raise HTTPException(
