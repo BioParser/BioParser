@@ -21,6 +21,7 @@ class JobRecord(BaseModel):
 
     created_at: AwareDatetime
     display_name: str | None
+    title: str | None
     parser: str
     extractor: str
     document_checksum: str
@@ -131,6 +132,14 @@ class DocumentMetadataResponse(BaseModel):
             ]
         }
     )
+
+
+class UpdateDocumentRequest(BaseModel):
+    """Set or clear the title shared by all jobs of a document."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(description="Document title; null or blank clears it")
 
 
 class CreateJobRequest(BaseModel):

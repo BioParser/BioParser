@@ -75,6 +75,108 @@ def test_reupload_keeps_or_replaces_title(client: TestClient, endpoint: str) -> 
         assert document["title"] == expected
 
 
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ('  Darwin\'s "paper"\x00\n  ', 'Darwin\'s "paper"'),
+        (None, None),
+        (" \t\n ", None),
+        ("a" * 500, "a" * 500),
+    ],
+)
+def test_patch_document_title(client: TestClient, title: str | None, expected: str | None) -> None:
+    uploaded = client.post(
+        "/api/documents",
+        files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
+        data={"title": "Original title"},
+    ).json()
+    response = client.patch(f"/api/documents/{MINIMAL_PDF_HASH}", json={"title": title})
+    assert response.status_code == 200
+    assert response.json() == {**uploaded, "title": expected}
+    assert client.get(f"/api/documents/{MINIMAL_PDF_HASH}").json()["title"] == expected
+    assert client.get("/api/documents").json()[0]["title"] == expected
+
+
+@pytest.mark.parametrize(
+    "body", [{}, {"title": 42}, {"title": "a" * 501}, {"title": "Valid", "unexpected": True}]
+)
+def test_patch_document_invalid_title(client: TestClient, body: dict[str, object]) -> None:
+    client.post(
+        "/api/documents",
+        files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
+        data={"title": "Original title"},
+    )
+    response = client.patch(f"/api/documents/{MINIMAL_PDF_HASH}", json=body)
+    assert response.status_code == 422
+    assert client.get(f"/api/documents/{MINIMAL_PDF_HASH}").json()["title"] == "Original title"
+
+
+@pytest.mark.parametrize(("checksum", "status"), [("0" * 64, 404), ("invalid", 422)])
+def test_patch_document_checksum(client: TestClient, checksum: str, status: int) -> None:
+    response = client.patch(f"/api/documents/{checksum}", json={"title": "Title"})
+    assert response.status_code == status
+
+
+def test_patch_document_requires_auth(client: TestClient) -> None:
+    response = client.patch(
+        f"/api/documents/{MINIMAL_PDF_HASH}",
+        headers={"X-API-Key": "invalid"},
+        json={"title": "Title"},
+    )
+    assert response.status_code == 401
+
+
+def test_patch_document_database_error(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    stub_api_adapters[1].doc_create_error = DatabaseError("database unavailable")
+    response = client.patch(f"/api/documents/{MINIMAL_PDF_HASH}", json={"title": "Title"})
+    assert response.status_code == 503
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_job_responses_follow_document_title(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+    failed: bool,
+) -> None:
+    client.post(
+        "/api/documents",
+        files={"file": ("sample.pdf", MINIMAL_PDF, "application/pdf")},
+        data={"title": "Original title"},
+    )
+    job_ids = [
+        client.post(f"/api/documents/{MINIMAL_PDF_HASH}/jobs", json={}).json()["job_id"]
+        for _ in range(2)
+    ]
+    if failed:
+        jobs = stub_api_adapters[1]
+        for job_id in job_ids:
+            jobs.states[job_id] = jobs.states[job_id].with_changes(
+                status="failed", error_code="internal_error"
+            )
+
+    for title in ["Original title", "Updated title", None]:
+        response = client.patch(f"/api/documents/{MINIMAL_PDF_HASH}", json={"title": title})
+        assert response.status_code == 200
+        for endpoint in ["/api/jobs", f"/api/documents/{MINIMAL_PDF_HASH}/jobs"]:
+            response = client.get(endpoint, params={"detail": "full"})
+            assert response.status_code == 200
+            assert len(response.json()) == 2
+            assert all(job["title"] == title for job in response.json())
+            assert all(job["display_name"] == "sample.pdf" for job in response.json())
+            brief = client.get(endpoint).json()
+            assert all("title" not in job for job in brief)
+        for job_id in job_ids:
+            endpoint = f"/api/jobs/{job_id}"
+            response = client.get(endpoint, params={"detail": "full"})
+            assert response.status_code == 200
+            assert response.json()["title"] == title
+            assert response.json()["display_name"] == "sample.pdf"
+            assert "title" not in client.get(endpoint).json()
+
+
 def test_upload_document_creates_new_document(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],

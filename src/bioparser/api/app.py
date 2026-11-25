@@ -88,6 +88,7 @@ from .schema import (
     JobStatusResponse,
     ReadinessResponse,
     ReadinessUnavailableResponse,
+    UpdateDocumentRequest,
     UploadLimitsResponse,
 )
 from .ui import add_ui_routes
@@ -297,7 +298,7 @@ def _document_response(doc: DocumentRecord) -> DocumentMetadataResponse:
     )
 
 
-async def _read_job(request: Request, job_id: UUID) -> tuple[JobState, str | None]:
+async def _read_job(request: Request, job_id: UUID) -> tuple[JobState, str | None, str | None]:
     """The stored job joined to its document name, or the route's 404, 500 or 503."""
     try:
         async with database.transaction() as connection:
@@ -507,6 +508,35 @@ async def get_document(request: Request, checksum: str) -> DocumentMetadataRespo
     return _document_response(doc)
 
 
+@app.patch(
+    "/api/documents/{checksum}",
+    dependencies=[Depends(require_api_key)],
+    response_model=DocumentMetadataResponse,
+    responses={
+        401: error_response(UNAUTHORIZED),
+        404: error_response(DOCUMENT_NOT_FOUND),
+        422: error_response(INVALID_CHECKSUM),
+        503: error_response(DATABASE_UNAVAILABLE),
+    },
+)
+async def update_document(checksum: str, body: UpdateDocumentRequest) -> DocumentMetadataResponse:
+    """Set or clear a PDF's title for every job of that document."""
+    valid_checksum = _validate_checksum(checksum)
+    title = sanitize_title(body.title)
+    try:
+        async with database.transaction() as connection:
+            doc = await document_queries.update_title(connection, valid_checksum, title)
+    except DatabaseError as exc:
+        LOGGER.error(
+            "document update failed",
+            extra={"document_id": valid_checksum, **error_fields(exc)},
+        )
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
+    if doc is None:
+        raise http_error(404, DOCUMENT_NOT_FOUND)
+    return _document_response(doc)
+
+
 @app.get(
     "/api/upload-limits",
     dependencies=[Depends(require_api_key)],
@@ -671,8 +701,8 @@ async def list_document_jobs(
         raise http_error(404, DOCUMENT_NOT_FOUND)
 
     if detail == "full":
-        return [job_body_full(state, name) for state, name in jobs]
-    return [job_body(state) for state, _name in jobs]
+        return [job_body_full(state, name, title) for state, name, title in jobs]
+    return [job_body(state) for state, _name, _title in jobs]
 
 
 @app.get(
@@ -706,8 +736,8 @@ async def list_jobs(
         raise http_error(503, DATABASE_UNAVAILABLE) from exc
 
     if detail == "full":
-        return [job_body_full(state, name) for state, name in jobs]
-    return [job_body(state) for state, _name in jobs]
+        return [job_body_full(state, name, title) for state, name, title in jobs]
+    return [job_body(state) for state, _name, _title in jobs]
 
 
 @app.get(
@@ -732,12 +762,12 @@ async def job_status(
     adds `error`. `done` is `job_id` and `status`. The ETS rows are
     `GET /api/jobs/{job_id}/ets`. This route does not read the extraction artifact.
 
-    `?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,
+    `?detail=full` adds the stored record: `created_at`, `display_name`, `title`, `parser`,
     `extractor`, `document_checksum`, and `has_parse_result`.
     """
-    state, display_name = await _read_job(request, _parse_job_id(job_id))
+    state, display_name, title = await _read_job(request, _parse_job_id(job_id))
     if detail == "full":
-        return job_body_full(state, display_name)
+        return job_body_full(state, display_name, title)
     return job_body(state)
 
 
@@ -796,7 +826,7 @@ async def job_ets(request: Request, job_id: str) -> EtsRowsResponse:
 
     A job that is not done has no rows yet.
     """
-    state, _display_name = await _read_job(request, _parse_job_id(job_id))
+    state, _display_name, _title = await _read_job(request, _parse_job_id(job_id))
     if state.status != "done":
         raise http_error(409, ARTIFACT_NOT_AVAILABLE)
     return await job_ets_rows(request, state)
@@ -814,7 +844,7 @@ async def job_ets(request: Request, job_id: str) -> EtsRowsResponse:
 )
 async def job_parser_artifact(request: Request, job_id: str) -> Response:
     """The parser artifact of a job, from `parsed` on (also for a job that failed later)."""
-    job, _display_name = await _read_job(request, _parse_job_id(job_id))
+    job, _display_name, _title = await _read_job(request, _parse_job_id(job_id))
     return await _stored_artifact(request, job, job.parse_result_ref, "parser")
 
 
@@ -830,7 +860,7 @@ async def job_parser_artifact(request: Request, job_id: str) -> Response:
 )
 async def job_extraction_artifact(request: Request, job_id: str) -> Response:
     """The extraction artifact of a `done` job."""
-    job, _display_name = await _read_job(request, _parse_job_id(job_id))
+    job, _display_name, _title = await _read_job(request, _parse_job_id(job_id))
     return await _stored_artifact(request, job, job.extract_result_ref, "extraction")
 
 

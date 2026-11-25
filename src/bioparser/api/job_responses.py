@@ -53,12 +53,13 @@ def _raise_invalid(exc: ValueError, job_id: object) -> NoReturn:
     raise _InvalidArtifact from exc
 
 
-def _record(state: JobState, display_name: str | None) -> dict[str, Any]:
+def _record(state: JobState, display_name: str | None, title: str | None) -> dict[str, Any]:
     """The stored record. No storage paths."""
     return {
         "job_id": state.job_id,
         "created_at": state.created_at,
         "display_name": display_name,
+        "title": title,
         "parser": state.parser,
         "extractor": state.extractor,
         "document_checksum": state.document_checksum,
@@ -79,13 +80,15 @@ def job_body(state: JobState) -> JobStatusResponse:
     return JobResponse(job_id=state.job_id, status=state.status)
 
 
-def job_body_full(state: JobState, display_name: str | None) -> JobStatusResponse:
+def job_body_full(
+    state: JobState, display_name: str | None, title: str | None
+) -> JobStatusResponse:
     """The public status with the stored record. Still no ETS rows."""
     if state.status == "failed":
         return FailedJobFullResponse(
-            status="failed", error=_error(state), **_record(state, display_name)
+            status="failed", error=_error(state), **_record(state, display_name, title)
         )
-    return JobFullResponse(status=state.status, **_record(state, display_name))
+    return JobFullResponse(status=state.status, **_record(state, display_name, title))
 
 
 def _ets_rows(payload: bytes, references: str, job_id: object) -> EtsRowsResponse:

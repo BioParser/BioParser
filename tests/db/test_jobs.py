@@ -222,16 +222,17 @@ async def test_job_reads_join_the_document_including_a_missing_name(database: st
         absent = await job_queries.list_jobs_for_document(connection, "ef" * 32)
 
     assert len(loaded_rows) == 1
-    loaded_state, loaded_name = loaded_rows[0]
+    loaded_state, loaded_name, loaded_title = loaded_rows[0]
     assert loaded_state.document_checksum == named_checksum
     assert loaded_name == "paper.pdf"
+    assert loaded_title is None
     assert len(missing_rows) == 1
     assert missing_rows[0][1] is None
-    names = {state.job_id: name for state, name in listed}
+    names = {state.job_id: name for state, name, _title in listed}
     assert names[named.job_id] == "paper.pdf"
     assert names[unnamed.job_id] is None
     assert named_jobs is not None
-    assert [state.job_id for state, _name in named_jobs] == [named.job_id]
+    assert [state.job_id for state, _name, _title in named_jobs] == [named.job_id]
     assert absent is None
 
 
@@ -482,7 +483,7 @@ async def test_delete_finished_removes_only_a_done_or_failed_job(database: str) 
     assert missing == "missing"
     assert document is not None
     assert remaining is not None
-    assert {state.status for state, _name in remaining} == {
+    assert {state.status for state, _name, _title in remaining} == {
         "queued",
         "parsing",
         "parsed",
@@ -511,7 +512,7 @@ async def test_delete_finished_removes_only_the_given_job(database: str) -> None
         assert await job_queries.delete_finished(connection, deleted.job_id) == "deleted"
         listed = await job_queries.list_jobs(connection)
 
-    assert {state.job_id for state, _name in listed} == {
+    assert {state.job_id for state, _name, _title in listed} == {
         same_document.job_id,
         other_document.job_id,
     }

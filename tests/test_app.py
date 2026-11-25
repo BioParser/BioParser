@@ -1073,6 +1073,7 @@ def test_job_status_response_requires_an_aware_creation_time() -> None:
         "status": "queued",
         "created_at": "2026-01-01T00:00:00",
         "display_name": None,
+        "title": None,
         "parser": "default",
         "extractor": "default",
         "document_checksum": DOCUMENT_CHECKSUM,
