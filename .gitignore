@@ -190,6 +190,8 @@ activemq-data/
 *.credentials
 bioparser-configmap.yaml
 bioparser-secret.yaml
+# Docker secrets for Compose: src/bioparser/scripts/generate_secrets.py makes them.
+/secrets/
 
 # SSH / private keys
 .ssh/

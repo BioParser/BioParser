@@ -187,6 +187,8 @@ activemq-data/
 *.secret
 *.token
 *.credentials
+# Compose mounts these at runtime. They never go into an image.
+secrets/
 
 # SSH / private keys
 .ssh/

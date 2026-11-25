@@ -1,6 +1,5 @@
 # logs: Alloy reads every container's output. Loki stores; Grafana visualizes them.
 # Turned on by the COMPOSE_FILE line in .env. Grafana: http://localhost:3000 (GRAFANA_PORT)
-x-require-grafana-password: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
 
 networks:
   logs:
@@ -10,9 +9,10 @@ networks:
   docker-api:
     internal: true
 
+# A file, as in docker-compose.yml: generate_secrets.py makes it.
 secrets:
   grafana_admin_password:
-    environment: GRAFANA_ADMIN_PASSWORD
+    file: ${BIOPARSER_SECRETS_DIR:-./secrets}/grafana_admin_password
 
 services:
   docker-api:
