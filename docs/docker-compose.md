@@ -6,7 +6,7 @@ Compose runs eight services:
 - `mineru` is the PDF parser service (MinerU 4.2 `mineru-api`: Basic tier on the CPU stack; Standard with its VLM on the GPU stack, which also serves Advanced) on internal network port 8000. It is only on that internal network, so it is never published to the host; the host scripts use a separately run container (see [parser.md](parser.md)). The CPU stack builds `bioparser-mineru:cpu`, the GPU stack `bioparser-mineru:gpu`, from the same Dockerfile.  
 - `redis` is the job queue on port 6379 (accessed inside the Docker network using `redis:6379`).  
 - `postgres` is a Postgres 18 database on the internal network (`postgres:5432`), with its data on the `postgres-data` volume. It is not published to the host. Job records live here.  
-- `migrate` runs `bioparser-migrate` from its own image (`bioparser-migrate`). It logs in as the `bioparser` superuser, upgrades the schema, creates the `bioparser_app` login with `POSTGRES_APP_PASSWORD`, and grants that login use of the tables. It then exits. `docker compose up` runs it again on the next start. An already current database is left as it is, and an existing `postgres-data` volume gains `bioparser_app` on that run. Removing the volume recreates the cluster. `POSTGRES_USER` stays `bioparser`.  
+- `migrate` runs `bioparser-migrate` from its own image (`bioparser-migrate`). It logs in as the `bioparser` superuser, upgrades the schema, creates the `bioparser_app` login with the password in `secrets/postgres_app_password`, and grants that login use of the tables. It then exits. `docker compose up` runs it again on the next start. An already current database is left as it is, and an existing `postgres-data` volume gains `bioparser_app` on that run. Removing the volume recreates the cluster. `POSTGRES_USER` stays `bioparser`.  
 - `bioparser` is FastAPI on host port `BIOPARSER_PORT` (default 8080). It starts after `migrate` has exited successfully. The API process does not migrate.  
 - `parser-worker` consumes the `parse` queue and sends `mineru` jobs to the `mineru` service. It is not published to the host, and the same image `bioparser-parser-worker` serves the CPU and GPU stacks.  
 - `extractor-worker` consumes the `extract` queue. It is not published to the host. Both stacks build `bioparser-extractor-worker` from `docker/extractor-worker.Dockerfile`. It calls the `vllm` service. The model is not in this image.  
@@ -22,7 +22,7 @@ Compose runs eight services:
 
 - `traefik` terminates TLS/HTTPS on host port `TRAEFIK_HTTPS_PORT` (default 443), limits the request rate of each client IP address, enforces Basic Authentication (users from the file in `TRAEFIK_USERS_FILE`, which you make; the repository ships none), and routes internally to `http://bioparser:8080`. Plain HTTP is disabled so credentials never travel unencrypted. It runs as unprivileged user `65534:65534` (`nobody`), uses file-based configuration (`docker/traefik/bioparser.yml`), and requires no Docker socket access.
 
-The README has the default install and start commands. This page covers env vars, networking, logs, HTTPS, and `test_prompt`.
+The README has the default install and start commands. This page covers env vars, secrets, networking, logs, HTTPS, and `test_prompt`.
 
 ## Environment
 
@@ -38,20 +38,18 @@ Required:
 `VLLM_MODEL`: Hugging Face repo id, for example `Qwen/Qwen3-0.6B` (already set in `.env.example`).  
 `VLLM_PORT`: host port for vLLM (default `8000`).  
 `BIOPARSER_PORT`: host port for the API (default `8080`).  
-`BIOPARSER_API_KEY`: the key clients send in `X-API-Key` (at least 32 visible ASCII characters, see [docs/api.md](api.md#authentication)). The API does not start without it, unless `BIOPARSER_AUTH_DISABLED=true`.  
-`POSTGRES_PASSWORD`: password of the `bioparser` superuser. Compose puts it in the `migrate` database URL. `migrate` logs in as `bioparser`. Keep it URL-safe (`@`, `:`, `/`, `#` and `%` break that URL). The image applies this password only when `postgres-data` is empty.  
-`POSTGRES_APP_PASSWORD`: password of the `bioparser_app` login. It must differ from `POSTGRES_PASSWORD`. Compose puts it in the API and worker database URLs, and `migrate` sets it on the role after upgrading. `migrate` resets it from this value on every start. The same URL-safe rule applies.
+
+The passwords, the API key and the Hugging Face token are files, not variables: see [Secrets](#secrets).
 
 Optional:
 
-`HF_TOKEN`: needed for gated or private Hugging Face models.  
+`BIOPARSER_SECRETS_DIR`: the directory of the secret files (default `./secrets`). The script in [Secrets](#secrets) writes to the same directory.  
 `BIOPARSER_MINERU_TIER`: MinerU parse tier for the parser worker (CPU stack `basic`; GPU stack default `standard`, or `advanced`). See [docs/parser.md](parser.md).  
 `BIOPARSER_PARSE_TIME_LIMIT_SECONDS`: the worker's limit for one parse (default `1800`, at most `3600`).  
 `MINERU_API_CONCURRENCY`: how many parse jobs the `mineru` service runs at once (default `1`); more wait in its queue. Each running job needs its own memory, so raise the `mineru` `mem_limit` in the overlay with it.  
 
 With `docker-compose.logging.yml`:
 
-`GRAFANA_ADMIN_PASSWORD` (required): password of the Grafana user `admin`. Grafana reads it only when the `grafana-data` volume is new; after that, change the password in Grafana.  
 `GRAFANA_PORT`: host port for Grafana (default `3000`).  
 `LOKI_RETENTION_PERIOD`: how long Loki keeps logs (default `168h`, 7 days).  
 
@@ -65,6 +63,45 @@ With `docker-compose.traefik.yml`:
 Inside Compose, the extractor worker uses `BIOPARSER_VLLM_BASE_URL=http://vllm:8000/v1`, and the parser worker uses `BIOPARSER_MINERU_BASE_URL=http://mineru:8000`. On the host, `test_prompt` should use `http://localhost:8000/v1` (the default in `.env.example`).
 
 Weights cache on the host at `~/.cache/huggingface`.
+
+## Secrets
+
+`.env` holds no password, key or token. Each secret is a file in `secrets/`, which Git and the image build ignore. Compose mounts the file as a [Docker secret](https://docs.docker.com/compose/how-tos/use-secrets/) in `/run/secrets/`, only in the services that use it. `docker inspect`, the environment and the command lines show no secret.
+
+Make the files before the first start, in the directory that holds `docker-compose.yml`:
+
+```sh
+python3 src/bioparser/scripts/generate_secrets.py
+```
+
+The script writes a random value of 64 hex digits to each file that does not exist. It does not change a file that exists. Your own value must be printable ASCII without spaces, double quotes or backslashes.
+
+The script writes to the directory that Compose reads: `BIOPARSER_SECRETS_DIR` from the shell, else its last value in `.env`, else `./secrets`. In `.env`, write a literal path without `$` or `\`. Git and the image build ignore only `./secrets`. Put another directory outside the checkout. One such directory can serve many Git worktrees. The commands on this page use `secrets/`. If you set `BIOPARSER_SECRETS_DIR`, replace `secrets/` with your directory.
+
+| File | Services |
+|---|---|
+| `redis_password` | `redis`, `bioparser`, `parser-worker`, `extractor-worker` |
+| `postgres_password` | `postgres`, `migrate`: the `bioparser` superuser |
+| `postgres_app_password` | `migrate`, `bioparser`, `parser-worker`, `extractor-worker`: the `bioparser_app` login |
+| `bioparser_api_key` | `bioparser`: the key that clients send in `X-API-Key` |
+| `grafana_admin_password` | `grafana`: the password of the user `admin` |
+| `hf_token` | `vllm`: your Hugging Face token for a gated model. An empty file: no token |
+
+The directory has mode `0700`: only you and root can open it. The script gives each file mode `0644` at each run, because Compose bind-mounts the file with its host mode and the services run as other users. Redis gets its password on stdin, not as an argument. The API and the workers read their files with pydantic-settings (`secrets_dir`).
+
+**Rotate a secret.** Delete its file and run the script again. Then recreate the services in the table, for example `docker compose up -d --force-recreate redis bioparser parser-worker extractor-worker`. A running container keeps the old file. Postgres and Grafana keep their password in their volume. Set the new password in them too:
+
+```sh
+docker compose up -d --wait --force-recreate postgres
+docker compose exec -T postgres psql -U bioparser -d bioparser -v ON_ERROR_STOP=1 <<'SQL'
+\set password `cat /run/secrets/postgres_password`
+ALTER ROLE bioparser PASSWORD :'password';
+SQL
+docker compose up -d --force-recreate migrate
+docker compose exec -T grafana grafana cli --homepath /usr/share/grafana admin reset-admin-password --password-from-stdin < secrets/grafana_admin_password
+```
+
+**A stack with passwords in `.env`.** Before you run the script, write each old value from `.env` to its file: `REDIS_PASSWORD` to `secrets/redis_password`, `POSTGRES_PASSWORD` to `secrets/postgres_password`, `POSTGRES_APP_PASSWORD` to `secrets/postgres_app_password`, `BIOPARSER_API_KEY` to `secrets/bioparser_api_key`, `GRAFANA_ADMIN_PASSWORD` to `secrets/grafana_admin_password` and `HF_TOKEN` to `secrets/hf_token`. Do not copy an empty value: the script makes a new one. Then remove those lines from `.env`. If `postgres_password` gets a new value, do the `psql` steps above, or `migrate` cannot log in. vLLM no longer reads the token of `hf auth login`: copy that token to `secrets/hf_token`.
 
 ## Start
 

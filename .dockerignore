@@ -187,6 +187,9 @@ activemq-data/
 *.secret
 *.token
 *.credentials
+# Compose mounts these at runtime. They never go into an image. The line is the same as in
+# .gitignore: Docker matches each pattern from the root of the build context.
+/secrets/
 
 # SSH / private keys
 .ssh/

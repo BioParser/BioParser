@@ -55,8 +55,9 @@ results; those stay in artifact storage.
 
 Compose gives the API and both workers `BIOPARSER_DATABASE_URL` as the
 `bioparser_app` login. That role is not a superuser and cannot create roles
-or databases. Its password is `POSTGRES_APP_PASSWORD`, not the superuser
-password. A one-shot `migrate` container logs in as `bioparser`, creates or
+or databases. Its password is the Docker secret `postgres_app_password`, not the
+superuser password. Compose mounts each password as a file under `/run/secrets`.
+The URLs, the environment and `docker inspect` hold no password. A one-shot `migrate` container logs in as `bioparser`, creates or
 upgrades the tables, and then creates `bioparser_app`. It runs from its own
 image, which installs only the migration libraries. The API and the workers
 start after that exit and do not migrate themselves.
