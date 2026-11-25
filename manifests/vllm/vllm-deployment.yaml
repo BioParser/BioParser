@@ -12,6 +12,9 @@ spec:
       labels:
         app.kubernetes.io/name: vllm
     spec:
+      # The pod does not use the Kubernetes API. Kubernetes mounts the API token in
+      # /var/run/secrets, which is /run/secrets here.
+      automountServiceAccountToken: false
       containers:
         - name: vllm
           image: vllm/vllm-openai-cpu:v0.29.0-x86_64@sha256:66064cf683152e60eff2e5b18ec2d4ace236fb063c0a241f918691db9caddcf4
@@ -26,11 +29,9 @@ spec:
               value: "0"
             - name: OMP_NUM_THREADS
               value: "4"
-            - name: HF_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: bioparser-secret
-                  key: HF_TOKEN
+            # huggingface_hub reads the token from this file. An empty file: no token.
+            - name: HF_TOKEN_PATH
+              value: "/run/secrets/hf_token"
             - name: HF_HOME
               value: "/data/huggingface"
             - name: XDG_CACHE_HOME
@@ -59,6 +60,9 @@ spec:
               mountPath: /data
             - name: dshm
               mountPath: /dev/shm
+            - name: secrets
+              mountPath: /run/secrets
+              readOnly: true
           resources:
             limits:
               memory: "32Gi"
@@ -74,3 +78,11 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 2Gi
+        # Only the key of this pod. Mode 0440: the container user of OKD is in the group.
+        - name: secrets
+          secret:
+            secretName: bioparser-secret
+            defaultMode: 0440
+            items:
+              - key: HF_TOKEN
+                path: hf_token

@@ -22,6 +22,9 @@ spec:
       labels:
         io.kompose.service: redis
     spec:
+      # The pod does not use the Kubernetes API. Kubernetes mounts the API token in
+      # /var/run/secrets, which is /run/secrets here.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         seccompProfile:
@@ -33,23 +36,33 @@ spec:
         - name: REDIS_MAX_MEMORY
           valueFrom:
             configMapKeyRef:
-              name: bioparser-configmap
+              name: bioparser-config
               key: REDIS_MAX_MEMORY
-        command: ["sh", "-c"]
+        # redis-server reads the password on stdin ("-") as a redis.conf line. An argument
+        # shows in the pod spec and in /proc.
+        command: ["sh", "-ec"]
         args:
         - |
-          redis-server \
+          password=$(cat /run/secrets/redis_password)
+          # The line puts the password between double quotes.
+          case $password in
+            "" | *[!!-~]* | *[\"\\]*)
+              echo "redis: the REDIS_PASSWORD key of bioparser-secret must be printable ASCII without spaces, double quotes or backslashes" >&2
+              exit 1 ;;
+          esac
+          exec redis-server - \
             --appendonly yes \
             --appendfsync everysec \
             --save "" \
             --maxmemory ${REDIS_MAX_MEMORY} \
-            --maxmemory-policy noeviction \
-            --requirepass ""
+            --maxmemory-policy noeviction <<EOF
+          requirepass "$password"
+          EOF
+        # Liveness only: a NOAUTH reply shows that Redis answers. The probe does not read
+        # the password.
         livenessProbe:
           exec:
-            command:
-            - redis-cli
-            - ping
+            command: ["sh", "-c", "redis-cli ping 2>&1 | grep -q -e PONG -e NOAUTH"]
           failureThreshold: 5
           initialDelaySeconds: 10
           periodSeconds: 10
@@ -63,15 +76,27 @@ spec:
             cpu: "500m"
           limits:
             memory: "768Mi"
-            cpu: "50m"
+            # Not below the request: Kubernetes does not accept a request above the limit.
+            cpu: "500m"
         securityContext:
           allowPrivilegeEscalation: false
           runAsNonRoot: true
         volumeMounts:
         - mountPath: /data
           name: redis-data
+        - mountPath: /run/secrets
+          name: secrets
+          readOnly: true
       restartPolicy: Always
       volumes:
       - name: redis-data
         persistentVolumeClaim:
           claimName: redis-data
+      # Only the key of this pod. Mode 0440: the container user of OKD is in the group.
+      - name: secrets
+        secret:
+          secretName: bioparser-secret
+          defaultMode: 0440
+          items:
+          - key: REDIS_PASSWORD
+            path: redis_password
