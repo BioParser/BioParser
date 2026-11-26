@@ -49,13 +49,6 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 3
           env:
-            - name: HF_HOME
-              value: /tmp/hf-cache
-            - name: HF_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: bioparser-secret
-                  key: HF_TOKEN
             - name: MINERU_API_CONCURRENCY
               valueFrom:
                 configMapKeyRef:
@@ -72,10 +65,3 @@ spec:
             limits:
               cpu: "4"
               memory: "12Gi"
-          volumeMounts:
-            - name: tmp-cache
-              mountPath: /tmp
-      volumes:
-        - name: tmp-cache
-          emptyDir:
-            sizeLimit: 5Gi
