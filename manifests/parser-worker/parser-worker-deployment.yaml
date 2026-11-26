@@ -23,17 +23,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: bioparser-config
-          env:
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: bioparser-secret
-                  key: REDIS_PASSWORD
-            - name: POSTGRES_APP_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: bioparser-secret
-                  key: POSTGRES_APP_PASSWORD
+            - secretKeyRef:
+                name: bioparser-secret
           volumeMounts:
             - mountPath: /data
               name: artifact-storage

@@ -29,8 +29,8 @@ spec:
           env:
             - name: BIOPARSER_DATABASE_URL
               valueFrom:
-                  configMapKeyRef:
-                    name: bioparser-config
+                  secretKeyRef:
+                    name: bioparser-secret
                     key: BIOPARSER_DATABASE_URL
             - name: POSTGRES_APP_PASSWORD
               valueFrom:
