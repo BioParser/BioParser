@@ -25,11 +25,7 @@ data:
   # API settings
   BIOPARSER_AUTH_DISABLED: "false"
 
-  # Database and Redis connections. WITHOUT THE BASE64 ENCODING AND PADDING = OR == GIVEN IN SECRETS.
-  # redis://:${REDIS_PASSWORD}@redis:6379/0
-  BIOPARSER_REDIS_URL:
-  # postgresql://bioparser:${POSTGRES_PASSWORD}@postgres:5432/bioparser
-  BIOPARSER_DATABASE_URL:
+  # Postgres settings
   POSTGRES_USER: "bioparser"
   POSTGRES_DB: "bioparser"
 

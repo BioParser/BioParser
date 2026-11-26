@@ -10,8 +10,6 @@ This folder includes files [bioparser-configmap-example.yaml](/manifests/biopars
 
 [bioparser-configmap-example.yaml](/manifests/bioparser-configmap-example.yaml) includes the **non-secret** configurations. The following variables need to be set:
 - namespace
-- BIOPARSER_REDIS_URL - the URL of redis (redis://:${REDIS_PASSWORD}@redis:6379/0)
-- BIOPARSER_DATABASE_URL - the URL of the used Postgres database (postgresql://bioparser_app:${POSTGRES_APP_PASSWORD}@postgres:5432/bioparser)
 
 ### Secrets (secret)
 
@@ -19,10 +17,13 @@ This folder includes files [bioparser-configmap-example.yaml](/manifests/biopars
 
 [bioparser-secret-example.yaml](/manifests/bioparser-secret-example.yaml) includes the **secrets**. The following variables need to be set:
 - namespace
+- REDIS_PASSWORD - pick one
 - POSTGRES_PASSWORD - generate using `openssl rand -hex 32`
 - POSTGRES_APP_PASSWORD - generate using `openssl rand -hex 32`
+- BIOPARSER_REDIS_URL - the URL of redis (redis://:${REDIS_PASSWORD}@redis:6379/0)
+- BIOPARSER_DATABASE_URL - the URL of the used Postgres database (postgresql://bioparser_app:${POSTGRES_APP_PASSWORD}@postgres:5432/bioparser)
 - HF_TOKEN - your huggingface **read** token for downloading the required models
-- BIOPARSER_API_KEY - generate with python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+- BIOPARSER_API_KEY - generate with `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`
 
 
 ## Other variables that need to be manually set/changed
