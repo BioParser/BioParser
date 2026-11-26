@@ -23,7 +23,7 @@ spec:
           envFrom:
             - configMapRef:
                 name: bioparser-config
-            - secretKeyRef:
+            - secretRef:
                 name: bioparser-secret
           volumeMounts:
             - mountPath: /data
