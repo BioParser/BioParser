@@ -79,7 +79,12 @@ Through Traefik (`docker-compose.traefik.yml`), each client IP address has a req
 
 Submit a PDF.
 
-- **Request:** `multipart/form-data` with a single `file` part.
+- **Request:** `multipart/form-data` with a single `file` part and an optional `title` field.
+- **Title:** leading and trailing whitespace is trimmed, control characters are removed,
+  and quotes are preserved. A title longer than 500 characters after cleaning returns
+  `422` with `{"detail": "Title must be at most 500 characters."}`. A non-empty title
+  replaces the stored title when uploading an existing PDF; an omitted or blank title
+  keeps it. The title belongs to the document and is shared by every job of that PDF.
 - **Accepted content type:** `application/pdf` only, checked against the `file`
   part's own `content_type`.
 - **Body checks:** the upload must be non-empty and must begin with the `%PDF-`
@@ -91,6 +96,8 @@ Submit a PDF.
   job row are inserted in one transaction. A checksum that already has a document
   keeps that row, including its display name. A new document stores the sanitized
   upload filename and the upload size.
+
+Title validation runs before the upload checks below.
 
 The checks run in a fixed order: `Content-Length` header format and size →
 `file` part present → content type → body size while streaming → non-empty body →
@@ -119,6 +126,7 @@ with it.
 | 400 | the Content-Length header is not a valid non-negative integer |
 | 413 | the file exceeds BIOPARSER_MAX_UPLOAD_BYTES (default 20 MiB) |
 | 415 | content type is not `application/pdf` |
+| 422 | title exceeds 500 characters after cleaning |
 | 503 | artifact storage, the database, or the parse queue is unavailable |
 
 
@@ -126,7 +134,8 @@ with it.
 
 - Size-limit failures (`413`) use Starlette's plain-text body `Content Too Large`
   (same as `RequestBodyLimitMiddleware`).
-- Every other validation failure responds with FastAPI's `detail` wrapper:
+- Title length validation uses the string `detail` shown above. Other upload validation
+  failures respond with FastAPI's `detail` wrapper:
 
 ```json
 {
@@ -151,7 +160,10 @@ with it.
 
 Upload and store a PDF document without queueing a job.
 
-- **Request:** `multipart/form-data` with a single `file` part.
+- **Request:** `multipart/form-data` with a single `file` part and an optional `title` field.
+- **Title:** the same cleaning, 500-character limit and re-upload rules as
+  `POST /api/extractions` above. A non-empty title replaces the stored title;
+  omitting it or sending a blank title keeps the existing title.
 - **Accepted content type:** `application/pdf` only.
 - **Body checks:** Content-Length, a present `file` part, media type `application/pdf`, the size limit, a non-empty body, and the `%PDF-` magic. The first check to fail is the one reported.
 - Content-addressed by SHA-256. If the document already exists, the existing metadata is returned with `200 OK`. If newly stored, returns `201 Created`.
@@ -163,11 +175,12 @@ Upload and store a PDF document without queueing a job.
   "checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
   "display_name": "paper.pdf",
   "upload_time": "2026-10-26T12:00:00Z",
-  "size_bytes": 1048576
+  "size_bytes": 1048576,
+  "title": "Example paper"
 }
 ```
 
-**Failure:** `400` (`missing_file`, `empty_file`, `invalid_pdf`, `invalid_content_length`), `413` (`content_too_large`), `415` (`unsupported_content_type`), `503` (`storage_unavailable`, `database_unavailable`).
+**Failure:** `400` (`missing_file`, `empty_file`, `invalid_pdf`, `invalid_content_length`), `413` (`content_too_large`), `415` (`unsupported_content_type`), `422` (title exceeds 500 characters), `503` (`storage_unavailable`, `database_unavailable`).
 
 
 ### `GET /api/documents`
@@ -182,7 +195,8 @@ List all stored documents with metadata, ordered by `upload_time` descending.
     "checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
     "display_name": "paper.pdf",
     "upload_time": "2026-10-26T12:00:00Z",
-    "size_bytes": 1048576
+    "size_bytes": 1048576,
+    "title": "Example paper"
   }
 ]
 ```
@@ -201,7 +215,8 @@ Retrieve metadata for a specific stored document.
   "checksum": "5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc",
   "display_name": "paper.pdf",
   "upload_time": "2026-10-26T12:00:00Z",
-  "size_bytes": 1048576
+  "size_bytes": 1048576,
+  "title": "Example paper"
 }
 ```
 
@@ -212,6 +227,35 @@ Retrieve metadata for a specific stored document.
 | 401 | Missing or invalid API key (`unauthorized`) |
 | 404 | No document with that checksum (`document_not_found`) |
 | 422 | `checksum` is not a 64-character lowercase SHA-256 hex digest (`invalid_checksum`) |
+| 503 | Database is unavailable (`database_unavailable`) |
+
+
+### `PATCH /api/documents/{checksum}`
+
+Set or clear the title shared by every job of a stored PDF. The filename is kept.
+
+**Request Body (JSON):**
+
+```json
+{
+  "title": "Darwin's paper"
+}
+```
+
+`title` is required. Set it to `null` or a blank string to clear it. Titles use the
+same cleaning and 500-character limit as uploads. Extra fields are rejected.
+
+**Success — `200 OK`:** the updated document metadata, with the same fields as
+`GET /api/documents/{checksum}`. `title` is `null` when cleared or never set.
+Subsequent document reads and full job reads return the current title.
+
+**Failure:**
+
+| Status | When |
+|--------|------|
+| 401 | Missing or invalid API key (`unauthorized`) |
+| 404 | No document with that checksum (`document_not_found`) |
+| 422 | Invalid checksum, missing or invalid `title`, extra fields, or title exceeds 500 characters |
 | 503 | Database is unavailable (`database_unavailable`) |
 
 
@@ -263,7 +307,7 @@ If omitted or `{}` is sent, parameters default to `parser: "default"` and `extra
 
 ### `GET /api/documents/{checksum}/jobs`
 
-List all jobs for `{checksum}`. The default row is `job_id` and `status`. `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and `document_checksum`. `display_name` is null when the document has no name. A done job does not include its ETS rows here. Those are `GET /api/jobs/{job_id}/ets`.
+List all jobs for `{checksum}`. The default row is `job_id` and `status`. `?detail=full` adds `created_at`, `display_name`, `title`, `parser`, `extractor`, `document_checksum`, and `has_parse_result`. `display_name` is null when the document has no name; `title` is null when no title is set. A done job does not include its ETS rows here. Those are `GET /api/jobs/{job_id}/ets`.
 
 **Success — `200 OK`:**
 
@@ -281,7 +325,7 @@ List all jobs for `{checksum}`. The default row is `job_id` and `status`. `?deta
 
 ### `GET /api/jobs`
 
-List jobs across all documents, with optional query filters. The default row is `job_id` and `status`. `?detail=full` adds the stored record from the job joined to its document, and still omits ETS rows. `display_name` is null when the document has no name.
+List jobs across all documents, with optional query filters. The default row is `job_id` and `status`. `?detail=full` adds the stored record from the job joined to its document, including its current `title`, and still omits ETS rows. `display_name` is null when the document has no name; `title` is null when no title is set.
 
 - **Query parameters:**
   - `status` (optional): Filter by job status (`queued`, `parsing`, `parsed`, `extracting`, `done`, `failed`).
@@ -325,9 +369,10 @@ Poll a job.
 - `failed` adds `error`, a safe error code.
 - `done` is `job_id` and `status`. The ETS rows are `GET /api/jobs/{job_id}/ets`, in
   observation order. `references` on each row is the document checksum.
-- `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`,
+- `?detail=full` adds `created_at`, `display_name`, `title`, `parser`, `extractor`,
   `document_checksum`, and `has_parse_result`. That read is one query, the job
   joined to its document. `display_name` is null when the document has no name.
+  `title` is the document's current title, or null when no title is set.
   The flag is true when the parser artifact was stored. `timeout` and
   `internal_error` do not say which stage ended, so a full read is what tells a
   reader that parsing finished. The full body has no rows.

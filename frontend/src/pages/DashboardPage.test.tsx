@@ -16,6 +16,7 @@ function job(id: string, status: JobStatus = "done"): JobList[number] {
   const metadata = {
     job_id: id,
     display_name: `${id}.pdf`,
+    title: null,
     created_at: "2026-11-06T12:00:00Z",
     parser: "mineru",
     extractor: "default",
