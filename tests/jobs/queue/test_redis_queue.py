@@ -14,6 +14,7 @@ from dramatiq.common import current_millis, dq_name
 from dramatiq.errors import ActorNotFound
 from dramatiq.middleware import CurrentMessage, Retries
 from dramatiq.middleware.time_limit import TimeLimit
+from pydantic import SecretStr
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from bioparser.jobs.queue import (
@@ -89,6 +90,14 @@ def test_redis_broker_sets_socket_timeouts() -> None:
         kwargs = broker.client.connection_pool.connection_kwargs
         assert kwargs["socket_timeout"] == 2.5
         assert kwargs["socket_connect_timeout"] == 2.5
+    finally:
+        broker.close()
+
+
+def test_redis_broker_gives_a_separate_password_to_the_client() -> None:
+    broker = _create_redis_broker("redis://localhost:6379/0", password=SecretStr("file-pass"))
+    try:
+        assert broker.client.connection_pool.connection_kwargs["password"] == "file-pass"
     finally:
         broker.close()
 

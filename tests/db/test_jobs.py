@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import get_args
 
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError, IntegrityError, InterfaceError, OperationalError
@@ -62,6 +63,22 @@ async def test_open_keeps_the_same_url_and_rejects_a_different_one() -> None:
         await db_engine.open("postgres://bioparser@127.0.0.1:1/one")
         with pytest.raises(RuntimeError, match="different URL"):
             await db_engine.open("postgresql://bioparser@127.0.0.1:1/two")
+    finally:
+        await db_engine.aclose()
+
+
+@pytest.mark.anyio
+async def test_open_sets_a_separate_password_and_hides_it() -> None:
+    url = "postgresql://bioparser_app@127.0.0.1:1/one"
+    await db_engine.aclose()
+    await db_engine.open(url, password=SecretStr("pool-pass"))
+    try:
+        engine = db_engine.require()
+        assert engine.url.password == "pool-pass"
+        assert "pool-pass" not in repr(engine) + str(engine.url)
+        await db_engine.open(url, password=SecretStr("pool-pass"))
+        with pytest.raises(RuntimeError, match="different URL"):
+            await db_engine.open(url, password=SecretStr("rotated-pass"))
     finally:
         await db_engine.aclose()
 

@@ -55,8 +55,9 @@ results; those stay in artifact storage.
 
 Compose gives the API and both workers `BIOPARSER_DATABASE_URL` as the
 `bioparser_app` login. That role is not a superuser and cannot create roles
-or databases. Its password is `POSTGRES_APP_PASSWORD`, not the superuser
-password. A one-shot `migrate` container logs in as `bioparser`, creates or
+or databases. Its password is the Docker secret `postgres_app_password`, not the
+superuser password. Compose mounts each password as a file under `/run/secrets`.
+The URLs, the environment and `docker inspect` hold no password. A one-shot `migrate` container logs in as `bioparser`, creates or
 upgrades the tables, and then creates `bioparser_app`. It runs from its own
 image, which installs only the migration libraries. The API and the workers
 start after that exit and do not migrate themselves.
@@ -240,7 +241,7 @@ Convention:
 | Uploaded PDF | `pdf/<pdf-checksum>` | `pdf_path(checksum)` |
 | Parser artifact | `pdf/<pdf-checksum>/parsed/<backend>/<version>` | `parse_result_path(checksum, backend, version)` |
 | Parser artifact of a configured backend | `pdf/<pdf-checksum>/parsed/<backend>/<version>/<configuration>` | `parse_result_path(checksum, backend, version, configuration)` |
-| Extraction artifact | `<parse-result-path>/extracted/<extractor>/<extractor-version>` | `extract_result_path(parse_result_ref, extractor, extractor_version)` |
+| Extraction artifact | `<parse-result-path>/extracted/<extractor>/<extractor-version>/<job-id>` | `extract_result_path(parse_result_ref, extractor, extractor_version, job_id)` |
 
 - `<pdf-checksum>` is the sha256 of the PDF bytes, from `bioparser.hashing`.
 - `<backend>` is the parser backend name and `<version>` its version from
@@ -251,11 +252,14 @@ Convention:
   stored at `pdf/<pdf-checksum>/parsed/mineru/5/standard`. A different tier never reuses
   another tier's result. The configuration is not part of the version.
 - The extraction path starts from the job's `parse_result_ref`, so it keeps every segment
-  of that parse, including a MinerU tier. The extractor worker runs the extractor named
-  on the job and takes its version from `bioparser.extractor_names.EXTRACTOR_VERSIONS` when
-  the extraction runs. The job does not store that version. New jobs name the extractor
-  `default`, whose version is `2`. Bumping it gives new results a new path, so
-  results from the old version are not reused. The builders live in `bioparser.artifact_paths`.
+  of that parse, including a MinerU tier. Its last segment is the job id, so each job stores
+  its own result and runs extraction even when an earlier job already extracted that parse.
+  A retry of the same job keeps the path and reuses the result stored for that job. The
+  extractor worker runs the extractor named on the job and takes its version from
+  `bioparser.extractor_names.EXTRACTOR_VERSIONS` when the extraction runs. The job does not
+  store that version. New jobs name the extractor `default`, whose version is `2`. A
+  version bump changes that job's path, so a retry does not reuse the result stored
+  under the old version. The builders live in `bioparser.artifact_paths`.
 - Build paths with the builders, never by string formatting. Each builder argument must be
   a single valid segment, so a value like `a/b` cannot change the shape of the path.
 

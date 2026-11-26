@@ -9,9 +9,10 @@ Convention (build paths with the functions below, never by string formatting):
   by parser backend ``<backend>`` at backend version ``<version>``.
 - ``pdf/<pdf-checksum>/parsed/<backend>/<version>/<configuration>``: the same, for a backend
   whose output also depends on its configuration (MinerU: the tier).
-- ``<parse-result-path>/extracted/<extractor>/<extractor-version>``: the extraction
-  artifact made from that parser artifact. It keeps every segment of the parse path,
-  including a backend configuration such as a MinerU tier.
+- ``<parse-result-path>/extracted/<extractor>/<extractor-version>/<job-id>``: the extraction
+  artifact made from that parser artifact for one job. It keeps every segment of the parse
+  path, including a backend configuration such as a MinerU tier. The job id makes each job's
+  result its own, so another job runs extraction again.
 
 This module only defines what a well-formed path looks like and how to build one. It has no
 dependency on storage, so the job modules can use it without importing the storage package.
@@ -127,15 +128,19 @@ def parse_result_path(
     return validate_artifact_path(path)
 
 
-def extract_result_path(parse_result_ref: str, extractor: str, extractor_version: str) -> str:
-    """Return the path of the extraction artifact for one parser artifact:
-    ``<parse_result_ref>/extracted/<extractor>/<extractor-version>``.
+def extract_result_path(
+    parse_result_ref: str, extractor: str, extractor_version: str, job_id: str
+) -> str:
+    """Return the path of one job's extraction artifact for one parser artifact:
+    ``<parse_result_ref>/extracted/<extractor>/<extractor-version>/<job-id>``.
 
     The parse path is kept whole, so a later segment on it, such as a MinerU tier,
-    is part of the extraction path too.
+    is part of the extraction path too. ``job_id`` is one segment, so two jobs never
+    share an extraction artifact.
     """
     parsed = validate_artifact_path(parse_result_ref)
     return validate_artifact_path(
         f"{parsed}/extracted/"
-        f"{validate_path_segment(extractor)}/{validate_path_segment(extractor_version)}"
+        f"{validate_path_segment(extractor)}/{validate_path_segment(extractor_version)}/"
+        f"{validate_path_segment(job_id)}"
     )
