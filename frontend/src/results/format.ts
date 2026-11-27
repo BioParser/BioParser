@@ -1,8 +1,8 @@
 import type { EtsRow } from "../api/client";
 
 // The taxon as shown: the accepted name, or the printed name when there is none.
-export function taxonText(row: EtsRow): string {
-  return row.scientificName ?? row.verbatimScientificName;
+export function taxonText(row: EtsRow): string | null {
+  return row.scientificName ?? row.verbatimScientificName ?? null;
 }
 
 // The printed value with the printed unit. A paper that prints only a range has no single

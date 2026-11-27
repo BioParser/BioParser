@@ -121,6 +121,15 @@ describe("JobDetailPage results", () => {
     expect(fetchMock).toHaveBeenCalledWith(`/api/jobs/${JOB_ID}/ets`, expect.anything());
   });
 
+  it("shows a row that has no printed name", async () => {
+    stubRows([etsRow({ scientificName: null, verbatimScientificName: null })]);
+    renderPage();
+    const [row] = await bodyRows();
+    expect(within(row).getByText("Not reported")).toBeDefined();
+    expect(within(row).getByText("body mass")).toBeDefined();
+    expect(within(row).getByText("21.5 g")).toBeDefined();
+  });
+
   it("shows the printed trait and value, not a trait list's standardized ones", async () => {
     stubRows([
       etsRow({ traitID: "T1", traitName: "Body mass", traitValue: "0.0215", traitUnit: "kg" }),

@@ -9,14 +9,14 @@ Alloy, Loki and Grafana share the `logs` network, so the app containers cannot r
 ## Quick Start
 
 1. Make your config file, if you do not have one yet: `cp .env.example .env`
-2. In `.env`, set `GRAFANA_ADMIN_PASSWORD` to a strong password. Compose refuses to start without it. If the password has `$` or spaces, put it in single quotes.
+2. Make the secret files, if you do not have them yet: `python3 src/bioparser/scripts/generate_secrets.py`. The Grafana password is in `secrets/grafana_admin_password`.
 3. Check that `COMPOSE_FILE` in `.env` ends with `:docker-compose.logging.yml`. An `.env` made before this change does not: add it to the end of your line, and copy the `GRAFANA_*` and `LOKI_*` lines from `.env.example`.
 4. Start everything: `docker compose up -d --build`
 5. Check the state with `docker compose ps`. After 1 to 2 minutes, the STATUS of `loki` and `grafana` shows `(healthy)`, and `alloy` shows `Up`.
 
 ## Open Grafana
 
-On your own machine, open http://localhost:3000 and log in as `admin` with the password from `.env`.
+On your own machine, open http://localhost:3000 and log in as `admin` with the password from `secrets/grafana_admin_password`.
 
 Grafana listens only on `127.0.0.1`, so other computers cannot open it. If the stack runs on a remote GPU server, open an SSH tunnel from your laptop and keep it running:
 
@@ -89,7 +89,7 @@ Do not turn such values into Loki labels in `docker/alloy/config.alloy`. Every n
 | Task | How |
 | --- | --- |
 | Change your Grafana password | In Grafana: your profile → **Change password** |
-| Reset a lost password | `docker compose exec grafana grafana cli --homepath /usr/share/grafana admin reset-admin-password 'NEW-PASSWORD'` |
+| Reset a lost password | Write the new password to `secrets/grafana_admin_password`, then `docker compose exec -T grafana grafana cli --homepath /usr/share/grafana admin reset-admin-password --password-from-stdin < secrets/grafana_admin_password` |
 | Keep logs longer, for example 14 days | Set `LOKI_RETENTION_PERIOD=336h` in `.env`, then run `docker compose up -d loki` |
 | Read Docker's own copy of the logs | `docker compose logs -f bioparser` |
 | Turn central logs off | Remove `:docker-compose.logging.yml` from `COMPOSE_FILE` in `.env`, then run `docker compose up -d --remove-orphans` |
@@ -98,8 +98,8 @@ Do not turn such values into Loki labels in `docker/alloy/config.alloy`. Every n
 
 | What you see | What to do |
 | --- | --- |
-| `required variable GRAFANA_ADMIN_PASSWORD is missing a value` | Set `GRAFANA_ADMIN_PASSWORD` in `.env`. |
-| Login fails after you changed `GRAFANA_ADMIN_PASSWORD` | Grafana reads it only on its first start. Use the old password, or reset it (Everyday tasks). |
+| `bind source path does not exist` for a secret | Make the secret files: `python3 src/bioparser/scripts/generate_secrets.py`. |
+| Login fails after you changed `secrets/grafana_admin_password` | Grafana reads it only on its first start. Use the old password, or reset it (Everyday tasks). |
 | Grafana shows no logs | Check the time range (top right). Run `docker compose ps`: `loki` must show `(healthy)` and `alloy` must show `Up`. Then read `docker compose logs alloy` for errors. |
 | A new container has no logs yet | Wait 15 seconds. Alloy looks for new containers every 15 seconds. |
 | Some minutes of logs are missing | Alloy keeps retrying while Loki is down and catches up from Docker's copy when Loki is back. If lines are still missing, read them with `docker compose logs <service>`. |

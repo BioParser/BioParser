@@ -510,6 +510,7 @@ def test_a_done_job_record_has_no_rows(
     jobs.states[str(state.job_id)] = state
     first = _body_mass_artifact().observations[0]
     cited = first.verbatimScientificName
+    assert cited is not None
     second = first.model_copy(
         update={"traitCode": Interpretation(value="wing_length", passage=cited)}
     )

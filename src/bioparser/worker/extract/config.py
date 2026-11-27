@@ -1,9 +1,10 @@
 import logging
 from pathlib import Path
 
-from pydantic import AnyUrl, Field, PostgresDsn, field_validator
+from pydantic import AnyUrl, Field, PostgresDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from bioparser.docker_secrets import SECRETS_DIR
 from bioparser.logging_config import parse_level
 
 DEFAULT_EXTRACT_TIME_LIMIT_SECONDS = 10 * 60
@@ -24,12 +25,16 @@ class ExtractWorkerSettings(BaseSettings):
         env_prefix="BIOPARSER_",
         extra="ignore",
         hide_input_in_errors=True,
+        secrets_dir=SECRETS_DIR,
     )
 
     log_level: int = logging.INFO
-    redis_url: AnyUrl
-    # The URL can hold the password. repr=False keeps it out of repr(settings).
-    database_url: PostgresDsn = Field(repr=False)
+    # A URL can hold its password: repr=False and exclude=True hide it. Compose gives the
+    # passwords as Docker secrets instead (see bioparser.docker_secrets).
+    redis_url: AnyUrl = Field(repr=False, exclude=True)
+    redis_password: SecretStr | None = None
+    database_url: PostgresDsn = Field(repr=False, exclude=True)
+    database_password: SecretStr | None = None
     artifact_storage_path: Path
     extract_queue_name: str = Field(min_length=1)
     redis_timeout_seconds: float = Field(default=5.0, gt=0)

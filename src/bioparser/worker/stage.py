@@ -13,6 +13,8 @@ from collections.abc import Awaitable, Callable
 from typing import Protocol
 from uuid import UUID
 
+from pydantic import SecretStr
+
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
 from bioparser.db.engine import DatabaseUnavailableError
@@ -59,19 +61,21 @@ class StageJobHandler[T: JobMessage]:
         self,
         *,
         database_url: str,
+        database_password: SecretStr | None = None,
         owned: frozenset[JobStatus],
         claim_status: JobStatus,
         max_claims: int,
         before_claim: Callable[[JobState], Awaitable[None]] | None = None,
     ) -> None:
         self._database_url = database_url
+        self._database_password = database_password
         self._owned = owned
         self._claim_status = claim_status
         self._max_claims = max_claims
         self._before_claim = before_claim
 
     async def aopen(self) -> None:
-        await database.open(self._database_url)
+        await database.open(self._database_url, password=self._database_password)
 
     async def aclose(self) -> None:
         await database.aclose()

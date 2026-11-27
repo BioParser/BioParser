@@ -7,7 +7,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from uuid import UUID
 
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from bioparser.artifact_paths import parse_result_path, pdf_path
 from bioparser.db import engine as database
@@ -42,6 +42,7 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
         self,
         *,
         database_url: str,
+        database_password: SecretStr | None = None,
         storage: ArtifactStorage,
         parser_factory: Callable[[str], PdfParser],
         max_claims: int,
@@ -51,6 +52,7 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
     ) -> None:
         super().__init__(
             database_url=database_url,
+            database_password=database_password,
             owned=_PARSE_STAGE,
             claim_status="parsing",
             max_claims=max_claims,

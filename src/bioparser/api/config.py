@@ -5,6 +5,7 @@ from functools import lru_cache
 from pydantic import AnyUrl, Field, PostgresDsn, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from bioparser.docker_secrets import SECRETS_DIR
 from bioparser.logging_config import parse_level
 
 DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MiB
@@ -18,6 +19,7 @@ class ApiSettings(BaseSettings):
         env_prefix="BIOPARSER_",
         extra="ignore",
         hide_input_in_errors=True,
+        secrets_dir=SECRETS_DIR,
     )
     # Using the numeric level. BIOPARSER_LOG_LEVEL takes a name in any case or a number:
     # see logging_config.parse_level().
@@ -29,8 +31,10 @@ class ApiSettings(BaseSettings):
     # The built UI (frontend/dist). None: the API serves no UI and /ui returns 404.
     ui_dist_path: str | None = None
 
-    # redis. repr=False: the URL can hold the password.
-    redis_url: AnyUrl = Field(repr=False)
+    # A URL can hold its password: repr=False and exclude=True hide it. Compose gives the
+    # passwords as Docker secrets instead (see bioparser.docker_secrets).
+    redis_url: AnyUrl = Field(repr=False, exclude=True)
+    redis_password: SecretStr | None = None
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
     parse_queue_name: str = Field(default="parse", min_length=1)
 
@@ -38,8 +42,9 @@ class ApiSettings(BaseSettings):
     api_key: SecretStr | None = None
     auth_disabled: bool = False
 
-    # Postgres holds job state. The URL can hold the password.
-    database_url: PostgresDsn = Field(repr=False)
+    # Postgres holds job state.
+    database_url: PostgresDsn = Field(repr=False, exclude=True)
+    database_password: SecretStr | None = None
 
     @field_validator("log_level", mode="before")
     @classmethod

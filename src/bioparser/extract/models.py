@@ -88,11 +88,15 @@ class Observation(BaseModel):
     printed, read with ``verbatimTraitUnit``. ``statisticalMethod`` is the
     phrase the paper printed, or empty.
 
-    ``scientificName``, ``traitValue``, and ``traitUnit`` are interpretations
-    beside a verbatim citation. The interpretation is omitted when the printed
-    token is already the value. ``scientificName`` is the model's reading of the
-    accepted name. ``traitValue`` and ``traitUnit`` stay empty until a trait
-    list standardizes them.
+    ``verbatimScientificName`` is the printed subject. It is omitted when the
+    paper does not name one. ``scientificName``, ``traitValue``, and
+    ``traitUnit`` are interpretations beside a verbatim citation. The
+    interpretation is omitted when the printed token is already the value.
+    An interpretation may be stored when its printed citation is absent.
+    A consumer checks that citation when it needs the printed token.
+    ``scientificName`` is the model's reading of the accepted name.
+    ``traitValue`` and ``traitUnit`` stay empty until a trait list
+    standardizes them.
 
     The artifact does not enforce a closed set of values. An interpretation's
     ``value`` is any non-empty string, including ``traitCode``. An extractor may
@@ -107,7 +111,7 @@ class Observation(BaseModel):
     verbatimTraitName: Citation
 
     scientificName: Interpretation | None = None
-    verbatimScientificName: Citation
+    verbatimScientificName: Citation | None = None
 
     traitValue: Interpretation | None = None
     verbatimTraitValue: Citation | None = None

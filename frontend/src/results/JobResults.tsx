@@ -196,6 +196,7 @@ function ResultsTable({
         <tbody>
           {entries.map(({ row, index, codes, flagged }) => {
             const selected = index === selectedIndex;
+            const taxon = taxonText(row);
             const reported = reportedText(row);
             const fields = rowFields(row, codes);
             const open = expanded.has(index);
@@ -217,7 +218,9 @@ function ResultsTable({
                       {index + 1}
                     </button>
                   </td>
-                  <td className="results-taxon">{taxonText(row)}</td>
+                  <td className="results-taxon">
+                    {taxon ?? <span className="results-empty">Not reported</span>}
+                  </td>
                   <td className="results-trait">{row.verbatimTraitName}</td>
                   <td>{reported ?? <span className="results-empty">Not reported</span>}</td>
                   <td>

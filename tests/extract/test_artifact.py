@@ -157,7 +157,39 @@ def test_a_scientific_name_can_expand_the_printed_citation() -> None:
 
     assert isinstance(observation.scientificName, Interpretation)
     assert observation.scientificName.value == "Mus musculus"
-    assert observation.verbatimScientificName.text == "M. musculus"
+    printed = observation.verbatimScientificName
+    assert printed is not None
+    assert printed.text == "M. musculus"
+
+
+def test_a_measurement_may_omit_the_printed_name() -> None:
+    data = _observation().model_dump()
+    del data["verbatimScientificName"]
+    observation = Observation.model_validate(data)
+    artifact = ExtractionArtifact.model_validate(
+        {
+            "extractor": "default",
+            "extractor_version": "2",
+            "observations": [data],
+        }
+    )
+
+    assert observation.verbatimScientificName is None
+    assert observation.verbatimTraitName.text == "body mass"
+    assert artifact.observations[0].verbatimScientificName is None
+
+
+def test_a_name_reading_may_stand_without_the_printed_name() -> None:
+    data = _observation().model_dump()
+    del data["verbatimScientificName"]
+    data["scientificName"] = Interpretation(
+        value="Mus musculus", passage=_cite("the mouse")
+    ).model_dump()
+    observation = Observation.model_validate(data)
+
+    assert observation.verbatimScientificName is None
+    assert isinstance(observation.scientificName, Interpretation)
+    assert observation.scientificName.value == "Mus musculus"
 
 
 def test_a_range_without_a_central_value_is_kept() -> None:

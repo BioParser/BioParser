@@ -22,11 +22,15 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
    cp .env.example .env
 ```
 
-   Set `GRAFANA_ADMIN_PASSWORD` in `.env`; Compose does not start without it.
-   Set `BIOPARSER_API_KEY` in `.env`; the API does not start without it. Make a key with
-   `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`.
+   Make the secret files (the passwords, the API key and the Grafana password) in
+   `secrets/`, which Git ignores. Compose does not start without them. A stack that had
+   its passwords in `.env` needs one more step: see [Secrets](docs/docker-compose.md#secrets).
 
-   This selects the GPU stack. For CPU, change the `COMPOSE_FILE` line in `.env` to:
+```sh
+   python3 src/bioparser/scripts/generate_secrets.py
+```
+
+   The `COMPOSE_FILE` line in `.env` selects the GPU stack. For CPU, change it to:
 
 ```sh
    COMPOSE_FILE=docker-compose.yml:docker-compose.cpu.yml:docker-compose.logging.yml
@@ -40,7 +44,7 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
 
    `bash bioparser-compose up` starts this same stack plus a hot-reload overlay. It does not change `.env`. Port 8080 still serves the UI built into the API image, and that copy does not pick up frontend edits. Open `http://localhost:5173/ui/` for UI work. Details: [docs/docker-compose.md](docs/docker-compose.md#dev-overlay).
 
-   The first run is slow: the MinerU service downloads its models during its image build, and vLLM downloads the model set in `VLLM_MODEL` (default `Qwen/Qwen3-0.6B`). The extractor image does not download a model; it calls the vLLM service. The API starts after `redis` and `postgres` are healthy and `migrate` has created the `bioparser_app` login and the `jobs` table. `migrate` waits for `postgres`. The parser worker starts after `mineru` and Redis do. The extractor worker starts after `vllm` and Redis do. Set `POSTGRES_PASSWORD` and `POSTGRES_APP_PASSWORD` in `.env` before the first start. They must differ. The API and both workers use `POSTGRES_APP_PASSWORD` as `bioparser_app`. `migrate` uses `POSTGRES_PASSWORD` as the `bioparser` superuser and sets `POSTGRES_APP_PASSWORD` on the role. An existing `postgres-data` volume picks up `bioparser_app` on the next start. Removing that volume recreates the cluster.
+   The first run is slow: the MinerU service downloads its models during its image build, and vLLM downloads the model set in `VLLM_MODEL` (default `Qwen/Qwen3-0.6B`). The extractor image does not download a model; it calls the vLLM service. The API starts after `redis` and `postgres` are healthy and `migrate` has created the `bioparser_app` login and the `jobs` table. `migrate` waits for `postgres`. The parser worker starts after `mineru` and Redis do. The extractor worker starts after `vllm` and Redis do. The API and both workers log in as `bioparser_app` with `secrets/postgres_app_password`. `migrate` logs in as the `bioparser` superuser with `secrets/postgres_password` and sets the `bioparser_app` password. An existing `postgres-data` volume picks up `bioparser_app` on the next start. Removing that volume recreates the cluster.
 
 3. Check the API:
 
@@ -52,7 +56,7 @@ Prerequisites: Docker with Compose v2. The default stack uses an NVIDIA GPU and 
 4. Submit a sample paper. This stores the document and queues a job. The workers parse and extract it. Poll the job id from the response:
 
 ```sh
-   curl -H "X-API-Key: <BIOPARSER_API_KEY from .env>" \
+   curl -H "X-API-Key: $(cat secrets/bioparser_api_key)" \
      -F file=@tests/parser/fixtures/plos-biology-3000248.pdf localhost:8080/api/extractions
 ```
 
@@ -88,8 +92,8 @@ uv run bioparser
 
 Serves on `http://127.0.0.1:8080`. The parser worker calls the Compose `mineru` service. The extractor worker calls vLLM.
 
-> The host API reads `.env` if it exists. `BIOPARSER_REDIS_URL` and `BIOPARSER_DATABASE_URL` are required, and an empty value is rejected. `.env.example` sets Redis to `redis://redis:6379/0`, which only resolves inside Compose. A host run needs both URLs pointed at services the host can reach. Compose sets the API's database URL to the `bioparser_app` login. A host run of the API or a worker should use that login and `POSTGRES_APP_PASSWORD`. `bioparser-migrate` connects as `bioparser`, upgrades, and then sets `POSTGRES_APP_PASSWORD` on `bioparser_app`.
-> The API does not start without `BIOPARSER_API_KEY`. For local development only, set `BIOPARSER_AUTH_DISABLED=true` instead.
+> The host API reads `.env` if it exists. `BIOPARSER_REDIS_URL` and `BIOPARSER_DATABASE_URL` are required, and an empty value is rejected. `.env.example` sets Redis to `redis://redis:6379/0`, which only resolves inside Compose. A host run needs both URLs pointed at services the host can reach. Compose sets the API's database URL to the `bioparser_app` login. A host run of the API or a worker uses that login: put its password in `BIOPARSER_DATABASE_URL`, or in `BIOPARSER_DATABASE_PASSWORD` in the shell (`BIOPARSER_REDIS_PASSWORD` for Redis). `bioparser-migrate` connects as `bioparser`, upgrades, and then sets `POSTGRES_APP_PASSWORD` on `bioparser_app`.
+> The API does not start without `BIOPARSER_API_KEY` (in Compose, `secrets/bioparser_api_key`). For local development only, set `BIOPARSER_AUTH_DISABLED=true` instead.
 
 ### Run the UI
 
@@ -103,7 +107,7 @@ npm run dev
 
 Open `http://localhost:5173/ui/`. The page reloads when you save a file. The dev server forwards `/api` and `/ready` to the API on `127.0.0.1:8080` (`BIOPARSER_DEV_API_ORIGIN` overrides that), so run `uv run bioparser` in a second terminal. Against the Compose stack, `bash bioparser-compose up` sets the override to `http://bioparser:8080` and serves this dev server on port 5173. Port 8080 still serves the UI built into the API image.
 
-> The UI asks for the API key (`BIOPARSER_API_KEY`) when it first opens and sends it with every request. "Remember on this device" keeps the key after the tab is closed; the **API key** page forgets it. With `BIOPARSER_AUTH_DISABLED=true` the API accepts any key, so run it with a real key to check the key screen.
+> The UI asks for the API key (in Compose, the content of `secrets/bioparser_api_key`) when it first opens and sends it with every request. "Remember on this device" keeps the key after the tab is closed; the **API key** page forgets it. With `BIOPARSER_AUTH_DISABLED=true` the API accepts any key, so run it with a real key to check the key screen.
 
 The dashboard lists jobs in pages of ten, with status and parser filters in the URL. It refreshes unfinished jobs every five seconds and pauses polling in hidden tabs. The services panel checks `/ready` on the same interval.
 
@@ -149,8 +153,9 @@ Same commands as CI:
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy .
-uv run pytest -m "not integration and not image"
+uv run pytest -m "not integration and not image and not compose"
 uv run pytest -m image
+uv run pytest -m compose  # the secrets in the Compose config, needs the Docker CLI
 ```
 
 Auto-fix: `uv run ruff check --fix` and `uv run ruff format`.

@@ -17,6 +17,7 @@ describe("taxonText", () => {
   it("prefers scientificName and falls back to the printed name", () => {
     expect(taxonText(row({ scientificName: "Mus musculus" }))).toBe("Mus musculus");
     expect(taxonText(row({ scientificName: null }))).toBe("M. musculus");
+    expect(taxonText(row({ scientificName: null, verbatimScientificName: null }))).toBeNull();
   });
 });
 
