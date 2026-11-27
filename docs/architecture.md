@@ -186,6 +186,7 @@ stateDiagram-v2
     parsing --> parsing: Retry after an unexpected error
     parsing --> failed: Permanent failure, retry limit, or timeout
     parsed --> extracting: Extractor claims job
+    parsed --> failed: Extract queue gives up before claiming
     extracting --> done: Observations stored
     extracting --> failed: Permanent failure
     done --> [*]
@@ -269,7 +270,8 @@ Job state holds the document checksum and the artifact paths, typed `ArtifactPat
 | Field | Type | Set |
 |---|---|---|
 | `document_checksum` | sha256 hex | Always. The document this job belongs to. The PDF is `pdf_path(document_checksum)`. |
-| `parse_result_ref` | `ArtifactPath \| None` | In `parsed`, `extracting` and `done`. `None` in `queued`, `parsing` and `failed`. |
+| `parse_result_ref` | `ArtifactPath \| None` | In `parsed`, `extracting` and `done`. Also on `failed` when `failed_stage` is `parsed` or `extracting`. `None` in `queued` and `parsing`, and on `failed` when `failed_stage` is `queued` or `parsing`. |
+| `failed_stage` | `queued`, `parsing`, `parsed`, or `extracting` | Set only when `status` is `failed`. It is the status the job had when it failed. |
 
 Queue messages carry only `job_id`. Workers read the checksum and the result paths from job state.
 

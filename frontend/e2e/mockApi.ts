@@ -22,7 +22,6 @@ function job(id: string, status: string, extra: Record<string, unknown> = {}) {
     extractor: "default",
     created_at: "2026-11-22T08:48:47Z",
     document_checksum: SUM,
-    has_parse_result: status !== "queued",
     ...extra,
   };
 }
@@ -30,7 +29,7 @@ function job(id: string, status: string, extra: Record<string, unknown> = {}) {
 const JOBS = [
   job(QUEUED, "queued"),
   job(DONE, "done"),
-  job(FAILED, "failed", { has_parse_result: false, error: { code: "timeout" } }),
+  job(FAILED, "failed", { failed_stage: "parsing", error: { code: "timeout" } }),
 ];
 
 const TEXT = "Adult Apodemus sylvaticus weighed 21.5 g on average in the autumn samples.";

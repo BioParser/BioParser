@@ -72,6 +72,17 @@ class Job(Base):
             "deleted_at IS NULL OR status IN ('done', 'failed')",
             name="jobs_deleted_at_check",
         ),
+        CheckConstraint(
+            "("
+            "status <> 'failed' AND failed_stage IS NULL"
+            ") OR ("
+            "status = 'failed' AND ("
+            "(failed_stage IN ('queued', 'parsing') AND parse_result_ref IS NULL)"
+            " OR (failed_stage IN ('parsed', 'extracting') AND parse_result_ref IS NOT NULL)"
+            ")"
+            ")",
+            name="jobs_failed_stage_check",
+        ),
     )
 
     job_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
@@ -86,6 +97,7 @@ class Job(Base):
     parse_result_ref: Mapped[str | None] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
     extract_result_ref: Mapped[str | None] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
     error_code: Mapped[str | None] = mapped_column(Text)
+    failed_stage: Mapped[str | None] = mapped_column(Text)
     parsing_claims: Mapped[int] = mapped_column(server_default=text("0"))
     extracting_claims: Mapped[int] = mapped_column(server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(
@@ -262,7 +274,7 @@ async def claim(
         exhausted = await connection.execute(
             sql_update(Job)
             .where(Job.job_id == job_id, Job.status.in_(failable), count >= max_claims)
-            .values(status="failed", error_code="internal_error")
+            .values(status="failed", error_code="retries_exhausted", failed_stage=Job.status)
         )
         if exhausted.rowcount == 1:
             return "exhausted"
@@ -310,7 +322,7 @@ async def mark_failed(
         result = await connection.execute(
             sql_update(Job)
             .where(Job.job_id == job_id, Job.status.in_(failable))
-            .values(status="failed", error_code=code)
+            .values(status="failed", error_code=code, failed_stage=Job.status)
         )
         if result.rowcount == 1:
             return "recorded"

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from bioparser.ets.adapter import to_ets
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.jobs import JobState, SafeError
+from bioparser.jobs.state import FailedStage
 from bioparser.logging_config import error_fields
 from bioparser.storage import (
     ArtifactNotFoundError,
@@ -62,7 +63,6 @@ def _record(state: JobState, display_name: str | None) -> dict[str, Any]:
         "parser": state.parser,
         "extractor": state.extractor,
         "document_checksum": state.document_checksum,
-        "has_parse_result": state.parse_result_ref is not None,
     }
 
 
@@ -72,10 +72,22 @@ def _error(state: JobState) -> SafeError:
     return SafeError(code=state.error_code)
 
 
+def _failed_stage(state: JobState) -> FailedStage:
+    stage = state.failed_stage
+    if stage is None:
+        raise ValueError("Failed job is missing failed_stage")
+    return stage
+
+
 def job_body(state: JobState) -> JobStatusResponse:
     """The public status. No record fields, and no ETS rows."""
     if state.status == "failed":
-        return FailedJobResponse(job_id=state.job_id, status="failed", error=_error(state))
+        return FailedJobResponse(
+            job_id=state.job_id,
+            status="failed",
+            error=_error(state),
+            failed_stage=_failed_stage(state),
+        )
     return JobResponse(job_id=state.job_id, status=state.status)
 
 
@@ -83,7 +95,10 @@ def job_body_full(state: JobState, display_name: str | None) -> JobStatusRespons
     """The public status with the stored record. Still no ETS rows."""
     if state.status == "failed":
         return FailedJobFullResponse(
-            status="failed", error=_error(state), **_record(state, display_name)
+            status="failed",
+            error=_error(state),
+            failed_stage=_failed_stage(state),
+            **_record(state, display_name),
         )
     return JobFullResponse(status=state.status, **_record(state, display_name))
 

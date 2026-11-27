@@ -18,14 +18,34 @@ import { resultsQueryKey } from "../results/useJobResults";
 const OBSERVATION_PARAM = "observation";
 
 const STAGES = ["queued", "parsing", "parsed", "extracting", "done"] as const;
-type FailureCode = Extract<JobStatusFullResponse, { status: "failed" }>["error"]["code"];
-const FAILURE_MESSAGES: Record<FailureCode, string> = {
-  invalid_pdf: "The file could not be read as a valid PDF.",
-  parse_failed: "The PDF could not be parsed.",
-  extraction_failed: "Traits could not be extracted from the parsed document.",
-  timeout: "The job took too long to complete.",
-  internal_error: "An unexpected error stopped the job.",
+type FailedJob = Extract<JobStatusFullResponse, { status: "failed" }>;
+type FailureCode = FailedJob["error"]["code"];
+type FailedStage = FailedJob["failed_stage"];
+
+const STAGE_WHEN: Record<FailedStage, string> = {
+  queued: "while the job was queued",
+  parsing: "while the PDF was being parsed",
+  parsed: "while the job was waiting to be extracted",
+  extracting: "while traits were being extracted",
 };
+
+function failureMessage(stage: FailedStage, code: FailureCode): string {
+  if (code === "deferral_expired") {
+    return `A service the job needs did not answer for an hour ${STAGE_WHEN[stage]}.`;
+  }
+  if (code === "retries_exhausted") {
+    return `The job was tried until its attempt limit ${STAGE_WHEN[stage]}.`;
+  }
+  if (code === "timeout") {
+    return `The job took too long ${STAGE_WHEN[stage]}.`;
+  }
+  if (code === "internal_error") {
+    return `An unexpected error stopped the job ${STAGE_WHEN[stage]}.`;
+  }
+  if (code === "invalid_pdf") return "The file could not be read as a valid PDF.";
+  if (code === "parse_failed") return "The PDF could not be parsed.";
+  return "Traits could not be extracted from the parsed document.";
+}
 
 function isPermanentError(error: Error | null): boolean {
   return (
@@ -123,9 +143,7 @@ function JobStatus({
   onSelectObservation: (index: number) => void;
 }) {
   const stage =
-    job.status === "failed"
-      ? STAGES.indexOf(job.has_parse_result ? "extracting" : "parsing")
-      : STAGES.indexOf(job.status);
+    job.status === "failed" ? STAGES.indexOf(job.failed_stage) : STAGES.indexOf(job.status);
   return (
     <>
       <section className="job-summary" aria-labelledby="job-details-heading">
@@ -163,7 +181,9 @@ function JobStatus({
                     : undefined
               }
             >
-              {JOB_STATUS_LABELS[status]}
+              {status === "parsed" && job.status === "failed" && job.failed_stage === "parsed"
+                ? "Waiting to extract"
+                : JOB_STATUS_LABELS[status]}
               {index === stage && job.status === "failed" ? " — failed" : ""}
               {/* The check mark shows it; screen readers hear it. */}
               {index < stage && <span className="visually-hidden"> — complete</span>}
@@ -176,8 +196,7 @@ function JobStatus({
           <p>
             Job failed: <code>{job.error.code}</code>
           </p>
-          <p>{FAILURE_MESSAGES[job.error.code]}</p>
-          {job.has_parse_result && <p>The parse result is kept.</p>}
+          <p>{failureMessage(job.failed_stage, job.error.code)}</p>
         </div>
       )}
       {job.status === "done" && (

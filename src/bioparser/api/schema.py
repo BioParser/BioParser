@@ -8,23 +8,18 @@ from bioparser.ets.models import EtsRow
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, ExtractorName
 from bioparser.hashing import Sha256Hex
 from bioparser.jobs import SafeError
+from bioparser.jobs.state import FailedStage
 from bioparser.parser_names import DEFAULT_PARSER_NAME, ParserName
 
 
 class JobRecord(BaseModel):
-    """Fields a `detail=full` body adds.
-
-    ``has_parse_result`` says the parser artifact was stored. ``timeout`` and
-    ``internal_error`` do not say which stage ended, so the flag tells a reader
-    that parsing finished.
-    """
+    """Fields a `detail=full` body adds."""
 
     created_at: AwareDatetime
     display_name: str | None
     parser: str
     extractor: str
     document_checksum: str
-    has_parse_result: bool
 
 
 class HealthResponse(BaseModel):
@@ -90,11 +85,14 @@ class JobFullResponse(JobResponse, JobRecord):
 
 
 class FailedJobResponse(BaseModel):
+    """A failed job. ``failed_stage`` is the status the job had when it failed."""
+
     model_config = ConfigDict(extra="forbid")
 
     job_id: UUID
     status: Literal["failed"]
     error: SafeError
+    failed_stage: FailedStage
 
 
 class FailedJobFullResponse(FailedJobResponse, JobRecord):

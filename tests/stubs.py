@@ -579,7 +579,7 @@ class StubJobs:
             if "failed" not in ALLOWED_TRANSITIONS[state.status]:
                 return "skipped"
             self.states[str(job_id)] = state.with_changes(
-                status="failed", error_code="internal_error"
+                status="failed", error_code="retries_exhausted", failed_stage=state.status
             )
             return "exhausted"
         if status == "parsing":
@@ -625,7 +625,9 @@ class StubJobs:
             return "skipped"
         if "failed" not in ALLOWED_TRANSITIONS[state.status]:
             return "not_allowed"
-        self.states[str(job_id)] = state.with_changes(status="failed", error_code=code)
+        self.states[str(job_id)] = state.with_changes(
+            status="failed", error_code=code, failed_stage=state.status
+        )
         return "recorded"
 
     async def delete_finished(self, connection: object, job_id: object) -> str:

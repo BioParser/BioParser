@@ -25,6 +25,7 @@ _COLUMNS = {
     "parse_result_ref": ("YES", "character varying", 512),
     "extract_result_ref": ("YES", "character varying", 512),
     "error_code": ("YES", "text", None),
+    "failed_stage": ("YES", "text", None),
     "parsing_claims": ("NO", "integer", None),
     "extracting_claims": ("NO", "integer", None),
     "created_at": ("NO", "timestamp with time zone", None),
@@ -38,6 +39,7 @@ _CHECKS = {
     "jobs_parsing_claims_check",
     "jobs_extracting_claims_check",
     "jobs_deleted_at_check",
+    "jobs_failed_stage_check",
 }
 _DOCUMENTS_COLUMNS = {
     "checksum": ("NO", "character varying", 64),
