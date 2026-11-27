@@ -112,8 +112,9 @@
   font-size: var(--text-sm);
 }
 
-/* The parser choice: a card for each, with a line on when to choose it. The chosen card is
-   filled and outlined. The cards keep their width, so the choice does not stretch across. */
+/* A card for each parser and each extractor. A parser card adds a line on when to choose it.
+   The chosen card is filled and outlined. The cards keep their width, so the choice does not
+   stretch across. */
 .job-parsers {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 17rem));

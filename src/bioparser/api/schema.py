@@ -2,10 +2,10 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from bioparser.ets.models import EtsRow
-from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTORS
+from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, ExtractorName
 from bioparser.hashing import Sha256Hex
 from bioparser.jobs import SafeError
 from bioparser.parser_names import DEFAULT_PARSER_NAME, ParserName
@@ -136,14 +136,9 @@ class CreateJobRequest(BaseModel):
     # A Literal, so the OpenAPI schema lists the parser names and the frontend's
     # generated types do too.
     parser: ParserName = Field(default=DEFAULT_PARSER_NAME, description="Parser backend name")
-    extractor: str = Field(default=DEFAULT_EXTRACTOR_NAME, description="Extractor backend name")
-
-    @field_validator("extractor")
-    @classmethod
-    def validate_extractor(cls, value: str) -> str:
-        if value not in EXTRACTORS:
-            raise ValueError(f"must be one of: {', '.join(EXTRACTORS)}")
-        return value
+    extractor: ExtractorName = Field(
+        default=DEFAULT_EXTRACTOR_NAME, description="Extractor backend name"
+    )
 
     model_config = ConfigDict(
         extra="forbid",

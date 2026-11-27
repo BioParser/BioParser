@@ -30,9 +30,12 @@ const PARSERS = Object.entries(PARSER_CHOICES) as [
   (typeof PARSER_CHOICES)[ParserName],
 ][];
 
-// Fixed for now: there is one extractor (DEFAULT_EXTRACTOR_NAME in
-// src/bioparser/extractor_names.py). Choosing traits is #32.
-const EXTRACTOR = { name: "default" };
+// The extractors a curator can choose from. The keys come from the API's schema
+// (ExtractorName in src/bioparser/extractor_names.py), so tsc fails when a name is added,
+// removed or renamed there and not here. Choosing traits is #32.
+type ExtractorName = CreateJobRequest["extractor"];
+const EXTRACTOR_LABELS: Record<ExtractorName, string> = { default: "Default", mendel: "Mendel" };
+const EXTRACTORS = Object.entries(EXTRACTOR_LABELS) as [ExtractorName, string][];
 
 // The most files that can wait in the list to be sent. The API has no such limit: this only
 // keeps an accidental drop of a whole folder from starting a job for every file in it.
@@ -68,6 +71,7 @@ function fileCount(count: number): string {
 export function StartJobPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [parser, setParser] = useState<ParserName>("default");
+  const [extractor, setExtractor] = useState<ExtractorName>("default");
   const [sending, setSending] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [maxBytes, setMaxBytes] = useState(DEFAULT_MAX_UPLOAD_BYTES);
@@ -219,7 +223,7 @@ export function StartJobPage() {
           continue;
         }
         setResult(row.id, { state: "sending" });
-        const result = await processFile(row.file, parser, maxBytes, controller.signal);
+        const result = await processFile(row.file, parser, extractor, maxBytes, controller.signal);
         setResult(row.id, result);
         // The key was refused: every other file would get a 401 too.
         if (result.state === "failed" && result.status === 401) {
@@ -297,6 +301,23 @@ export function StartJobPage() {
               </div>
             ))}
           </fieldset>
+          <fieldset className="job-parsers">
+            <legend>Extractor</legend>
+            {EXTRACTORS.map(([name, label]) => (
+              <div key={name} className="job-parser">
+                <label>
+                  <input
+                    type="radio"
+                    name="extractor"
+                    value={name}
+                    checked={extractor === name}
+                    onChange={() => setExtractor(name)}
+                  />{" "}
+                  {label}
+                </label>
+              </div>
+            ))}
+          </fieldset>
         </fieldset>
         <div className="job-actions">
           <button type="submit" disabled={sending || !unsent}>
@@ -367,6 +388,7 @@ function FileStatus({ result }: { result: FileResult | null }) {
 async function processFile(
   file: File,
   parser: ParserName,
+  extractor: ExtractorName,
   maxBytes: number,
   signal: AbortSignal,
 ): Promise<FileResult> {
@@ -377,11 +399,7 @@ async function processFile(
       return { state: "rejected", reason };
     }
     const document = await uploadDocument(file, signal);
-    const job = await startDocumentJob(
-      document.checksum,
-      { parser, extractor: EXTRACTOR.name },
-      signal,
-    );
+    const job = await startDocumentJob(document.checksum, { parser, extractor }, signal);
     return { state: "started", jobId: job.job_id };
   } catch (error) {
     const status = error instanceof ApiError ? error.status : undefined;
