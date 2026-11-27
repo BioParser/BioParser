@@ -46,6 +46,8 @@ _ANCHORS: tuple[tuple[str, str], ...] = (
     (_NATIVE, _PATCH._ASSIGN_OLD),
     (_CONTENT, _PATCH._LINE_ITEMS_OLD),
     (_CONTENT, _PATCH._LINE_KEEP_OLD),
+    (_CONTENT, _PATCH._TARGET_IMPORT_OLD),
+    (_CONTENT, _PATCH._TARGET_TYPES_OLD),
     (_CONTENT, _PATCH._OCR_SPAN_OLD),
     (_OCR, _PATCH._OCR_IMPORT_OLD),
     (_OCR, _PATCH._OCR_APPLY_OLD),
@@ -100,6 +102,7 @@ def _assert_rewritten(site: Path) -> None:
     assert 'ocr_res.get("bioparser_chars")' in content
     assert 'glyphs.append({"t": text, "x0": box[0], "x1": box[2]})' not in content
     assert _PATCH._LINE_KEEP_NEW in content
+    assert "set(NATURAL_LANGUAGE_CONTENT_BLOCK_TYPES)" in content
     assert (
         'if block_type in LINE_METADATA_BLOCK_TYPES:\n            block_item["lines"] = _build_ocr_det_line_items'
         not in content

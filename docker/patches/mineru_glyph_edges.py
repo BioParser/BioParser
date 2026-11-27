@@ -356,6 +356,29 @@ _LINE_KEEP_NEW = """            block_item[PDF_NATIVE_SCRIPT_MARKUP_KEY] = True
         block_item["lines"] = _build_ocr_det_line_items(lines, page_size)
 """
 
+_TARGET_IMPORT_OLD = """from ..constants import (
+    CODE_CONTENT_BLOCK_TYPES,
+    LINE_METADATA_BLOCK_TYPES,
+    TITLE_BLOCK_TYPES,
+)
+"""
+
+_TARGET_IMPORT_NEW = """from ..constants import (
+    CODE_CONTENT_BLOCK_TYPES,
+    LINE_METADATA_BLOCK_TYPES,
+    NATURAL_LANGUAGE_CONTENT_BLOCK_TYPES,
+    TITLE_BLOCK_TYPES,
+)
+"""
+
+_TARGET_TYPES_OLD = """    target_block_types = set(ocr_det_type) | TITLE_BLOCK_TYPES | {BlockType.TEXT}
+"""
+
+_TARGET_TYPES_NEW = """    target_block_types = (
+        set(ocr_det_type) | TITLE_BLOCK_TYPES | set(NATURAL_LANGUAGE_CONTENT_BLOCK_TYPES)
+    )
+"""
+
 _OCR_APPLY_NEW = """    items_to_remove = []
     for index, (page_ocr_res_list, need_ocr_res) in enumerate(need_ocr_list):
         ocr_result = ocr_result_list[index]
@@ -579,6 +602,18 @@ def _patch_mineru(site_packages: Path) -> None:
     )
     _replace(content, _LINE_ITEMS_OLD, _LINE_ITEMS_NEW, already="def _bioparser_glyph")
     _replace(content, _LINE_KEEP_OLD, _LINE_KEEP_NEW, already=_LINE_KEEP_NEW)
+    _replace(
+        content,
+        _TARGET_IMPORT_OLD,
+        _TARGET_IMPORT_NEW,
+        already="NATURAL_LANGUAGE_CONTENT_BLOCK_TYPES",
+    )
+    _replace(
+        content,
+        _TARGET_TYPES_OLD,
+        _TARGET_TYPES_NEW,
+        already="set(NATURAL_LANGUAGE_CONTENT_BLOCK_TYPES)",
+    )
     _replace(content, _OCR_SPAN_OLD, _OCR_SPAN_NEW, already='ocr_res.get("bioparser_chars")')
     rec_post = (
         site_packages
