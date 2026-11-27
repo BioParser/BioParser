@@ -6,6 +6,8 @@ from typing import cast
 from uuid import UUID
 
 import pytest
+from dramatiq.brokers.stub import StubBroker
+from dramatiq.middleware.time_limit import TimeLimit
 from pydantic import BaseModel
 from stubs import (
     MemoryStorage,
@@ -46,6 +48,7 @@ from bioparser.jobs.queue import (
     JobDeferred,
     JobTimeLimitExceeded,
 )
+from bioparser.jobs.queue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
 from bioparser.parser.models import (
     PARSER_ARTIFACT_SCHEMA_VERSION,
     BlockKind,
@@ -1005,3 +1008,46 @@ def test_a_malformed_extract_message_fails_a_parsed_job() -> None:
     assert jobs.state.error_code == "internal_error"
     assert jobs.state.failed_stage == "parsed"
     assert jobs.state.parse_result_ref == PARSE_REF
+
+
+def _consume(handler: ExtractJobHandler, *, max_retries: int, time_limit_ms: int) -> None:
+    """Submit the job and run it to the end through a real queue on an in-memory broker."""
+    broker = StubBroker(fail_fast_default=False)
+    try:
+        (time_limit,) = [m for m in broker.middleware if isinstance(m, TimeLimit)]
+        time_limit.manager.interval = 0.05  # type: ignore[union-attr]
+        queue = DramatiqJobConsumer(
+            name="extract",
+            model=ExtractJobMessage,
+            broker=broker,
+            max_retries=max_retries,
+            min_backoff_ms=1,
+            time_limit_ms=time_limit_ms,
+            worker_timeout_ms=50,
+        )
+        asyncio.run(DramatiqJobSubmitter(name="extract", broker=broker).submit(_message()))
+        queue.consume(handler, until_empty=True)
+    finally:
+        asyncio.run(handler.aclose())
+        broker.flush_all()
+        broker.close()
+
+
+def test_queue_time_limit_fails_the_job_as_timeout_without_retry() -> None:
+    """A cancelled extraction is one timeout, even when the queue has retries left."""
+    calls = 0
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(30)
+        raise AssertionError("the time limit never interrupted the extraction")
+
+    jobs = StubJobs(_parsed())
+    _consume(_handler(jobs, _storage(), extract), max_retries=3, time_limit_ms=200)
+
+    assert calls == 1
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "timeout"
+    assert jobs.state.failed_stage == "extracting"
