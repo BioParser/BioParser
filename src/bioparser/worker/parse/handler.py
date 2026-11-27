@@ -9,7 +9,7 @@ from uuid import UUID
 
 from pydantic import SecretStr, ValidationError
 
-from bioparser.artifact_paths import parse_result_path, pdf_path
+from bioparser.artifact_paths import ArtifactPathError, parse_result_path, pdf_path
 from bioparser.db import engine as database
 from bioparser.db import jobs as job_queries
 from bioparser.hashing import sha256_bytes
@@ -23,8 +23,6 @@ from bioparser.parser import (
     UnsupportedDocumentError,
 )
 from bioparser.parser.pdf_bytes import parse_pdf_bytes
-from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
-from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 from bioparser.storage import ArtifactNotFoundError, ArtifactStorage
 
 from ..json_artifact import _retrieve_or_none, store_json_artifact
@@ -46,7 +44,6 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
         storage: ArtifactStorage,
         parser_factory: Callable[[str], PdfParser],
         max_claims: int,
-        mineru_tier: MinerUTier = DEFAULT_TIER,
         enqueue_extraction: Callable[[UUID], Awaitable[None]] | None = None,
         before_claim: Callable[[JobState], Awaitable[None]] | None = None,
     ) -> None:
@@ -60,8 +57,6 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
         )
         self._storage = storage
         self._parser_factory = parser_factory
-        # The tier the worker asks MinerU for. MinerU results are stored per tier.
-        self._mineru_tier: MinerUTier = mineru_tier
         self._enqueue_extraction = enqueue_extraction
 
     async def handle(self, message: ParseJobMessage) -> None:
@@ -81,9 +76,7 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
             await self._wake_extractor_if_parsed(message.job_id)
 
     async def run(self, state: JobState) -> None:
-        artifact_path = await self._ensure_parser_artifact(
-            state.parser, pdf_path(state.document_checksum)
-        )
+        artifact_path = await self._ensure_parser_artifact(state)
         async with database.transaction() as connection:
             wrote = await job_queries.record_parsed(connection, state.job_id, artifact_path)
         if not wrote:
@@ -121,11 +114,12 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
                 return False
         return state is not None and state.status == "parsed"
 
-    async def _ensure_parser_artifact(self, parser_name: str, path: str) -> str:
+    async def _ensure_parser_artifact(self, state: JobState) -> str:
         """Return the artifact path for the parsed PDF, creating it if needed."""
-        pdf = await self._retrieve_pdf(path)
+        pdf = await self._retrieve_pdf(pdf_path(state.document_checksum))
         checksum = await asyncio.to_thread(sha256_bytes, pdf)
-        artifact_path = _parse_result_path(checksum, parser_name, self._mineru_tier)
+        parser = self._build_parser(state.parser)
+        artifact_path = _parse_result_path(checksum, parser, state)
         stored = await _retrieve_or_none(self._storage, artifact_path)
         if stored is not None and _is_parser_artifact(stored):
             return artifact_path
@@ -133,7 +127,7 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
             # Storage cannot replace an artifact, so an invalid one is permanent.
             LOGGER.error("stored parser artifact is invalid and cannot be replaced")
             raise PermanentJobFailure("internal_error")
-        artifact = await self._parse(parser_name, pdf)
+        artifact = await self._parse(state.parser, parser, pdf)
         payload = artifact.model_dump_json().encode()
         return await store_json_artifact(
             self._storage,
@@ -152,13 +146,15 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
             LOGGER.error("input PDF is not in artifact storage")
             raise PermanentJobFailure("internal_error") from exc
 
-    async def _parse(self, parser_name: str, pdf: bytes) -> ParserArtifact:
-        """Parse the input PDF. Known failures become `PermanentJobFailure`."""
+    def _build_parser(self, parser_name: str) -> PdfParser:
         try:
-            parser = self._parser_factory(parser_name)
+            return self._parser_factory(parser_name)
         except ParserBackendUnavailableError as exc:
             LOGGER.error(f"parser backend {parser_name!r} cannot run: {exc}")
             raise PermanentJobFailure("parse_failed") from exc
+
+    async def _parse(self, parser_name: str, parser: PdfParser, pdf: bytes) -> ParserArtifact:
+        """Parse the input PDF. Known failures become `PermanentJobFailure`."""
         try:
             return await parse_pdf_bytes(parser, pdf)
         except ParserBackendUnavailableError as exc:
@@ -178,20 +174,18 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
             raise PermanentJobFailure("invalid_pdf") from exc
 
 
-def _parse_result_path(checksum: str, parser_name: str, mineru_tier: MinerUTier) -> str:
+def _parse_result_path(checksum: str, parser: PdfParser, state: JobState) -> str:
     """The conventional path for this PDF's parser artifact, from the PDF's checksum.
 
-    The same PDF and parser always give the same path, so a retry or another job with the
-    same PDF reuses the stored artifact. MinerU's output also depends on its tier, so each
-    tier has its own path.
+    Each parser backend defines its own path segments from the job state (typically backend
+    name, version, and any configuration or job-scoped segments).
     """
     try:
-        version = PARSER_VERSIONS[parser_name]
-    except KeyError as exc:
-        LOGGER.error(f"parser backend {parser_name!r} has no version")
+        segments = parser.artifact_path_segments(state)
+        return parse_result_path(checksum, segments)
+    except (ArtifactPathError, KeyError) as exc:
+        LOGGER.error(f"parser cannot form an artifact path: {exc}")
         raise PermanentJobFailure("internal_error") from exc
-    configuration = mineru_tier if parser_name == MINERU_PARSER_NAME else None
-    return parse_result_path(checksum, parser_name, version, configuration)
 
 
 def _is_parser_artifact(payload: bytes) -> bool:

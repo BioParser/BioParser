@@ -1,3 +1,6 @@
+import json
+from uuid import UUID
+
 import pytest
 from pydantic import BaseModel, ValidationError
 
@@ -13,6 +16,7 @@ from bioparser.artifact_paths import (
     validate_artifact_path,
     validate_path_segment,
 )
+from bioparser.hashing import sha256_bytes
 
 CHECKSUM = "f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2"
 
@@ -144,60 +148,147 @@ def test_pdf_path_follows_the_convention() -> None:
 
 
 def test_parse_result_path_follows_the_convention() -> None:
-    path = parse_result_path(CHECKSUM, "mineru", "1")
+    path = parse_result_path(CHECKSUM, ["mineru", "1"])
     assert path == f"pdf/{CHECKSUM}/parsed/mineru/1"
     assert path.startswith(pdf_path(CHECKSUM) + "/")
 
 
-def test_a_configuration_is_one_more_segment_after_the_version() -> None:
-    path = parse_result_path(CHECKSUM, "mineru", "2", "standard")
+def test_parse_result_path_keeps_multi_segment_configuration() -> None:
+    path = parse_result_path(CHECKSUM, ["mineru", "2", "standard"])
     assert path == f"pdf/{CHECKSUM}/parsed/mineru/2/standard"
 
 
 def test_extract_result_path_keeps_the_parse_path() -> None:
-    parsed = parse_result_path(CHECKSUM, "mineru", "2", "standard")
-    path = extract_result_path(parsed, "default", "0", "job-1")
-    assert path == f"{parsed}/extracted/default/0/job-1"
+    parsed = parse_result_path(CHECKSUM, ["mineru", "2", "standard"])
+    path = extract_result_path(parsed, ["default", "0"])
+    assert path == f"{parsed}/extracted/default/0"
+
+
+def test_extract_result_path_appends_short_segments_unchanged() -> None:
+    parsed = parse_result_path(CHECKSUM, ["mineru", "2", "standard"])
+    job_id = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
+    assert extract_result_path(parsed, ["custom", "1", "prompt-v2"]) == (
+        f"{parsed}/extracted/custom/1/prompt-v2"
+    )
+    assert extract_result_path(parsed, ["default", "2", str(job_id)]) == (
+        f"{parsed}/extracted/default/2/{job_id}"
+    )
+
+
+def _expected_segments_digest(segments: list[str]) -> str:
+    payload = json.dumps(segments, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return sha256_bytes(payload)
 
 
 @pytest.mark.parametrize(
-    "bad", ["", "a/b", "/a", "has space", "a" * (ARTIFACT_PATH_MAX_SEGMENT_LENGTH + 1)]
+    "config",
+    [
+        "a" * (ARTIFACT_PATH_MAX_SEGMENT_LENGTH + 1),
+        '{"model": "Qwen/Qwen3-0.6B", "prompt": "' + ("x" * 200) + '"}',
+        "has/slash/" + ("x" * 200),
+        "has space " + ("x" * 200),
+    ],
 )
-def test_builders_reject_a_value_that_is_not_one_segment(bad: str) -> None:
+def test_long_segment_hashes_the_backend_segments(config: str) -> None:
+    segments = ["custom", "1", config]
+    digest = _expected_segments_digest(segments)
+    parsed = parse_result_path(CHECKSUM, segments)
+    base_parsed = parse_result_path(CHECKSUM, ["default", "1"])
+    extracted = extract_result_path(base_parsed, segments)
+
+    assert parsed == f"pdf/{CHECKSUM}/parsed/{digest}"
+    assert extracted == f"{base_parsed}/extracted/{digest}"
+
+
+def test_path_exceeding_max_length_hashes_the_backend_segments() -> None:
+    parser_segments = ["custom", "1", "a" * 180, "b" * 180, "c" * 180]
+    parser_digest = _expected_segments_digest(parser_segments)
+    parsed = parse_result_path(CHECKSUM, parser_segments)
+    assert parsed == f"pdf/{CHECKSUM}/parsed/{parser_digest}"
+    assert len(parsed) <= ARTIFACT_PATH_MAX_LENGTH
+
+    base_parsed = parse_result_path(CHECKSUM, ["mineru", "3", "standard"])
+    extract_segments = ["custom", "1", "a" * 200, "b" * 200]
+    extract_digest = _expected_segments_digest(extract_segments)
+    extracted = extract_result_path(base_parsed, extract_segments)
+    assert extracted == f"{base_parsed}/extracted/{extract_digest}"
+    assert len(extracted) <= ARTIFACT_PATH_MAX_LENGTH
+
+
+def test_hashed_segments_preserve_segment_boundaries() -> None:
+    first = parse_result_path(CHECKSUM, ["a/b", "x" * 201])
+    second = parse_result_path(CHECKSUM, ["a", "b/" + ("x" * 201)])
+    assert first != second
+
+
+def test_too_long_parse_ref_still_rejects_extract_path() -> None:
+    long_parsed = "/".join(["a" * 150] * 3 + ["b" * 42])
+    assert len(validate_artifact_path(long_parsed)) == 495
+    with pytest.raises(ArtifactPathError, match="maximum length"):
+        extract_result_path(long_parsed, ["default", "1"])
+
+
+@pytest.mark.parametrize(
+    "bad_segments",
+    [
+        "default",
+        b"default",
+        [],
+        [123],
+        ["default", 1],
+    ],
+)
+def test_builders_reject_non_sequence_or_empty_segments(bad_segments: object) -> None:
+    parsed = parse_result_path(CHECKSUM, ["default", "1"])
     with pytest.raises(ArtifactPathError):
-        pdf_path(bad)
+        parse_result_path(CHECKSUM, bad_segments)  # type: ignore[arg-type]
     with pytest.raises(ArtifactPathError):
-        parse_result_path(CHECKSUM, bad, "1")
+        extract_result_path(parsed, bad_segments)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("bad", ["", "a/b", "/a", "has space", "bad:char"])
+def test_builders_reject_short_illegal_segments_without_hashing(bad: str) -> None:
+    parsed = parse_result_path(CHECKSUM, ["default", "1"])
     with pytest.raises(ArtifactPathError):
-        parse_result_path(CHECKSUM, "default", bad)
+        parse_result_path(CHECKSUM, [bad, "1"])
     with pytest.raises(ArtifactPathError):
-        parse_result_path(CHECKSUM, "mineru", "2", bad)
-    parsed = parse_result_path(CHECKSUM, "mineru", "2", "standard")
-    # The parse ref is a whole path, so a value with a slash can be one.
+        parse_result_path(CHECKSUM, ["mineru", "2", bad])
     if bad != "a/b":
         with pytest.raises(ArtifactPathError):
-            extract_result_path(bad, "default", "1", "job-1")
+            extract_result_path(bad, ["default", "1"])
     with pytest.raises(ArtifactPathError):
-        extract_result_path(parsed, bad, "1", "job-1")
+        extract_result_path(parsed, [bad, "1"])
     with pytest.raises(ArtifactPathError):
-        extract_result_path(parsed, "default", bad, "job-1")
+        extract_result_path(parsed, ["custom", "1", bad])
+
+
+def test_empty_segment_is_rejected_even_with_long_sibling_segment() -> None:
+    parsed = parse_result_path(CHECKSUM, ["default", "1"])
+    segments = ["custom", "", "x" * (ARTIFACT_PATH_MAX_SEGMENT_LENGTH + 1)]
     with pytest.raises(ArtifactPathError):
-        extract_result_path(parsed, "default", "1", bad)
+        parse_result_path(CHECKSUM, segments)
+    with pytest.raises(ArtifactPathError):
+        extract_result_path(parsed, segments)
 
 
 @pytest.mark.parametrize("bad", [".", ".."])
 def test_builders_reject_dot_segments(bad: str) -> None:
+    long_segment = "x" * (ARTIFACT_PATH_MAX_SEGMENT_LENGTH + 1)
     with pytest.raises(ArtifactPathTraversalError):
-        parse_result_path(CHECKSUM, bad, "1")
+        parse_result_path(CHECKSUM, [bad, "1"])
     with pytest.raises(ArtifactPathTraversalError):
-        parse_result_path(CHECKSUM, "mineru", "2", bad)
-    parsed = parse_result_path(CHECKSUM, "mineru", "2")
+        parse_result_path(CHECKSUM, ["mineru", "2", bad])
     with pytest.raises(ArtifactPathTraversalError):
-        extract_result_path(bad, "default", "1", "job-1")
+        parse_result_path(CHECKSUM, ["mineru", bad, long_segment])
+    parsed = parse_result_path(CHECKSUM, ["mineru", "2"])
     with pytest.raises(ArtifactPathTraversalError):
-        extract_result_path(parsed, bad, "1", "job-1")
+        extract_result_path(bad, ["default", "1"])
     with pytest.raises(ArtifactPathTraversalError):
-        extract_result_path(parsed, "default", "1", bad)
+        extract_result_path(parsed, [bad, "1"])
+    with pytest.raises(ArtifactPathTraversalError):
+        extract_result_path(parsed, ["custom", "1", bad])
+    with pytest.raises(ArtifactPathTraversalError):
+        extract_result_path(parsed, ["custom", bad, long_segment])
 
 
 @pytest.mark.parametrize("segment", ["a", CHECKSUM, "doc_123.v1-final", "..."])

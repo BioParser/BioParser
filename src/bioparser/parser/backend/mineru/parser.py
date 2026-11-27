@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 
 from bioparser.hashing import sha256_bytes
+from bioparser.jobs import JobState
 from bioparser.parser.advent_repair.symbol_child import repair_pdf_in_child
 from bioparser.parser.advent_repair.symbol_fonts import symbol_font_problems
 from bioparser.parser.backend.mineru.mapper import (
@@ -42,6 +43,9 @@ class MinerUParser:
         self._base_url = base_url
         self._timeout_s = timeout_s
         self._tier: MinerUTier = tier
+
+    def artifact_path_segments(self, job: JobState) -> list[str]:
+        return [MINERU_PARSER_NAME, PARSER_VERSIONS[MINERU_PARSER_NAME], self._tier]
 
     async def parse(self, path: Path) -> ParserArtifact:
         pdf_path = path.expanduser().resolve()

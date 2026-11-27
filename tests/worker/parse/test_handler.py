@@ -48,7 +48,7 @@ from bioparser.worker.parse.handler import ParseJobHandler
 JOB_ID = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
 PDF_BYTES = b"%PDF-1.4"
 PDF_CHECKSUM = hashlib.sha256(PDF_BYTES).hexdigest()
-RESULT_PATH = parse_result_path(PDF_CHECKSUM, "default", PARSER_VERSIONS["default"])
+RESULT_PATH = parse_result_path(PDF_CHECKSUM, ["default", PARSER_VERSIONS["default"]])
 CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -78,10 +78,19 @@ class RecordingParser:
         artifact: ParserArtifact,
         *,
         error: BaseException | None = None,
+        segments: list[str] | Callable[[JobState], list[str]] | None = None,
     ) -> None:
         self.artifact = artifact
         self.error = error
+        self._segments = segments
         self.paths: list[bytes] = []
+
+    def artifact_path_segments(self, job: JobState) -> list[str]:
+        if callable(self._segments):
+            return self._segments(job)
+        if self._segments is not None:
+            return list(self._segments)
+        return [job.parser, PARSER_VERSIONS[job.parser]]
 
     async def parse(self, path: Path) -> ParserArtifact:
         self.paths.append(path.read_bytes())
@@ -337,15 +346,35 @@ def test_missing_input_fails_without_retry() -> None:
 
 
 def test_parser_without_a_version_is_internal_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("bioparser.worker.parse.handler.PARSER_VERSIONS", {})
+    monkeypatch.setattr("bioparser.parser.backend.default.parser.PARSER_VERSIONS", {})
     jobs = StubJobs(_queued())
-    parser = RecordingParser(_artifact())
-    handler = _handler(jobs, _storage(), parser)
+    parser = get_parser("default")
+    handler = _handler(
+        jobs,
+        _storage(),
+        RecordingParser(_artifact()),
+        factory=lambda _name: parser,
+    )
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "internal_error"
+
+
+def test_parser_returning_empty_segments_is_internal_error() -> None:
+    jobs = StubJobs(_queued())
+    storage = _storage()
+    parser = RecordingParser(_artifact(), segments=[])
+    handler = _handler(jobs, storage, parser)
     asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
 
     assert parser.paths == []
+    assert storage.stores == 0
     assert jobs.state is not None
+    assert jobs.state.status == "failed"
     assert jobs.state.error_code == "internal_error"
 
 
@@ -499,6 +528,9 @@ def test_parser_timeout_fails_with_timeout_without_retry(error: BaseException) -
     """Both the parser's own limit and the queue's cancellation at its time limit end the job as a timeout."""
 
     class _SlowParser:
+        def artifact_path_segments(self, job: JobState) -> list[str]:
+            return ["default", "1"]
+
         async def parse(self, path: Path) -> ParserArtifact:
             raise error
 
@@ -662,6 +694,9 @@ def test_records_logged_while_a_job_runs_carry_its_job_id(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     class _LoggingParser:
+        def artifact_path_segments(self, job: JobState) -> list[str]:
+            return ["default", "1"]
+
         async def parse(self, path: Path) -> ParserArtifact:
             logging.getLogger("bioparser.parser.test").info("parsing")
             return _artifact()
@@ -767,6 +802,9 @@ def test_queue_time_limit_fails_the_job_as_timeout_without_retry() -> None:
     class _HangingParser:
         calls = 0
 
+        def artifact_path_segments(self, job: JobState) -> list[str]:
+            return ["default", "1"]
+
         async def parse(self, path: Path) -> ParserArtifact:
             _HangingParser.calls += 1
             await asyncio.sleep(30)
@@ -807,35 +845,93 @@ def test_second_job_with_the_same_pdf_reuses_the_artifact() -> None:
 
 def test_the_mineru_result_path_has_the_tier_as_its_last_segment() -> None:
     jobs = StubJobs(_queued().with_changes(parser="mineru"))
-    parser = RecordingParser(_artifact())
+    mineru_version = PARSER_VERSIONS["mineru"]
+    parser = RecordingParser(_artifact(), segments=["mineru", mineru_version, "standard"])
     handler = ParseJobHandler(
         database_url="postgresql://unused",
         storage=_storage(),
         parser_factory=lambda _name: parser,
         max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
-        mineru_tier="standard",
     )
     asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.parse_result_ref == (
-        f"pdf/{PDF_CHECKSUM}/parsed/mineru/{PARSER_VERSIONS['mineru']}/standard"
+        f"pdf/{PDF_CHECKSUM}/parsed/mineru/{mineru_version}/standard"
     )
 
 
 def test_each_backend_gets_its_own_result_path() -> None:
     jobs = StubJobs(_queued().with_changes(parser="mineru"))
     storage = _storage()
-    parser = RecordingParser(_artifact())
+    mineru_version = PARSER_VERSIONS["mineru"]
+    parser = RecordingParser(_artifact(), segments=["mineru", mineru_version, "basic"])
     handler = _handler(jobs, storage, parser, factory=lambda _name: parser)
     asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
 
     assert jobs.state is not None
-    # Without a tier the handler names the default tier's path
     assert jobs.state.parse_result_ref == parse_result_path(
-        PDF_CHECKSUM, "mineru", PARSER_VERSIONS["mineru"], "basic"
+        PDF_CHECKSUM, ["mineru", mineru_version, "basic"]
+    )
+
+
+def test_too_long_parser_configuration_is_hashed_on_the_path() -> None:
+    segments = ["mineru", PARSER_VERSIONS["mineru"], "option=" + ("x" * 210)]
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
+    storage = _storage()
+    parser = RecordingParser(_artifact(), segments=segments)
+    handler = _handler(jobs, storage, parser, factory=lambda _name: parser)
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.parse_result_ref == parse_result_path(PDF_CHECKSUM, segments)
+
+
+def test_short_illegal_parser_configuration_is_internal_error() -> None:
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
+    storage = _storage()
+    parser = RecordingParser(
+        _artifact(), segments=["mineru", PARSER_VERSIONS["mineru"], "bad segment"]
+    )
+    handler = _handler(jobs, storage, parser, factory=lambda _name: parser)
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert parser.paths == []
+    assert storage.stores == 0
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "internal_error"
+
+
+def test_job_scoped_parser_segments_avoid_reusing_previous_job_artifact() -> None:
+    storage = _storage()
+    default_version = PARSER_VERSIONS["default"]
+    parser = RecordingParser(
+        _artifact(),
+        segments=lambda job: ["default", default_version, str(job.job_id)],
+    )
+    first = StubJobs(_queued())
+    handler = _handler(first, storage, parser)
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    other_id = UUID("9d0c6a52-1b7e-4c3f-a2d8-5e6f7a8b9c01")
+    second = StubJobs(_queued().with_changes(job_id=other_id))
+    handler = _handler(second, storage, parser)
+    asyncio.run(handler.handle(_message(job_id=str(other_id))))
+    asyncio.run(handler.aclose())
+
+    assert len(parser.paths) == 2
+    assert first.state is not None and second.state is not None
+    assert first.state.parse_result_ref == parse_result_path(
+        PDF_CHECKSUM, ["default", default_version, str(JOB_ID)]
+    )
+    assert second.state.parse_result_ref == parse_result_path(
+        PDF_CHECKSUM, ["default", default_version, str(other_id)]
     )
 
 

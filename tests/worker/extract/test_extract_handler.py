@@ -71,7 +71,7 @@ JOB_ID = UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34")
 PARSE_REF = "6b1f0c2a-7d44-4e1a-9c3b-2f8e5a0d6c11"
 PDF_CHECKSUM = "a" * 64
 RESULT_PATH = extract_result_path(
-    PARSE_REF, "default", EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME], str(JOB_ID)
+    PARSE_REF, ["default", EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME], str(JOB_ID)]
 )
 QUOTE = "Mus musculus adults averaged 12.5 kg in the sampled population."
 CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
@@ -171,8 +171,21 @@ def _real_extract(
 
 
 class _CallableExtractor:
-    def __init__(self, extract: Callable[[ParserArtifact], Awaitable[ExtractionArtifact]]) -> None:
+    def __init__(
+        self,
+        extract: Callable[[ParserArtifact], Awaitable[ExtractionArtifact]],
+        *,
+        segments: list[str] | Callable[[JobState], list[str]] | None = None,
+    ) -> None:
         self._extract = extract
+        self._segments = segments
+
+    def artifact_path_segments(self, job: JobState) -> list[str]:
+        if callable(self._segments):
+            return self._segments(job)
+        if self._segments is not None:
+            return list(self._segments)
+        return [job.extractor, EXTRACTOR_VERSIONS[job.extractor], str(job.job_id)]
 
     async def extract(self, artifact: ParserArtifact) -> ExtractionArtifact:
         return await self._extract(artifact)
@@ -680,7 +693,7 @@ def test_second_job_with_the_same_parser_artifact_extracts_again() -> None:
     assert second.state is not None
     assert second.state.status == "done"
     assert second.state.extract_result_ref == extract_result_path(
-        PARSE_REF, "default", EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME], str(other_id)
+        PARSE_REF, ["default", EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME], str(other_id)]
     )
     assert second.state.extract_result_ref != RESULT_PATH
 
@@ -729,8 +742,8 @@ def test_a_parse_path_that_cannot_take_an_extraction_is_internal_error() -> None
 def test_two_mineru_tiers_get_two_extractions() -> None:
     basic_text = "Mus musculus basic tier recorded 12.5 kg."
     standard_text = "Mus musculus standard tier recorded 40.0 kg."
-    basic_ref = parse_result_path(PDF_CHECKSUM, "mineru", "2", "basic")
-    standard_ref = parse_result_path(PDF_CHECKSUM, "mineru", "2", "standard")
+    basic_ref = parse_result_path(PDF_CHECKSUM, ["mineru", "2", "basic"])
+    standard_ref = parse_result_path(PDF_CHECKSUM, ["mineru", "2", "standard"])
     storage = _storage()
     storage.payloads[basic_ref] = _parser_artifact(basic_text).model_dump_json().encode()
     storage.payloads[standard_ref] = _parser_artifact(standard_text).model_dump_json().encode()
@@ -762,8 +775,8 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
     asyncio.run(handler.aclose())
 
     version = EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME]
-    basic_path = extract_result_path(basic_ref, "default", version, str(JOB_ID))
-    standard_path = extract_result_path(standard_ref, "default", version, str(other_id))
+    basic_path = extract_result_path(basic_ref, ["default", version, str(JOB_ID)])
+    standard_path = extract_result_path(standard_ref, ["default", version, str(other_id)])
     assert basic.state is not None and standard.state is not None
     assert basic.state.extract_result_ref == basic_path
     assert standard.state.extract_result_ref == standard_path
@@ -797,7 +810,7 @@ def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPa
 
     def extractor_factory(name: str) -> Extractor:
         seen.append(name)
-        return _CallableExtractor(extract)
+        return _CallableExtractor(extract, segments=["other", "4", str(JOB_ID)])
 
     handler = ExtractJobHandler(
         database_url="postgresql://unused",
@@ -811,7 +824,7 @@ def test_worker_runs_the_extractor_named_on_the_job(monkeypatch: pytest.MonkeyPa
     assert seen == ["other"]
     assert jobs.state is not None
     assert jobs.state.extract_result_ref == extract_result_path(
-        PARSE_REF, "other", "4", str(JOB_ID)
+        PARSE_REF, ["other", "4", str(JOB_ID)]
     )
 
 
@@ -885,7 +898,7 @@ def test_registered_extractor_stores_the_resolved_version() -> None:
     assert jobs.state is not None
     assert jobs.state.status == "done"
     assert jobs.state.extract_result_ref == extract_result_path(
-        PARSE_REF, DEFAULT_EXTRACTOR_NAME, version, str(JOB_ID)
+        PARSE_REF, [DEFAULT_EXTRACTOR_NAME, version, str(JOB_ID)]
     )
     assert vllm.prompts
 
@@ -903,13 +916,20 @@ def test_artifact_path_uses_the_version_resolved_for_the_run(
     async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
         return _artifact([], extractor_version="4")
 
-    handler = _handler(jobs, storage, extract)
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=storage,
+        extractor_factory=lambda _name: _CallableExtractor(
+            extract, segments=[DEFAULT_EXTRACTOR_NAME, "4", str(JOB_ID)]
+        ),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
     asyncio.run(handler.handle(_message()))
     asyncio.run(handler.aclose())
 
     assert jobs.state is not None
     assert jobs.state.extract_result_ref == extract_result_path(
-        PARSE_REF, DEFAULT_EXTRACTOR_NAME, "4", str(JOB_ID)
+        PARSE_REF, [DEFAULT_EXTRACTOR_NAME, "4", str(JOB_ID)]
     )
 
 
@@ -936,6 +956,9 @@ def test_an_extractor_that_cannot_run_is_internal_error() -> None:
     storage = _storage()
 
     class _Down:
+        def artifact_path_segments(self, job: JobState) -> list[str]:
+            return [DEFAULT_EXTRACTOR_NAME, EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME]]
+
         async def extract(self, artifact: ParserArtifact) -> ExtractionArtifact:
             raise ExtractorBackendUnavailableError("cannot run")
 
@@ -986,3 +1009,189 @@ def test_malformed_message_cannot_fail_a_parsed_job() -> None:
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
     assert jobs.state.error_code is None
+
+
+def test_extractor_configuration_is_appended_to_result_path() -> None:
+    jobs = StubJobs(_parsed())
+    storage = _storage()
+    version = EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME]
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        return _artifact([])
+
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=storage,
+        extractor_factory=lambda _name: _CallableExtractor(
+            extract, segments=[DEFAULT_EXTRACTOR_NAME, version, str(JOB_ID), "prompt-v2"]
+        ),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "done"
+    assert jobs.state.extract_result_ref == f"{RESULT_PATH}/prompt-v2"
+
+
+def test_too_long_extractor_configuration_is_hashed_on_result_path() -> None:
+    segments = [
+        DEFAULT_EXTRACTOR_NAME,
+        EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME],
+        "prompt=" + ("x" * 210),
+    ]
+    jobs = StubJobs(_parsed())
+    storage = _storage()
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        return _artifact([])
+
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=storage,
+        extractor_factory=lambda _name: _CallableExtractor(extract, segments=segments),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "done"
+    assert jobs.state.extract_result_ref == extract_result_path(PARSE_REF, segments)
+
+
+def test_short_illegal_extractor_configuration_is_internal_error() -> None:
+    jobs = StubJobs(_parsed())
+    storage = _storage()
+    version = EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME]
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        raise AssertionError("model was called")
+
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=storage,
+        extractor_factory=lambda _name: _CallableExtractor(
+            extract, segments=[DEFAULT_EXTRACTOR_NAME, version, "bad segment"]
+        ),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert storage.stores == 0
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "internal_error"
+
+
+def test_empty_extractor_segments_is_internal_error() -> None:
+    jobs = StubJobs(_parsed())
+    storage = _storage()
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        raise AssertionError("model was called")
+
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=storage,
+        extractor_factory=lambda _name: _CallableExtractor(extract, segments=[]),
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert storage.stores == 0
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "internal_error"
+
+
+def test_job_scoped_extractor_segments_create_per_job_artifact() -> None:
+    storage = _storage()
+    version = EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME]
+    calls = 0
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        nonlocal calls
+        calls += 1
+        return _artifact([])
+
+    extractor = _CallableExtractor(
+        extract,
+        segments=lambda job: [job.extractor, version, str(job.job_id)],
+    )
+
+    first = StubJobs(_parsed())
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=storage,
+        extractor_factory=lambda _name: extractor,
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    other_id = UUID("9d0c6a52-1b7e-4c3f-a2d8-5e6f7a8b9c01")
+    second = StubJobs(_parsed().with_changes(job_id=other_id))
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=storage,
+        extractor_factory=lambda _name: extractor,
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    asyncio.run(handler.handle(ExtractJobMessage(job_id=other_id)))
+    asyncio.run(handler.aclose())
+
+    assert calls == 2
+    assert first.state is not None and second.state is not None
+    assert first.state.extract_result_ref == extract_result_path(
+        PARSE_REF, [DEFAULT_EXTRACTOR_NAME, version, str(JOB_ID)]
+    )
+    assert second.state.extract_result_ref == extract_result_path(
+        PARSE_REF, [DEFAULT_EXTRACTOR_NAME, version, str(other_id)]
+    )
+
+
+def test_shared_extractor_segments_reuse_stored_artifact() -> None:
+    storage = _storage()
+    version = EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME]
+    calls = 0
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        nonlocal calls
+        calls += 1
+        return _artifact([])
+
+    extractor = _CallableExtractor(
+        extract,
+        segments=lambda job: [job.extractor, version],
+    )
+
+    first = StubJobs(_parsed())
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=storage,
+        extractor_factory=lambda _name: extractor,
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    other_id = UUID("9d0c6a52-1b7e-4c3f-a2d8-5e6f7a8b9c01")
+    second = StubJobs(_parsed().with_changes(job_id=other_id))
+    handler = ExtractJobHandler(
+        database_url="postgresql://unused",
+        storage=storage,
+        extractor_factory=lambda _name: extractor,
+        max_claims=DEFAULT_EXTRACT_MAX_RETRIES + 1,
+    )
+    asyncio.run(handler.handle(ExtractJobMessage(job_id=other_id)))
+    asyncio.run(handler.aclose())
+
+    expected = extract_result_path(PARSE_REF, [DEFAULT_EXTRACTOR_NAME, version])
+    assert calls == 1
+    assert first.state is not None and second.state is not None
+    assert first.state.extract_result_ref == expected
+    assert second.state.extract_result_ref == expected

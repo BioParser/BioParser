@@ -11,6 +11,7 @@ from pdfplumber.page import Page as PdfPlumberPage
 from pydantic import ValidationError
 
 from bioparser.hashing import sha256_bytes
+from bioparser.jobs import JobState
 from bioparser.parser.advent_repair.symbol_child import repair_pdf_in_child
 from bioparser.parser.advent_repair.symbol_fonts import repair_pdf, symbol_font_problems
 from bioparser.parser.backend.default.child import EXIT_NOT_FOUND, EXIT_UNSUPPORTED
@@ -136,6 +137,9 @@ def _words_from_page(page: PdfPlumberPage) -> list[WordBox]:
 
 class DefaultParser:
     """Default digital-born PDF backend. Text currently uses pdfplumber."""
+
+    def artifact_path_segments(self, job: JobState) -> list[str]:
+        return [DEFAULT_PARSER_NAME, PARSER_VERSIONS[DEFAULT_PARSER_NAME]]
 
     async def parse(self, path: Path) -> ParserArtifact:
         """Repair in one child, then parse that PDF in another.

@@ -2,12 +2,16 @@ import asyncio
 import json
 import logging
 import runpy
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
+from uuid import UUID
 
 import pytest
 from stubs import fake_mineru, parsed_task
 
+from bioparser.jobs import JobState
+from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 from bioparser.worker.parse import runtime
 from bioparser.worker.parse.config import WorkerSettings
 from bioparser.worker.parse.runtime import build_worker
@@ -80,4 +84,18 @@ def test_one_tier_setting_names_the_request_and_the_result_path(tmp_path: Path) 
         asyncio.run(handler.aclose())
 
     assert mineru.created[0]["tier"] == "standard"
-    assert artifact.parser.configuration["tier"] == handler._mineru_tier == "standard"
+    parser = handler._parser_factory("mineru")
+    job = JobState(
+        job_id=UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34"),
+        status="queued",
+        parser=MINERU_PARSER_NAME,
+        extractor="default",
+        document_checksum="a" * 64,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    assert artifact.parser.configuration["tier"] == "standard"
+    assert parser.artifact_path_segments(job) == [
+        MINERU_PARSER_NAME,
+        PARSER_VERSIONS[MINERU_PARSER_NAME],
+        "standard",
+    ]

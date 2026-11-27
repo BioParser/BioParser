@@ -4,8 +4,10 @@ import asyncio
 import hashlib
 import json
 import socket
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import pytest
 from stubs import (
@@ -17,6 +19,7 @@ from stubs import (
     unfinished_task,
 )
 
+from bioparser.jobs import JobState
 from bioparser.parser.backend.factory import get_parser
 from bioparser.parser.backend.mineru import parser as parser_module
 from bioparser.parser.backend.mineru.parser import MinerUParser
@@ -84,8 +87,22 @@ def test_a_failed_repair_is_recorded_when_mineru_parses(pdf: Path) -> None:
 
 
 def test_the_tier_is_asked_for_and_recorded(pdf: Path) -> None:
+    job = JobState(
+        job_id=UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34"),
+        status="queued",
+        parser=MINERU_PARSER_NAME,
+        extractor="default",
+        document_checksum="a" * 64,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
     with fake_mineru(parsed_task()) as mineru:
-        artifact = asyncio.run(MinerUParser(mineru.url, tier="standard").parse(pdf))
+        parser = MinerUParser(mineru.url, tier="standard")
+        assert parser.artifact_path_segments(job) == [
+            MINERU_PARSER_NAME,
+            PARSER_VERSIONS[MINERU_PARSER_NAME],
+            "standard",
+        ]
+        artifact = asyncio.run(parser.parse(pdf))
 
     assert mineru.created[0]["tier"] == "standard"
     assert artifact.parser.version == PARSER_VERSIONS[MINERU_PARSER_NAME]

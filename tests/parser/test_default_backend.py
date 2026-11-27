@@ -1,17 +1,20 @@
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
+from uuid import UUID
 
 import pikepdf
 import pytest
 
 from bioparser.hashing import sha256_file
+from bioparser.jobs import JobState
 from bioparser.parser import ParserBackendUnavailableError, UnsupportedDocumentError
 from bioparser.parser.backend.default.grouping import WordBox, group_words_into_text_blocks
 from bioparser.parser.backend.default.parser import DefaultParser
 from bioparser.parser.backend.factory import get_parser
 from bioparser.parser.child import CHILD_ENV, child_environment
 from bioparser.parser.models import ParserArtifact
-from bioparser.parser_names import DEFAULT_PARSER_NAME
+from bioparser.parser_names import DEFAULT_PARSER_NAME, PARSER_VERSIONS
 
 FIXTURE = Path(__file__).parent / "fixtures" / "plos-biology-3000248.pdf"
 
@@ -70,8 +73,24 @@ end
     assert "\u0000" not in text
 
 
+def _queued_job() -> JobState:
+    return JobState(
+        job_id=UUID("3f2b8c1e-9a4d-4f6b-8c2e-1d5a7b9c0e34"),
+        status="queued",
+        parser=DEFAULT_PARSER_NAME,
+        extractor="default",
+        document_checksum="a" * 64,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+
 def test_fixture_pdf_to_artifact() -> None:
-    artifact = asyncio.run(DefaultParser().parse(FIXTURE))
+    parser = DefaultParser()
+    assert parser.artifact_path_segments(_queued_job()) == [
+        DEFAULT_PARSER_NAME,
+        PARSER_VERSIONS[DEFAULT_PARSER_NAME],
+    ]
+    artifact = asyncio.run(parser.parse(FIXTURE))
     restored = ParserArtifact.model_validate_json(artifact.model_dump_json())
     assert restored == artifact
     assert artifact.parser.name == DEFAULT_PARSER_NAME
