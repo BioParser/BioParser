@@ -8,6 +8,8 @@ metadata:
   name: parser-worker
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app: parser-worker
@@ -30,11 +32,11 @@ spec:
               name: artifact-storage
           resources:
             requests:
-              memory: "1Gi"
+              memory: "512Mi"
               cpu: "500m"
             limits:
-              memory: "4Gi"
-              cpu: "2000m"
+              memory: "2Gi"
+              cpu: "1"
       volumes:
         - name: artifact-storage
           persistentVolumeClaim:

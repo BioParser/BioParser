@@ -4,6 +4,8 @@ metadata:
   name: vllm-server
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: vllm
@@ -14,18 +16,16 @@ spec:
     spec:
       containers:
         - name: vllm
-          image: vllm/vllm-openai-cpu:v0.29.0-x86_64@sha256:66064cf683152e60eff2e5b18ec2d4ace236fb063c0a241f918691db9caddcf4
+          image: vllm/vllm-openai-cpu:v0.34.0-x86_64@sha256:b14c3a46a4b08852b32528643e070d57f3731cccb0fa33ef86d4f3b3f8ac36c4
           command: ["/bin/sh", "-c"]
           args: [
-            "vllm serve Qwen/Qwen3-0.6B --dtype float32 --max-model-len 4096 --kv-cache-memory-bytes 4294967296"
+            "vllm serve Qwen/Qwen3.5-4B --dtype bfloat16 --max-model-len 20000 --kv-cache-memory-bytes 2147483648 --max-num-seqs 1 --enforce-eager --language-model-only"
           ]
           env:
             - name: HOME
               value: "/data"
             - name: ONEDNN_VERBOSE
               value: "0"
-            - name: OMP_NUM_THREADS
-              value: "4"
             - name: HF_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -54,6 +54,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
           volumeMounts:
             - name: qwen-storage
               mountPath: /data
@@ -61,11 +68,11 @@ spec:
               mountPath: /dev/shm
           resources:
             requests:
-              memory: "16Gi"
-              cpu: "2"
-            limits:
               memory: "32Gi"
-              cpu: "4"
+              cpu: "12"
+            limits:
+              memory: "40Gi"
+              cpu: "16"
       volumes:
         - name: qwen-storage
           persistentVolumeClaim:
