@@ -547,6 +547,187 @@ def test_a_removed_line_end_hyphen_does_not_take_a_later_hyphen() -> None:
     assert kept[0].y0 == pytest.approx(0.14)
 
 
+def _with_lines(middle: dict[str, Any], lines: list[dict[str, Any]]) -> dict[str, Any]:
+    middle["extensions"]["bioparser_lines"] = {
+        "version": 1,
+        "pages": [{"page_idx": 0, "blocks": [{"index": 0, "lines": lines}]}],
+    }
+    return middle
+
+
+def test_a_rewritten_formula_shares_the_unmatched_ink() -> None:
+    stored = "significant \\mathrm{R^2 \\leq 0.23} associations"
+    middle = _with_lines(
+        _middle([_block("text", 0, stored)]),
+        [
+            {
+                "y0": 0.10,
+                "y1": 0.12,
+                "glyphs": [
+                    {"t": "significant", "x0": 0.10, "x1": 0.26},
+                    {"t": " ", "x0": 0.26, "x1": 0.28},
+                ],
+            },
+            {
+                "y0": 0.12,
+                "y1": 0.14,
+                "glyphs": [
+                    {"t": "(", "x0": 0.30, "x1": 0.32},
+                    {"t": "R", "x0": 0.32, "x1": 0.36},
+                    {"t": "2 ", "x0": 0.36, "x1": 0.42},
+                    {"t": "#", "x0": 0.42, "x1": 0.46},
+                    {"t": "0.23", "x0": 0.46, "x1": 0.62},
+                    {"t": ")", "x0": 0.62, "x1": 0.64},
+                ],
+            },
+            {
+                "y0": 0.14,
+                "y1": 0.16,
+                "glyphs": [{"t": " associations", "x0": 0.10, "x1": 0.40}],
+            },
+        ],
+    )
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    assert content.text == stored
+    word = boxes_for_range(content.lines, 0, len("significant"))
+    assert [(box.x0, box.x1, box.y0) for box in word] == [(0.10, 0.26, 0.10)]
+    latex = stored.index("\\mathrm")
+    drawn = boxes_for_range(content.lines, latex, stored.index("} associations") + 1)
+    assert [(box.x0, box.x1, box.y0) for box in drawn] == [(0.30, 0.64, 0.12)]
+    are = stored.index("R^")
+    assert boxes_for_range(content.lines, are, are + 1)[0].x0 == pytest.approx(0.32)
+    digits = stored.index("0.23")
+    assert boxes_for_range(content.lines, digits, digits + 4)[0].x0 == pytest.approx(0.46)
+    symbol = stored.index("\\leq")
+    symbol_box = boxes_for_range(content.lines, symbol, symbol + len("\\leq"))
+    assert [(box.x0, box.x1) for box in symbol_box] == [(0.42, 0.46)]
+
+
+def test_a_display_equation_uses_its_block_box() -> None:
+    equation = {
+        "type": "equation",
+        "index": 0,
+        "bbox": [0.2, 0.4, 0.8, 0.5],
+        "content": "E=mc^2",
+    }
+    content = _text(_from_middle(_middle([equation])).pages[0].blocks[0])
+    boxes = boxes_for_range(content.lines, 0, len(content.text))
+    assert [(box.x0, box.y0, box.x1, box.y1) for box in boxes] == [(0.2, 0.4, 0.8, 0.5)]
+
+
+def test_an_inline_formula_box_covers_the_rewritten_text() -> None:
+    stored = "significant \\mathrm{R^2} associations"
+    middle = _with_lines(
+        _middle([_block("text", 0, stored)]),
+        [
+            {
+                "y0": 0.12,
+                "y1": 0.14,
+                "glyphs": [
+                    {"t": "significant", "x0": 0.10, "x1": 0.40},
+                    {
+                        "t": "",
+                        "x0": 0.52,
+                        "x1": 0.80,
+                        "y0": 0.11,
+                        "y1": 0.16,
+                        "latex": "\\mathrm{R^2}",
+                    },
+                    {"t": "associations", "x0": 0.82, "x1": 0.96},
+                ],
+            }
+        ],
+    )
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    formula = stored.index("\\mathrm")
+    boxes = boxes_for_range(content.lines, formula, formula + len("\\mathrm{R^2}"))
+    assert [(box.x0, box.x1, box.y0, box.y1) for box in boxes] == [(0.52, 0.80, 0.11, 0.16)]
+    word = boxes_for_range(content.lines, 0, len("significant"))
+    assert [(box.x0, box.y0) for box in word] == [(0.10, 0.12)]
+
+
+def test_two_formula_spans_keep_their_own_boxes() -> None:
+    stored = "weight y = 1.09x next \\mathrm{R}^2 = 0.94 tail"
+    middle = _with_lines(
+        _middle([_block("text", 0, stored)]),
+        [
+            {
+                "y0": 0.20,
+                "y1": 0.22,
+                "glyphs": [
+                    {"t": "weight ", "x0": 0.10, "x1": 0.30},
+                    {
+                        "t": "",
+                        "x0": 0.40,
+                        "x1": 0.70,
+                        "y0": 0.20,
+                        "y1": 0.22,
+                        "latex": "y = 1.09x",
+                    },
+                ],
+            },
+            {
+                "y0": 0.24,
+                "y1": 0.26,
+                "glyphs": [
+                    {
+                        "t": "",
+                        "x0": 0.10,
+                        "x1": 0.55,
+                        "y0": 0.24,
+                        "y1": 0.26,
+                        "latex": "\\mathrm{R}^2 = 0.94",
+                    },
+                    {"t": " tail", "x0": 0.60, "x1": 0.80},
+                ],
+            },
+        ],
+    )
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    first = stored.index("y = 1.09x")
+    second = stored.index("\\mathrm{R}^2")
+    assert [
+        (box.x0, box.x1, box.y0, box.y1)
+        for box in boxes_for_range(content.lines, first, first + len("y = 1.09x"))
+    ] == [(0.40, 0.70, 0.20, 0.22)]
+    assert [
+        (box.x0, box.x1, box.y0, box.y1)
+        for box in boxes_for_range(content.lines, second, second + len("\\mathrm{R}^2 = 0.94"))
+    ] == [(0.10, 0.55, 0.24, 0.26)]
+    both = boxes_for_range(content.lines, first, second + len("\\mathrm{R}^2 = 0.94"))
+    assert [(box.y0, box.y1) for box in both] == [(0.20, 0.22), (0.24, 0.26)]
+
+
+def test_a_wrapped_rewrite_highlights_the_whole_area() -> None:
+    stored = "before QQQQQ after"
+    middle = _with_lines(
+        _middle([_block("text", 0, stored)]),
+        [
+            {"y0": 0.16, "y1": 0.18, "glyphs": [{"t": "before ", "x0": 0.10, "x1": 0.40}]},
+            {
+                "y0": 0.20,
+                "y1": 0.22,
+                "glyphs": [{"t": "A", "x0": 0.10, "x1": 0.20}, {"t": "B", "x0": 0.20, "x1": 0.30}],
+            },
+            {
+                "y0": 0.24,
+                "y1": 0.26,
+                "glyphs": [{"t": "C", "x0": 0.10, "x1": 0.18}, {"t": "D", "x0": 0.18, "x1": 0.28}],
+            },
+            {"y0": 0.28, "y1": 0.30, "glyphs": [{"t": " after", "x0": 0.10, "x1": 0.30}]},
+        ],
+    )
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    start = content.text.index("QQQQQ")
+    whole = [(0.10, 0.30, 0.20, 0.26)]
+    assert [
+        (box.x0, box.x1, box.y0, box.y1) for box in boxes_for_range(content.lines, start, start + 5)
+    ] == whole
+    assert [
+        (box.x0, box.x1, box.y0, box.y1) for box in boxes_for_range(content.lines, start, start + 3)
+    ] == whole
+
+
 def test_tagged_characters_keep_a_line_each() -> None:
     import importlib.util
 

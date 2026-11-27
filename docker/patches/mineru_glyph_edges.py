@@ -118,12 +118,24 @@ def _build_ocr_det_line_items(lines: list[_AnalyzeLine], page_size: tuple[float,
         glyphs: list[dict[str, object]] = []
         for span in line.spans:
             saved = span.metadata.get("bioparser_glyphs") if isinstance(span.metadata, dict) else None
-            if not isinstance(saved, list):
+            if isinstance(saved, list) and saved:
+                for char in saved:
+                    glyph = _bioparser_glyph(char, page_size)
+                    if glyph is not None:
+                        glyphs.append(glyph)
                 continue
-            for char in saved:
-                glyph = _bioparser_glyph(char, page_size)
-                if glyph is not None:
-                    glyphs.append(glyph)
+            if span.type != ContentType.INLINE_EQUATION:
+                continue
+            box = _page_bbox_to_unit_bbox(span.bbox, page_size)
+            if box is None:
+                continue
+            latex = str(span.content or "").strip()
+            if latex.startswith("\\(") and latex.endswith("\\)"):
+                latex = latex[2:-2].strip()
+            glyph = {"t": "", "x0": box[0], "x1": box[2], "y0": box[1], "y1": box[3]}
+            if latex:
+                glyph["latex"] = latex
+            glyphs.append(glyph)
         line_items.append({"bbox": normalized_bbox, "glyphs": glyphs})
     return line_items
 '''

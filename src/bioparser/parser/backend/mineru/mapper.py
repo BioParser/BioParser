@@ -23,7 +23,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from bioparser.parser.backend.mineru.glyphs import lines_by_block, text_lines_for_block
+from bioparser.parser.backend.mineru.glyphs import (
+    line_for_block_box,
+    lines_by_block,
+    text_lines_for_block,
+)
 from bioparser.parser.backend.mineru.schema import MINERU_VERSION, MiddleBlock, MiddleDump
 from bioparser.parser.backend.mineru.tables import table_from_html
 from bioparser.parser.backend.mineru.text import bbox_from_unit, role_and_heading, text_from_leaf
@@ -40,6 +44,7 @@ from bioparser.parser.models import (
     ParserInfo,
     TableContent,
     TextContent,
+    TextLine,
 )
 
 SKIPPED_BLOCK_TYPES = frozenset(
@@ -163,12 +168,16 @@ def artifact_from_middle_json(
                     continue
                 links = continues and carrier in (None, prepared.leaf_type)
                 content = prepared.content
-                if isinstance(content, TextContent) and prepared.index is not None:
-                    raw_lines = geometry.get((page.page_idx, prepared.index))
-                    if raw_lines is not None:
-                        content = content.model_copy(
-                            update={"lines": text_lines_for_block(content.text, raw_lines)}
-                        )
+                if isinstance(content, TextContent):
+                    lines: list[TextLine] = []
+                    if prepared.index is not None:
+                        raw_lines = geometry.get((page.page_idx, prepared.index))
+                        if raw_lines is not None:
+                            lines = text_lines_for_block(content.text, raw_lines)
+                    if not lines and prepared.leaf_type == "equation" and prepared.bbox is not None:
+                        lines = line_for_block_box(content.text, prepared.bbox)
+                    if lines:
+                        content = content.model_copy(update={"lines": lines})
                 ident = block_id(checksum, page_number, len(blocks))
                 blocks.append(
                     ContentBlock(

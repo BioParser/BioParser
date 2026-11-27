@@ -95,6 +95,8 @@ def _assert_rewritten(site: Path) -> None:
 
     content = _text(site, _CONTENT)
     assert 'span.metadata.get("bioparser_glyphs")' in content
+    assert "ContentType.INLINE_EQUATION" in content
+    assert 'glyph["latex"] = latex' in content
     assert 'ocr_res.get("bioparser_chars")' in content
     assert 'glyphs.append({"t": text, "x0": box[0], "x1": box[2]})' not in content
     assert _PATCH._LINE_KEEP_NEW in content
