@@ -46,8 +46,8 @@
   color: var(--color-status-failed);
 }
 
-/* The dashboard's three steps: a bar for each, with its name under it. Each name starts
-   with ✓, ● or ○, so the state is in the text as well as the color. */
+/* The dashboard's two steps, Parse and Extract: a bar for each, with its name under it. Each
+   name starts with ✓, ● or ○, so the state is in the text as well as the color. */
 .job-progress {
   display: flex;
   gap: var(--space-1);

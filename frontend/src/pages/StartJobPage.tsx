@@ -240,7 +240,7 @@ export function StartJobPage() {
     <>
       <h1>Start a job</h1>
       <p className="page-lead">Each PDF becomes its own job.</p>
-      {/* The order follows the work: add the PDFs, check the list, choose a parser, start. */}
+      {/* The PDFs first, then the settings and Start. The list grows at the bottom. */}
       <form onSubmit={handleSubmit} className="job-form">
         <fieldset disabled={sending} className="job-fieldset">
           {/* biome-ignore lint/a11y/noStaticElementInteractions: dropping is a shortcut; the file input inside does the same with a keyboard. */}
@@ -276,35 +276,6 @@ export function StartJobPage() {
           <p className="job-notice" aria-live="polite">
             {notice}
           </p>
-          {rows.length > 0 && (
-            <ul aria-label="Files" className="job-files">
-              {rows.map((row) => (
-                <li key={row.id} className="job-file">
-                  <span className="job-file-name">{row.file.name}</span>
-                  <span className="job-file-size">{formatFileSize(row.file.size)}</span>
-                  <FileStatus result={row.result} />
-                  {row.result === null && (
-                    <button
-                      type="button"
-                      className="job-file-remove"
-                      aria-label={`Remove ${row.file.name}`}
-                      disabled={sending}
-                      onClick={() => removeRow(row.id)}
-                      ref={(button) => {
-                        if (button === null) {
-                          removeButtons.current.delete(row.id);
-                        } else {
-                          removeButtons.current.set(row.id, button);
-                        }
-                      }}
-                    >
-                      Remove
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
           <fieldset className="job-parsers">
             <legend>Parser</legend>
             {PARSERS.map(([name, { label, hint }]) => (
@@ -335,6 +306,36 @@ export function StartJobPage() {
             Clear list
           </button>
         </div>
+        {/* Last, so adding files does not move the parser choice or the Start button. */}
+        {rows.length > 0 && (
+          <ul aria-label="Files" className="job-files">
+            {rows.map((row) => (
+              <li key={row.id} className="job-file">
+                <span className="job-file-name">{row.file.name}</span>
+                <span className="job-file-size">{formatFileSize(row.file.size)}</span>
+                <FileStatus result={row.result} />
+                {row.result === null && (
+                  <button
+                    type="button"
+                    className="job-file-remove"
+                    aria-label={`Remove ${row.file.name}`}
+                    disabled={sending}
+                    onClick={() => removeRow(row.id)}
+                    ref={(button) => {
+                      if (button === null) {
+                        removeButtons.current.delete(row.id);
+                      } else {
+                        removeButtons.current.set(row.id, button);
+                      }
+                    }}
+                  >
+                    Remove
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </form>
       {/* Always on the page, so a screen reader announces the text when it appears. */}
       <p role="status">{done && `${started} of ${rows.length} files started a job.`}</p>

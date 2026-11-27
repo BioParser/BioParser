@@ -84,9 +84,22 @@ describe("Dashboard", () => {
     const steps = within(screen.getByRole("list", { name: "Progress: Failed" })).getAllByRole(
       "listitem",
     );
+    expect(steps).toHaveLength(2);
     expect(steps[0].className).toBe("complete");
     expect(steps[1].className).not.toBe("complete");
-    expect(steps[2].className).not.toBe("complete");
+  });
+
+  it("shows a done job with Parse and Extract complete, and no Done step", async () => {
+    jobs = [job("done")];
+    mount();
+    await screen.findByRole("link", { name: "done.pdf" });
+    const steps = within(screen.getByRole("list", { name: "Progress: Done" })).getAllByRole(
+      "listitem",
+    );
+    expect(steps.map((step) => [step.textContent, step.className])).toEqual([
+      ["✓ Parse", "complete"],
+      ["✓ Extract", "complete"],
+    ]);
   });
 
   it("keeps parsing complete when a later stage times out", async () => {
