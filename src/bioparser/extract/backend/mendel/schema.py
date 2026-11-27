@@ -7,9 +7,10 @@ class ModelObservation(BaseModel):
     The length caps are defence in depth behind max_tokens and are deliberately
     generous: exceeding one fails that measurement, not the whole page.
 
-    ``value`` is the measured number. A range with no single number uses
-    ``minimum`` or ``maximum`` instead. ``dispersion`` and ``statistical_method``
-    are the spread and the phrase around the value. They are not the unit.
+    ``value`` is the measured number. minimum and maximum are the printed
+    range. A row can have a value and a range. ``dispersion`` and
+    ``statistical_method`` are the spread and the phrase around the value. They
+    are not the unit.
     The printed scientific name may be empty when the paper does not name a subject.
     """
 
@@ -52,8 +53,8 @@ def parse_measurements(text: str) -> list[ModelObservation]:
 
     A measurement names the trait and a value or a bound. The printed scientific
     name may be absent. A blank line separates measurements. A repeated key
-    starts a new measurement, so a missing blank line does not merge two
-    records. Unit, dispersion, and method may be absent. A record that is
+    starts a new measurement, and a name line after a trait line does too, so a
+    missing blank line does not merge two records. Unit, dispersion, and method may be absent. A record that is
     missing a required field, or that is too long, is skipped.
     """
     found: list[ModelObservation] = []
@@ -80,7 +81,10 @@ def parse_measurements(text: str) -> list[ModelObservation]:
             mapped = _KEYS.get(key.strip().lower())
             if mapped is None:
                 continue
-            if mapped in fields:
+            # The model writes the name line first. A name line after a trait line
+            # starts a new record, so the name is not given to the row before it.
+            starts_record = mapped == "verbatim_scientific_name" and "trait_name" in fields
+            if mapped in fields or starts_record:
                 store()
             fields[mapped] = raw.strip()
         store()

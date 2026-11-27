@@ -31,6 +31,9 @@ LOGGER = logging.getLogger(__name__)
 # Dropping references to cut tokens
 SKIP_ROLES = frozenset({BlockRole.REFERENCE, BlockRole.HEADER, BlockRole.FOOTER})
 
+# Cut a piece at most this many times after it hits the token limit. Then fail the job.
+_MAX_SPLITS = 3
+
 SYSTEM_PROMPT = """You extract ecological trait measurements printed in the passage.
 
 One measurement is one organism, the trait that was measured, and the number
@@ -49,10 +52,10 @@ verbatimTraitUnit: the physical unit as printed. A statistical phrase is not
 a unit.
 dispersion: the printed spread around the value, the number only.
 method: the printed phrase for how the number was summarized.
-min: the printed lower bound when the paper gives a range or a greater-than
-and no single measured number.
-max: the printed upper bound when the paper gives a range or a less-than and
-no single measured number.
+min: the printed lower bound of a range or a greater-than. Write it also when
+the passage prints a mean. Example: 5.2 (4.9-5.8) g gives min 4.9.
+max: the printed upper bound of a range or a less-than. Write it also when
+the passage prints a mean. Example: 5.2 (4.9-5.8) g gives max 5.8.
 
 A blank line separates measurements.
 Copy the words the passage prints.
@@ -143,26 +146,26 @@ async def extract_observations(
     vllm: VLLMService,
     artifact: ParserArtifact,
 ) -> ModelResult:
-    """One model call per piece of a page. Each ambiguous row is a second call."""
+    """One call for each piece. A piece that reaches max_tokens is cut in two and sent again."""
     found: list[Observation] = []
-    completed = 0
-    truncated = 0
     for blocks in measurement_pages(artifact):
-        for piece in await prompt_pieces(vllm, blocks):
+        queue = [(piece, 0) for piece in await prompt_pieces(vllm, blocks)]
+        while queue:
+            piece, depth = queue.pop(0)
             text = "\n\n".join(block_text for _, block_text, _origin in piece)
             try:
                 raw = await vllm.generate(text, system_prompt=SYSTEM_PROMPT)
             except VLLMTruncatedError:
-                truncated += 1
-                LOGGER.warning("extraction skipped a piece that ran to the token limit")
+                halves = _halve(piece) if depth < _MAX_SPLITS else None
+                if halves is None:
+                    raise  # extract() changes this to ExtractionFailedError.
+                LOGGER.warning("extraction split a piece that ran to the token limit")
+                queue[:0] = [(half, depth + 1) for half in halves]  # Keep the reading order.
                 continue
-            completed += 1
             parsed = parse_measurements(raw)
             pending = ambiguous_fields(parsed, piece)
             choices = await _choose(vllm, text, parsed, pending)
             found.extend(locate_in_page(parsed, piece, choices))
-    if completed == 0 and truncated:
-        raise VLLMTruncatedError("generation hit the token limit")
     return ModelResult(observations=found)
 
 
@@ -191,6 +194,20 @@ async def _choose(
             continue
         chosen.update(chosen_choices(reply, fields))
     return chosen
+
+
+def _halve(piece: list[tuple[str, str, int]]) -> list[list[tuple[str, str, int]]] | None:
+    """Two smaller pieces. None when the piece is one block with no space."""
+    if len(piece) > 1:
+        middle = len(piece) // 2
+        return [piece[:middle], piece[middle:]]
+    block_id, text, origin = piece[0]
+    split = _split_once(text)
+    if split is None:
+        return None
+    left, right, right_at = split
+    # The origin moves with the cut, so a citation still points to the parser block.
+    return [[(block_id, left, origin)], [(block_id, right, origin + right_at)]]
 
 
 def _split_once(text: str) -> tuple[str, str, int] | None:

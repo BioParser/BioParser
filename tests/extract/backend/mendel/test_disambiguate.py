@@ -2,6 +2,7 @@ import asyncio
 from typing import cast
 
 from bioparser.extract.backend.mendel.disambiguate import (
+    _choice_number,
     ambiguous_fields,
     chosen_choices,
     quote_options,
@@ -117,6 +118,10 @@ def test_a_choice_number_selects_the_occurrence() -> None:
     number = field.options.index(chosen) + 1
 
     assert chosen_choices(str(number), [field]) == {(0, "unit"): chosen}
+
+
+def test_a_superscript_digit_is_not_a_choice() -> None:
+    assert _choice_number("1²", 3) is None
 
 
 class _Answers:

@@ -4,8 +4,13 @@ from typing import cast
 import pytest
 from stubs import StubVLLMService
 
-from bioparser.extract.backend.mendel.extractor import extract_observations, prompt_pieces
+from bioparser.extract.backend.mendel.extractor import (
+    MendelExtractor,
+    extract_observations,
+    prompt_pieces,
+)
 from bioparser.extract.checks import checked_artifact
+from bioparser.extract.errors import ExtractionFailedError
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.extractor_names import EXTRACTOR_VERSIONS, MENDEL_EXTRACTOR_NAME
 from bioparser.parser.models import (
@@ -19,7 +24,7 @@ from bioparser.parser.models import (
     TextContent,
 )
 from bioparser.services.vllm import VLLMService
-from bioparser.services.vllm.vllm import VLLMContextLengthError
+from bioparser.services.vllm.vllm import VLLMContextLengthError, VLLMTruncatedError
 
 QUOTE = "Mus musculus adults averaged 12.5 kg in the sampled population."
 
@@ -146,3 +151,93 @@ def test_a_paper_with_no_eligible_text_stays_empty() -> None:
     result = asyncio.run(extract_observations(cast(VLLMService, StubVLLMService()), paper))
 
     assert result.observations == []
+
+
+def _paper_blocks(*texts: str) -> ParserArtifact:
+    return ParserArtifact(
+        schema_version=PARSER_ARTIFACT_SCHEMA_VERSION,
+        checksum="a" * 64,
+        parser=ParserInfo(name="default", version="1", configuration={}),
+        pages=[
+            Page(
+                page_number=1,
+                width=100.0,
+                height=100.0,
+                blocks=[
+                    ContentBlock(
+                        block_id=f"b{index}",
+                        order=index,
+                        kind=BlockKind.TEXT,
+                        role=BlockRole.BODY,
+                        content=TextContent(text=text),
+                    )
+                    for index, text in enumerate(texts)
+                ],
+            )
+        ],
+    )
+
+
+def test_a_truncated_page_is_read_one_block_at_a_time() -> None:
+    mass = "Mus musculus body mass was 12.5 g."
+    tail = "Rattus norvegicus tail length was 9 cm."
+
+    class TruncatesJoined(StubVLLMService):
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            system_prompt: str | None = None,
+            temperature: float = 0.0,
+            max_tokens: int | None = None,
+            enable_thinking: bool = False,
+            timeout: float | None = None,
+        ) -> str:
+            del temperature, max_tokens, enable_thinking, timeout
+            self.prompts.append(prompt)
+            self.system_prompts.append(system_prompt or "")
+            if mass in prompt and tail in prompt:
+                raise VLLMTruncatedError("generation hit the token limit")
+            if mass in prompt:
+                return (
+                    "verbatimScientificName: Mus musculus\n"
+                    "verbatimTraitName: body mass\n"
+                    "verbatimTraitValue: 12.5\n"
+                    "verbatimTraitUnit: g\n"
+                )
+            return (
+                "verbatimScientificName: Rattus norvegicus\n"
+                "verbatimTraitName: tail length\n"
+                "verbatimTraitValue: 9\n"
+                "verbatimTraitUnit: cm\n"
+            )
+
+    result = asyncio.run(
+        extract_observations(cast(VLLMService, TruncatesJoined()), _paper_blocks(mass, tail))
+    )
+
+    assert [item.verbatimTraitName.text for item in result.observations] == [
+        "body mass",
+        "tail length",
+    ]
+
+
+def test_a_piece_that_always_truncates_fails_the_job() -> None:
+    class AlwaysTruncates(StubVLLMService):
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            system_prompt: str | None = None,
+            temperature: float = 0.0,
+            max_tokens: int | None = None,
+            enable_thinking: bool = False,
+            timeout: float | None = None,
+        ) -> str:
+            del prompt, temperature, max_tokens, enable_thinking, timeout, system_prompt
+            raise VLLMTruncatedError("generation hit the token limit")
+
+    extractor = MendelExtractor(vllm=cast(VLLMService, AlwaysTruncates()))
+
+    with pytest.raises(ExtractionFailedError):
+        asyncio.run(extractor.extract(_paper("Mus musculus body mass was 12.5 g.")))

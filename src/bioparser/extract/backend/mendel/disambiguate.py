@@ -214,7 +214,9 @@ def _reported_lines(observation: ModelObservation) -> list[str]:
 
 
 def _choice_number(reply: str, count: int) -> int | None:
-    numbers = [int(token.strip(".")) for token in reply.split() if token.strip(".").isdigit()]
+    # isdigit() is true for superscripts such as ², and int() then raises. A PDF can
+    # contain that character. isdecimal() keeps only digits int() accepts.
+    numbers = [int(token.strip(".")) for token in reply.split() if token.strip(".").isdecimal()]
     picked = [number for number in numbers if 1 <= number <= count]
     if len(picked) != 1:
         return None
