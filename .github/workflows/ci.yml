@@ -167,6 +167,13 @@ jobs:
       - name: Build
         run: npm run build
 
+      # jsdom computes no layout, so a browser checks each page at 360 px (#323).
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser layout tests
+        run: npm run test:e2e
+
   image-groups:
     name: Image dependency groups
     runs-on: ubuntu-latest

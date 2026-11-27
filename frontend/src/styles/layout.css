@@ -1,0 +1,100 @@
+/* The header bar and the page frame. The header's padding lines its content up with the
+   page column, so it needs no wrapper element. */
+
+.layout-header {
+  --gutter: max(var(--space-4), (100% - var(--page-width)) / 2 + var(--space-4));
+
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-6);
+  min-height: 4.5rem;
+  padding: var(--space-2) var(--gutter);
+  background: var(--color-header-bg);
+  color: var(--color-header-text);
+}
+
+.layout-header :focus-visible {
+  outline-color: var(--color-focus-on-header);
+}
+
+.layout-brand {
+  color: var(--color-header-text);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.layout-brand:hover {
+  color: var(--color-header-text);
+}
+
+.layout-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.layout-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  color: var(--color-header-muted);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.layout-nav a:hover {
+  color: var(--color-header-text);
+  text-decoration: underline;
+}
+
+/* The current page is a filled tab, so it does not rely on color alone. */
+.layout-nav a[aria-current="page"] {
+  background: var(--color-header-current-bg);
+  color: var(--color-header-current-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* The page area fills the window below the header, so a page can center its content in it. */
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.layout-main {
+  flex: 1 0 auto;
+  width: 100%;
+  max-width: var(--page-width);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4) var(--space-7);
+}
+
+/* The page's lead line under its title. */
+.page-lead {
+  max-width: 42rem;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 30rem) {
+  .layout-header {
+    gap: var(--space-1) var(--space-4);
+  }
+
+  .layout-nav a {
+    padding: 0 var(--space-3);
+  }
+
+  .layout-main {
+    padding-top: var(--space-5);
+  }
+
+  h1 {
+    font-size: var(--text-xl);
+  }
+}

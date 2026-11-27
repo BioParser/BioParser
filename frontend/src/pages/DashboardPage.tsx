@@ -15,14 +15,26 @@ function Progress({ job }: { job: JobList[number] }) {
     job.status === "parsed" ||
     job.status === "extracting" ||
     (job.status === "failed" && job.has_parse_result);
-  const completed = job.status === "done" ? 3 : parseCompleted ? 1 : 0;
+  // Two steps: a done job has both complete, and the status beside them says Done.
+  const completed = job.status === "done" ? 2 : parseCompleted ? 1 : 0;
   const active = job.status === "parsing" ? 0 : job.status === "extracting" ? 1 : -1;
+  // The step a failed job stopped at. Only its bar's color says so: the status beside it
+  // already says Failed.
+  const failed = job.status === "failed" ? completed : -1;
   return (
     <ol className="job-progress" aria-label={`Progress: ${JOB_STATUS_LABELS[job.status]}`}>
-      {["Parse", "Extract", "Done"].map((step, index) => (
+      {["Parse", "Extract"].map((step, index) => (
         <li
           key={step}
-          className={index < completed ? "complete" : index === active ? "active" : ""}
+          className={
+            index < completed
+              ? "complete"
+              : index === active
+                ? "active"
+                : index === failed
+                  ? "failed"
+                  : ""
+          }
         >
           {index < completed ? "✓ " : index === active ? "● " : "○ "}
           {step}
@@ -147,7 +159,7 @@ export function DashboardPage() {
             </div>
           )}
           {jobs.data && items.length === 0 && (
-            <p>
+            <p className="empty-state">
               {status || parser ? (
                 "No jobs match these filters."
               ) : (
@@ -184,12 +196,10 @@ export function DashboardPage() {
                           </Link>
                         </td>
                         <td>
-                          <span className={`job-status status-${job.status}`}>
+                          {/* The error code is on the job's page, with what it means. */}
+                          <span className={`job-status status-badge status-${job.status}`}>
                             {JOB_STATUS_LABELS[job.status]}
                           </span>
-                          {job.status === "failed" && (
-                            <code className="job-error">{job.error.code}</code>
-                          )}
                         </td>
                         <td>
                           <Progress job={job} />

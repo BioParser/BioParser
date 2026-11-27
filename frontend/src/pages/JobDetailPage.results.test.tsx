@@ -156,7 +156,7 @@ describe("JobDetailPage results", () => {
 
     fireEvent.click(within(row).getByRole("button", { name: /fields of observation 1/ }));
     expect(new Map(listedFields()).get("Age")).toBe(
-      "Empty⚑ The age is not a number. The printed text is kept. not_numeric:age",
+      "Empty⚑ The age is not a number. The printed text is kept.",
     );
   });
 
@@ -313,7 +313,7 @@ describe("JobDetailPage results", () => {
       ["Verbatim trait unit", "g"],
       ["Life stage", "adult"],
       // age is empty, but its warning gives it a place.
-      ["Age", "Empty⚑ The age is not a number. The printed text is kept. not_numeric:age"],
+      ["Age", "Empty⚑ The age is not a number. The printed text is kept."],
       ["Measurement remarks", "line 1\nline 2"],
       ["Aggregate measure", "No"],
       ["Measurement ID", "1"],
@@ -346,22 +346,21 @@ describe("JobDetailPage results", () => {
     const [row] = await bodyRows();
     fireEvent.click(within(row).getByRole("button", { name: /fields of observation 1/ }));
     const fields = new Map(listedFields());
-    // An informational code is explained without the flag mark.
+    // An informational code is explained without the flag mark. A known code shows only its
+    // explanation: the code itself is in the CSV.
     expect(fields.get("Scientific name")).toBe(
-      "Mus musculusThe scientific name is the model's reading. No taxonomy lookup has confirmed it. not_verified:scientificName",
+      "Mus musculusThe scientific name is the model's reading. No taxonomy lookup has confirmed it.",
     );
-    expect(fields.get("Age")).toBe(
-      "about 3⚑ The age is not a number. The printed text is kept. not_numeric:age",
-    );
+    expect(fields.get("Age")).toBe("about 3⚑ The age is not a number. The printed text is kept.");
     // One code that names three columns marks each of them.
     for (const label of ["Year", "Month", "Day"]) {
       expect(fields.get(label)).toContain(
-        "⚑ The year, month, and day together are not a calendar day. not_a_date:year,month,day",
+        "⚑ The year, month, and day together are not a calendar day.",
       );
     }
     // The adapter left the column empty, and the warning says why.
     expect(fields.get("Basis of record")).toBe(
-      "Empty⚑ The basis of record is not one of the accepted values. The column is left empty. not_in_vocabulary:basisOfRecord",
+      "Empty⚑ The basis of record is not one of the accepted values. The column is left empty.",
     );
     // A kind the UI does not know is shown as its code.
     expect(fields.get("Habitat")).toBe("Empty⚑ new_kind:habitat");

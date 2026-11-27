@@ -85,7 +85,7 @@ export function JobDetailPage() {
     <div className={showEvidence ? "job-detail job-detail-with-evidence" : "job-detail"}>
       <div>
         <h1>Job</h1>
-        <p>
+        <p className="job-id">
           Job ID: <code>{jobId}</code>
         </p>
         {job.isPending && <p role="status">Loading job…</p>}
@@ -145,15 +145,28 @@ function JobStatus({
           <DeleteJob key={job.job_id} jobId={job.job_id} displayName={job.display_name} />
         )}
       </section>
-      <section aria-labelledby="job-progress-heading">
+      <section aria-labelledby="job-progress-heading" className="card job-section">
         <h2 id="job-progress-heading">Progress</h2>
-        <p role="status">Status: {job.status}</p>
+        <p role="status" className={`job-status-line status-badge status-${job.status}`}>
+          Status: {job.status}
+        </p>
         <ol className="job-detail-progress" aria-label="Job progress">
           {STAGES.map((status, index) => (
-            <li key={status} aria-current={index === stage ? "step" : undefined}>
+            <li
+              key={status}
+              aria-current={index === stage ? "step" : undefined}
+              className={
+                index === stage && job.status === "failed"
+                  ? "failed"
+                  : index === stage && job.status === "done"
+                    ? "done"
+                    : undefined
+              }
+            >
               {JOB_STATUS_LABELS[status]}
               {index === stage && job.status === "failed" ? " — failed" : ""}
-              {index < stage ? " — complete" : ""}
+              {/* The check mark shows it; screen readers hear it. */}
+              {index < stage && <span className="visually-hidden"> — complete</span>}
             </li>
           ))}
         </ol>
@@ -168,7 +181,7 @@ function JobStatus({
         </div>
       )}
       {job.status === "done" && (
-        <section aria-labelledby="job-results-heading">
+        <section aria-labelledby="job-results-heading" className="job-section">
           <h2 id="job-results-heading">Results</h2>
           {/* Keyed by job: the route keeps the page mounted when it moves to another job,
               and the expanded rows and the hide-flagged choice belong to one job. */}
@@ -250,10 +263,9 @@ function DeleteJob({ jobId, displayName }: { jobId: string; displayName: string 
     });
   }
 
-  // The buttons sit in paragraphs so they get the page's paragraph spacing.
   if (!confirming) {
     return (
-      <p>
+      <p className="job-delete">
         <button
           type="button"
           ref={deleteButton}
@@ -268,7 +280,7 @@ function DeleteJob({ jobId, displayName }: { jobId: string; displayName: string 
     );
   }
   return (
-    <div>
+    <div className="job-delete-confirm">
       <p id="job-delete-question">
         Delete this job? It leaves the job lists. The PDF and its stored results are kept.
       </p>
@@ -279,15 +291,16 @@ function DeleteJob({ jobId, displayName }: { jobId: string; displayName: string 
             : "The job could not be deleted. Try again."}
         </p>
       )}
-      <p>
+      <p className="job-delete-actions">
         <button
           type="button"
+          className="button-danger"
           aria-describedby="job-delete-question"
           disabled={removal.isPending}
           onClick={confirmDelete}
         >
           {removal.isPending ? "Deleting…" : "Delete job"}
-        </button>{" "}
+        </button>
         <button
           type="button"
           ref={cancelButton}

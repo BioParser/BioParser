@@ -73,7 +73,7 @@ export function JobResults({ jobId, displayName, selectedIndex, onSelect }: JobR
     <div className="results">
       <Downloads jobId={jobId} displayName={displayName} body={body} />
       {entries.length === 0 ? (
-        <p>No observations were found in this document.</p>
+        <p className="empty-state">No observations were found in this document.</p>
       ) : (
         <>
           <div className="results-toolbar">
@@ -328,16 +328,15 @@ function FieldList({
   );
 }
 
-// A warning's explanation and its code, so the code can be found in the CSV. A code that flags
-// the row has the flag mark. An unknown code is shown only as its code.
+// A warning's explanation. A code that flags the row has the flag mark. The code itself is in
+// the CSV and the JSON; here it shows only for a code the UI cannot explain yet.
 function FieldWarning({ code }: { code: string }) {
   const flagged = flagsRow(code);
   const text = warningText(code);
   return (
     <span className={flagged ? "results-field-warning" : "results-field-warning results-note"}>
       {flagged && <span aria-hidden="true">⚑ </span>}
-      {text !== null && `${text} `}
-      <code className="results-field-code">{code}</code>
+      {text ?? <code className="results-field-code">{code}</code>}
     </span>
   );
 }

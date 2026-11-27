@@ -36,19 +36,29 @@ export function EvidenceView({ jobId, observationIndex, onClose }: EvidenceViewP
     }
   }, [observationIndex]);
 
-  // Keyboard and screen reader users are taken to the view when it opens.
+  // Keyboard and screen reader users are taken to the view when it opens. Beside the results
+  // the view is already on screen, so the focus must not scroll the page to its top.
   useEffect(() => {
-    headingRef.current?.focus();
+    const panel = panelRef.current;
+    headingRef.current?.focus({ preventScroll: panel !== null && besideResults(panel) });
   }, []);
 
   // A block can be a long paragraph, so the value is scrolled into view once its quotation
   // shows, and again for each observation. This runs after the focus above, which would
-  // otherwise scroll the page back to the heading.
+  // otherwise scroll the page back to the heading. Beside the results only the view scrolls,
+  // so the page stays at the row that was selected. Below them the page scrolls to the value.
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the quotation changes.
   useEffect(() => {
-    panelRef.current
-      ?.querySelector(".evidence-quote mark.evidence-value")
-      ?.scrollIntoView({ block: "center" });
+    const panel = panelRef.current;
+    const value = panel?.querySelector<HTMLElement>(".evidence-quote mark.evidence-value");
+    if (panel === null || panel === undefined || value === null || value === undefined) {
+      return;
+    }
+    if (besideResults(panel)) {
+      centerInside(panel, value);
+    } else {
+      value.scrollIntoView({ block: "center" });
+    }
   }, [observationIndex, observations.data, parser.data]);
 
   function close() {
@@ -284,5 +294,26 @@ export function artifactError(error: Error, kind: "parser" | "extraction"): stri
       return `The stored ${name} of this job cannot be read.`;
     default:
       return error.message;
+  }
+}
+
+// On a wide screen the view sits beside the results and stays on screen as the page scrolls
+// (position: sticky in pages.css). Below them it is part of the page.
+function besideResults(panel: HTMLElement): boolean {
+  return getComputedStyle(panel).position === "sticky";
+}
+
+// Scrolls each box between `target` and `container`, the container included, so the target
+// is in the middle of it. The page itself does not move.
+function centerInside(container: HTMLElement, target: HTMLElement) {
+  for (let box = target.parentElement; box !== null; box = box.parentElement) {
+    if (box.scrollHeight > box.clientHeight) {
+      const boxRect = box.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      box.scrollTop += targetRect.top - boxRect.top - (box.clientHeight - targetRect.height) / 2;
+    }
+    if (box === container) {
+      return;
+    }
   }
 }

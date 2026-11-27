@@ -191,13 +191,26 @@ describe("StartJobPage", () => {
     expect((screen.getByLabelText("Default") as HTMLInputElement).checked).toBe(true);
   });
 
-  it("shows the extractor and the traits in the summary", () => {
+  it("says when to choose each parser", () => {
     renderPage();
-    const summary = screen.getByRole("region", { name: "Summary" });
-    expect(within(summary).getByText("Extractor").nextElementSibling?.textContent).toBe("Default");
-    expect(within(summary).getByText("Traits").nextElementSibling?.textContent).toBe(
-      "Body mass, Body length, Tail length",
+    expect(screen.getByLabelText("Default").getAttribute("aria-describedby")).toBe(
+      "parser-hint-default",
     );
+    expect(document.getElementById("parser-hint-mineru")?.textContent).toContain("OCR");
+    expect(screen.getAllByRole("radio").map((radio) => (radio as HTMLInputElement).value)).toEqual([
+      "default",
+      "mineru",
+    ]);
+  });
+
+  it("shows each file's size in the list", () => {
+    stubApi();
+    renderPage();
+    chooseFiles(pdfOfSize("small.pdf", 300 * 1024), pdfOfSize("big.pdf", 5.5 * 1024 * 1024));
+    const sizes = within(screen.getByRole("list", { name: "Files" }))
+      .getAllByRole("listitem")
+      .map((li) => li.querySelector(".job-file-size")?.textContent);
+    expect(sizes).toEqual(["300 KiB", "5.5 MiB"]);
   });
 
   it("does not send files the browser refuses, and sends the others", async () => {
