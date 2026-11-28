@@ -12,7 +12,14 @@ data:
   MINERU_API_CONCURRENCY: "1"
   BIOPARSER_MINERU_BASE_URL: "http://mineru:8000"
   BIOPARSER_MINERU_TIMEOUT_SECONDS: "600"
+  # MinerU's own limit for a parse, in seconds of parsing. 
+  # Keep it above the client's wait (BIOPARSER_PARSE_TIME_LIMIT_SECONDS minus 30 seconds).
+  # A parse that reaches this limit makes mineru-api refuse all work until the container restarts.
+  MINERU_API_TASK_TIMEOUT: "2100"
+
+  # Queue time limits
   BIOPARSER_PARSE_TIME_LIMIT_SECONDS: "1800"
+  BIOPARSER_EXTRACT_TIME_LIMIT_SECONDS: "3600"
 
   # VLLM settings
   BIOPARSER_VLLM_BASE_URL: "http://vllm-server:8000/v1"

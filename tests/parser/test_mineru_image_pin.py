@@ -101,8 +101,8 @@ def test_mineru_entrypoint_passes_each_setting_as_one_argument(tmp_path: Path) -
 
 
 def test_mineru_stops_a_parse_only_after_the_client_gave_up_on_it() -> None:
-    # A parse that reaches --task-timeout makes mineru-api refuse all work until it restarts,
-    # so the client's longest wait (queue time included) must end first.
+    # A parse that reaches --task-timeout makes mineru-api refuse all work until it restarts.
+    # The image default stays above the wait used when a caller passes no limit.
     [timeout] = re.findall(
         r"MINERU_API_TASK_TIMEOUT=(\d+)", _DOCKERFILE.read_text(encoding="utf-8")
     )

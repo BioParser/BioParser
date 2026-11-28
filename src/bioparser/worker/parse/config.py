@@ -11,8 +11,6 @@ from bioparser.services.mineru.client import DEFAULT_TIER, MinerUTier
 # MinerU on CPU can take much longer than the queue's 10 minute default. A shorter limit
 # ends the parse as a timeout.
 DEFAULT_PARSE_TIME_LIMIT_SECONDS = 30 * 60
-# The MinerU client waits at most an hour for one parse (MAX_WAIT_SECONDS).
-MAX_PARSE_TIME_LIMIT_SECONDS = 60 * 60
 DEFAULT_PARSE_MAX_RETRIES = 3
 # Head start the MinerU client limit has over the queue limit, so the HTTP call
 # ends and is reported before the queue cancels the handler. Also covers fetching
@@ -52,9 +50,7 @@ class WorkerSettings(BaseSettings):
     artifact_storage_path: Path
     parse_queue_name: str = Field(min_length=1)
     redis_timeout_seconds: float = Field(default=5.0, gt=0)
-    parse_time_limit_seconds: float = Field(
-        default=DEFAULT_PARSE_TIME_LIMIT_SECONDS, gt=0, le=MAX_PARSE_TIME_LIMIT_SECONDS
-    )
+    parse_time_limit_seconds: float = Field(default=DEFAULT_PARSE_TIME_LIMIT_SECONDS, gt=0)
     parse_max_retries: int = Field(default=DEFAULT_PARSE_MAX_RETRIES, ge=0)
     liveness_port: int = Field(default=DEFAULT_LIVENESS_PORT, ge=1, le=65535)
     mineru_base_url: AnyHttpUrl = AnyHttpUrl("http://mineru:8000")

@@ -80,8 +80,8 @@ RUN groupadd --system --gid 10001 mineru \
 # how many parse jobs run at once; more wait in MinerU's queue. Each running job needs its own
 # host memory. MINERU_API_TASK_TIMEOUT stops one parse after that many seconds of parsing (queue
 # time not counted). A parse that reaches it makes mineru-api refuse all work (503 on
-# /v1/health) until the container restarts, so it is above the BioParser client's longest
-# wait (3600 s, queue time included): the client cancels its task first.
+# /v1/health) until the container restarts. Keep it above the client's wait so the client
+# cancels its task first. 3900 is above the 3600 second wait used when no limit is passed.
 ENV PATH="/opt/mineru/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     HOME=/home/mineru \

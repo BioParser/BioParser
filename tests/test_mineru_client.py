@@ -16,7 +16,6 @@ from bioparser import logging_config
 from bioparser.logging_config import JsonFormatter
 from bioparser.services.mineru import client as client_module
 from bioparser.services.mineru.client import (
-    MAX_WAIT_SECONDS,
     MinerUClient,
     MinerUError,
     MinerUInputError,
@@ -233,10 +232,6 @@ async def test_the_client_does_not_send_through_a_proxy_or_follow_redirects() ->
     assert not client._http.trust_env
     assert not client._http.follow_redirects
     await client.aclose()
-
-
-def test_the_wait_is_capped_at_mineru_s_limit() -> None:
-    assert MinerUClient(BASE, 10 * MAX_WAIT_SECONDS, 1.0)._wait_s == MAX_WAIT_SECONDS
 
 
 @pytest.mark.parametrize("field", ["upload", "result"])

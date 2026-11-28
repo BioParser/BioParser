@@ -29,6 +29,10 @@ services:
       # Parse jobs MinerU runs at once; more wait in its queue. Each running job needs its own
       # memory: raise the overlay's mem_limit with it.
       MINERU_API_CONCURRENCY: ${MINERU_API_CONCURRENCY:-1}
+      # Parsing time only, queue time not counted. Keep it above the client's wait (the
+      # parse limit minus 30 s, queue time included). Reaching it makes mineru-api refuse
+      # all work until this container restarts.
+      MINERU_API_TASK_TIMEOUT: ${MINERU_API_TASK_TIMEOUT:-3900}
     # Only on the internal network, so it cannot be published. For the host scripts see
     # docs/parser.md.
     restart: unless-stopped
