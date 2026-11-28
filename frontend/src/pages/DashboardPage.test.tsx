@@ -16,6 +16,7 @@ function job(id: string, status: JobStatus = "done"): JobList[number] {
   const metadata = {
     job_id: id,
     display_name: `${id}.pdf`,
+    title: null,
     created_at: "2026-11-06T12:00:00Z",
     parser: "mineru",
     extractor: "default",
@@ -73,6 +74,25 @@ afterEach(() => {
 });
 
 describe("Dashboard", () => {
+  it.each([
+    { title: "A paper title", display_name: "paper.pdf", expected: "A paper title" },
+    { title: "A paper title", display_name: null, expected: "A paper title" },
+    { title: null, display_name: "paper.pdf", expected: "paper.pdf" },
+    { title: "", display_name: "paper.pdf", expected: "paper.pdf" },
+    { title: null, display_name: null, expected: "Unnamed PDF" },
+    { title: null, display_name: "", expected: "Unnamed PDF" },
+  ])(
+    "shows $expected for title=$title and filename=$display_name",
+    async ({ title, display_name, expected }) => {
+      jobs = [{ ...job("first"), title, display_name }];
+      mount();
+      const link = await screen.findByRole("link", { name: expected });
+      expect(link.getAttribute("href")).toBe("/jobs/first");
+      const filename = link.closest("td")?.querySelector(".document-filename");
+      expect(filename?.textContent ?? null).toBe(title && display_name ? display_name : null);
+    },
+  );
+
   it("keeps parsing complete when extraction fails", async () => {
     jobs = [job("failed", "failed")];
     mount();
@@ -138,14 +158,14 @@ describe("Dashboard", () => {
     mount();
     const link = await screen.findByRole("link", { name: "newer.pdf" });
     expect(link.getAttribute("href")).toBe("/jobs/newer");
-    expect(screen.getByRole("link", { name: "Unnamed file" })).toBeDefined();
+    expect(screen.getByRole("link", { name: "Unnamed PDF" })).toBeDefined();
     // The code is on the job's page; the dashboard shows the Failed badge only.
     expect(screen.queryByText("extraction_failed")).toBeNull();
     expect(screen.getAllByRole("row")[1].querySelector(".job-status")?.textContent).toBe("Failed");
     expect(screen.getByText("Jobs, newest first")).toBeDefined();
     const rows = screen.getAllByRole("row");
     expect(rows[1].textContent).toContain("newer.pdf");
-    expect(rows[2].textContent).toContain("Unnamed file");
+    expect(rows[2].textContent).toContain("Unnamed PDF");
     expect(rows[1].textContent).toContain("mineru");
     expect(rows[1].querySelector("time")?.dateTime).toBe("2026-11-06T12:00:00Z");
   });

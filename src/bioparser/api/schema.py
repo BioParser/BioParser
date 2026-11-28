@@ -17,6 +17,7 @@ class JobRecord(BaseModel):
 
     created_at: AwareDatetime
     display_name: str | None
+    title: str | None
     parser: str
     extractor: str
     document_checksum: str
@@ -115,7 +116,7 @@ class DocumentMetadataResponse(BaseModel):
     display_name: str | None = None
     upload_time: datetime
     size_bytes: int
-
+    title: str | None = None
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
@@ -124,10 +125,19 @@ class DocumentMetadataResponse(BaseModel):
                     "display_name": "sample.pdf",
                     "upload_time": "2026-10-26T12:00:00Z",
                     "size_bytes": 1048576,
+                    "title": "Example paper",
                 }
             ]
         }
     )
+
+
+class UpdateDocumentRequest(BaseModel):
+    """Set or clear the title shared by all jobs of a document."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(description="Document title; null or blank clears it")
 
 
 class CreateJobRequest(BaseModel):

@@ -14,6 +14,7 @@ import { jobQueryKey } from "../evidence/usePdfDocument";
 import { JOB_STATUS_LABELS } from "../jobStatus";
 import { JobResults } from "../results/JobResults";
 import { resultsQueryKey } from "../results/useJobResults";
+import { EditDocumentTitle } from "./EditDocumentTitle";
 
 const OBSERVATION_PARAM = "observation";
 
@@ -147,7 +148,9 @@ function JobStatus({
   return (
     <>
       <section className="job-summary" aria-labelledby="job-details-heading">
-        <h2 id="job-details-heading">{job.display_name ?? "Unnamed PDF"}</h2>
+        <h2 id="job-details-heading">{job.title || job.display_name || "Unnamed PDF"}</h2>
+        {job.title && job.display_name && <p className="document-filename">{job.display_name}</p>}
+        <EditDocumentTitle key={`title-${job.job_id}`} job={job} />
         <dl>
           <dt>Parser</dt>
           <dd>{job.parser}</dd>

@@ -59,7 +59,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update Document
+         * @description Set or clear a PDF's title for every job of that document.
+         */
+        patch: operations["update_document_api_documents__checksum__patch"];
         trace?: never;
     };
     "/api/upload-limits": {
@@ -147,7 +151,7 @@ export interface paths {
          *     `job_id` and `status`. The ETS rows are `GET /api/jobs/{job_id}/ets`. This route
          *     does not read the extraction artifact.
          *
-         *     `?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,
+         *     `?detail=full` adds the stored record: `created_at`, `display_name`, `title`, `parser`,
          *     `extractor`, and `document_checksum`.
          */
         get: operations["job_status_api_jobs__job_id__get"];
@@ -298,11 +302,15 @@ export interface components {
         Body_upload_document_and_submit_job_api_extractions_post: {
             /** File */
             file?: string | null;
+            /** Title */
+            title?: string | null;
         };
         /** Body_upload_document_api_documents_post */
         Body_upload_document_api_documents_post: {
             /** File */
             file?: string | null;
+            /** Title */
+            title?: string | null;
         };
         /**
          * BoundingBox
@@ -394,6 +402,7 @@ export interface components {
          *       "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
          *       "display_name": "sample.pdf",
          *       "size_bytes": 1048576,
+         *       "title": "Example paper",
          *       "upload_time": "2026-10-26T12:00:00Z"
          *     }
          */
@@ -409,6 +418,8 @@ export interface components {
             upload_time: string;
             /** Size Bytes */
             size_bytes: number;
+            /** Title */
+            title?: string | null;
         };
         /** ErrorDetail */
         ErrorDetail: {
@@ -583,6 +594,8 @@ export interface components {
             created_at: string;
             /** Display Name */
             display_name: string | null;
+            /** Title */
+            title: string | null;
             /** Parser */
             parser: string;
             /** Extractor */
@@ -672,6 +685,8 @@ export interface components {
             created_at: string;
             /** Display Name */
             display_name: string | null;
+            /** Title */
+            title: string | null;
             /** Parser */
             parser: string;
             /** Extractor */
@@ -1009,6 +1024,17 @@ export interface components {
             end: number;
         };
         /**
+         * UpdateDocumentRequest
+         * @description Set or clear the title shared by all jobs of a document.
+         */
+        UpdateDocumentRequest: {
+            /**
+             * Title
+             * @description Document title; null or blank clears it
+             */
+            title: string | null;
+        };
+        /**
          * UploadLimitsResponse
          * @example {
          *       "max_upload_bytes": 20971520
@@ -1265,6 +1291,68 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentMetadataResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_document_api_documents__checksum__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                checksum: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDocumentRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

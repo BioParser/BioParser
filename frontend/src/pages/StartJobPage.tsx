@@ -48,7 +48,7 @@ type FileResult =
   | { state: "started"; jobId: string }
   | { state: "failed"; reason: string; status?: number };
 
-type Row = { id: number; file: File; result: FileResult | null };
+type Row = { id: number; file: File; title: string; result: FileResult | null };
 
 // Row ids only have to be unique on this page, for React's keys.
 let nextRowId = 0;
@@ -148,7 +148,7 @@ export function StartJobPage() {
       } else {
         taken.add(key);
         room--;
-        added.push({ id: nextRowId++, file, result: null });
+        added.push({ id: nextRowId++, file, title: "", result: null });
       }
     }
     setRows([...rows, ...added]);
@@ -223,7 +223,14 @@ export function StartJobPage() {
           continue;
         }
         setResult(row.id, { state: "sending" });
-        const result = await processFile(row.file, parser, extractor, maxBytes, controller.signal);
+        const result = await processFile(
+          row.file,
+          row.title,
+          parser,
+          extractor,
+          maxBytes,
+          controller.signal,
+        );
         setResult(row.id, result);
         // The key was refused: every other file would get a 401 too.
         if (result.state === "failed" && result.status === 401) {
@@ -245,7 +252,7 @@ export function StartJobPage() {
       <h1>Start a job</h1>
       <p className="page-lead">Each PDF becomes its own job.</p>
       {/* The PDFs first, then the settings and Start. The list grows at the bottom. */}
-      <form onSubmit={handleSubmit} className="job-form">
+      <form id="start-job-form" onSubmit={handleSubmit} className="job-form">
         <fieldset disabled={sending} className="job-fieldset">
           {/* biome-ignore lint/a11y/noStaticElementInteractions: dropping is a shortcut; the file input inside does the same with a keyboard. */}
           <div
@@ -334,6 +341,23 @@ export function StartJobPage() {
               <li key={row.id} className="job-file">
                 <span className="job-file-name">{row.file.name}</span>
                 <span className="job-file-size">{formatFileSize(row.file.size)}</span>
+                <label className="job-file-title">
+                  Title (optional)
+                  <input
+                    type="text"
+                    form="start-job-form"
+                    aria-label={`Title for ${row.file.name}`}
+                    maxLength={500}
+                    value={row.title}
+                    disabled={sending || row.result !== null}
+                    onChange={(event) => {
+                      const title = event.currentTarget.value;
+                      setRows((current) =>
+                        current.map((item) => (item.id === row.id ? { ...item, title } : item)),
+                      );
+                    }}
+                  />
+                </label>
                 <FileStatus result={row.result} />
                 {row.result === null && (
                   <button
@@ -387,6 +411,7 @@ function FileStatus({ result }: { result: FileResult | null }) {
 // check included, becomes a result to show, so one file cannot stop the batch or lock the form.
 async function processFile(
   file: File,
+  title: string,
   parser: ParserName,
   extractor: ExtractorName,
   maxBytes: number,
@@ -398,7 +423,7 @@ async function processFile(
     if (reason !== null) {
       return { state: "rejected", reason };
     }
-    const document = await uploadDocument(file, signal);
+    const document = await uploadDocument(file, title, signal);
     const job = await startDocumentJob(document.checksum, { parser, extractor }, signal);
     return { state: "started", jobId: job.job_id };
   } catch (error) {

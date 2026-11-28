@@ -100,6 +100,7 @@ export const ROWS = {
 // Answers every API call the UI makes, from the data above. `count` repeats the one
 // observation, in the ETS rows and in the extraction artifact, for a long results table.
 export async function mockApi(page: Page, { withKey = true, count = 1 } = {}) {
+  let jobs = JOBS.map((item) => ({ ...item, title: null as string | null }));
   const rows = Array.from({ length: count }, (_, i) => ({
     ...ROWS.rows[0],
     measurementID: String(i + 1),
@@ -115,7 +116,13 @@ export async function mockApi(page: Page, { withKey = true, count = 1 } = {}) {
   await page.route("**/api/**", (route) => {
     const path = new URL(route.request().url()).pathname;
     const id = path.split("/")[3] ?? "";
-    if (path === "/api/jobs") return route.fulfill({ json: JOBS });
+    if (path === "/api/jobs") return route.fulfill({ json: jobs });
+    if (path === `/api/documents/${SUM}` && route.request().method() === "PATCH") {
+      const body = route.request().postDataJSON() as { title: string | null };
+      const title = body.title?.trim() || null;
+      jobs = jobs.map((item) => ({ ...item, title }));
+      return route.fulfill({ json: { checksum: SUM, title } });
+    }
     if (path === "/api/upload-limits")
       return route.fulfill({ json: { max_upload_bytes: 20971520 } });
     if (path.endsWith("/ets")) return route.fulfill({ json: { rows } });
@@ -124,7 +131,7 @@ export async function mockApi(page: Page, { withKey = true, count = 1 } = {}) {
     if (path.endsWith("/file")) {
       return route.fulfill({ body: PDF, contentType: "application/pdf" });
     }
-    const found = JOBS.find((item) => item.job_id === id);
+    const found = jobs.find((item) => item.job_id === id);
     if (path.startsWith("/api/jobs/") && found) return route.fulfill({ json: found });
     return route.fulfill({
       status: 404,

@@ -595,6 +595,133 @@
             "description": "Service Unavailable"
           }
         }
+      },
+      "patch": {
+        "summary": "Update Document",
+        "description": "Set or clear a PDF's title for every job of that document.",
+        "operationId": "update_document_api_documents__checksum__patch",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checksum",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Checksum"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDocumentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentMetadataResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "unauthorized": {
+                    "summary": "Invalid or missing API key",
+                    "value": {
+                      "detail": {
+                        "code": "unauthorized",
+                        "message": "Invalid or missing API key"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "document_not_found": {
+                    "summary": "Document not found",
+                    "value": {
+                      "detail": {
+                        "code": "document_not_found",
+                        "message": "Document not found"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_checksum": {
+                    "summary": "checksum must be a 64-character lowercase SHA-256 hex digest",
+                    "value": {
+                      "detail": {
+                        "code": "invalid_checksum",
+                        "message": "checksum must be a 64-character lowercase SHA-256 hex digest"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "database_unavailable": {
+                    "summary": "Database is unavailable",
+                    "value": {
+                      "detail": {
+                        "code": "database_unavailable",
+                        "message": "Database is unavailable"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
       }
     },
     "/api/upload-limits": {
@@ -1290,7 +1417,7 @@
     "/api/jobs/{job_id}": {
       "get": {
         "summary": "Job Status",
-        "description": "The job.\n\n`queued`, `parsing`, `parsed`, and `extracting` are `job_id` and `status`. `failed`\nadds `error` and `failed_stage`, the status the job had when it failed. `done` is\n`job_id` and `status`. The ETS rows are `GET /api/jobs/{job_id}/ets`. This route\ndoes not read the extraction artifact.\n\n`?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,\n`extractor`, and `document_checksum`.",
+        "description": "The job.\n\n`queued`, `parsing`, `parsed`, and `extracting` are `job_id` and `status`. `failed`\nadds `error` and `failed_stage`, the status the job had when it failed. `done` is\n`job_id` and `status`. The ETS rows are `GET /api/jobs/{job_id}/ets`. This route\ndoes not read the extraction artifact.\n\n`?detail=full` adds the stored record: `created_at`, `display_name`, `title`, `parser`,\n`extractor`, and `document_checksum`.",
         "operationId": "job_status_api_jobs__job_id__get",
         "security": [
           {
@@ -2236,6 +2363,17 @@
               }
             ],
             "title": "File"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
           }
         },
         "type": "object",
@@ -2254,6 +2392,17 @@
               }
             ],
             "title": "File"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
           }
         },
         "type": "object",
@@ -2470,6 +2619,17 @@
           "size_bytes": {
             "type": "integer",
             "title": "Size Bytes"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
           }
         },
         "type": "object",
@@ -2484,6 +2644,7 @@
             "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             "display_name": "sample.pdf",
             "size_bytes": 1048576,
+            "title": "Example paper",
             "upload_time": "2026-10-26T12:00:00Z"
           }
         ]
@@ -3222,6 +3383,17 @@
             ],
             "title": "Display Name"
           },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
           "parser": {
             "type": "string",
             "title": "Parser"
@@ -3263,6 +3435,7 @@
         "required": [
           "created_at",
           "display_name",
+          "title",
           "parser",
           "extractor",
           "document_checksum",
@@ -3387,6 +3560,17 @@
             ],
             "title": "Display Name"
           },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
           "parser": {
             "type": "string",
             "title": "Parser"
@@ -3421,6 +3605,7 @@
         "required": [
           "created_at",
           "display_name",
+          "title",
           "parser",
           "extractor",
           "document_checksum",
@@ -4981,6 +5166,29 @@
         ],
         "title": "TextRange",
         "description": "Half-open character range in one parser block.\n\n``start`` and ``end`` are Unicode code points, the same indexes as a Python\n``str``. ``end`` is greater than ``start``."
+      },
+      "UpdateDocumentRequest": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Document title; null or blank clears it"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "UpdateDocumentRequest",
+        "description": "Set or clear the title shared by all jobs of a document."
       },
       "UploadLimitsResponse": {
         "properties": {

@@ -44,6 +44,7 @@ _CHECKS = {
 _DOCUMENTS_COLUMNS = {
     "checksum": ("NO", "character varying", 64),
     "display_name": ("YES", "text", None),
+    "title": ("YES", "text", None),
     "size_bytes": ("NO", "bigint", None),
     "created_at": ("NO", "timestamp with time zone", None),
 }
@@ -285,6 +286,49 @@ def test_jobs_migration_upgrades_an_empty_database(monkeypatch: pytest.MonkeyPat
         _assert_jobs_table(admin_url.render_as_string(hide_password=False), name)
     finally:
         _drop_database(admin_url.render_as_string(hide_password=False), name)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("starting_revision", ["20261123_170000", "20261124_210800"])
+def test_document_title_migration_preserves_existing_documents(starting_revision: str) -> None:
+    raw = os.environ.get("BIOPARSER_TEST_DATABASE_URL")
+    if not raw:
+        pytest.skip("BIOPARSER_TEST_DATABASE_URL is not set")
+
+    admin_url = make_url(sync_database_url(raw)).set(database="postgres")
+    admin = admin_url.render_as_string(hide_password=False)
+    name = f"migrate_{uuid4().hex}"
+    _create_database(admin, name)
+    target = admin_url.set(database=name).render_as_string(hide_password=False)
+    engine = create_engine(target)
+    config = alembic_config(target)
+    checksum = "a" * 64
+    try:
+        command.upgrade(config, starting_revision)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO documents (checksum, display_name, size_bytes) "
+                    "VALUES (:checksum, 'paper.pdf', 123)"
+                ),
+                {"checksum": checksum},
+            )
+
+        command.upgrade(config, "head")
+        _assert_jobs_table(admin, name)
+        with engine.begin() as connection:
+            row = connection.execute(
+                text("SELECT checksum, display_name, size_bytes, title FROM documents")
+            ).one()
+            assert tuple(row) == (checksum, "paper.pdf", 123, None)
+            connection.execute(
+                text("UPDATE documents SET title = :title WHERE checksum = :checksum"),
+                {"title": "Darwin's paper", "checksum": checksum},
+            )
+            assert connection.scalar(text("SELECT title FROM documents")) == "Darwin's paper"
+    finally:
+        engine.dispose()
+        _drop_database(admin, name)
 
 
 def _create_database(admin_url: str, name: str) -> None:

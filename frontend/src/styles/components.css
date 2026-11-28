@@ -1,5 +1,14 @@
 /* Pieces more than one page uses: the job status badge and the progress steps. */
 
+/* A document title is primary; its upload filename stays visible as secondary text. */
+.document-filename {
+  display: block;
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
 /* One badge per job status, on the dashboard and the job page. The word is always shown;
    the dot and the color only repeat it. */
 .status-badge {

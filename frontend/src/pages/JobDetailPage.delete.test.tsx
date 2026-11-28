@@ -9,6 +9,7 @@ import { JobDetailPage } from "./JobDetailPage";
 const metadata = {
   job_id: "abc",
   display_name: "study.pdf",
+  title: null,
   parser: "mineru",
   extractor: "default",
   created_at: "2026-11-10T10:00:00Z",

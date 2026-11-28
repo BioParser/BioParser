@@ -559,6 +559,10 @@ class StubJobs:
             return None
         return document.display_name
 
+    def _title(self, state: JobState) -> str | None:
+        document = self.documents.get(state.document_checksum)
+        return document.title if document is not None else None
+
     async def claim(
         self,
         connection: object,
@@ -649,7 +653,7 @@ class StubJobs:
         job_id: object = None,
         status: JobStatus | None = None,
         parser: str | None = None,
-    ) -> list[tuple[JobState, str | None]]:
+    ) -> list[tuple[JobState, str | None, str | None]]:
         self.events.append("job_state.list")
         if self.get_error is not None:
             raise self.get_error
@@ -662,20 +666,20 @@ class StubJobs:
             jobs = [j for j in jobs if j.status == status]
         if parser is not None:
             jobs = [j for j in jobs if j.parser == parser]
-        return [(job, self._name(job)) for job in jobs]
+        return [(job, self._name(job), self._title(job)) for job in jobs]
 
     async def list_jobs_for_document(
         self,
         connection: object,
         checksum: str,
-    ) -> list[tuple[JobState, str | None]] | None:
+    ) -> list[tuple[JobState, str | None, str | None]] | None:
         self.events.append("job_state.list_for_document")
         if self.get_error is not None:
             raise self.get_error
         if checksum not in self.documents:
             return None
         return [
-            (job, self._name(job))
+            (job, self._name(job), self._title(job))
             for job in self.states.values()
             if job.document_checksum == checksum
         ]
@@ -693,15 +697,21 @@ class StubJobs:
         checksum: str,
         display_name: str | None,
         size_bytes: int,
+        title: str | None = None,
     ) -> tuple[DocumentRecord, bool]:
         self.events.append("document.create")
         if self.doc_create_error is not None:
             raise self.doc_create_error
         if checksum in self.documents:
+            if title:
+                self.documents[checksum] = self.documents[checksum].model_copy(
+                    update={"title": title}
+                )
             return self.documents[checksum], False
         record = DocumentRecord(
             checksum=checksum,
             display_name=display_name,
+            title=title,
             size_bytes=size_bytes,
             created_at=datetime.now(UTC),
         )
@@ -767,13 +777,13 @@ def bind_jobs(monkeypatch: Any) -> None:
         job_id: object = None,
         status: JobStatus | None = None,
         parser: str | None = None,
-    ) -> list[tuple[JobState, str | None]]:
+    ) -> list[tuple[JobState, str | None, str | None]]:
         return await tables[-1].list_jobs(connection, job_id=job_id, status=status, parser=parser)
 
     async def list_jobs_for_document(
         connection: object,
         checksum: str,
-    ) -> list[tuple[JobState, str | None]] | None:
+    ) -> list[tuple[JobState, str | None, str | None]] | None:
         return await tables[-1].list_jobs_for_document(connection, checksum)
 
     async def get_document(connection: object, checksum: str) -> DocumentRecord | None:
@@ -785,13 +795,32 @@ def bind_jobs(monkeypatch: Any) -> None:
         checksum: str,
         display_name: str | None,
         size_bytes: int,
+        title: str | None = None,
     ) -> tuple[DocumentRecord, bool]:
         return await tables[-1].create_document(
-            connection, checksum=checksum, display_name=display_name, size_bytes=size_bytes
+            connection,
+            checksum=checksum,
+            display_name=display_name,
+            size_bytes=size_bytes,
+            title=title,
         )
 
     async def list_documents(connection: object) -> list[DocumentRecord]:
         return await tables[-1].list_documents(connection)
+
+    async def update_document_title(
+        connection: object, checksum: str, title: str | None
+    ) -> DocumentRecord | None:
+        jobs = tables[-1]
+        jobs.events.append("document.update_title")
+        if jobs.doc_create_error is not None:
+            raise jobs.doc_create_error
+        doc = jobs.documents.get(checksum)
+        if doc is None:
+            return None
+        updated = doc.model_copy(update={"title": title})
+        jobs.documents[checksum] = updated
+        return updated
 
     async def open_pool(url: str, *, password: SecretStr | None = None) -> None:
         return None
@@ -825,6 +854,7 @@ def bind_jobs(monkeypatch: Any) -> None:
     monkeypatch.setattr(document_queries, "get", get_document)
     monkeypatch.setattr(document_queries, "create", create_document)
     monkeypatch.setattr(document_queries, "list_documents", list_documents)
+    monkeypatch.setattr(document_queries, "update_title", update_document_title)
     monkeypatch.setattr(database, "open", open_pool)
     monkeypatch.setattr(database, "aclose", close_pool)
     monkeypatch.setattr(database, "transaction", _transaction)

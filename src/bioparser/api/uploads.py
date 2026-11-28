@@ -3,7 +3,7 @@ from __future__ import annotations
 import unicodedata
 import urllib.parse
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 
 from . import config
 from .errors import (
@@ -103,3 +103,22 @@ def validate_pdf_content(content: bytes) -> None:
         raise http_error(400, EMPTY_FILE)
     if not content.startswith(_PDF_MAGIC):
         raise http_error(400, INVALID_PDF)
+
+
+def sanitize_title(title: str | None) -> str | None:
+    """Trim a title, remove control characters and validate its length."""
+    if title is None:
+        return None
+
+    cleaned = "".join(char for char in title if unicodedata.category(char) != "Cc").strip()
+
+    if not cleaned:
+        return None
+
+    if len(cleaned) > 500:
+        raise HTTPException(
+            status_code=422,
+            detail="Title must be at most 500 characters.",
+        )
+
+    return cleaned

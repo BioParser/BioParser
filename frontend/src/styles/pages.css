@@ -225,6 +225,21 @@
   font-weight: 600;
 }
 
+.job-file-title {
+  display: flex;
+  flex-direction: column;
+  flex-basis: 100%;
+  min-width: 0;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.job-file-title input {
+  width: 100%;
+  min-width: 0;
+}
+
 .job-file-size,
 .job-file-status {
   color: var(--color-text-muted);
@@ -473,6 +488,29 @@
   margin: 0;
   font-weight: 500;
   overflow-wrap: anywhere;
+}
+
+/* Document titles (#427) use the same controls and spacing as the other forms. */
+.document-title-editor {
+  margin: var(--space-4) 0;
+}
+
+.document-title-editor > p {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.document-title-editor form {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 40rem;
+}
+
+.document-title-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 /* Delete job (#404): the button under the summary, and the question that replaces it. */

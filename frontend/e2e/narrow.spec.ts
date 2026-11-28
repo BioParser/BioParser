@@ -62,6 +62,26 @@ test("a failed job", async ({ page }) => {
   await expectNoSidewaysScroll(page);
 });
 
+test("editing a document title", async ({ page }) => {
+  await mockApi(page);
+  await page.goto(`/ui/jobs/${QUEUED}`);
+  await page.getByRole("button", { name: "Edit title" }).click();
+  const input = page.getByRole("textbox", { name: "Title", exact: true });
+  await expect(input).toBeFocused();
+  const title = "A-long-document-title-".repeat(12);
+  await input.fill(title);
+  await expectNoSidewaysScroll(page);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit title" })).toBeFocused();
+  await expectNoSidewaysScroll(page);
+  await page.getByRole("button", { name: "Edit title" }).click();
+  await input.fill("");
+  await input.press("Enter");
+  await expect(page.getByRole("heading", { name: LONG_NAME, exact: true })).toBeVisible();
+  await expectNoSidewaysScroll(page);
+});
+
 test("a done job's results", async ({ page }) => {
   await mockApi(page);
   await page.goto(`/ui/jobs/${DONE}`);

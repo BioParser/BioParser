@@ -127,9 +127,13 @@ def _row_to_job_state(row: Mapping[str, object]) -> JobState:
         raise CorruptJobStateError(str(row["job_id"])) from exc
 
 
-def _job_and_name(row: Mapping[str, object]) -> tuple[JobState, str | None]:
-    """The stored job and the display name from the joined document row."""
-    return _row_to_job_state(row), cast(str | None, row["display_name"])
+def _job_and_name(row: Mapping[str, object]) -> tuple[JobState, str | None, str | None]:
+    """The stored job, filename and current title from the joined document row."""
+    return (
+        _row_to_job_state(row),
+        cast(str | None, row["display_name"]),
+        cast(str | None, row["title"]),
+    )
 
 
 async def create(connection: AsyncConnection, state: JobState) -> JobState:
@@ -165,10 +169,10 @@ async def list_jobs(
     job_id: UUID | None = None,
     status: JobStatus | None = None,
     parser: str | None = None,
-) -> list[tuple[JobState, str | None]]:
+) -> list[tuple[JobState, str | None, str | None]]:
     """Jobs joined to their document names, newest first. Deleted jobs are left out."""
     stmt = (
-        select(Job.__table__, Document.display_name)
+        select(Job.__table__, Document.display_name, Document.title)
         .join(Document, Document.checksum == Job.document_checksum)
         .where(Job.deleted_at.is_(None))
     )
@@ -186,13 +190,13 @@ async def list_jobs(
 async def list_jobs_for_document(
     connection: AsyncConnection,
     checksum: Sha256Hex,
-) -> list[tuple[JobState, str | None]] | None:
+) -> list[tuple[JobState, str | None, str | None]] | None:
     """Jobs for one document, newest first. None when that document does not exist.
 
     Deleted jobs are left out. A document whose jobs are all deleted has an empty list.
     """
     stmt = (
-        select(Document.display_name, Job.__table__)
+        select(Document.display_name, Document.title, Job.__table__)
         .select_from(Document)
         .outerjoin(Job, and_(Job.document_checksum == Document.checksum, Job.deleted_at.is_(None)))
         .where(Document.checksum == checksum)

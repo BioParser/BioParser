@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import cast
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, String, Text, select, text
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, String, Text, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.orm import Mapped, mapped_column
@@ -27,6 +27,7 @@ class Document(Base):
 
     checksum: Mapped[str] = mapped_column(String(64), primary_key=True)
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
     size_bytes: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
@@ -40,6 +41,7 @@ class DocumentRecord(BaseModel):
 
     checksum: Sha256Hex
     display_name: str | None
+    title: str | None
     size_bytes: int
     created_at: datetime
 
@@ -50,6 +52,7 @@ def _row_to_document_record(row: Mapping[str, object]) -> DocumentRecord:
         display_name=cast(str | None, row["display_name"]),
         size_bytes=int(cast(int, row["size_bytes"])),
         created_at=cast(datetime, row["created_at"]),
+        title=cast(str | None, row["title"]),
     )
 
 
@@ -71,6 +74,7 @@ async def create(
     checksum: Sha256Hex,
     display_name: str | None,
     size_bytes: int,
+    title: str | None = None,
 ) -> tuple[DocumentRecord, bool]:
     """Insert one document if it does not exist, or return the existing document.
 
@@ -83,11 +87,16 @@ async def create(
             checksum=checksum,
             display_name=display_name,
             size_bytes=size_bytes,
+            title=title,
         )
         .on_conflict_do_nothing(index_elements=["checksum"])
     )
     result = await connection.execute(stmt)
     created = result.rowcount == 1
+
+    if not created and title:
+        await update_title(connection, checksum, title)
+
     doc = await get(connection, checksum)
     if doc is None:
         raise RuntimeError(f"Document {checksum} could not be retrieved after insert")
@@ -102,3 +111,26 @@ async def list_documents(connection: AsyncConnection) -> list[DocumentRecord]:
         .all()
     )
     return [_row_to_document_record(cast(Mapping[str, object], r)) for r in rows]
+
+
+async def update_title(
+    connection: AsyncConnection,
+    checksum: Sha256Hex,
+    title: str | None,
+) -> DocumentRecord | None:
+    """Set or clear a document title, returning None if missing."""
+    row = (
+        (
+            await connection.execute(
+                update(Document)
+                .where(Document.checksum == checksum)
+                .values(title=title)
+                .returning(*Document.__table__.c)
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is None:
+        return None
+    return _row_to_document_record(cast(Mapping[str, object], row))

@@ -187,10 +187,12 @@ export function getUploadLimits(): Promise<UploadLimitsResponse> {
 // both return the checksum the job is started with.
 export function uploadDocument(
   file: File,
+  title?: string,
   signal?: AbortSignal,
 ): Promise<DocumentMetadataResponse> {
   const body = new FormData();
   body.append("file", file);
+  if (title?.trim()) body.append("title", title);
   // No Content-Type header: the browser sets multipart/form-data with its boundary.
   return apiFetch("/api/documents", { method: "POST", body, signal });
 }
@@ -205,6 +207,17 @@ export function startDocumentJob(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
     signal,
+  });
+}
+
+export function updateDocumentTitle(
+  checksum: string,
+  title: Schemas["UpdateDocumentRequest"]["title"],
+): Promise<DocumentMetadataResponse> {
+  return apiFetch(`/api/documents/${encodeURIComponent(checksum)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
   });
 }
 

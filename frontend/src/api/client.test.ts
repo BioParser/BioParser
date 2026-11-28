@@ -9,6 +9,7 @@ import {
   getParserArtifact,
   getReadiness,
   startDocumentJob,
+  updateDocumentTitle,
   uploadDocument,
 } from "./client";
 
@@ -228,6 +229,37 @@ describe("apiFetch and the API key", () => {
       expect(init.method).toBe("POST");
       expect(init.body).toBeInstanceOf(FormData);
       expect((init.body as FormData).get("file")).toBe(file);
+      expect((init.body as FormData).has("title")).toBe(false);
+    });
+
+    it.each([undefined, "", "   "])("omits a blank title (%s)", async (title) => {
+      const fetchMock = stubFetch(Response.json({ checksum: "abc" }, { status: 201 }));
+      await uploadDocument(new File(["%PDF-1.7"], "paper.pdf"), title);
+      expect((sentRequest(fetchMock).init.body as FormData).has("title")).toBe(false);
+    });
+
+    it("sends the title with the file and passes the abort signal", async () => {
+      const fetchMock = stubFetch(Response.json({ checksum: "abc" }, { status: 201 }));
+      const file = new File(["%PDF-1.7"], "paper.pdf");
+      const controller = new AbortController();
+      await uploadDocument(file, 'Darwin\'s "paper"', controller.signal);
+      const { init } = sentRequest(fetchMock);
+      expect((init.body as FormData).get("file")).toBe(file);
+      expect((init.body as FormData).get("title")).toBe('Darwin\'s "paper"');
+      expect(init.signal).toBe(controller.signal);
+      expect(sentHeaders(fetchMock).has("Content-Type")).toBe(false);
+    });
+  });
+
+  describe("updateDocumentTitle", () => {
+    it.each(["Darwin's paper", null])("patches a document title (%s)", async (title) => {
+      const fetchMock = stubFetch(Response.json({ checksum: "a/b", title }));
+      await expect(updateDocumentTitle("a/b", title)).resolves.toEqual({ checksum: "a/b", title });
+      const { path, init } = sentRequest(fetchMock);
+      expect(path).toBe("/api/documents/a%2Fb");
+      expect(init.method).toBe("PATCH");
+      expect(sentHeaders(fetchMock).get("Content-Type")).toBe("application/json");
+      expect(JSON.parse(String(init.body))).toEqual({ title });
     });
   });
 
