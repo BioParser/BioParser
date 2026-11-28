@@ -140,19 +140,6 @@ def test_unknown_log_level_is_rejected(tmp_path: Path, monkeypatch: pytest.Monke
         _log_settings(tmp_path, monkeypatch, "verbose")
 
 
-def test_time_limit_is_capped_at_mineru_longest_wait(tmp_path: Path) -> None:
-    with pytest.raises(ValidationError):
-        WorkerSettings(
-            _env_file=None,  # type: ignore[call-arg]
-            redis_url="redis://localhost:6379/0",  # type: ignore[arg-type]
-            database_url="postgresql://localhost/bioparser",  # type: ignore[arg-type]
-            artifact_storage_path=tmp_path,
-            parse_queue_name="parse",
-            extract_queue_name="extract",
-            parse_time_limit_seconds=3601,
-        )
-
-
 def test_mineru_base_url_must_be_http(tmp_path: Path) -> None:
     with pytest.raises(ValidationError):
         WorkerSettings(

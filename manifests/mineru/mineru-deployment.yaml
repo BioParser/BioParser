@@ -54,6 +54,11 @@ spec:
                 configMapKeyRef:
                   name: bioparser-config
                   key: MINERU_API_CONCURRENCY
+            - name: MINERU_API_TASK_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: bioparser-config
+                  key: MINERU_API_TASK_TIMEOUT
             - name: MINERU_INTRA_OP_NUM_THREADS
               value: "4"
             - name: MINERU_PDF_RENDER_THREADS

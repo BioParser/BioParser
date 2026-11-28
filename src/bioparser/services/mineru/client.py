@@ -54,9 +54,9 @@ MAX_RESULT_BYTES = 256 * _MIB
 # that ceiling. A 20 MiB PDF can yield a middle.json far larger than itself: refuse it rather
 # than discover the ceiling as an OOMKill.
 MAX_MIDDLE_JSON_BYTES = 64 * _MIB
-# The longest the client waits for one parse, time queued in mineru-api included. The images
-# run mineru-api with a --task-timeout above this, so the client gives up and cancels first:
-# a task that reaches mineru-api's own limit makes the service refuse all work until it restarts.
+# The wait used when a caller passes no timeout, time queued in mineru-api included.
+# MINERU_API_TASK_TIMEOUT must stay above the wait actually used. A task that reaches
+# mineru-api's own limit makes the service refuse all work until it restarts.
 MAX_WAIT_SECONDS = 3600
 # One request, not the whole parse. The wait limits the parse, and _DOWNLOAD_TIMEOUT_S limits
 # the download of its result.
@@ -306,7 +306,7 @@ class MinerUClient:
         tier: MinerUTier = DEFAULT_TIER,
     ) -> None:
         # The wait: create, upload, time queued and the parse, but not the download.
-        self._wait_s = min(timeout, MAX_WAIT_SECONDS)
+        self._wait_s = timeout
         self._connect_s = connect_timeout
         self._tier: MinerUTier = tier
         # mineru-api is an internal service: the PDF must not go through a proxy from the

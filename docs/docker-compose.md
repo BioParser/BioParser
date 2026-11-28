@@ -45,7 +45,8 @@ Optional:
 
 `BIOPARSER_SECRETS_DIR`: the directory of the secret files (default `./secrets`). The script in [Secrets](#secrets) writes to the same directory.  
 `BIOPARSER_MINERU_TIER`: MinerU parse tier for the parser worker (CPU stack `basic`; GPU stack default `standard`, or `advanced`). See [docs/parser.md](parser.md).  
-`BIOPARSER_PARSE_TIME_LIMIT_SECONDS`: the worker's limit for one parse (default `1800`, at most `3600`).  
+`BIOPARSER_PARSE_TIME_LIMIT_SECONDS`: the worker's limit for one parse (default `1800`). The client is given 30 seconds less than this, queue time included.  
+`MINERU_API_TASK_TIMEOUT`: MinerU's own limit for one parse, queue time not counted (image default `3900`). It must be higher than the client's wait. A parse that reaches it makes `mineru-api` refuse all work until the container restarts. See [docs/parser.md](parser.md).  
 `MINERU_API_CONCURRENCY`: how many parse jobs the `mineru` service runs at once (default `1`); more wait in its queue. Each running job needs its own memory, so raise the `mineru` `mem_limit` in the overlay with it.  
 
 With `docker-compose.logging.yml`:
