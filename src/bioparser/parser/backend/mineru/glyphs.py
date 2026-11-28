@@ -7,17 +7,19 @@ two strings are aligned as a diff, and each stored character takes a box from th
 * Characters that still agree keep the box that was measured for them.
 * A rewritten span has no box of its own. Every one of its characters shares one box,
   the union of the ink that did not match, whatever lines that ink was drawn on.
-* An inline formula often has no characters left, only the box MinerU measured for it.
-  That box goes to the characters of its LaTeX.
-* Inserted text with no glyphs and no box stays empty.
-* A glyph with no stored character is dropped.
+* An inline formula has no characters, only the box MinerU measured for it. Its LaTeX is
+  spliced into the drawn characters where the formula sits, as if each LaTeX character
+  were ink with the formula's box. The diff then places it like any other text.
+* A formula with no LaTeX cannot take part in the diff. Its box goes to the stored text
+  that has no ink at the spot where the formula sits.
+* Other stored text with no ink stays empty. Ink with no stored character is dropped.
 
 The result is a ``TextLine`` per run of characters on one drawn line. ``glyph_wire.py``
 reads the measured geometry. This module only places it.
 
-Spaces are left out of the diff. A missing space must not drop the words after it, and
+Whitespace is left out of the diff. A missing space must not drop the words after it, and
 a space must not be a character the matcher can slide on. A space that both sides still
-have keeps its own box afterwards.
+have keeps its own box afterwards, and so does a space inside a formula.
 """
 
 from __future__ import annotations
@@ -73,39 +75,44 @@ def _spread(glyphs: list[Glyph], start: int, end: int, placed: _Placements) -> N
         placed[at] = box
 
 
-def _paint_latex(
-    formulas: list[Formula], text: str, start: int, end: int, placed: _Placements
-) -> None:
-    """Find each formula's LaTeX in ``text[start:end]`` and give it that formula's box."""
-    cursor = start
-    for formula in formulas:
-        if not formula.latex:
-            continue
-        found = text.find(formula.latex, cursor, end)
-        if found < 0 or found + len(formula.latex) > end:
-            continue
-        cursor = found + len(formula.latex)
-        box = _Placed.of(formula.box)
-        for at in range(found, cursor):
-            placed[at] = box
+def _reading_order(geometry: BlockGeometry) -> tuple[list[Glyph], dict[int, list[Formula]]]:
+    """The drawn characters, with each formula's LaTeX spliced in where the formula sits.
+
+    A formula with no LaTeX cannot be diffed. It is returned apart, keyed by the index
+    of the character that follows it.
+    """
+    at_anchor: dict[int, list[Formula]] = {}
+    for formula in geometry.formulas:
+        at_anchor.setdefault(formula.anchor, []).append(formula)
+    glyphs: list[Glyph] = []
+    wildcards: dict[int, list[Formula]] = {}
+    for position in range(len(geometry.glyphs) + 1):
+        for formula in at_anchor.get(position, []):
+            box = formula.box
+            if formula.latex:
+                glyphs.extend(
+                    Glyph(char, box.x0, box.x1, box.line, box.y0, box.y1) for char in formula.latex
+                )
+            else:
+                wildcards.setdefault(len(glyphs), []).append(formula)
+        if position < len(geometry.glyphs):
+            glyphs.append(geometry.glyphs[position])
+    return glyphs, wildcards
 
 
 class _Placer:
     """Aligns one block's glyphs with its stored text and fills in ``placed``.
 
-    The diff runs on the glyph and text strings with spaces removed. ``glyph_at`` and
+    The diff runs on the glyph and text strings with whitespace removed. ``glyph_at`` and
     ``text_at`` map a position in those compact strings back to an index in ``glyphs``
     and ``text``. Every method below takes compact positions and converts as it goes.
     """
 
     def __init__(self, text: str, geometry: BlockGeometry) -> None:
         self.text = text
-        self.glyphs = geometry.glyphs
-        self.formulas_at: dict[int, list[Formula]] = {}
-        for formula in geometry.formulas:
-            self.formulas_at.setdefault(formula.anchor, []).append(formula)
-        self.glyph_at = [i for i, glyph in enumerate(self.glyphs) if glyph.char != " "]
-        self.text_at = [i for i, char in enumerate(text) if char != " "]
+        self.glyphs, self.wildcards = _reading_order(geometry)
+        self.glyph_at = [i for i, glyph in enumerate(self.glyphs) if not glyph.char.isspace()]
+        self.text_at = [i for i, char in enumerate(text) if not char.isspace()]
         self.placed: _Placements = {}
 
     def run(self) -> _Placements:
@@ -113,7 +120,9 @@ class _Placer:
             None,
             "".join(self.glyphs[i].char for i in self.glyph_at),
             "".join(self.text[i] for i in self.text_at),
-            autojunk=False,  # it would ignore the letters that show up most often
+            # Without autojunk the diff is quadratic in the block length. That is fine: a
+            # block is bounded by one page. Autojunk would ignore the commonest letters.
+            autojunk=False,
         )
         for tag, glyph_start, glyph_end, text_start, text_end in matcher.get_opcodes():
             if tag == "equal":
@@ -137,12 +146,18 @@ class _Placer:
             glyph_spaces = [
                 self.glyphs[i]
                 for i in range(glyph_before + 1, glyph_after)
-                if self.glyphs[i].char == " "
+                if self.glyphs[i].char.isspace()
             ]
-            text_spaces = [i for i in range(text_before + 1, text_after) if self.text[i] == " "]
-            # Spaces pair up in order. An extra space on either side stays empty.
+            text_spaces = [i for i in range(text_before + 1, text_after) if self.text[i].isspace()]
+            # Spaces pair up in order.
             for text_pos, glyph in zip(text_spaces, glyph_spaces, strict=False):
                 self.placed[text_pos] = _Placed.of(glyph)
+            # An extra space inside one formula is part of that formula. Any other extra
+            # space, on either side, stays empty.
+            before, after = self.glyphs[glyph_before], self.glyphs[glyph_after]
+            if before.line == after.line and before.line[0] == "formula":
+                for text_pos in text_spaces[len(glyph_spaces) :]:
+                    self.placed[text_pos] = _Placed.of(before)
 
     def _rewritten(self, glyph_start: int, glyph_end: int, text_start: int, text_end: int) -> None:
         """Stored text replaced the drawn ink. All of it shares the ink's union box."""
@@ -154,26 +169,25 @@ class _Placer:
         )
 
     def _inserted(self, glyph_start: int, text_start: int, text_end: int) -> None:
-        """Stored text with no ink. A formula that sits at this spot may account for it."""
-        start = self.text_at[text_start]
-        end = self.text_at[text_end - 1] + 1
-        formulas = self._formulas_before(glyph_start)
-        if any(formula.latex for formula in formulas):
-            _paint_latex(formulas, self.text, start, end, self.placed)
-        else:
-            _spread([formula.box for formula in formulas], start, end, self.placed)
+        """Stored text with no ink. A formula with no LaTeX at this spot may account for it."""
+        _spread(
+            [formula.box for formula in self._wildcards_before(glyph_start)],
+            self.text_at[text_start],
+            self.text_at[text_end - 1] + 1,
+            self.placed,
+        )
 
-    def _formulas_before(self, glyph_pos: int) -> list[Formula]:
-        """Formulas that sit after the previous letter and before this one.
+    def _wildcards_before(self, glyph_pos: int) -> list[Formula]:
+        """Formulas with no LaTeX after the previous letter and before this one.
 
-        That includes formulas anchored among the spaces between the two.
+        That includes formulas that sit among the spaces between the two.
         """
         first = self.glyph_at[glyph_pos - 1] + 1 if glyph_pos else 0
         last = self.glyph_at[glyph_pos] if glyph_pos < len(self.glyph_at) else len(self.glyphs)
         return [
             formula
-            for anchor in range(first, last + 1)
-            for formula in self.formulas_at.get(anchor, [])
+            for position in range(first, last + 1)
+            for formula in self.wildcards.get(position, [])
         ]
 
 
