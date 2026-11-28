@@ -167,6 +167,13 @@ jobs:
       - name: Build
         run: npm run build
 
+      # jsdom computes no layout, so a browser checks each page at 360 px (#323).
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser layout tests
+        run: npm run test:e2e
+
   image-groups:
     name: Image dependency groups
     runs-on: ubuntu-latest
@@ -185,10 +192,13 @@ jobs:
   compose:
     name: Validate Compose
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2 # the parent commit too, for the changed files below
 
       - name: Validate Compose files
         env:
@@ -219,9 +229,32 @@ jobs:
           validate -f docker-compose.yml -f docker-compose.cpu.yml -f docker-compose.logging.yml -f docker-compose.traefik.yml -f docker-compose.dev.yml
           validate -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.logging.yml -f docker-compose.traefik.yml -f docker-compose.dev.yml
 
+      # The stack test builds four images and starts the stack: only for a change that can
+      # move a secret. It is in GitHub CI: on main, the deploy waits for it.
+      - name: Find a change that can move a secret
+        id: changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          pattern='^(docker-compose[^/]*\.yml|\.env\.example|\.dockerignore|docker/.*'
+          pattern+='|src/bioparser/(docker_secrets|scripts/generate_secrets)\.py'
+          pattern+='|tests/test_compose_[^/]*\.py|\.github/workflows/ci\.yml)$'
+          # If git cannot find the base commit, the stack test runs too.
+          if ! files=$(git diff --name-only "$BASE" HEAD) || grep -qE "$pattern" <<< "$files"; then
+            echo "stack=1" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Python
         uses: ./.github/actions/setup
 
+      # The python3 of the runner, as on a host. With ./secrets in the build context, the
+      # image check also proves that no build copies the directory.
+      - name: Make the secret files
+        if: steps.changes.outputs.stack == '1'
+        run: python3 src/bioparser/scripts/generate_secrets.py
+
       # The secrets are files: no step here sets a password.
-      - name: Check the secrets in the Compose config
+      - name: Check the secrets in the Compose config and in a running stack
+        env:
+          BIOPARSER_TEST_COMPOSE_STACK: ${{ steps.changes.outputs.stack }}
         run: uv run pytest -m compose -v

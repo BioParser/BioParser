@@ -186,6 +186,7 @@ stateDiagram-v2
     parsing --> parsing: Retry after an unexpected error
     parsing --> failed: Permanent failure, retry limit, or timeout
     parsed --> extracting: Extractor claims job
+    parsed --> failed: Extract queue gives up before claiming
     extracting --> done: Observations stored
     extracting --> failed: Permanent failure
     done --> [*]
@@ -257,9 +258,10 @@ Convention:
   A retry of the same job keeps the path and reuses the result stored for that job. The
   extractor worker runs the extractor named on the job and takes its version from
   `bioparser.extractor_names.EXTRACTOR_VERSIONS` when the extraction runs. The job does not
-  store that version. New jobs name the extractor `default`, whose version is `2`. A
-  version bump changes that job's path, so a retry does not reuse the result stored
-  under the old version. The builders live in `bioparser.artifact_paths`.
+  store that version. New jobs name the extractor `default`, whose version is `2`.
+  `mendel` is a second extractor, at version `1`. A version bump changes that job's
+  path, so a retry does not reuse the result stored under the old version. The builders
+  live in `bioparser.artifact_paths`.
 - Build paths with the builders, never by string formatting. Each builder argument must be
   a single valid segment, so a value like `a/b` cannot change the shape of the path.
 
@@ -268,7 +270,8 @@ Job state holds the document checksum and the artifact paths, typed `ArtifactPat
 | Field | Type | Set |
 |---|---|---|
 | `document_checksum` | sha256 hex | Always. The document this job belongs to. The PDF is `pdf_path(document_checksum)`. |
-| `parse_result_ref` | `ArtifactPath \| None` | In `parsed`, `extracting` and `done`. `None` in `queued`, `parsing` and `failed`. |
+| `parse_result_ref` | `ArtifactPath \| None` | In `parsed`, `extracting` and `done`. Also on `failed` when `failed_stage` is `parsed` or `extracting`. `None` in `queued` and `parsing`, and on `failed` when `failed_stage` is `queued` or `parsing`. |
+| `failed_stage` | `queued`, `parsing`, `parsed`, or `extracting` | Set only when `status` is `failed`. It is the status the job had when it failed. |
 
 Queue messages carry only `job_id`. Workers read the checksum and the result paths from job state.
 

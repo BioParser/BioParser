@@ -1417,7 +1417,7 @@
     "/api/jobs/{job_id}": {
       "get": {
         "summary": "Job Status",
-        "description": "The job.\n\n`queued`, `parsing`, `parsed`, and `extracting` are `job_id` and `status`. `failed`\nadds `error`. `done` is `job_id` and `status`. The ETS rows are\n`GET /api/jobs/{job_id}/ets`. This route does not read the extraction artifact.\n\n`?detail=full` adds the stored record: `created_at`, `display_name`, `title`, `parser`,\n`extractor`, `document_checksum`, and `has_parse_result`.",
+        "description": "The job.\n\n`queued`, `parsing`, `parsed`, and `extracting` are `job_id` and `status`. `failed`\nadds `error` and `failed_stage`, the status the job had when it failed. `done` is\n`job_id` and `status`. The ETS rows are `GET /api/jobs/{job_id}/ets`. This route\ndoes not read the extraction artifact.\n\n`?detail=full` adds the stored record: `created_at`, `display_name`, `title`, `parser`,\n`extractor`, and `document_checksum`.",
         "operationId": "job_status_api_jobs__job_id__get",
         "security": [
           {
@@ -2574,6 +2574,10 @@
           },
           "extractor": {
             "type": "string",
+            "enum": [
+              "default",
+              "mendel"
+            ],
             "title": "Extractor",
             "description": "Extractor backend name",
             "default": "default"
@@ -3402,10 +3406,6 @@
             "type": "string",
             "title": "Document Checksum"
           },
-          "has_parse_result": {
-            "type": "boolean",
-            "title": "Has Parse Result"
-          },
           "job_id": {
             "type": "string",
             "format": "uuid",
@@ -3418,6 +3418,16 @@
           },
           "error": {
             "$ref": "#/components/schemas/SafeError"
+          },
+          "failed_stage": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "parsing",
+              "parsed",
+              "extracting"
+            ],
+            "title": "Failed Stage"
           }
         },
         "additionalProperties": false,
@@ -3429,10 +3439,10 @@
           "parser",
           "extractor",
           "document_checksum",
-          "has_parse_result",
           "job_id",
           "status",
-          "error"
+          "error",
+          "failed_stage"
         ],
         "title": "FailedJobFullResponse",
         "description": "A failed job with the stored record beside the error."
@@ -3451,6 +3461,16 @@
           },
           "error": {
             "$ref": "#/components/schemas/SafeError"
+          },
+          "failed_stage": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "parsing",
+              "parsed",
+              "extracting"
+            ],
+            "title": "Failed Stage"
           }
         },
         "additionalProperties": false,
@@ -3458,9 +3478,11 @@
         "required": [
           "job_id",
           "status",
-          "error"
+          "error",
+          "failed_stage"
         ],
-        "title": "FailedJobResponse"
+        "title": "FailedJobResponse",
+        "description": "A failed job. ``failed_stage`` is the status the job had when it failed."
       },
       "HTTPValidationError": {
         "properties": {
@@ -3561,10 +3583,6 @@
             "type": "string",
             "title": "Document Checksum"
           },
-          "has_parse_result": {
-            "type": "boolean",
-            "title": "Has Parse Result"
-          },
           "job_id": {
             "type": "string",
             "format": "uuid",
@@ -3591,7 +3609,6 @@
           "parser",
           "extractor",
           "document_checksum",
-          "has_parse_result",
           "job_id",
           "status"
         ],
@@ -4944,6 +4961,8 @@
               "parse_failed",
               "extraction_failed",
               "timeout",
+              "deferral_expired",
+              "retries_exhausted",
               "internal_error"
             ],
             "title": "Code"

@@ -104,10 +104,11 @@ def test_done_requires_both_artifact_refs() -> None:
 
 
 def test_failed_job_round_trips_through_json() -> None:
-    state = _queued(status="failed", error_code="parse_failed")
+    state = _queued(status="failed", error_code="parse_failed", failed_stage="parsing")
     restored = JobState.model_validate_json(state.model_dump_json())
     assert restored == state
     assert restored.error_code == "parse_failed"
+    assert restored.failed_stage == "parsing"
 
 
 # --- status/field invariants --------------------------------------------
@@ -137,9 +138,11 @@ def test_failed_job_may_keep_the_parser_artifact() -> None:
         status="failed",
         parse_result_ref=RESULT_REF,
         error_code="extraction_failed",
+        failed_stage="extracting",
     )
     assert state.parse_result_ref == RESULT_REF
     assert state.extract_result_ref is None
+    assert state.failed_stage == "extracting"
 
 
 def test_failed_job_rejects_extraction_result() -> None:
@@ -149,7 +152,22 @@ def test_failed_job_rejects_extraction_result() -> None:
             parse_result_ref=RESULT_REF,
             extract_result_ref=EXTRACT_REF,
             error_code="extraction_failed",
+            failed_stage="extracting",
         )
+
+
+def test_failed_stage_must_match_the_parser_artifact() -> None:
+    with pytest.raises(ValidationError):
+        _queued(
+            status="failed",
+            error_code="parse_failed",
+            failed_stage="parsing",
+            parse_result_ref=RESULT_REF,
+        )
+    with pytest.raises(ValidationError):
+        _queued(status="failed", error_code="extraction_failed", failed_stage="parsed")
+    with pytest.raises(ValidationError):
+        _queued(status="queued", failed_stage="queued")
 
 
 @pytest.mark.parametrize("status", ["queued", "parsing"])

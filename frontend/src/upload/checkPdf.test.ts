@@ -3,6 +3,7 @@ import {
   checkPdf,
   DEFAULT_MAX_UPLOAD_BYTES,
   EMPTY,
+  formatFileSize,
   NO_PDF_HEADER,
   NOT_PDF,
   tooLarge,
@@ -57,5 +58,18 @@ describe("checkPdf", () => {
 
   it("refuses a file shorter than %PDF-", async () => {
     await expect(checkPdf(pdf("%PD"), LIMIT)).resolves.toBe(NO_PDF_HEADER);
+  });
+});
+
+describe("formatFileSize", () => {
+  it.each([
+    [0, "1 KiB"],
+    [300, "1 KiB"],
+    [300 * 1024, "300 KiB"],
+    [999 * 1024, "999 KiB"],
+    [1000 * 1024, "1 MiB"],
+    [5.56 * 1024 * 1024, "5.6 MiB"],
+  ])("shows %i bytes as %s", (bytes, text) => {
+    expect(formatFileSize(bytes)).toBe(text);
   });
 });

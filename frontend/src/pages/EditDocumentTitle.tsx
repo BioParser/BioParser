@@ -69,7 +69,7 @@ export function EditDocumentTitle({ job }: { job: JobStatusFullResponse }) {
             }
           }}
         >
-          <label className="job-field">
+          <label className="document-title-field">
             Title
             <input
               ref={input}

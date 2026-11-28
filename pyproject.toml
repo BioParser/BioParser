@@ -109,6 +109,6 @@ addopts = "-ra"
 markers = [
   "integration: requires a real Redis or Postgres instance (see BIOPARSER_TEST_REDIS_URL and BIOPARSER_TEST_DATABASE_URL)",
   "image: installs one image dependency group into a temporary environment",
-  "compose: runs docker compose config, so it needs the Docker CLI",
+  "compose: runs docker compose. With BIOPARSER_TEST_COMPOSE_STACK=1 it starts containers too",
 ]
 timeout = 60

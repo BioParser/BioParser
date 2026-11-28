@@ -8,6 +8,7 @@ subclass's `run`.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Protocol
@@ -25,7 +26,7 @@ from bioparser.jobs import (
     JobStatus,
     SafeErrorCode,
 )
-from bioparser.jobs.queue import JobDeferred, JobTimeLimitExceeded
+from bioparser.jobs.queue import JobDeferralExpired, JobDeferred, JobTimeLimitExceeded
 from bioparser.logging_config import log_context
 
 LOGGER = logging.getLogger(__name__)
@@ -49,7 +50,9 @@ class StageJobHandler[T: JobMessage]:
     """Claim one stage, then let the subclass finish the job.
 
     A status outside `owned` is left unchanged. A `PermanentJobFailure`
-    from `run` is recorded as a safe error. Any other exception is retried.
+    from `run` is recorded as a safe error. Cancellation by the queue time
+    limit is recorded as `timeout` and is not retried. Any other exception
+    is retried.
     `before_claim` may raise `JobDeferred` before the claim. The queue sends the
     message again later without using a retry, and gives up at a deadline.
     Any other result drops that outage's clock, so a retry of this message
@@ -100,9 +103,7 @@ class StageJobHandler[T: JobMessage]:
             await self._mark_failed(job_id, "internal_error")
 
     async def on_failed(self, message: T, exc: BaseException) -> None:
-        code: SafeErrorCode = (
-            "timeout" if isinstance(exc, JobTimeLimitExceeded) else "internal_error"
-        )
+        code = _give_up_code(exc)
         with log_context(job_id=str(message.job_id)):
             recorded = await self._mark_failed(message.job_id, code)
             if recorded:
@@ -145,7 +146,17 @@ class StageJobHandler[T: JobMessage]:
         if not await self._mark_running(state):
             return
         try:
-            await self.run(state)
+            try:
+                await self.run(state)
+            except asyncio.CancelledError as exc:
+                # The queue's time limit cancelled this attempt. The same attempt
+                # would run out of time again, so it is not retried. Clear the
+                # request so a later await on this task is not still cancelled.
+                LOGGER.error("stage was cancelled at the time limit")
+                task = asyncio.current_task()
+                if task is not None:
+                    task.uncancel()
+                raise PermanentJobFailure("timeout") from exc
         except PermanentJobFailure as exc:
             LOGGER.error(f"stage failed. Marking the job failed ({exc.code})")
             await self._mark_failed(job_id, exc.code)
@@ -169,7 +180,7 @@ class StageJobHandler[T: JobMessage]:
         if outcome == "exhausted":
             LOGGER.error(
                 f"{claim} was already claimed {self._max_claims} times. "
-                "Marked the job failed (internal_error)"
+                "Marked the job failed (retries_exhausted)"
             )
             return False
         if outcome == "missing":
@@ -194,3 +205,12 @@ class StageJobHandler[T: JobMessage]:
             return False
         LOGGER.info(f"job already finished or moved on. Not marking it failed ({code})")
         return False
+
+
+def _give_up_code(exc: BaseException) -> SafeErrorCode:
+    """The safe code for a queue that will not send this message again."""
+    if isinstance(exc, JobTimeLimitExceeded):
+        return "timeout"
+    if isinstance(exc, JobDeferralExpired):
+        return "deferral_expired"
+    return "retries_exhausted"

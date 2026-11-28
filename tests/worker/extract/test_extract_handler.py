@@ -6,6 +6,8 @@ from typing import cast
 from uuid import UUID
 
 import pytest
+from dramatiq.brokers.stub import StubBroker
+from dramatiq.middleware.time_limit import TimeLimit
 from pydantic import BaseModel
 from stubs import (
     MemoryStorage,
@@ -46,6 +48,7 @@ from bioparser.jobs.queue import (
     JobDeferred,
     JobTimeLimitExceeded,
 )
+from bioparser.jobs.queue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
 from bioparser.parser.models import (
     PARSER_ARTIFACT_SCHEMA_VERSION,
     BlockKind,
@@ -73,18 +76,18 @@ PDF_CHECKSUM = "a" * 64
 RESULT_PATH = extract_result_path(
     PARSE_REF, "default", EXTRACTOR_VERSIONS[DEFAULT_EXTRACTOR_NAME], str(JOB_ID)
 )
-QUOTE = "Mus musculus adults averaged 12.5 kg in the sampled population."
+QUOTE = "Mus musculus adult body mass averaged 12.5 kg in the sampled population."
 CREATED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _stub() -> StubVLLMService:
-    """A model answer whose name, value and unit each occur once in the quotation."""
+    """A model answer whose name, trait_name, value and unit each occur once in the quotation."""
     return StubVLLMService(
         observations=[
             {
                 "taxon": "Mus musculus",
-                "trait_code": "body_mass",
-                "value": 12.5,
+                "trait_name": "body mass",
+                "value": "12.5",
                 "unit": "kg",
                 "evidence_block_id": "b0",
                 "quotation": QUOTE,
@@ -299,8 +302,8 @@ def test_an_unlocated_observation_is_not_stored() -> None:
         observations=[
             {
                 "taxon": "Mus musculus",
-                "trait_code": "body_mass",
-                "value": 12.5,
+                "trait_name": "body mass",
+                "value": "12.5",
                 "unit": "kg",
                 "evidence_block_id": "b0",
                 "quotation": "not in the paper",
@@ -545,7 +548,7 @@ def test_vllm_answering_still_extracts() -> None:
     assert vllm.prompts
 
 
-def test_on_failed_on_a_parsed_job_says_it_cannot_be_marked_failed(
+def test_on_failed_on_a_parsed_job_records_the_wait_for_extraction(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     jobs = StubJobs(_parsed())
@@ -555,9 +558,11 @@ def test_on_failed_on_a_parsed_job_says_it_cannot_be_marked_failed(
     asyncio.run(handler.aclose())
 
     assert jobs.state is not None
-    assert jobs.state.status == "parsed"
-    assert "cannot be marked failed" in caplog.text
-    assert "already finished or moved on" not in caplog.text
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "retries_exhausted"
+    assert jobs.state.failed_stage == "parsed"
+    assert jobs.state.parse_result_ref == PARSE_REF
+    assert "Marked the job failed (retries_exhausted)" in caplog.text
 
 
 def test_vllm_errors_are_retried() -> None:
@@ -645,7 +650,21 @@ def test_deferral_expiry_marks_an_extracting_job_failed() -> None:
 
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error_code == "internal_error"
+    assert jobs.state.error_code == "deferral_expired"
+    assert jobs.state.failed_stage == "extracting"
+    assert jobs.state.parse_result_ref == PARSE_REF
+
+
+def test_deferral_expiry_while_still_parsed_keeps_the_parser_artifact() -> None:
+    jobs = StubJobs(_parsed())
+    handler = _handler(jobs, _storage(), _real_extract(_stub()))
+    asyncio.run(handler.on_failed(_message(), JobDeferralExpired()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "deferral_expired"
+    assert jobs.state.failed_stage == "parsed"
     assert jobs.state.parse_result_ref == PARSE_REF
 
 
@@ -658,6 +677,7 @@ def test_on_failed_records_timeout_and_keeps_the_parser_artifact() -> None:
     assert jobs.state is not None
     assert jobs.state.status == "failed"
     assert jobs.state.error_code == "timeout"
+    assert jobs.state.failed_stage == "extracting"
     assert jobs.state.parse_result_ref == PARSE_REF
 
 
@@ -727,8 +747,8 @@ def test_a_parse_path_that_cannot_take_an_extraction_is_internal_error() -> None
 
 
 def test_two_mineru_tiers_get_two_extractions() -> None:
-    basic_text = "Mus musculus basic tier recorded 12.5 kg."
-    standard_text = "Mus musculus standard tier recorded 40.0 kg."
+    basic_text = "Mus musculus basic tier body mass recorded 12.5 kg."
+    standard_text = "Mus musculus standard tier body mass recorded 40.0 kg."
     basic_ref = parse_result_path(PDF_CHECKSUM, "mineru", "2", "basic")
     standard_ref = parse_result_path(PDF_CHECKSUM, "mineru", "2", "standard")
     storage = _storage()
@@ -742,8 +762,8 @@ def test_two_mineru_tiers_get_two_extractions() -> None:
         seen.append(content.text)
         observation = ModelObservation(
             taxon="Mus musculus",
-            trait_code="body_mass",
-            value=12.5,
+            trait_name="body mass",
+            value="12.5",
             unit="kg",
             evidence_block_id="b0",
             quotation=content.text,
@@ -976,13 +996,58 @@ def test_an_unknown_extractor_is_internal_error() -> None:
     assert jobs.state.error_code == "internal_error"
 
 
-def test_malformed_message_cannot_fail_a_parsed_job() -> None:
-    """`parsed` has no transition to `failed`. The job stays for a valid wake-up."""
+def test_a_malformed_extract_message_fails_a_parsed_job() -> None:
+    """The extract queue gave up before claiming, so the parse result stays."""
     jobs = StubJobs(_parsed())
     handler = _handler(jobs, _storage(), _real_extract(_stub()))
     asyncio.run(handler.on_malformed({"job_id": str(JOB_ID), "extra": "nope"}))
     asyncio.run(handler.aclose())
 
     assert jobs.state is not None
-    assert jobs.state.status == "parsed"
-    assert jobs.state.error_code is None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "internal_error"
+    assert jobs.state.failed_stage == "parsed"
+    assert jobs.state.parse_result_ref == PARSE_REF
+
+
+def _consume(handler: ExtractJobHandler, *, max_retries: int, time_limit_ms: int) -> None:
+    """Submit the job and run it to the end through a real queue on an in-memory broker."""
+    broker = StubBroker(fail_fast_default=False)
+    try:
+        (time_limit,) = [m for m in broker.middleware if isinstance(m, TimeLimit)]
+        time_limit.manager.interval = 0.05  # type: ignore[union-attr]
+        queue = DramatiqJobConsumer(
+            name="extract",
+            model=ExtractJobMessage,
+            broker=broker,
+            max_retries=max_retries,
+            min_backoff_ms=1,
+            time_limit_ms=time_limit_ms,
+            worker_timeout_ms=50,
+        )
+        asyncio.run(DramatiqJobSubmitter(name="extract", broker=broker).submit(_message()))
+        queue.consume(handler, until_empty=True)
+    finally:
+        asyncio.run(handler.aclose())
+        broker.flush_all()
+        broker.close()
+
+
+def test_queue_time_limit_fails_the_job_as_timeout_without_retry() -> None:
+    """A cancelled extraction is one timeout, even when the queue has retries left."""
+    calls = 0
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(30)
+        raise AssertionError("the time limit never interrupted the extraction")
+
+    jobs = StubJobs(_parsed())
+    _consume(_handler(jobs, _storage(), extract), max_retries=3, time_limit_ms=200)
+
+    assert calls == 1
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "timeout"
+    assert jobs.state.failed_stage == "extracting"

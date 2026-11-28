@@ -328,13 +328,16 @@ async def test_claim_at_the_cap_marks_the_job_failed(database: str) -> None:
     stored = await _get(state.job_id)
     assert stored is not None
     assert stored.status == "failed"
-    assert stored.error_code == "internal_error"
+    assert stored.error_code == "retries_exhausted"
+    assert stored.failed_stage == "parsing"
     assert stored.parsing_claims == 1
 
 
 @pytest.mark.integration
 @pytest.mark.anyio
-async def test_claim_at_the_cap_leaves_a_status_that_cannot_fail(database: str) -> None:
+async def test_claim_at_the_cap_fails_a_parsed_job_that_already_used_its_claims(
+    database: str,
+) -> None:
     state = _queued(uuid.uuid4(), status="parsed", parse_result_ref=str(uuid.uuid4()))
     await _create(state)
     engine = create_engine(sync_database_url(database))
@@ -354,12 +357,14 @@ async def test_claim_at_the_cap_leaves_a_status_that_cannot_fail(database: str) 
                 from_statuses=("parsed", "extracting"),
                 max_claims=1,
             )
-            == "skipped"
+            == "exhausted"
         )
 
     stored = await _get(state.job_id)
     assert stored is not None
-    assert stored.status == "parsed"
+    assert stored.status == "failed"
+    assert stored.error_code == "retries_exhausted"
+    assert stored.failed_stage == "parsed"
     assert stored.extracting_claims == 1
 
 
@@ -380,14 +385,16 @@ async def test_record_parsed_leaves_a_later_stage_unchanged(database: str) -> No
         assert not await job_queries.record_parsed(connection, state.job_id, str(uuid.uuid4()))
         assert (
             await job_queries.mark_failed(
-                connection, state.job_id, "internal_error", from_statuses=("parsed", "extracting")
+                connection, state.job_id, "deferral_expired", from_statuses=("parsed", "extracting")
             )
-            == "not_allowed"
+            == "recorded"
         )
 
     stored = await _get(state.job_id)
     assert stored is not None
-    assert stored.status == "parsed"
+    assert stored.status == "failed"
+    assert stored.error_code == "deferral_expired"
+    assert stored.failed_stage == "parsed"
 
 
 @pytest.mark.integration
@@ -466,7 +473,7 @@ _STATUS_FIELDS: dict[str, dict[str, object]] = {
     "parsed": {"parse_result_ref": "parsed"},
     "extracting": {"parse_result_ref": "parsed"},
     "done": {"parse_result_ref": "parsed", "extract_result_ref": "extracted"},
-    "failed": {"error_code": "invalid_pdf"},
+    "failed": {"error_code": "invalid_pdf", "failed_stage": "parsing"},
 }
 
 

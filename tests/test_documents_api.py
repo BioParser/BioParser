@@ -154,7 +154,7 @@ def test_job_responses_follow_document_title(
         jobs = stub_api_adapters[1]
         for job_id in job_ids:
             jobs.states[job_id] = jobs.states[job_id].with_changes(
-                status="failed", error_code="internal_error"
+                status="failed", error_code="internal_error", failed_stage="queued"
             )
 
     for title in ["Original title", "Updated title", None]:
@@ -640,7 +640,7 @@ def test_list_document_jobs(
     assert job_ids_1 == {j1["job_id"], j2["job_id"]}
     assert all(j["document_checksum"] == MINIMAL_PDF_HASH for j in document_jobs)
     assert all(j["display_name"] == "paper1.pdf" for j in document_jobs)
-    assert all(j["has_parse_result"] is False for j in document_jobs)
+    assert all("has_parse_result" not in j for j in document_jobs)
     assert all("rows" not in j for j in document_jobs)
     assert all(datetime.fromisoformat(j["created_at"]).tzinfo is not None for j in document_jobs)
 
@@ -697,9 +697,7 @@ def test_list_jobs_and_filtering(
     assert jobs_by_id[j1_id]["status"] == "queued"
     assert jobs_by_id[j2_id]["status"] == "parsed"
     assert jobs_by_id[j3_id]["status"] == "queued"
-    assert jobs_by_id[j1_id]["has_parse_result"] is False
-    assert jobs_by_id[j2_id]["has_parse_result"] is True
-    assert jobs_by_id[j3_id]["has_parse_result"] is False
+    assert all("has_parse_result" not in job for job in all_jobs)
     assert all("rows" not in job for job in all_jobs)
     assert all(job["document_checksum"] == MINIMAL_PDF_HASH for job in all_jobs)
     assert all(job["display_name"] == "paper.pdf" for job in all_jobs)

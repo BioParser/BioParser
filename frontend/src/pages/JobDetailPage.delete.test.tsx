@@ -19,8 +19,8 @@ const metadata = {
 function job(status: JobStatus, jobId = "abc"): JobList[number] {
   const record = { ...metadata, job_id: jobId, display_name: `${jobId}.pdf` };
   return status === "failed"
-    ? { ...record, status, error: { code: "parse_failed" }, has_parse_result: false }
-    : { ...record, status, has_parse_result: status !== "queued" };
+    ? { ...record, status, error: { code: "parse_failed" }, failed_stage: "parsing" }
+    : { ...record, status };
 }
 
 const clients: QueryClient[] = [];

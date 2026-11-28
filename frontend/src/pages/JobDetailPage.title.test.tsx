@@ -16,7 +16,6 @@ const stored: JobStatusFullResponse = {
   extractor: "default",
   created_at: "2026-11-28T12:00:00Z",
   status: "done",
-  has_parse_result: true,
 };
 const peer = { ...stored, job_id: "peer" };
 const other = { ...stored, job_id: "other", document_checksum: "b".repeat(64), title: "Other PDF" };

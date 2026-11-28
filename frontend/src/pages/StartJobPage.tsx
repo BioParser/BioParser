@@ -7,21 +7,35 @@ import {
   startDocumentJob,
   uploadDocument,
 } from "../api/client";
-import { checkPdf, DEFAULT_MAX_UPLOAD_BYTES, formatMiB, tooLarge } from "../upload/checkPdf";
+import {
+  checkPdf,
+  DEFAULT_MAX_UPLOAD_BYTES,
+  formatFileSize,
+  formatMiB,
+  tooLarge,
+} from "../upload/checkPdf";
 
-// The parsers a curator can choose from, with their labels. The keys come from the API's
-// schema (ParserName in src/bioparser/parser_names.py), so tsc fails when a name is added,
-// removed or renamed there and not here.
+// The parsers a curator can choose from, with a label and a line on when to choose each
+// (docs/parser.md). The keys come from the API's schema (ParserName in
+// src/bioparser/parser_names.py), so tsc fails when a name is added, removed or renamed there
+// and not here.
 type ParserName = CreateJobRequest["parser"];
-const PARSER_LABELS: Record<ParserName, string> = { mineru: "MinerU", default: "Default" };
+const PARSER_CHOICES: Record<ParserName, { label: string; hint: string }> = {
+  default: { label: "Default", hint: "Reads the text of a digital PDF. Fast." },
+  mineru: { label: "MinerU", hint: "Also reads layout, with OCR for scanned pages. Slower." },
+};
 // Object.entries types its keys as string; they are exactly the ParserName keys above.
-const PARSERS = Object.entries(PARSER_LABELS) as [ParserName, string][];
+const PARSERS = Object.entries(PARSER_CHOICES) as [
+  ParserName,
+  (typeof PARSER_CHOICES)[ParserName],
+][];
 
-// Fixed for now: there is one extractor, and it looks for these traits
-// (DEFAULT_EXTRACTOR_NAME in src/bioparser/extractor_names.py, Trait in
-// src/bioparser/extract/backend/default/schema.py). Choosing traits is #32.
-const EXTRACTOR = { name: "default", label: "Default" };
-const TRAITS = ["Body mass", "Body length", "Tail length"];
+// The extractors a curator can choose from. The keys come from the API's schema
+// (ExtractorName in src/bioparser/extractor_names.py), so tsc fails when a name is added,
+// removed or renamed there and not here. Choosing traits is #32.
+type ExtractorName = CreateJobRequest["extractor"];
+const EXTRACTOR_LABELS: Record<ExtractorName, string> = { default: "Default", mendel: "Mendel" };
+const EXTRACTORS = Object.entries(EXTRACTOR_LABELS) as [ExtractorName, string][];
 
 // The most files that can wait in the list to be sent. The API has no such limit: this only
 // keeps an accidental drop of a whole folder from starting a job for every file in it.
@@ -57,6 +71,7 @@ function fileCount(count: number): string {
 export function StartJobPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [parser, setParser] = useState<ParserName>("default");
+  const [extractor, setExtractor] = useState<ExtractorName>("default");
   const [sending, setSending] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [maxBytes, setMaxBytes] = useState(DEFAULT_MAX_UPLOAD_BYTES);
@@ -208,7 +223,14 @@ export function StartJobPage() {
           continue;
         }
         setResult(row.id, { state: "sending" });
-        const result = await processFile(row.file, row.title, parser, maxBytes, controller.signal);
+        const result = await processFile(
+          row.file,
+          row.title,
+          parser,
+          extractor,
+          maxBytes,
+          controller.signal,
+        );
         setResult(row.id, result);
         // The key was refused: every other file would get a 401 too.
         if (result.state === "failed" && result.status === 401) {
@@ -228,7 +250,8 @@ export function StartJobPage() {
   return (
     <>
       <h1>Start a job</h1>
-      <p>Each PDF becomes its own job.</p>
+      <p className="page-lead">Each PDF becomes its own job.</p>
+      {/* The PDFs first, then the settings and Start. The list grows at the bottom. */}
       <form id="start-job-form" onSubmit={handleSubmit} className="job-form">
         <fieldset disabled={sending} className="job-fieldset">
           {/* biome-ignore lint/a11y/noStaticElementInteractions: dropping is a shortcut; the file input inside does the same with a keyboard. */}
@@ -260,33 +283,49 @@ export function StartJobPage() {
               or drop them here. Up to {MAX_FILES_PER_BATCH} PDFs, {formatMiB(maxBytes)} each.
             </p>
           </div>
+          {/* Not a status region: the batch summary below is the page's status. */}
+          <p className="job-notice" aria-live="polite">
+            {notice}
+          </p>
           <fieldset className="job-parsers">
             <legend>Parser</legend>
-            {PARSERS.map(([name, label]) => (
-              <label key={name}>
-                <input
-                  type="radio"
-                  name="parser"
-                  value={name}
-                  checked={parser === name}
-                  onChange={() => setParser(name)}
-                />{" "}
-                {label}
-              </label>
+            {PARSERS.map(([name, { label, hint }]) => (
+              <div key={name} className="job-parser">
+                <label>
+                  <input
+                    type="radio"
+                    name="parser"
+                    value={name}
+                    checked={parser === name}
+                    aria-describedby={`parser-hint-${name}`}
+                    onChange={() => setParser(name)}
+                  />{" "}
+                  {label}
+                </label>
+                <p id={`parser-hint-${name}`} className="job-parser-hint">
+                  {hint}
+                </p>
+              </div>
+            ))}
+          </fieldset>
+          <fieldset className="job-parsers">
+            <legend>Extractor</legend>
+            {EXTRACTORS.map(([name, label]) => (
+              <div key={name} className="job-parser">
+                <label>
+                  <input
+                    type="radio"
+                    name="extractor"
+                    value={name}
+                    checked={extractor === name}
+                    onChange={() => setExtractor(name)}
+                  />{" "}
+                  {label}
+                </label>
+              </div>
             ))}
           </fieldset>
         </fieldset>
-        <section aria-labelledby="job-summary-heading" className="job-summary">
-          <h2 id="job-summary-heading">Summary</h2>
-          <dl>
-            <dt>Parser</dt>
-            <dd>{PARSER_LABELS[parser]}</dd>
-            <dt>Extractor</dt>
-            <dd>{EXTRACTOR.label}</dd>
-            <dt>Traits</dt>
-            <dd>{TRAITS.join(", ")}</dd>
-          </dl>
-        </section>
         <div className="job-actions">
           <button type="submit" disabled={sending || !unsent}>
             {sending ? "Starting jobs…" : "Start jobs"}
@@ -295,56 +334,54 @@ export function StartJobPage() {
             Clear list
           </button>
         </div>
+        {/* Last, so adding files does not move the parser choice or the Start button. */}
+        {rows.length > 0 && (
+          <ul aria-label="Files" className="job-files">
+            {rows.map((row) => (
+              <li key={row.id} className="job-file">
+                <span className="job-file-name">{row.file.name}</span>
+                <span className="job-file-size">{formatFileSize(row.file.size)}</span>
+                <label className="job-file-title">
+                  Title (optional)
+                  <input
+                    type="text"
+                    form="start-job-form"
+                    aria-label={`Title for ${row.file.name}`}
+                    maxLength={500}
+                    value={row.title}
+                    disabled={sending || row.result !== null}
+                    onChange={(event) => {
+                      const title = event.currentTarget.value;
+                      setRows((current) =>
+                        current.map((item) => (item.id === row.id ? { ...item, title } : item)),
+                      );
+                    }}
+                  />
+                </label>
+                <FileStatus result={row.result} />
+                {row.result === null && (
+                  <button
+                    type="button"
+                    className="job-file-remove"
+                    aria-label={`Remove ${row.file.name}`}
+                    disabled={sending}
+                    onClick={() => removeRow(row.id)}
+                    ref={(button) => {
+                      if (button === null) {
+                        removeButtons.current.delete(row.id);
+                      } else {
+                        removeButtons.current.set(row.id, button);
+                      }
+                    }}
+                  >
+                    Remove
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </form>
-      {/* Not a status region: the batch summary below is the page's status. */}
-      <p className="job-notice" aria-live="polite">
-        {notice}
-      </p>
-      {rows.length > 0 && (
-        <ul aria-label="Files" className="job-files">
-          {rows.map((row) => (
-            <li key={row.id} className="job-file">
-              <span className="job-file-name">{row.file.name}</span>
-              <label className="job-file-title">
-                Title (optional)
-                <input
-                  type="text"
-                  form="start-job-form"
-                  aria-label={`Title for ${row.file.name}`}
-                  maxLength={500}
-                  value={row.title}
-                  disabled={sending || row.result !== null}
-                  onChange={(event) => {
-                    const title = event.currentTarget.value;
-                    setRows((current) =>
-                      current.map((item) => (item.id === row.id ? { ...item, title } : item)),
-                    );
-                  }}
-                />
-              </label>
-              <FileStatus result={row.result} />
-              {row.result === null && (
-                <button
-                  type="button"
-                  className="job-file-remove"
-                  aria-label={`Remove ${row.file.name}`}
-                  disabled={sending}
-                  onClick={() => removeRow(row.id)}
-                  ref={(button) => {
-                    if (button === null) {
-                      removeButtons.current.delete(row.id);
-                    } else {
-                      removeButtons.current.set(row.id, button);
-                    }
-                  }}
-                >
-                  Remove
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
       {/* Always on the page, so a screen reader announces the text when it appears. */}
       <p role="status">{done && `${started} of ${rows.length} files started a job.`}</p>
     </>
@@ -376,6 +413,7 @@ async function processFile(
   file: File,
   title: string,
   parser: ParserName,
+  extractor: ExtractorName,
   maxBytes: number,
   signal: AbortSignal,
 ): Promise<FileResult> {
@@ -386,11 +424,7 @@ async function processFile(
       return { state: "rejected", reason };
     }
     const document = await uploadDocument(file, title, signal);
-    const job = await startDocumentJob(
-      document.checksum,
-      { parser, extractor: EXTRACTOR.name },
-      signal,
-    );
+    const job = await startDocumentJob(document.checksum, { parser, extractor }, signal);
     return { state: "started", jobId: job.job_id };
   } catch (error) {
     const status = error instanceof ApiError ? error.status : undefined;

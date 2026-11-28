@@ -2,22 +2,18 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from bioparser.ets.models import EtsRow
-from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, EXTRACTORS
+from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, ExtractorName
 from bioparser.hashing import Sha256Hex
 from bioparser.jobs import SafeError
+from bioparser.jobs.state import FailedStage
 from bioparser.parser_names import DEFAULT_PARSER_NAME, ParserName
 
 
 class JobRecord(BaseModel):
-    """Fields a `detail=full` body adds.
-
-    ``has_parse_result`` says the parser artifact was stored. ``timeout`` and
-    ``internal_error`` do not say which stage ended, so the flag tells a reader
-    that parsing finished.
-    """
+    """Fields a `detail=full` body adds."""
 
     created_at: AwareDatetime
     display_name: str | None
@@ -25,7 +21,6 @@ class JobRecord(BaseModel):
     parser: str
     extractor: str
     document_checksum: str
-    has_parse_result: bool
 
 
 class HealthResponse(BaseModel):
@@ -91,11 +86,14 @@ class JobFullResponse(JobResponse, JobRecord):
 
 
 class FailedJobResponse(BaseModel):
+    """A failed job. ``failed_stage`` is the status the job had when it failed."""
+
     model_config = ConfigDict(extra="forbid")
 
     job_id: UUID
     status: Literal["failed"]
     error: SafeError
+    failed_stage: FailedStage
 
 
 class FailedJobFullResponse(FailedJobResponse, JobRecord):
@@ -146,14 +144,9 @@ class CreateJobRequest(BaseModel):
     # A Literal, so the OpenAPI schema lists the parser names and the frontend's
     # generated types do too.
     parser: ParserName = Field(default=DEFAULT_PARSER_NAME, description="Parser backend name")
-    extractor: str = Field(default=DEFAULT_EXTRACTOR_NAME, description="Extractor backend name")
-
-    @field_validator("extractor")
-    @classmethod
-    def validate_extractor(cls, value: str) -> str:
-        if value not in EXTRACTORS:
-            raise ValueError(f"must be one of: {', '.join(EXTRACTORS)}")
-        return value
+    extractor: ExtractorName = Field(
+        default=DEFAULT_EXTRACTOR_NAME, description="Extractor backend name"
+    )
 
     model_config = ConfigDict(
         extra="forbid",

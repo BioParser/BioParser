@@ -156,6 +156,7 @@ uv run mypy .
 uv run pytest -m "not integration and not image and not compose"
 uv run pytest -m image
 uv run pytest -m compose  # the secrets in the Compose config, needs the Docker CLI
+BIOPARSER_TEST_COMPOSE_STACK=1 uv run pytest tests/test_compose_stack.py  # starts containers
 ```
 
 Auto-fix: `uv run ruff check --fix` and `uv run ruff format`.

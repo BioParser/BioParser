@@ -63,7 +63,11 @@ _STATUS_FIELDS: dict[JobStatus, dict[str, Any]] = {
     "parsed": {"parse_result_ref": PARSE_REF},
     "extracting": {"parse_result_ref": PARSE_REF},
     "done": {"parse_result_ref": PARSE_REF, "extract_result_ref": EXTRACT_REF},
-    "failed": {"parse_result_ref": PARSE_REF, "error_code": "extraction_failed"},
+    "failed": {
+        "parse_result_ref": PARSE_REF,
+        "error_code": "extraction_failed",
+        "failed_stage": "extracting",
+    },
 }
 
 
@@ -358,11 +362,11 @@ def test_job_status_openapi_schema() -> None:
     assert "document_checksum" not in done["properties"]
     assert "created_at" in full["properties"]
     assert "document_checksum" in full["properties"]
-    assert "has_parse_result" in full["properties"]
-    assert "has_parse_result" not in done["properties"]
-    assert (
-        "has_parse_result" not in schema["components"]["schemas"]["FailedJobResponse"]["properties"]
-    )
+    assert "has_parse_result" not in full["properties"]
+    assert "failed_stage" not in full["properties"]
+    failed = schema["components"]["schemas"]["FailedJobResponse"]["properties"]
+    assert "failed_stage" in failed
+    assert "failed_stage" in schema["components"]["schemas"]["FailedJobFullResponse"]["properties"]
 
 
 def test_unknown_job_returns_404(client: TestClient) -> None:
@@ -907,7 +911,7 @@ def test_a_job_that_failed_before_parsing_has_no_parser_artifact(
     stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
     jobs = stub_api_adapters[1]
-    state = _job("failed", parse_result_ref=None, error_code="invalid_pdf")
+    state = _job("failed", parse_result_ref=None, error_code="invalid_pdf", failed_stage="parsing")
     jobs.states[str(state.job_id)] = state
 
     response = client.get(f"/api/jobs/{state.job_id}/artifacts/parser")
@@ -1001,7 +1005,7 @@ def test_the_body_limit_leaves_room_for_the_multipart_envelope() -> None:
     assert limits == [max_body_bytes()]
 
 
-def test_a_failed_job_reports_whether_parsing_finished(
+def test_a_failed_job_reports_the_stage_it_stopped_at(
     client: TestClient,
     stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
@@ -1013,9 +1017,11 @@ def test_a_failed_job_reports_whether_parsing_finished(
     full = client.get(f"/api/jobs/{state.job_id}", params={"detail": "full"})
 
     assert plain.status_code == 200
+    assert plain.json()["failed_stage"] == "extracting"
     assert "has_parse_result" not in plain.json()
     assert full.status_code == 200
-    assert full.json()["has_parse_result"] is True
+    assert "has_parse_result" not in full.json()
+    assert full.json()["failed_stage"] == "extracting"
     assert full.json()["error"] == {"code": "timeout"}
 
 
@@ -1024,14 +1030,16 @@ def test_failed_job_status(
     stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
 ) -> None:
     jobs = stub_api_adapters[1]
-    state = _job("failed", error_code="parse_failed", parse_result_ref=None)
+    state = _job("failed", error_code="parse_failed", parse_result_ref=None, failed_stage="parsing")
     jobs.states[str(state.job_id)] = state
 
     response = client.get(f"/api/jobs/{state.job_id}")
 
     assert response.status_code == 200
     JOB_STATUS_ADAPTER.validate_python(response.json())
-    assert response.json() == _job_json(state, error={"code": "parse_failed"})
+    assert response.json() == _job_json(
+        state, error={"code": "parse_failed"}, failed_stage="parsing"
+    )
 
 
 def test_job_status_returns_503_when_postgres_unavailable(
@@ -1077,7 +1085,6 @@ def test_job_status_response_requires_an_aware_creation_time() -> None:
         "parser": "default",
         "extractor": "default",
         "document_checksum": DOCUMENT_CHECKSUM,
-        "has_parse_result": False,
     }
 
     with pytest.raises(ValidationError, match="timezone"):

@@ -16,7 +16,7 @@ from stubs import MemoryStorage, StubJobs, bind_jobs, clear_jobs, failed_task, f
 
 from bioparser.artifact_paths import parse_result_path, pdf_path
 from bioparser.db.engine import DatabaseError, DatabaseUnavailableError
-from bioparser.jobs.queue import JobDeferred, JobTimeLimitExceeded
+from bioparser.jobs.queue import JobDeferralExpired, JobDeferred, JobTimeLimitExceeded
 from bioparser.jobs.queue.dramatiq import DramatiqJobConsumer, DramatiqJobSubmitter
 from bioparser.jobs.queue.messages import ParseJobMessage
 from bioparser.jobs.state import CorruptJobStateError, JobNotFoundError, JobState
@@ -256,7 +256,8 @@ def test_claim_is_counted_and_a_further_start_stops_at_the_cap() -> None:
 
     assert len(parser.paths) == 1
     assert jobs.state.status == "failed"
-    assert jobs.state.error_code == "internal_error"
+    assert jobs.state.error_code == "retries_exhausted"
+    assert jobs.state.failed_stage == "parsing"
     assert jobs.state.claims("parsing") == 1
 
 
@@ -514,6 +515,37 @@ def test_parser_timeout_fails_with_timeout_without_retry(error: BaseException) -
     assert jobs.state.error_code == "timeout"
 
 
+def test_a_cancelled_stage_clears_the_request_before_recording_timeout() -> None:
+    """The failure write runs after the swallowed cancellation is cleared."""
+    started = asyncio.Event()
+
+    class _HangingParser:
+        async def parse(self, path: Path) -> ParserArtifact:
+            started.set()
+            await asyncio.Event().wait()
+            raise AssertionError("the cancellation never reached the parser")
+
+    jobs = StubJobs(_queued())
+    handler = _handler(
+        jobs, _storage(), RecordingParser(_artifact()), factory=lambda _name: _HangingParser()
+    )
+
+    async def run() -> asyncio.Task[None]:
+        task = asyncio.create_task(handler.handle(_message()))
+        await started.wait()
+        task.cancel()
+        await task
+        return task
+
+    task = asyncio.run(run())
+    asyncio.run(handler.aclose())
+
+    assert task.cancelling() == 0
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "timeout"
+
+
 def test_invalid_existing_artifact_fails_the_job() -> None:
     jobs = StubJobs(_queued())
     storage = _storage()
@@ -616,7 +648,7 @@ def test_on_failed_does_not_reopen_a_finished_job(capsys: pytest.CaptureFixture[
     asyncio.run(handler.aclose())
     assert jobs.state == finished
     records = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
-    assert any("Not marking the job failed (internal_error)" in r["msg"] for r in records)
+    assert any("Not marking the job failed (retries_exhausted)" in r["msg"] for r in records)
     assert not any("Marked the job failed" in r["msg"] for r in records)
 
 
@@ -747,7 +779,8 @@ def test_a_failing_parse_is_retried_then_fails_the_job() -> None:
     assert len(parser.paths) == 3
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error_code == "internal_error"
+    assert jobs.state.error_code == "retries_exhausted"
+    assert jobs.state.failed_stage == "parsing"
 
 
 def test_claim_cap_stops_retries_that_the_queue_would_still_allow() -> None:
@@ -760,7 +793,31 @@ def test_claim_cap_stops_retries_that_the_queue_would_still_allow() -> None:
     assert len(parser.paths) == 2
     assert jobs.state is not None
     assert jobs.state.status == "failed"
-    assert jobs.state.error_code == "internal_error"
+    assert jobs.state.error_code == "retries_exhausted"
+    assert jobs.state.failed_stage == "parsing"
+
+
+def test_an_expired_mineru_deferral_records_the_stage() -> None:
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
+    handler = _handler(jobs, _storage(), RecordingParser(_artifact()))
+    asyncio.run(handler.on_failed(_message(), JobDeferralExpired()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "deferral_expired"
+    assert jobs.state.failed_stage == "queued"
+
+
+def test_an_expired_postgres_deferral_uses_the_same_code() -> None:
+    jobs = StubJobs(_queued().with_changes(status="parsing", parsing_claims=1))
+    handler = _handler(jobs, _storage(), RecordingParser(_artifact()))
+    asyncio.run(handler.on_failed(_message(), JobDeferralExpired()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.error_code == "deferral_expired"
+    assert jobs.state.failed_stage == "parsing"
 
 
 def test_queue_time_limit_fails_the_job_as_timeout_without_retry() -> None:

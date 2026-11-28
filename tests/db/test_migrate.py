@@ -25,6 +25,7 @@ _COLUMNS = {
     "parse_result_ref": ("YES", "character varying", 512),
     "extract_result_ref": ("YES", "character varying", 512),
     "error_code": ("YES", "text", None),
+    "failed_stage": ("YES", "text", None),
     "parsing_claims": ("NO", "integer", None),
     "extracting_claims": ("NO", "integer", None),
     "created_at": ("NO", "timestamp with time zone", None),
@@ -38,6 +39,7 @@ _CHECKS = {
     "jobs_parsing_claims_check",
     "jobs_extracting_claims_check",
     "jobs_deleted_at_check",
+    "jobs_failed_stage_check",
 }
 _DOCUMENTS_COLUMNS = {
     "checksum": ("NO", "character varying", 64),
@@ -287,7 +289,8 @@ def test_jobs_migration_upgrades_an_empty_database(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.integration
-def test_document_title_migration_preserves_existing_documents() -> None:
+@pytest.mark.parametrize("starting_revision", ["20261123_170000", "20261124_210800"])
+def test_document_title_migration_preserves_existing_documents(starting_revision: str) -> None:
     raw = os.environ.get("BIOPARSER_TEST_DATABASE_URL")
     if not raw:
         pytest.skip("BIOPARSER_TEST_DATABASE_URL is not set")
@@ -301,7 +304,7 @@ def test_document_title_migration_preserves_existing_documents() -> None:
     config = alembic_config(target)
     checksum = "a" * 64
     try:
-        command.upgrade(config, "20261122_180000")
+        command.upgrade(config, starting_revision)
         with engine.begin() as connection:
             connection.execute(
                 text(
@@ -312,7 +315,7 @@ def test_document_title_migration_preserves_existing_documents() -> None:
             )
 
         command.upgrade(config, "head")
-        assert _columns(admin, name, table_name="documents") == _DOCUMENTS_COLUMNS
+        _assert_jobs_table(admin, name)
         with engine.begin() as connection:
             row = connection.execute(
                 text("SELECT checksum, display_name, size_bytes, title FROM documents")
