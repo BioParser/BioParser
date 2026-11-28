@@ -29,6 +29,10 @@ _OCR = "mineru/backend/analysis/pdf/ocr.py"
 _RECOGNIZER = "mineru/model/_internal/pytorchocr/infer/predict_rec.py"
 _DECODE = "mineru/model/_internal/pytorchocr/postprocess/rec_postprocess.py"
 _PADDLE = "mineru/model/ocr/pytorch_paddle.py"
+_ONNX = "mineru/model/ocr/pp_ocr_v6_onnx.py"
+_FORMULAS = "mineru/backend/analysis/pdf/formulas.py"
+_UNET = "mineru/model/table/rec/unet_table/main.py"
+_TABLE_ORI = "mineru/model/table/cls/mineru_table_ori_cls.py"
 _PAGES = "docvortex/postprocess/pages.py"
 _DOCUMENT = "docvortex/postprocess/document.py"
 _PAGE_BLOCKS = "docvortex/postprocess/page_blocks.py"
@@ -56,6 +60,14 @@ _ANCHORS: tuple[tuple[str, str], ...] = (
     (_RECOGNIZER, _PATCH._REC_NAN_OLD),
     (_DECODE, _PATCH._DECODE_OLD),
     (_PADDLE, _PATCH._PADDLE_REC_OLD),
+    (_ONNX, _PATCH._ONNX_DECODE_OLD),
+    (_ONNX, _PATCH._ONNX_CALL_OLD),
+    (_ONNX, _PATCH._ONNX_ASSIGN_OLD),
+    (_ONNX, _PATCH._ONNX_REC_OLD),
+    (_CONTENT, _PATCH._POST_OCR_OLD),
+    (_FORMULAS, _PATCH._FORMULA_OCR_OLD),
+    (_UNET, _PATCH._UNET_OCR_OLD),
+    (_TABLE_ORI, _PATCH._TABLE_ORI_OLD),
     (_PAGES, _PATCH._PAGES_IMPORT_OLD),
     (_PAGES, _PATCH._PAGES_START_OLD),
     (_PAGES, _PATCH._PAGES_STAMP_OLD),
@@ -116,6 +128,16 @@ def _assert_rewritten(site: Path) -> None:
     assert "wh_ratio_list=wh_ratio_list" in recognizer
     assert "result_list.append((text, mean_conf, [column_count, centers]))" in _text(site, _DECODE)
     assert "return_word_box=True" in _text(site, _PADDLE)
+    onnx = _text(site, _ONNX)
+    assert "column_count = int(len(idx))" in onnx
+    assert "column_count * scale" in onnx
+    assert onnx.count("return_word_box=True") == 1
+    assert "ocr_text, ocr_score = ocr_res[0], ocr_res[1]" in content
+    assert 'span.metadata["bioparser_glyphs"] = chars' in content
+    assert "if not glyphs:" in native
+    assert "ocr_text = ocr_result[0]" in _text(site, _FORMULAS)
+    assert "ocr_text, ocr_score = ocr_res[0], ocr_res[1]" in _text(site, _UNET)
+    assert "text, score = rec_item[0], rec_item[1]" in _text(site, _TABLE_ORI)
 
     pages = _text(site, _PAGES)
     assert pages.count("def _bioparser_note_flat") == 1

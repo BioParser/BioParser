@@ -43,6 +43,8 @@ _KEEP_NEW = '''def _bioparser_keep_glyphs(span: _AnalyzeSpan) -> None:
             if len(raw) != 4:
                 continue
             glyphs.append({"char": text, "bbox": list(raw)})
+    if not glyphs:
+        return
     span.metadata["bioparser_glyphs"] = glyphs
 
 
@@ -266,6 +268,144 @@ _PADDLE_REC_NEW = """                    rec_res, elapse = self.text_recognizer(
                         tqdm_progress_bar=tqdm_progress_bar,
                         return_word_box=True,
                     )
+"""
+
+_ONNX_DECODE_OLD = """    def _decode(self, idx: np.ndarray, prob: np.ndarray) -> Tuple[str, float]:
+        \"\"\"解码已在 ONNX 图内归约的 ID/置信度，保留 CTC 和空行语义。\"\"\"
+        # collapse consecutive duplicates
+        selection = np.ones(len(idx), dtype=bool)
+        selection[1:] = idx[1:] != idx[:-1]
+        # remove blank (index 0)
+        selection &= idx != 0
+        chars = [self.character[i] for i in idx[selection]]
+        text = "".join(chars)
+        conf = float(prob[selection].mean()) if selection.any() else 1.0
+        return text, conf
+"""
+
+_ONNX_DECODE_NEW = """    def _decode(
+        self,
+        idx: np.ndarray,
+        prob: np.ndarray,
+        return_word_box: bool = False,
+    ) -> tuple[str, float] | tuple[str, float, int, list[float]]:
+        \"\"\"解码已在 ONNX 图内归约的 ID/置信度，保留 CTC 和空行语义。\"\"\"
+        # collapse consecutive duplicates
+        selection = np.ones(len(idx), dtype=bool)
+        selection[1:] = idx[1:] != idx[:-1]
+        # remove blank (index 0)
+        selection &= idx != 0
+        chars = [self.character[i] for i in idx[selection]]
+        text = "".join(chars)
+        conf = float(prob[selection].mean()) if selection.any() else 1.0
+        if not return_word_box:
+            return text, conf
+        column_count = int(len(idx))
+        centers: list[float] = []
+        for index in np.flatnonzero(selection):
+            token = idx[index]
+            end = int(index) + 1
+            while end < column_count and idx[end] == token:
+                end += 1
+            centers.append((int(index) + end - 1) / 2)
+        return text, conf, column_count, centers
+"""
+
+_ONNX_CALL_OLD = """        tqdm_progress_bar: Optional[Any] = None,
+    ) -> Tuple[List[Tuple[str, float]], float]:
+"""
+
+_ONNX_CALL_NEW = """        tqdm_progress_bar: Optional[Any] = None,
+        return_word_box: bool = False,
+    ) -> Tuple[List[Tuple[str, float]], float]:
+"""
+
+_ONNX_ASSIGN_OLD = """                for i, idx in enumerate(batch_indices):
+                    text, conf = self._decode(ids[i], scores[i])
+                    rec_res[idx] = (text, conf)
+"""
+
+_ONNX_ASSIGN_NEW = """                for i, idx in enumerate(batch_indices):
+                    decoded = self._decode(
+                        ids[i], scores[i], return_word_box=return_word_box
+                    )
+                    if return_word_box:
+                        text, conf, column_count, centers = decoded
+                        scale = width_list[idx] / max_wh_ratio if max_wh_ratio > 0 else 1.0
+                        rec_res[idx] = (text, conf, [column_count * scale, centers])
+                    else:
+                        text, conf = decoded
+                        rec_res[idx] = (text, conf)
+"""
+
+_ONNX_REC_OLD = """                    rec_res, _elapse = self.text_recognizer(
+                        img,
+                        tqdm_enable=tqdm_enable,
+                        tqdm_desc=tqdm_desc,
+                        tqdm_progress_bar=tqdm_progress_bar,
+                    )
+"""
+
+_ONNX_REC_NEW = """                    rec_res, _elapse = self.text_recognizer(
+                        img,
+                        tqdm_enable=tqdm_enable,
+                        tqdm_desc=tqdm_desc,
+                        tqdm_progress_bar=tqdm_progress_bar,
+                        return_word_box=True,
+                    )
+"""
+
+_POST_OCR_OLD = """    for span, ocr_res in zip(need_ocr_spans, ocr_res_list):
+        ocr_text, ocr_score = ocr_res
+        if ocr_score > OcrConfidence.min_confidence:
+            span.content = ocr_text
+            span.score = float(f"{ocr_score:.3f}")
+            _clear_post_ocr_fallback(span)
+"""
+
+_POST_OCR_NEW = """    for span, ocr_res in zip(need_ocr_spans, ocr_res_list):
+        ocr_text, ocr_score = ocr_res[0], ocr_res[1]
+        if ocr_score > OcrConfidence.min_confidence:
+            span.content = ocr_text
+            span.score = float(f"{ocr_score:.3f}")
+            info = ocr_res[2] if len(ocr_res) > 2 else None
+            from ..ocr import _bioparser_ocr_chars
+            from .....model.ocr.image import TEXT_REC_ROTATE_RATIO
+
+            chars = _bioparser_ocr_chars(
+                ocr_text, info, span.bbox, TEXT_REC_ROTATE_RATIO
+            )
+            if chars is not None:
+                span.metadata["bioparser_glyphs"] = chars
+            _clear_post_ocr_fallback(span)
+"""
+
+_FORMULA_OCR_OLD = """        ocr_text, _ = ocr_result
+        normalized_text = _normalize_medium_content(ocr_text)
+"""
+
+_FORMULA_OCR_NEW = """        ocr_text = ocr_result[0]
+        normalized_text = _normalize_medium_content(ocr_text)
+"""
+
+_UNET_OCR_OLD = """            for i, box, ocr_res in img_crop_info_list:
+                # 处理ocr结果
+                ocr_text, ocr_score = ocr_res
+"""
+
+_UNET_OCR_NEW = """            for i, box, ocr_res in img_crop_info_list:
+                # 处理ocr结果
+                ocr_text, ocr_score = ocr_res[0], ocr_res[1]
+"""
+
+_TABLE_ORI_OLD = """            if not rec_item or len(rec_item) < 2:
+                continue
+            text, score = rec_item
+"""
+
+_TABLE_ORI_NEW = """            if not rec_item or len(rec_item) < 2:
+                continue
+            text, score = rec_item[0], rec_item[1]
 """
 
 _OCR_IMPORT_OLD = """from ....model.ocr.image import mask_formula_regions_for_ocr_det, rgb_to_bgr
@@ -639,6 +779,37 @@ def _patch_mineru(site_packages: Path) -> None:
     _replace(predict_rec, _REC_POST_OLD, _REC_POST_NEW, already="wh_ratio_list=wh_ratio_list")
     _replace(predict_rec, _REC_NAN_OLD, _REC_NAN_NEW, already="item = rec_res[i]")
     _replace(paddle_ocr, _PADDLE_REC_OLD, _PADDLE_REC_NEW, already="return_word_box=True")
+    onnx_ocr = site_packages / "mineru" / "model" / "ocr" / "pp_ocr_v6_onnx.py"
+    _replace(onnx_ocr, _ONNX_DECODE_OLD, _ONNX_DECODE_NEW, already="column_count = int(len(idx))")
+    _replace(
+        onnx_ocr,
+        _ONNX_CALL_OLD,
+        _ONNX_CALL_NEW,
+        already="tqdm_progress_bar: Optional[Any] = None,\n        return_word_box: bool = False,",
+    )
+    _replace(
+        onnx_ocr,
+        _ONNX_ASSIGN_OLD,
+        _ONNX_ASSIGN_NEW,
+        already="column_count * scale",
+    )
+    _replace(onnx_ocr, _ONNX_REC_OLD, _ONNX_REC_NEW, already="return_word_box=True")
+    _replace(
+        content,
+        _POST_OCR_OLD,
+        _POST_OCR_NEW,
+        already="ocr_text, ocr_score = ocr_res[0], ocr_res[1]",
+    )
+    formulas = site_packages / "mineru" / "backend" / "analysis" / "pdf" / "formulas.py"
+    unet = site_packages / "mineru" / "model" / "table" / "rec" / "unet_table" / "main.py"
+    table_ori = site_packages / "mineru" / "model" / "table" / "cls" / "mineru_table_ori_cls.py"
+    _replace(formulas, _FORMULA_OCR_OLD, _FORMULA_OCR_NEW, already="ocr_text = ocr_result[0]")
+    _replace(
+        unet, _UNET_OCR_OLD, _UNET_OCR_NEW, already="ocr_text, ocr_score = ocr_res[0], ocr_res[1]"
+    )
+    _replace(
+        table_ori, _TABLE_ORI_OLD, _TABLE_ORI_NEW, already="text, score = rec_item[0], rec_item[1]"
+    )
     _replace(ocr, _OCR_IMPORT_OLD, _OCR_IMPORT_NEW, already="TEXT_REC_ROTATE_RATIO")
     _replace(ocr, _OCR_FN_OLD, _OCR_FN_NEW, already="def _bioparser_ocr_chars")
     _replace(ocr, _OCR_APPLY_OLD, _OCR_APPLY_NEW, already='need_ocr_res["bioparser_chars"]')
