@@ -1,7 +1,7 @@
 /* Pieces more than one page uses: the job status badge and the progress steps. */
 
 /* One badge per job status, on the dashboard and the job page. The word is always shown;
-   the dot and the color only repeat it. */
+   the dot and the color only repeat it. Queued and cancelled use these neutral colors. */
 .status-badge {
   display: inline-flex;
   align-items: center;
@@ -147,6 +147,14 @@
   content: "!";
   border-color: var(--color-step-failed);
   background: var(--color-step-failed);
+  color: var(--color-surface);
+}
+
+/* The step a cancelled job stopped at. */
+.job-detail-progress .cancelled::before {
+  content: "×";
+  border-color: var(--color-text-muted);
+  background: var(--color-text-muted);
   color: var(--color-surface);
 }
 

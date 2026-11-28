@@ -7,7 +7,15 @@ export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
   extracting: "Extracting",
   done: "Done",
   failed: "Failed",
+  cancelled: "Cancelled",
 };
+
+// Nothing follows these statuses, so a page stops polling a job that has one.
+export const FINAL_STATUSES: readonly JobStatus[] = ["done", "failed", "cancelled"];
+
+export function isFinished(status: JobStatus): boolean {
+  return FINAL_STATUSES.includes(status);
+}
 
 type WaitingJob = Extract<JobStatusFullResponse, { waiting_for: unknown }>;
 export type WaitingFor = NonNullable<WaitingJob["waiting_for"]>;
@@ -21,7 +29,7 @@ export const WAITING_FOR_NAMES: Record<WaitingFor, string> = {
 
 // What the job is waiting for, or null when it is not waiting.
 export function waitingFor(job: JobStatusFullResponse): { service: string; since: string } | null {
-  if (job.status === "failed" || !job.waiting_for || !job.waiting_since) return null;
+  if (!("waiting_for" in job) || !job.waiting_for || !job.waiting_since) return null;
   return { service: WAITING_FOR_NAMES[job.waiting_for], since: job.waiting_since };
 }
 

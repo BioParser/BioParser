@@ -20,7 +20,10 @@ export type ExtractionArtifact = Schemas["ExtractionArtifact"];
 export type EtsRowsResponse = Schemas["EtsRowsResponse"];
 export type EtsRow = Schemas["EtsRow"];
 // One job with the stored record, which the API returns for detail=full.
-export type JobStatusFullResponse = Schemas["JobFullResponse"] | Schemas["FailedJobFullResponse"];
+export type JobStatusFullResponse =
+  | Schemas["JobFullResponse"]
+  | Schemas["FailedJobFullResponse"]
+  | Schemas["CancelledJobFullResponse"];
 // The dashboard reads the stored record, which the list returns for detail=full.
 export type JobList = JobStatusFullResponse[];
 export type JobStatus = JobList[number]["status"];
@@ -165,10 +168,16 @@ export function getJob(
   return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}${query}`, { signal });
 }
 
-// Deletes a done or failed job: the job row only, not the document, the PDF or the artifacts.
-// 409 job_not_finished for a job in any other status, 404 for one that is already gone.
+// Deletes a done, failed or cancelled job: the job row only, not the document, the PDF or the
+// artifacts. 409 job_not_finished for a job in any other status, 404 for one that is already gone.
 export async function deleteJob(jobId: string, signal?: AbortSignal): Promise<void> {
   await apiRequest(`/api/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE", signal });
+}
+
+// Cancels a job that has not finished and returns it as detail=full does. 409
+// job_already_finished when the job is already done, failed or cancelled.
+export function cancelJob(jobId: string, signal?: AbortSignal): Promise<JobStatusFullResponse> {
+  return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST", signal });
 }
 
 // The ETS rows of a done job. 409 until the job is done; 500 artifact_invalid when the stored

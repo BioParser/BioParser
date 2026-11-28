@@ -33,6 +33,7 @@ from bioparser.db.documents import Document
 from bioparser.hashing import Sha256Hex
 from bioparser.jobs.state import (
     ALLOWED_TRANSITIONS,
+    CANCELLABLE_STATUSES,
     CorruptJobStateError,
     JobState,
     JobStatus,
@@ -72,7 +73,7 @@ class Job(Base):
         CheckConstraint("parsing_claims >= 0", name="jobs_parsing_claims_check"),
         CheckConstraint("extracting_claims >= 0", name="jobs_extracting_claims_check"),
         CheckConstraint(
-            "deleted_at IS NULL OR status IN ('done', 'failed')",
+            "deleted_at IS NULL OR status IN ('done', 'failed', 'cancelled')",
             name="jobs_deleted_at_check",
         ),
         CheckConstraint(
@@ -94,6 +95,14 @@ class Job(Base):
             ")",
             name="jobs_waiting_check",
         ),
+        CheckConstraint(
+            "(status = 'cancelled') = (cancelled_stage IS NOT NULL) AND ("
+            "cancelled_stage IS NULL"
+            " OR (cancelled_stage IN ('queued', 'parsing') AND parse_result_ref IS NULL)"
+            " OR (cancelled_stage IN ('parsed', 'extracting') AND parse_result_ref IS NOT NULL)"
+            ")",
+            name="jobs_cancelled_stage_check",
+        ),
     )
 
     job_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
@@ -109,6 +118,7 @@ class Job(Base):
     extract_result_ref: Mapped[str | None] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
     error_code: Mapped[str | None] = mapped_column(Text)
     failed_stage: Mapped[str | None] = mapped_column(Text)
+    cancelled_stage: Mapped[str | None] = mapped_column(Text)
     waiting_for: Mapped[str | None] = mapped_column(Text)
     waiting_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     parsing_claims: Mapped[int] = mapped_column(server_default=text("0"))
@@ -222,7 +232,7 @@ async def list_jobs_for_document(
 # Only a finished job can be deleted. A queued or running job still has a queue
 # message and a worker that moves it on. The jobs_deleted_at_check constraint
 # holds the same rule in the database.
-DELETABLE_STATUSES: tuple[JobStatus, ...] = ("done", "failed")
+DELETABLE_STATUSES: tuple[JobStatus, ...] = ("done", "failed", "cancelled")
 
 DeleteOutcome = Literal["deleted", "not_finished", "missing"]
 
@@ -255,8 +265,39 @@ async def delete_finished(connection: AsyncConnection, job_id: UUID) -> DeleteOu
     return "not_finished"
 
 
-# A claim and a failure end any wait. Both write these in the same statement.
+# A claim, a failure and a cancel end any wait. Each writes these in the same statement.
 _NOT_WAITING: dict[str, object] = {"waiting_for": None, "waiting_since": None}
+
+CancelOutcome = Literal["cancelled", "finished", "missing"]
+
+
+async def cancel_unfinished(connection: AsyncConnection, job_id: UUID) -> CancelOutcome:
+    """Set `cancelled` while the job's status is in `CANCELLABLE_STATUSES`.
+
+    The status check and the write are one statement, so a worker that records a
+    result at the same moment either lands first, and the job keeps that status if it
+    is final, or matches no row afterwards. `cancelled_stage` keeps the status the job
+    had, and the wait ends. The parser artifact stays. `finished` means the row is
+    there, not deleted, with a final status. `missing` means no row, or a deleted one.
+    """
+    result = await connection.execute(
+        sql_update(Job)
+        .where(
+            Job.job_id == job_id,
+            Job.status.in_(CANCELLABLE_STATUSES),
+            Job.deleted_at.is_(None),
+        )
+        .values(status="cancelled", cancelled_stage=Job.status, **_NOT_WAITING)
+    )
+    if result.rowcount == 1:
+        return "cancelled"
+    row = (
+        await connection.execute(select(Job.deleted_at).where(Job.job_id == job_id))
+    ).one_or_none()
+    if row is None or row.deleted_at is not None:
+        return "missing"
+    return "finished"
+
 
 ClaimOutcome = Literal["claimed", "exhausted", "skipped", "missing"]
 MarkOutcome = Literal["recorded", "not_allowed", "skipped", "missing"]

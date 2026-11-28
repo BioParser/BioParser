@@ -286,7 +286,7 @@ List all jobs for `{checksum}`. The default row is the body of [`GET /api/jobs/{
 List jobs across all documents, with optional query filters. The default row is the body of [`GET /api/jobs/{job_id}`](#get-apijobsjob_id). `?detail=full` adds the stored record from the job joined to its document, and still omits ETS rows. `display_name` is null when the document has no name.
 
 - **Query parameters:**
-  - `status` (optional): Filter by job status (`queued`, `parsing`, `parsed`, `extracting`, `done`, `failed`).
+  - `status` (optional): Filter by job status (`queued`, `parsing`, `parsed`, `extracting`, `done`, `failed`, `cancelled`).
   - `parser` (optional): Filter by parser backend (e.g. `default`, `mineru`).
 
 **Success — `200 OK`:**
@@ -339,6 +339,10 @@ Poll a job.
 - `failed` is `job_id`, `status`, `error`, and `failed_stage`. `failed_stage` is the
   status the job had when it failed: `queued`, `parsing`, `parsed`, or `extracting`.
   The parser artifact is kept exactly when that stage is `parsed` or `extracting`.
+- `cancelled` is `job_id`, `status`, and `cancelled_stage`, the status the job had when
+  it was cancelled, with the same four values. The parser artifact is kept by the same
+  rule. A cancelled job has no error and no ETS rows. See
+  [`POST /api/jobs/{job_id}/cancel`](#post-apijobsjob_idcancel).
 - The ETS rows of a `done` job are `GET /api/jobs/{job_id}/ets`, in observation
   order. `references` on each row is the document checksum.
 - `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and
@@ -363,10 +367,52 @@ Poll a job.
 
 The status read does not load the extraction artifact. A done job is `job_id` and `status`.
 
+### `POST /api/jobs/{job_id}/cancel`
+
+Cancel a job that has not finished. A `queued`, `parsing`, `parsed`, or `extracting` job
+becomes `cancelled`. Nothing can follow `cancelled`, and the job can be deleted like a
+`done` or `failed` one.
+
+**Success — `200 OK`**, with the job as `GET /api/jobs/{job_id}?detail=full` returns it:
+
+```json
+{
+  "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
+  "status": "cancelled",
+  "cancelled_stage": "parsing",
+  "created_at": "2026-11-28T10:00:00Z",
+  "display_name": "paper.pdf",
+  "parser": "mineru",
+  "extractor": "default",
+  "document_checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}
+```
+
+- The status check and the write are one statement. A worker that records a result at
+  the same moment either lands first, and a `done` or `failed` job then gets `409`, or
+  finds the job cancelled and does not record its result.
+- Work that is already running is not stopped. A parse or an extraction that ends after
+  the cancel is stored but not recorded on the job. A later delivery for the job is
+  skipped and logged at info level, and the job is never marked failed.
+- A parser artifact the job already had stays on it. A parse that ends after the cancel
+  is stored too, so another job for the same PDF and parser reuses it.
+- A waiting job (`waiting_for`) stops waiting.
+
+**Failure:**
+
+| Status | When |
+|--------|------|
+| 401 | missing or invalid API key (`unauthorized`) |
+| 404 | no job with that id (`job_not_found`), including a deleted one |
+| 409 | the job is already `done`, `failed`, or `cancelled` (`job_already_finished`); the row stays |
+| 422 | `job_id` is not a version 4 UUID (`invalid_job_id`) |
+| 500 | the stored job state is unreadable (`job_state_unreadable`) |
+| 503 | the database is unavailable (`database_unavailable`) |
+
 ### `DELETE /api/jobs/{job_id}`
 
-Delete a finished job. Only a `done` or `failed` job can be deleted: a job in any other
-status still has a message in the queue and a worker that moves it on.
+Delete a finished job. Only a `done`, `failed`, or `cancelled` job can be deleted: a job in
+any other status still has a message in the queue and a worker that moves it on.
 
 **Success — `204 No Content`**, with no body. The job no longer appears in `GET /api/jobs`
 or `GET /api/documents/{checksum}/jobs`, and `GET /api/jobs/{job_id}` and the job's
@@ -379,7 +425,7 @@ or `GET /api/documents/{checksum}/jobs`, and `GET /api/jobs/{job_id}` and the jo
   same PDF can share them.
 - The status check and the write are one statement, so a job that moves to another
   status in between is not deleted. The `jobs_deleted_at_check` constraint also keeps
-  `deleted_at` off a job that is not `done` or `failed`.
+  `deleted_at` off a job that is not `done`, `failed`, or `cancelled`.
 
 **Failure:**
 
@@ -387,7 +433,7 @@ or `GET /api/documents/{checksum}/jobs`, and `GET /api/jobs/{job_id}` and the jo
 |--------|------|
 | 401 | missing or invalid API key (`unauthorized`) |
 | 404 | no job with that id (`job_not_found`), including one already deleted |
-| 409 | the job is not `done` or `failed` (`job_not_finished`); the row stays |
+| 409 | the job is not `done`, `failed`, or `cancelled` (`job_not_finished`); the row stays |
 | 422 | `job_id` is not a version 4 UUID (`invalid_job_id`) |
 | 503 | the database is unavailable (`database_unavailable`) |
 
@@ -577,11 +623,17 @@ Migrations stay on the sync psycopg driver.
   extraction artifact. `?detail=full` adds the stored record, including the document's
   display name.
 - `DELETE /api/jobs/{job_id}` — soft-deletes the job with `bioparser.db.jobs.delete_finished`,
-  one `UPDATE jobs SET deleted_at = now() WHERE status IN ('done', 'failed') AND
-  deleted_at IS NULL`. When no row changed, a second read tells `404` (no row, or already
-  deleted) from `409`. Storage is not touched. `list_jobs` and `list_jobs_for_document`
-  leave deleted jobs out, so every job read of the API does too. `jobs.get`, which only
-  the workers use, still returns a deleted job: they skip a `done` or `failed` job.
+  one `UPDATE jobs SET deleted_at = now() WHERE status IN ('done', 'failed', 'cancelled')
+  AND deleted_at IS NULL`. When no row changed, a second read tells `404` (no row, or
+  already deleted) from `409`. Storage is not touched. `list_jobs` and
+  `list_jobs_for_document` leave deleted jobs out, so every job read of the API does too.
+  `jobs.get`, which only the workers use, still returns a deleted job: they skip a job
+  whose status is final.
+- `POST /api/jobs/{job_id}/cancel` — cancels the job with
+  `bioparser.db.jobs.cancel_unfinished`, one `UPDATE` that sets `cancelled`, copies the
+  status into `cancelled_stage`, and clears the wait, while the status is unfinished
+  and the job is not deleted. When no row changed, a second read tells `404` from
+  `409`. It then reads the job joined to its document, as `?detail=full` does.
 - `GET /api/jobs/{job_id}/ets` — for a done job, reads the extraction artifact off the
   event loop and returns the ETS rows. Another status is `409`.
 - `GET /api/jobs/{job_id}/artifacts/parser` and `.../extraction` — read the job, return `409`
@@ -622,7 +674,10 @@ for the OpenAPI docs' `responses=` examples:
 - `JobStatusResponse` — the shapes for one job, on `GET /api/jobs/{job_id}` and in a
   list. `JobResponse` is `job_id`, `status`, `waiting_for`, and `waiting_since`.
   `JobFullResponse` adds the stored record for `?detail=full`. `FailedJobResponse`
-  carries `error` and `failed_stage`, and `FailedJobFullResponse` adds the record. None of these include ETS rows.
+  carries `error` and `failed_stage`, and `FailedJobFullResponse` adds the record.
+  `CancelledJobResponse` carries `cancelled_stage`, and `CancelledJobFullResponse` adds
+  the record. `POST /api/jobs/{job_id}/cancel` returns one of the three full shapes.
+  None of these include ETS rows.
   `EtsRowsResponse` is `GET /api/jobs/{job_id}/ets`.
   `POST /api/extractions` and `POST /api/documents/{checksum}/jobs` return
   `AcceptedJobResponse`, which is `job_id` and `status`.

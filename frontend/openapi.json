@@ -1002,6 +1002,12 @@
                       },
                       {
                         "$ref": "#/components/schemas/FailedJobFullResponse"
+                      },
+                      {
+                        "$ref": "#/components/schemas/CancelledJobResponse"
+                      },
+                      {
+                        "$ref": "#/components/schemas/CancelledJobFullResponse"
                       }
                     ]
                   },
@@ -1141,7 +1147,8 @@
                     "parsed",
                     "extracting",
                     "done",
-                    "failed"
+                    "failed",
+                    "cancelled"
                   ],
                   "type": "string"
                 },
@@ -1203,6 +1210,12 @@
                       },
                       {
                         "$ref": "#/components/schemas/FailedJobFullResponse"
+                      },
+                      {
+                        "$ref": "#/components/schemas/CancelledJobResponse"
+                      },
+                      {
+                        "$ref": "#/components/schemas/CancelledJobFullResponse"
                       }
                     ]
                   },
@@ -1290,7 +1303,7 @@
     "/api/jobs/{job_id}": {
       "get": {
         "summary": "Job Status",
-        "description": "The job.\n\n`queued`, `parsing`, `parsed`, `extracting`, and `done` are `job_id`, `status`,\n`waiting_for`, and `waiting_since`. `waiting_for` is `parser` or `extractor` while\nthe stage's service does not answer, and `waiting_since` is when that wait began.\nBoth are null otherwise. `failed` is `job_id`, `status`, `error`, and\n`failed_stage`, the status the job had when it failed. The ETS rows are\n`GET /api/jobs/{job_id}/ets`. This route does not read the extraction artifact.\n\n`?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,\n`extractor`, and `document_checksum`.",
+        "description": "The job.\n\n`queued`, `parsing`, `parsed`, `extracting`, and `done` are `job_id`, `status`,\n`waiting_for`, and `waiting_since`. `waiting_for` is `parser` or `extractor` while\nthe stage's service does not answer, and `waiting_since` is when that wait began.\nBoth are null otherwise. `failed` is `job_id`, `status`, `error`, and\n`failed_stage`, the status the job had when it failed. `cancelled` is `job_id`,\n`status`, and `cancelled_stage`, the status the job had when it was cancelled. The\nETS rows are `GET /api/jobs/{job_id}/ets`. This route does not read the extraction\nartifact.\n\n`?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,\n`extractor`, and `document_checksum`.",
         "operationId": "job_status_api_jobs__job_id__get",
         "security": [
           {
@@ -1340,6 +1353,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/FailedJobFullResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CancelledJobResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CancelledJobFullResponse"
                     }
                   ],
                   "title": "Response Job Status Api Jobs  Job Id  Get"
@@ -1456,7 +1475,7 @@
       },
       "delete": {
         "summary": "Delete Job",
-        "description": "Delete a `done` or `failed` job.\n\nThe job leaves the job lists and its reads are `404`. It is a soft delete: the\nrow is marked deleted and stays in the database. The document, its PDF and the\nparser and extraction artifacts stay too, since other jobs of the same PDF can\nshare them. A job in any other status is still running and is `409`.",
+        "description": "Delete a `done`, `failed` or `cancelled` job.\n\nThe job leaves the job lists and its reads are `404`. It is a soft delete: the\nrow is marked deleted and stays in the database. The document, its PDF and the\nparser and extraction artifacts stay too, since other jobs of the same PDF can\nshare them. A job in any other status is still running and is `409`.",
         "operationId": "delete_job_api_jobs__job_id__delete",
         "security": [
           {
@@ -1525,11 +1544,11 @@
               "application/json": {
                 "examples": {
                   "job_not_finished": {
-                    "summary": "Only a done or failed job can be deleted. GET /api/jobs/{job_id} shows the job status",
+                    "summary": "Only a done, failed or cancelled job can be deleted. GET /api/jobs/{job_id} shows the job status",
                     "value": {
                       "detail": {
                         "code": "job_not_finished",
-                        "message": "Only a done or failed job can be deleted. GET /api/jobs/{job_id} shows the job status"
+                        "message": "Only a done, failed or cancelled job can be deleted. GET /api/jobs/{job_id} shows the job status"
                       }
                     }
                   }
@@ -1561,6 +1580,178 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "database_unavailable": {
+                    "summary": "Database is unavailable",
+                    "value": {
+                      "detail": {
+                        "code": "database_unavailable",
+                        "message": "Database is unavailable"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/cancel": {
+      "post": {
+        "summary": "Cancel Job",
+        "description": "Cancel a job that is `queued`, `parsing`, `parsed` or `extracting`.\n\nThe job becomes `cancelled`, a final status, and the body is the job as\n`?detail=full` returns it. The check and the write are one statement, so a job\nthat finishes at the same moment keeps its result and the cancel is `409`. Work\nthat is already running is not stopped: its result is not recorded. A parser\nartifact stored before or after the cancel stays and can be reused.",
+        "operationId": "cancel_job_api_jobs__job_id__cancel_post",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/JobFullResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/FailedJobFullResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CancelledJobFullResponse"
+                    }
+                  ],
+                  "title": "Response Cancel Job Api Jobs  Job Id  Cancel Post"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "unauthorized": {
+                    "summary": "Invalid or missing API key",
+                    "value": {
+                      "detail": {
+                        "code": "unauthorized",
+                        "message": "Invalid or missing API key"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "job_not_found": {
+                    "summary": "Job not found",
+                    "value": {
+                      "detail": {
+                        "code": "job_not_found",
+                        "message": "Job not found"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "job_already_finished": {
+                    "summary": "The job is already done, failed or cancelled, so it cannot be cancelled. GET /api/jobs/{job_id} shows the job status",
+                    "value": {
+                      "detail": {
+                        "code": "job_already_finished",
+                        "message": "The job is already done, failed or cancelled, so it cannot be cancelled. GET /api/jobs/{job_id} shows the job status"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_job_id": {
+                    "summary": "job_id must be a version 4 UUID",
+                    "value": {
+                      "detail": {
+                        "code": "invalid_job_id",
+                        "message": "job_id must be a version 4 UUID"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "job_state_unreadable": {
+                    "summary": "Stored job state is unreadable",
+                    "value": {
+                      "detail": {
+                        "code": "job_state_unreadable",
+                        "message": "Stored job state is unreadable"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
           },
           "503": {
             "content": {
@@ -2289,6 +2480,105 @@
         "title": "BoundingBox",
         "description": "Axis-aligned box in page space, top-left origin, normalized to [0, 1]."
       },
+      "CancelledJobFullResponse": {
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "parser": {
+            "type": "string",
+            "title": "Parser"
+          },
+          "extractor": {
+            "type": "string",
+            "title": "Extractor"
+          },
+          "document_checksum": {
+            "type": "string",
+            "title": "Document Checksum"
+          },
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "cancelled",
+            "title": "Status"
+          },
+          "cancelled_stage": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "parsing",
+              "parsed",
+              "extracting"
+            ],
+            "title": "Cancelled Stage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "created_at",
+          "display_name",
+          "parser",
+          "extractor",
+          "document_checksum",
+          "job_id",
+          "status",
+          "cancelled_stage"
+        ],
+        "title": "CancelledJobFullResponse",
+        "description": "A cancelled job with the stored record."
+      },
+      "CancelledJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "cancelled",
+            "title": "Status"
+          },
+          "cancelled_stage": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "parsing",
+              "parsed",
+              "extracting"
+            ],
+            "title": "Cancelled Stage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "cancelled_stage"
+        ],
+        "title": "CancelledJobResponse",
+        "description": "A cancelled job. ``cancelled_stage`` is the status the job had when it was cancelled."
+      },
       "Citation": {
         "properties": {
           "kind": {
@@ -2500,6 +2790,7 @@
               "invalid_content_length",
               "job_not_found",
               "job_not_finished",
+              "job_already_finished",
               "invalid_job_id",
               "content_too_large",
               "storage_unavailable",

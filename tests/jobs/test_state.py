@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from bioparser.jobs import JOB_STATE_SCHEMA_VERSION, JobState, SafeError
-from bioparser.jobs.state import ALLOWED_TRANSITIONS, JobStatus
+from bioparser.jobs.state import ALLOWED_TRANSITIONS, CANCELLABLE_STATUSES, JobStatus
 
 CHECKSUM = "ab" * 32
 RESULT_REF = "7c2e1d3b-8e55-4f2b-ad4c-3a9f6b1e7d22"
@@ -168,6 +168,72 @@ def test_failed_stage_must_match_the_parser_artifact() -> None:
         _queued(status="failed", error_code="extraction_failed", failed_stage="parsed")
     with pytest.raises(ValidationError):
         _queued(status="queued", failed_stage="queued")
+
+
+def test_every_unfinished_status_can_be_cancelled_and_nothing_follows_a_cancel() -> None:
+    unfinished = {"queued", "parsing", "parsed", "extracting"}
+    assert set(CANCELLABLE_STATUSES) == unfinished
+    for status, targets in ALLOWED_TRANSITIONS.items():
+        assert ("cancelled" in targets) is (status in unfinished)
+    assert ALLOWED_TRANSITIONS["cancelled"] == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("stage", "parse_result_ref"),
+    [("queued", None), ("parsing", None), ("parsed", RESULT_REF), ("extracting", RESULT_REF)],
+)
+def test_a_cancelled_job_keeps_the_parser_artifact_of_its_stage(
+    stage: str, parse_result_ref: str | None
+) -> None:
+    state = _queued(status="cancelled", cancelled_stage=stage, parse_result_ref=parse_result_ref)
+    assert JobState.model_validate_json(state.model_dump_json()) == state
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {},
+        {"cancelled_stage": "parsing", "parse_result_ref": RESULT_REF},
+        {"cancelled_stage": "parsed"},
+        {"cancelled_stage": "queued", "error_code": "internal_error"},
+        {
+            "cancelled_stage": "parsed",
+            "parse_result_ref": RESULT_REF,
+            "extract_result_ref": EXTRACT_REF,
+        },
+        {"cancelled_stage": "queued", "failed_stage": "queued"},
+    ],
+    ids=[
+        "no-stage",
+        "parse-ref-before-parsed",
+        "no-parse-ref-after-parsed",
+        "error",
+        "extraction",
+        "failed-stage",
+    ],
+)
+def test_a_cancelled_job_must_match_its_stage(fields: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        _queued(status="cancelled", **fields)
+
+
+@pytest.mark.parametrize("status", ["queued", "failed"])
+def test_only_a_cancelled_job_has_a_cancelled_stage(status: str) -> None:
+    fields: dict[str, object] = {"cancelled_stage": "queued"}
+    if status == "failed":
+        fields |= {"error_code": "internal_error", "failed_stage": "queued"}
+    with pytest.raises(ValidationError):
+        _queued(status=status, **fields)
+
+
+def test_a_cancelled_job_cannot_be_waiting() -> None:
+    with pytest.raises(ValidationError, match="cannot be waiting"):
+        _queued(
+            status="cancelled",
+            cancelled_stage="queued",
+            waiting_for="parser",
+            waiting_since=datetime(2026, 11, 21, 8, 49, tzinfo=UTC),
+        )
 
 
 WAITING_SINCE = datetime(2026, 11, 21, 8, 49, tzinfo=UTC)

@@ -1003,3 +1003,84 @@ def test_the_parser_reads_a_closed_temp_file_that_is_removed_afterwards(
     assert not seen[0][1].exists()  # and the file is gone afterwards
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
+
+
+# --- a cancelled job ---------------------------------------------------------
+
+
+class CancellingParser(RecordingParser):
+    """Cancels the job while the parse runs, as a curator would from the job page."""
+
+    def __init__(self, jobs: StubJobs, *, error: BaseException | None = None) -> None:
+        super().__init__(_artifact(), error=error)
+        self.jobs = jobs
+
+    async def parse(self, path: Path) -> ParserArtifact:
+        assert await self.jobs.cancel_unfinished(None, JOB_ID) == "cancelled"
+        return await super().parse(path)
+
+
+def test_a_delivery_for_a_cancelled_job_is_skipped(caplog: pytest.LogCaptureFixture) -> None:
+    jobs = StubJobs(_queued().with_changes(status="cancelled", cancelled_stage="queued"))
+    parser = RecordingParser(_artifact())
+    woken: list[UUID] = []
+
+    async def enqueue(job_id: UUID) -> None:
+        woken.append(job_id)
+
+    handler = _handler(jobs, _storage(), parser, enqueue=enqueue)
+    with caplog.at_level(logging.INFO, logger="bioparser.worker.stage"):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert parser.paths == []
+    assert woken == []
+    assert jobs.state is not None
+    assert jobs.state.status == "cancelled"
+    assert jobs.state.claims("parsing") == 0
+    assert "status is already 'cancelled'. Skipping this delivery" in caplog.text
+    assert all(record.levelno == logging.INFO for record in caplog.records)
+
+
+def test_a_parse_that_ends_after_a_cancel_is_stored_but_not_recorded() -> None:
+    jobs = StubJobs(_queued())
+    storage = _storage()
+    woken: list[UUID] = []
+
+    async def enqueue(job_id: UUID) -> None:
+        woken.append(job_id)
+
+    handler = _handler(jobs, storage, CancellingParser(jobs), enqueue=enqueue)
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "cancelled"
+    assert jobs.state.cancelled_stage == "parsing"
+    assert jobs.state.parse_result_ref is None
+    assert woken == []
+    # Running the job again reuses this parse.
+    assert RESULT_PATH in storage.payloads
+
+
+def test_an_error_after_a_cancel_is_retried_once_then_skipped_without_failing() -> None:
+    jobs = StubJobs(_queued())
+    parser = CancellingParser(jobs, error=ParserProcessError("killed by signal 9"))
+    _consume(_handler(jobs, _storage(), parser), max_retries=3)
+
+    assert len(parser.paths) == 1
+    assert jobs.state is not None
+    assert jobs.state.status == "cancelled"
+    assert jobs.state.error_code is None
+    assert "job_state.mark_failed" not in jobs.events
+
+
+def test_giving_up_on_a_cancelled_job_does_not_mark_it_failed() -> None:
+    jobs = StubJobs(_queued().with_changes(status="cancelled", cancelled_stage="parsing"))
+    handler = _handler(jobs, _storage(), RecordingParser(_artifact()))
+    asyncio.run(handler.on_failed(_message(), JobDeferralExpired()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "cancelled"
+    assert jobs.state.error_code is None

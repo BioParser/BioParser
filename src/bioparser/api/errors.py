@@ -11,6 +11,7 @@ ErrorCode = Literal[
     "invalid_content_length",
     "job_not_found",
     "job_not_finished",
+    "job_already_finished",
     "invalid_job_id",
     "content_too_large",
     "storage_unavailable",
@@ -48,7 +49,17 @@ UNSUPPORTED_CONTENT_TYPE = ErrorDetail(
 JOB_NOT_FOUND = ErrorDetail(code="job_not_found", message="Job not found")
 JOB_NOT_FINISHED = ErrorDetail(
     code="job_not_finished",
-    message="Only a done or failed job can be deleted. GET /api/jobs/{job_id} shows the job status",
+    message=(
+        "Only a done, failed or cancelled job can be deleted. "
+        "GET /api/jobs/{job_id} shows the job status"
+    ),
+)
+JOB_ALREADY_FINISHED = ErrorDetail(
+    code="job_already_finished",
+    message=(
+        "The job is already done, failed or cancelled, so it cannot be cancelled. "
+        "GET /api/jobs/{job_id} shows the job status"
+    ),
 )
 INVALID_JOB_ID = ErrorDetail(code="invalid_job_id", message="job_id must be a version 4 UUID")
 CONTENT_TOO_LARGE = ErrorDetail(

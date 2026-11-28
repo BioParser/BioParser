@@ -17,9 +17,11 @@ const metadata = {
 
 function job(status: JobStatus, jobId = "abc"): JobList[number] {
   const record = { ...metadata, job_id: jobId, display_name: `${jobId}.pdf` };
-  return status === "failed"
-    ? { ...record, status, error: { code: "parse_failed" }, failed_stage: "parsing" }
-    : { ...record, status, waiting_for: null, waiting_since: null };
+  if (status === "failed") {
+    return { ...record, status, error: { code: "parse_failed" }, failed_stage: "parsing" };
+  }
+  if (status === "cancelled") return { ...record, status, cancelled_stage: "queued" };
+  return { ...record, status, waiting_for: null, waiting_since: null };
 }
 
 const clients: QueryClient[] = [];
@@ -88,18 +90,21 @@ describe("Deleting a job", () => {
     },
   );
 
-  it.each(["done", "failed"] as const)("asks before it deletes a %s job", async (status) => {
-    const fetchMock = stubApi(job(status), () => new Response(null, { status: 204 }));
-    renderPage(job(status));
+  it.each(["done", "failed", "cancelled"] as const)(
+    "asks before it deletes a %s job",
+    async (status) => {
+      const fetchMock = stubApi(job(status), () => new Response(null, { status: 204 }));
+      renderPage(job(status));
 
-    fireEvent.click(await screen.findByRole("button", { name: "Delete job" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Delete job" }));
 
-    const cancel = screen.getByRole("button", { name: "Cancel" });
-    expect(document.activeElement).toBe(cancel);
-    expect(cancel.getAttribute("aria-describedby")).toBe("job-delete-question");
-    expect(screen.getByText(/The PDF and its stored results are kept/)).toBeDefined();
-    expect(deleteCalls(fetchMock)).toHaveLength(0);
-  });
+      const cancel = screen.getByRole("button", { name: "Cancel" });
+      expect(document.activeElement).toBe(cancel);
+      expect(cancel.getAttribute("aria-describedby")).toBe("job-delete-question");
+      expect(screen.getByText(/The PDF and its stored results are kept/)).toBeDefined();
+      expect(deleteCalls(fetchMock)).toHaveLength(0);
+    },
+  );
 
   it("keeps the job when the question is cancelled", async () => {
     const fetchMock = stubApi(job("done"), () => new Response(null, { status: 204 }));

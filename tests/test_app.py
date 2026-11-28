@@ -18,6 +18,7 @@ from bioparser.api.app import app as api_app
 from bioparser.api.errors import ErrorResponse
 from bioparser.api.middleware import TypedRequestBodyLimitMiddleware
 from bioparser.api.schema import (
+    CancelledJobFullResponse,
     EtsRowsResponse,
     JobFullResponse,
     JobStatusResponse,
@@ -68,6 +69,7 @@ _STATUS_FIELDS: dict[JobStatus, dict[str, Any]] = {
         "error_code": "extraction_failed",
         "failed_stage": "extracting",
     },
+    "cancelled": {"parse_result_ref": PARSE_REF, "cancelled_stage": "parsed"},
 }
 
 
@@ -87,10 +89,10 @@ def _job(status: JobStatus, **fields: Any) -> JobState:
 def _job_json(state: JobState, **extra: Any) -> dict[str, Any]:
     """The default public body: the id and the status, plus anything that status adds.
 
-    A job that has not failed also carries its wait, which is empty here.
+    A job that has not failed or been cancelled also carries its wait, which is empty here.
     """
     body: dict[str, Any] = {"job_id": str(state.job_id), "status": state.status}
-    if state.status != "failed":
+    if state.status not in ("failed", "cancelled"):
         body |= {"waiting_for": None, "waiting_since": None}
     return body | extra
 
@@ -343,6 +345,8 @@ def test_job_status_openapi_schema() -> None:
         {"$ref": "#/components/schemas/JobFullResponse"},
         {"$ref": "#/components/schemas/FailedJobResponse"},
         {"$ref": "#/components/schemas/FailedJobFullResponse"},
+        {"$ref": "#/components/schemas/CancelledJobResponse"},
+        {"$ref": "#/components/schemas/CancelledJobFullResponse"},
     ]
 
     assert response_schema["anyOf"] == job_shapes
@@ -720,7 +724,7 @@ def test_a_finished_stage_names_no_storage_path(
 
 # --- deleting a job -------------------------------------------------------------
 
-FINISHED_STATUSES: list[JobStatus] = ["done", "failed"]
+FINISHED_STATUSES: list[JobStatus] = ["done", "failed", "cancelled"]
 ACTIVE_STATUSES: list[JobStatus] = ["queued", "parsing", "parsed", "extracting"]
 
 
@@ -864,15 +868,144 @@ def test_the_delete_route_is_documented() -> None:
     assert set(examples) == {"job_not_finished"}
 
 
+# --- cancelling a job -----------------------------------------------------------
+
+
+@pytest.mark.parametrize("status", ACTIVE_STATUSES)
+def test_an_unfinished_job_is_cancelled_and_returned_in_full(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+    status: JobStatus,
+) -> None:
+    jobs = stub_api_adapters[1]
+    _add_document(jobs)
+    state = _job(status)
+    jobs.states[str(state.job_id)] = state
+
+    response = client.post(f"/api/jobs/{state.job_id}/cancel")
+
+    assert response.status_code == 200
+    body = CancelledJobFullResponse.model_validate(response.json())
+    assert body.status == "cancelled"
+    assert body.cancelled_stage == status
+    assert body.display_name == "paper.pdf"
+    assert response.json() == client.get(f"/api/jobs/{state.job_id}?detail=full").json()
+    stored = jobs.states[str(state.job_id)]
+    assert stored.status == "cancelled"
+    assert stored.parse_result_ref == state.parse_result_ref
+
+
+@pytest.mark.parametrize("status", FINISHED_STATUSES)
+def test_a_finished_job_is_not_cancelled(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+    status: JobStatus,
+) -> None:
+    jobs = stub_api_adapters[1]
+    state = _job(status)
+    jobs.states[str(state.job_id)] = state
+
+    response = client.post(f"/api/jobs/{state.job_id}/cancel")
+
+    assert response.status_code == 409
+    ErrorResponse.model_validate(response.json())
+    assert response.json()["detail"]["code"] == "job_already_finished"
+    assert jobs.states[str(state.job_id)] == state
+
+
+def test_cancelling_an_unknown_or_deleted_job_is_404(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    jobs = stub_api_adapters[1]
+    state = _job("done")
+    jobs.states[str(state.job_id)] = state
+    assert client.delete(f"/api/jobs/{state.job_id}").status_code == 204
+
+    assert client.post(f"/api/jobs/{state.job_id}/cancel").status_code == 404
+    assert client.post(f"/api/jobs/{uuid4()}/cancel").status_code == 404
+    assert client.post("/api/jobs/not-a-uuid/cancel").status_code == 422
+
+
+def test_cancel_returns_503_when_postgres_is_unavailable(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    jobs = stub_api_adapters[1]
+    state = _job("queued")
+    jobs.states[str(state.job_id)] = state
+    jobs.cancel_error = DatabaseError("Postgres query failed: OperationalError")
+
+    response = client.post(f"/api/jobs/{state.job_id}/cancel")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "database_unavailable"
+    assert jobs.states[str(state.job_id)] == state
+
+
+def test_cancel_requires_an_api_key(
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    jobs = stub_api_adapters[1]
+    state = _job("queued")
+    jobs.states[str(state.job_id)] = state
+
+    response = TestClient(api_app).post(f"/api/jobs/{state.job_id}/cancel")
+
+    assert response.status_code == 401
+    assert jobs.states[str(state.job_id)].status == "queued"
+
+
+def test_a_cancelled_job_reads_and_filters_as_cancelled(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+) -> None:
+    jobs = stub_api_adapters[1]
+    cancelled = _job("cancelled")
+    other = _job("queued")
+    jobs.states[str(cancelled.job_id)] = cancelled
+    jobs.states[str(other.job_id)] = other
+
+    plain = client.get(f"/api/jobs/{cancelled.job_id}")
+    listed = client.get("/api/jobs?status=cancelled")
+
+    assert plain.status_code == 200
+    JOB_STATUS_ADAPTER.validate_python(plain.json())
+    assert plain.json() == _job_json(cancelled, cancelled_stage="parsed")
+    assert listed.status_code == 200
+    assert listed.json() == [_job_json(cancelled, cancelled_stage="parsed")]
+
+
+def test_the_cancel_route_is_documented() -> None:
+    operation = api_app.openapi()["paths"]["/api/jobs/{job_id}/cancel"]["post"]
+
+    assert set(operation["responses"]) == {"200", "401", "404", "409", "422", "500", "503"}
+    examples = operation["responses"]["409"]["content"]["application/json"]["examples"]
+    assert set(examples) == {"job_already_finished"}
+    assert operation["responses"]["200"]["content"]["application/json"]["schema"]["anyOf"] == [
+        {"$ref": "#/components/schemas/JobFullResponse"},
+        {"$ref": "#/components/schemas/FailedJobFullResponse"},
+        {"$ref": "#/components/schemas/CancelledJobFullResponse"},
+    ]
+
+
 # --- job artifacts for the UI -------------------------------------------------
 
 EXTRACTION = ExtractionArtifact(extractor="default", extractor_version="1")
 # (route, stored ref, statuses that have it)
 ARTIFACT_ROUTES = [
-    ("parser", PARSE_REF, ["parsed", "extracting", "done", "failed"]),
+    ("parser", PARSE_REF, ["parsed", "extracting", "done", "failed", "cancelled"]),
     ("extraction", EXTRACT_REF, ["done"]),
 ]
-ALL_STATUSES: list[JobStatus] = ["queued", "parsing", "parsed", "extracting", "done", "failed"]
+ALL_STATUSES: list[JobStatus] = [
+    "queued",
+    "parsing",
+    "parsed",
+    "extracting",
+    "done",
+    "failed",
+    "cancelled",
+]
 
 
 def _store(storage: StubArtifactStorage, ref: str, payload: bytes) -> None:

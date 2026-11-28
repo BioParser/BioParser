@@ -34,9 +34,13 @@ class CorruptJobStateError(JobStateError):
 # The extract worker owns parsed -> extracting -> done. `failed` records the
 # status it replaced in `failed_stage`. `parsed` can fail when the extract queue
 # gives up. A delivery that is skipped does not mark it failed, so a later
-# wake-up can still claim it.
-JobStatus = Literal["queued", "parsing", "parsed", "extracting", "done", "failed"]
+# wake-up can still claim it. A curator can cancel a job that has not finished.
+# `cancelled` records the status it replaced in `cancelled_stage`.
+JobStatus = Literal["queued", "parsing", "parsed", "extracting", "done", "failed", "cancelled"]
 FailedStage = Literal["queued", "parsing", "parsed", "extracting"]
+CancelledStage = FailedStage
+# The statuses a job may be cancelled from: every status that is not final.
+CANCELLABLE_STATUSES: tuple[JobStatus, ...] = ("queued", "parsing", "parsed", "extracting")
 # The service a job is waiting for while its stage cannot claim it: MinerU for the
 # parser, vLLM for the extractor. A stage sets it only for a status it owns.
 WaitingFor = Literal["parser", "extractor"]
@@ -50,16 +54,17 @@ WAITING_STATUSES: Mapping[WaitingFor, frozenset[JobStatus]] = MappingProxyType(
 # Every legal status change, keyed by the stored status. A store must refuse any write
 # whose status is not listed for the stored one, so a stale or duplicate writer cannot
 # undo or rewrite progress. Self-loops let a retried attempt report its own status again.
-# `done` and `failed` are final: nothing may follow them. This mirrors the state diagram
-# in docs/architecture.md.
+# `done`, `failed` and `cancelled` are final: nothing may follow them. This mirrors the
+# state diagram in docs/architecture.md.
 ALLOWED_TRANSITIONS: Mapping[JobStatus, frozenset[JobStatus]] = MappingProxyType(
     {
-        "queued": frozenset({"parsing", "failed"}),
-        "parsing": frozenset({"parsing", "parsed", "failed"}),
-        "parsed": frozenset({"extracting", "failed"}),
-        "extracting": frozenset({"extracting", "done", "failed"}),
+        "queued": frozenset({"parsing", "failed", "cancelled"}),
+        "parsing": frozenset({"parsing", "parsed", "failed", "cancelled"}),
+        "parsed": frozenset({"extracting", "failed", "cancelled"}),
+        "extracting": frozenset({"extracting", "done", "failed", "cancelled"}),
         "done": frozenset(),
         "failed": frozenset(),
+        "cancelled": frozenset(),
     }
 )
 SafeErrorCode = Literal[
@@ -101,6 +106,8 @@ class JobState(BaseModel):
     error_code: SafeErrorCode | None = None
     # The status this job had when it was marked failed. Empty for every other status.
     failed_stage: FailedStage | None = None
+    # The status this job had when it was cancelled. Empty for every other status.
+    cancelled_stage: CancelledStage | None = None
     # Set when the stage's service did not answer and the job was deferred. Both are
     # empty again once the job is claimed or failed. `waiting_since` is the first
     # deferral of this wait.
@@ -156,20 +163,39 @@ class JobState(BaseModel):
         has_parse = self.parse_result_ref is not None
         has_extract = self.extract_result_ref is not None
         has_error = self.error_code is not None
-        stage = self.failed_stage
-        # The parser artifact is stored when the job becomes `parsed`, and failure does not
-        # clear it. So a failed job kept that artifact exactly when it failed at `parsed`
-        # or `extracting`. The extraction artifact is only recorded on `done`.
-        kept = stage in ("parsed", "extracting")
+        failed = self.failed_stage
+        cancelled = self.cancelled_stage
+        # The parser artifact is stored when the job becomes `parsed`, and failing or
+        # cancelling does not clear it. So a failed or cancelled job kept that artifact
+        # exactly when it stopped at `parsed` or `extracting`. The extraction artifact is
+        # only recorded on `done`.
         if self.status == "failed":
-            ok = has_error and not has_extract and stage is not None and has_parse is kept
-            required = (
-                "an error, no extract_result_ref, and a failed_stage that matches "
-                "whether the parser artifact was stored"
+            ok = (
+                has_error
+                and not has_extract
+                and failed is not None
+                and cancelled is None
+                and has_parse is _kept_parse(failed)
             )
-        elif stage is not None:
+            required = (
+                "an error, no extract_result_ref, no cancelled_stage, and a failed_stage "
+                "that matches whether the parser artifact was stored"
+            )
+        elif self.status == "cancelled":
+            ok = (
+                not has_error
+                and not has_extract
+                and failed is None
+                and cancelled is not None
+                and has_parse is _kept_parse(cancelled)
+            )
+            required = (
+                "no error, no extract_result_ref, no failed_stage, and a cancelled_stage "
+                "that matches whether the parser artifact was stored"
+            )
+        elif failed is not None or cancelled is not None:
             ok = False
-            required = "no failed_stage"
+            required = "no failed_stage and no cancelled_stage"
         elif self.status in ("parsed", "extracting"):
             ok = has_parse and not has_extract and not has_error
             required = "a parse_result_ref, no extract_result_ref, and no error"
@@ -185,5 +211,10 @@ class JobState(BaseModel):
             f"status={self.status!r} requires {required}, "
             f"got parse_result_ref={self.parse_result_ref!r}, "
             f"extract_result_ref={self.extract_result_ref!r}, error_code={self.error_code!r}, "
-            f"failed_stage={self.failed_stage!r}"
+            f"failed_stage={self.failed_stage!r}, cancelled_stage={self.cancelled_stage!r}"
         )
+
+
+def _kept_parse(stage: FailedStage) -> bool:
+    """True when a job that stopped at `stage` has its parser artifact."""
+    return stage in ("parsed", "extracting")

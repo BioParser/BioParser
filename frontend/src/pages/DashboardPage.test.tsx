@@ -21,9 +21,16 @@ function job(id: string, status: JobStatus = "done"): JobList[number] {
     extractor: "default",
     document_checksum: "abc",
   };
-  return status === "failed"
-    ? { ...metadata, status, error: { code: "extraction_failed" }, failed_stage: "extracting" }
-    : { ...metadata, status, waiting_for: null, waiting_since: null };
+  if (status === "failed") {
+    return {
+      ...metadata,
+      status,
+      error: { code: "extraction_failed" },
+      failed_stage: "extracting",
+    };
+  }
+  if (status === "cancelled") return { ...metadata, status, cancelled_stage: "queued" };
+  return { ...metadata, status, waiting_for: null, waiting_since: null };
 }
 
 function mount(path = "/") {
@@ -148,6 +155,44 @@ describe("Dashboard", () => {
     expect(rows[2].textContent).toContain("Unnamed file");
     expect(rows[1].textContent).toContain("mineru");
     expect(rows[1].querySelector("time")?.dateTime).toBe("2026-11-06T12:00:00Z");
+  });
+
+  it("shows a cancelled job by its stage, and filters by cancelled", async () => {
+    const stoppedLate: JobList[number] = {
+      job_id: "one",
+      display_name: "one.pdf",
+      created_at: "2026-11-06T12:00:00Z",
+      parser: "mineru",
+      extractor: "default",
+      document_checksum: "abc",
+      status: "cancelled",
+      cancelled_stage: "extracting",
+    };
+    jobs = [stoppedLate, job("two", "cancelled")];
+    const router = mount();
+    await screen.findByRole("link", { name: "one.pdf" });
+    const rows = screen.getAllByRole("row");
+    expect(rows[1].querySelector(".job-status")?.textContent).toBe("Cancelled");
+    expect(rows[1].querySelector(".job-status")?.className).toContain("status-cancelled");
+    const stopped = within(rows[1]).getByRole("list", { name: "Progress: Cancelled" });
+    expect(
+      within(stopped)
+        .getAllByRole("listitem")
+        .map((step) => step.className),
+    ).toEqual(["complete", ""]);
+    const queued = within(rows[2]).getByRole("list", { name: "Progress: Cancelled" });
+    expect(
+      within(queued)
+        .getAllByRole("listitem")
+        .every((step) => step.className === ""),
+    ).toBe(true);
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Status" }), {
+      target: { value: "cancelled" },
+    });
+    expect(router.state.location.search).toBe("?status=cancelled");
+    await screen.findByRole("link", { name: "one.pdf" });
+    expect(listCalls().at(-1)?.[0]).toBe("/api/jobs?detail=full&status=cancelled");
   });
 
   it.each([

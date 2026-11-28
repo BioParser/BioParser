@@ -475,12 +475,15 @@
   overflow-wrap: anywhere;
 }
 
-/* Delete job (#404): the button under the summary, and the question that replaces it. */
-.job-delete {
+/* Delete job (#404) and Cancel job (#429): the button under the summary, and the question
+   that replaces it. */
+.job-delete,
+.job-cancel {
   margin: var(--space-4) 0 0;
 }
 
-.job-delete-confirm {
+.job-delete-confirm,
+.job-cancel-confirm {
   margin-top: var(--space-4);
   padding: var(--space-4);
   border: 1px solid var(--color-border);
@@ -488,15 +491,18 @@
   background: var(--color-surface-muted);
 }
 
-.job-delete-confirm p {
+.job-delete-confirm p,
+.job-cancel-confirm p {
   margin: 0;
 }
 
-.job-delete-confirm p + p {
+.job-delete-confirm p + p,
+.job-cancel-confirm p + p {
   margin-top: var(--space-3);
 }
 
-.job-delete-actions {
+.job-delete-actions,
+.job-cancel-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
@@ -507,7 +513,9 @@
   margin-bottom: var(--space-4);
 }
 
-.job-waiting {
+.job-waiting,
+.job-cancelled,
+.job-cancel-late {
   margin: 0 0 var(--space-4);
 }
 
