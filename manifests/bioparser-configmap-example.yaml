@@ -1,5 +1,5 @@
 # THIS IS AN EXAMPLE CONFIGMAP. Copy it and name the copy `bioparser-configmap.yaml`
-# BIOPARSER_REDIS_URL and BIOPARSER_DATABASE_URL need to be set
+# The ConfigMap holds no secret. Do not put a password in it, also not in a URL.
 
 apiVersion: v1
 kind: ConfigMap
@@ -25,11 +25,10 @@ data:
   # API settings
   BIOPARSER_AUTH_DISABLED: "false"
 
-  # Database and Redis connections
-  # redis://:${REDIS_PASSWORD}@redis:6379/0
-  BIOPARSER_REDIS_URL:
-  # postgresql://bioparser_app:${POSTGRES_APP_PASSWORD}@postgres:5432/bioparser
-  BIOPARSER_DATABASE_URL:
+  # Database and Redis connections. The URLs hold no password: the API reads the
+  # passwords from files in /run/secrets. See manifests/README.md.
+  BIOPARSER_REDIS_URL: "redis://redis:6379/0"
+  BIOPARSER_DATABASE_URL: "postgresql://bioparser_app@postgres:5432/bioparser"
   POSTGRES_USER: "bioparser"
   POSTGRES_DB: "bioparser"
 

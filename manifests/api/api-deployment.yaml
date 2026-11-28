@@ -16,26 +16,25 @@ spec:
       labels:
         app: bioparser-api
     spec:
+      # The pod does not use the Kubernetes API. Kubernetes mounts the API token in
+      # /var/run/secrets, which is /run/secrets in a Debian image: the secrets volume below.
+      automountServiceAccountToken: false
       containers:
         - name: bioparser-api
           image: ghcr.io/bioparser/bioparser/api:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
-          env:
-            - name: BIOPARSER_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: bioparser-secret
-                  key: BIOPARSER_API_KEY
           envFrom:
             - configMapRef:
                 name: bioparser-config
-            - secretRef:
-                name: bioparser-secret
           volumeMounts:
             - mountPath: /data
               name: artifact-storage
+            # The settings read each file that has the name of a setting (secrets_dir).
+            - mountPath: /run/secrets
+              name: secrets
+              readOnly: true
           resources:
             limits:
               memory: "4Gi"
@@ -61,3 +60,16 @@ spec:
         - name: artifact-storage
           persistentVolumeClaim:
             claimName: bioparser-artifact-pvc
+        # Only the keys of this pod. Mode 0440: only the owner (root) and the group read the
+        # files. The container user of OKD is in that group.
+        - name: secrets
+          secret:
+            secretName: bioparser-secret
+            defaultMode: 0440
+            items:
+              - key: REDIS_PASSWORD
+                path: bioparser_redis_password
+              - key: POSTGRES_APP_PASSWORD
+                path: bioparser_database_password
+              - key: BIOPARSER_API_KEY
+                path: bioparser_api_key
