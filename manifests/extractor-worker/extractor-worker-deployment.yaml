@@ -39,8 +39,17 @@ spec:
           envFrom:
             - configMapRef:
                 name: bioparser-config
-            - secretRef:
-                name: bioparser-secret
+          env:
+            - name: BIOPARSER_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: bioparser-secret
+                  key: BIOPARSER_REDIS_URL
+            - name: BIOPARSER_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: bioparser-secret
+                  key: BIOPARSER_DATABASE_URL
           volumeMounts:
             - mountPath: /data
               name: artifact-storage
