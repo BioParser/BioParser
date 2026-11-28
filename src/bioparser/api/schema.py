@@ -8,7 +8,7 @@ from bioparser.ets.models import EtsRow
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, ExtractorName
 from bioparser.hashing import Sha256Hex
 from bioparser.jobs import SafeError
-from bioparser.jobs.state import FailedStage, WaitingFor
+from bioparser.jobs.state import CancelledStage, FailedStage, WaitingFor
 from bioparser.parser_names import DEFAULT_PARSER_NAME, ParserName
 
 
@@ -105,6 +105,20 @@ class FailedJobFullResponse(FailedJobResponse, JobRecord):
     """A failed job with the stored record beside the error."""
 
 
+class CancelledJobResponse(BaseModel):
+    """A cancelled job. ``cancelled_stage`` is the status the job had when it was cancelled."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: UUID
+    status: Literal["cancelled"]
+    cancelled_stage: CancelledStage
+
+
+class CancelledJobFullResponse(CancelledJobResponse, JobRecord):
+    """A cancelled job with the stored record."""
+
+
 class EtsRowsResponse(BaseModel):
     """The ETS rows for one done job, in observation order."""
 
@@ -113,7 +127,15 @@ class EtsRowsResponse(BaseModel):
     rows: list[EtsRow]
 
 
-JobStatusResponse = JobResponse | JobFullResponse | FailedJobResponse | FailedJobFullResponse
+JobStatusResponse = (
+    JobResponse
+    | JobFullResponse
+    | FailedJobResponse
+    | FailedJobFullResponse
+    | CancelledJobResponse
+    | CancelledJobFullResponse
+)
+JobStatusFullResponse = JobFullResponse | FailedJobFullResponse | CancelledJobFullResponse
 
 
 class DocumentMetadataResponse(BaseModel):

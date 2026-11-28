@@ -70,7 +70,8 @@ FastAPI owns the public HTTP contract:
 
 - `POST /api/extractions` stores a PDF, inserts its document and a job in one transaction, and queues that job
 - `GET /api/jobs/{job_id}` for job status and results
-- `DELETE /api/jobs/{job_id}` soft-deletes a done or failed job: it leaves the job lists, and its row, document and artifacts stay
+- `POST /api/jobs/{job_id}/cancel` cancels a job that has not finished. It does not stop work that is already running
+- `DELETE /api/jobs/{job_id}` soft-deletes a done, failed or cancelled job: it leaves the job lists, and its row, document and artifacts stay
 - `/health` for process liveness
 - `/ready` a readiness endpoint for Redis and artifact storage availability
 
@@ -92,15 +93,15 @@ archive. PDFs and versioned outputs live behind an artifact storage interface:
 - **Table:** `jobs`, one row per `job_id`. The `Job` class in `bioparser.db.jobs`
   is that table. The API and both workers query it, and Alembic diffs the class
   when generating a revision.
-- **Writes:** a claim, a recorded result, a failure, and a recorded wait are each
-  one statement. The statement changes its own columns and matches only a status
+- **Writes:** a claim, a recorded result, a failure, a recorded wait, and a cancel
+  are each one statement. The statement changes its own columns and matches only a status
   that may make that change. No matching row leaves the job as it is. `created_at`
   and `updated_at` are set by the database. The update trigger sets `updated_at`.
 - **Waits:** when MinerU or vLLM does not answer, the stage defers the job and
   records `waiting_for` (`parser` or `extractor`). It sets `waiting_since` only if it
   is empty, and writes nothing when the row already records that wait. The status and
-  the claim counts stay as they are. A claim or a failure clears both columns in the
-  same statement. A deferral because Postgres is not reachable writes nothing. The API
+  the claim counts stay as they are. A claim, a failure, or a cancel clears both
+  columns in the same statement. A deferral because Postgres is not reachable writes nothing. The API
   cannot reach MinerU or vLLM, so these columns are how it shows the wait.
 - **Retention:** a row stays until something deletes it.
 - **Timeouts:** a driver failure, including one raised by a statement inside
@@ -195,9 +196,18 @@ stateDiagram-v2
     parsed --> failed: Extract queue gives up before claiming
     extracting --> done: Observations stored
     extracting --> failed: Permanent failure
+    queued --> cancelled: Curator cancels
+    parsing --> cancelled: Curator cancels
+    parsed --> cancelled: Curator cancels
+    extracting --> cancelled: Curator cancels
     done --> [*]
     failed --> [*]
+    cancelled --> [*]
 ```
+
+A cancel does not stop a parse or an extraction that is already running. Every worker
+write matches only the status its stage claimed, so the cancelled job keeps its status:
+a later delivery is skipped, and a result that arrives after the cancel is not recorded.
 
 Workers tolerate duplicate delivery without corrupting completed jobs. Retries and
 timeouts are bounded, and API errors do not expose secrets or stack traces.
@@ -276,8 +286,9 @@ Job state holds the document checksum and the artifact paths, typed `ArtifactPat
 | Field | Type | Set |
 |---|---|---|
 | `document_checksum` | sha256 hex | Always. The document this job belongs to. The PDF is `pdf_path(document_checksum)`. |
-| `parse_result_ref` | `ArtifactPath \| None` | In `parsed`, `extracting` and `done`. Also on `failed` when `failed_stage` is `parsed` or `extracting`. `None` in `queued` and `parsing`, and on `failed` when `failed_stage` is `queued` or `parsing`. |
+| `parse_result_ref` | `ArtifactPath \| None` | In `parsed`, `extracting` and `done`. Also on `failed` and `cancelled` when `failed_stage` or `cancelled_stage` is `parsed` or `extracting`. `None` in `queued` and `parsing`, and on `failed` and `cancelled` when that stage is `queued` or `parsing`. |
 | `failed_stage` | `queued`, `parsing`, `parsed`, or `extracting` | Set only when `status` is `failed`. It is the status the job had when it failed. |
+| `cancelled_stage` | `queued`, `parsing`, `parsed`, or `extracting` | Set only when `status` is `cancelled`. It is the status the job had when it was cancelled. |
 | `waiting_for` | `parser` or `extractor` | Set while the stage's service does not answer and the job is deferred. `parser` only in `queued` or `parsing`, `extractor` only in `parsed` or `extracting`. Cleared by a claim or a failure. |
 | `waiting_since` | timestamp | Set together with `waiting_for`: when that wait began. A later deferral keeps it. |
 

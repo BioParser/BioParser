@@ -2,20 +2,30 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearchParams } from "react-router";
 import { ApiError, getReadiness, type JobList, type JobStatus, listJobs } from "../api/client";
 import { shouldRetry } from "../api/queryClient";
-import { JOB_STATUS_LABELS, jobStatusLabel } from "../jobStatus";
+import { isFinished, JOB_STATUS_LABELS, jobStatusLabel } from "../jobStatus";
 import type { DeletedJobState } from "./JobDetailPage";
 
 const INTERVAL = 5000;
 const IDLE_INTERVAL = 30000;
 const PAGE_SIZE = 10;
-const STATUSES: JobStatus[] = ["queued", "parsing", "parsed", "extracting", "done", "failed"];
+const STATUSES: JobStatus[] = [
+  "queued",
+  "parsing",
+  "parsed",
+  "extracting",
+  "done",
+  "failed",
+  "cancelled",
+];
 
 function Progress({ job }: { job: JobList[number] }) {
   const parseCompleted =
     job.status === "parsed" ||
     job.status === "extracting" ||
     (job.status === "failed" &&
-      (job.failed_stage === "parsed" || job.failed_stage === "extracting"));
+      (job.failed_stage === "parsed" || job.failed_stage === "extracting")) ||
+    (job.status === "cancelled" &&
+      (job.cancelled_stage === "parsed" || job.cancelled_stage === "extracting"));
   // Two steps: a done job has both complete, and the status beside them says Done.
   const completed = job.status === "done" ? 2 : parseCompleted ? 1 : 0;
   const active = job.status === "parsing" ? 0 : job.status === "extracting" ? 1 : -1;
@@ -62,9 +72,7 @@ export function DashboardPage() {
     refetchInterval: (query) => {
       if (invalidStatus) return false;
       if (query.state.error) return shouldRetry(0, query.state.error) ? INTERVAL : false;
-      return query.state.data?.some((job) => job.status !== "done" && job.status !== "failed")
-        ? INTERVAL
-        : IDLE_INTERVAL;
+      return query.state.data?.some((job) => !isFinished(job.status)) ? INTERVAL : IDLE_INTERVAL;
     },
   });
   const readiness = useQuery({

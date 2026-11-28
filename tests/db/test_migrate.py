@@ -28,6 +28,7 @@ _COLUMNS = {
     "failed_stage": ("YES", "text", None),
     "waiting_for": ("YES", "text", None),
     "waiting_since": ("YES", "timestamp with time zone", None),
+    "cancelled_stage": ("YES", "text", None),
     "parsing_claims": ("NO", "integer", None),
     "extracting_claims": ("NO", "integer", None),
     "created_at": ("NO", "timestamp with time zone", None),
@@ -43,6 +44,7 @@ _CHECKS = {
     "jobs_deleted_at_check",
     "jobs_failed_stage_check",
     "jobs_waiting_check",
+    "jobs_cancelled_stage_check",
 }
 _DOCUMENTS_COLUMNS = {
     "checksum": ("NO", "character varying", 64),
@@ -395,3 +397,58 @@ def _trigger_names(admin_url: str, name: str) -> set[str]:
         found = {str(trigger) for (trigger,) in rows}
     engine.dispose()
     return found
+
+
+@pytest.mark.integration
+def test_downgrading_the_cancel_revision_fails_cancelled_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An older app cannot read `cancelled`, so the downgrade turns those jobs into failed ones."""
+    raw = os.environ.get("BIOPARSER_TEST_DATABASE_URL")
+    if not raw:
+        pytest.skip("BIOPARSER_TEST_DATABASE_URL is not set")
+
+    admin_url = make_url(sync_database_url(raw)).set(database="postgres")
+    admin = admin_url.render_as_string(hide_password=False)
+    name = f"migrate_{uuid4().hex}"
+    _create_database(admin, name)
+    target = make_url(sync_database_url(raw)).set(database=name).set(drivername="postgresql")
+    target_url = target.render_as_string(hide_password=False)
+    monkeypatch.setenv("BIOPARSER_DATABASE_URL", target_url)
+    monkeypatch.setenv("POSTGRES_APP_PASSWORD", "app-password-3")
+    parsed, queued = uuid4(), uuid4()
+    try:
+        main()
+        engine = create_engine(target_url)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO documents (checksum, display_name, size_bytes) "
+                    "VALUES (:checksum, NULL, 0)"
+                ),
+                {"checksum": "ab" * 32},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, "
+                    "document_checksum, parse_result_ref, cancelled_stage) VALUES "
+                    "(:parsed, 2, 'cancelled', 'default', 'default', :checksum, 'parse-ref', "
+                    "'parsed'), "
+                    "(:queued, 2, 'cancelled', 'default', 'default', :checksum, NULL, 'queued')"
+                ),
+                {"parsed": parsed, "queued": queued, "checksum": "ab" * 32},
+            )
+        command.downgrade(alembic_config(target_url), "20261128_120000")
+        with engine.connect() as connection:
+            rows = connection.execute(
+                text("SELECT job_id, status, error_code, failed_stage FROM jobs")
+            ).all()
+        engine.dispose()
+
+        assert {(row.job_id, row.status, row.error_code, row.failed_stage) for row in rows} == {
+            (parsed, "failed", "internal_error", "parsed"),
+            (queued, "failed", "internal_error", "queued"),
+        }
+        assert "cancelled_stage" not in _columns(admin, name)
+    finally:
+        _drop_database(admin, name)

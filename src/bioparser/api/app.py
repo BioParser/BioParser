@@ -63,6 +63,7 @@ from .errors import (
     INVALID_CONTENT_LENGTH,
     INVALID_JOB_ID,
     INVALID_PDF,
+    JOB_ALREADY_FINISHED,
     JOB_NOT_FINISHED,
     JOB_NOT_FOUND,
     JOB_STATE_UNREADABLE,
@@ -86,6 +87,7 @@ from .schema import (
     DocumentMetadataResponse,
     EtsRowsResponse,
     HealthResponse,
+    JobStatusFullResponse,
     JobStatusResponse,
     ReadinessResponse,
     ReadinessUnavailableResponse,
@@ -726,8 +728,10 @@ async def job_status(
     `waiting_for`, and `waiting_since`. `waiting_for` is `parser` or `extractor` while
     the stage's service does not answer, and `waiting_since` is when that wait began.
     Both are null otherwise. `failed` is `job_id`, `status`, `error`, and
-    `failed_stage`, the status the job had when it failed. The ETS rows are
-    `GET /api/jobs/{job_id}/ets`. This route does not read the extraction artifact.
+    `failed_stage`, the status the job had when it failed. `cancelled` is `job_id`,
+    `status`, and `cancelled_stage`, the status the job had when it was cancelled. The
+    ETS rows are `GET /api/jobs/{job_id}/ets`. This route does not read the extraction
+    artifact.
 
     `?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,
     `extractor`, and `document_checksum`.
@@ -753,7 +757,7 @@ async def job_status(
     },
 )
 async def delete_job(request: Request, job_id: str) -> Response:
-    """Delete a `done` or `failed` job.
+    """Delete a `done`, `failed` or `cancelled` job.
 
     The job leaves the job lists and its reads are `404`. It is a soft delete: the
     row is marked deleted and stays in the database. The document, its PDF and the
@@ -773,6 +777,45 @@ async def delete_job(request: Request, job_id: str) -> Response:
     if outcome == "not_finished":
         raise http_error(409, JOB_NOT_FINISHED)
     return Response(status_code=204)
+
+
+@app.post(
+    "/api/jobs/{job_id}/cancel",
+    dependencies=[Depends(require_api_key)],
+    response_model=JobStatusFullResponse,
+    responses={
+        401: error_response(UNAUTHORIZED),
+        404: error_response(JOB_NOT_FOUND),
+        409: error_response(JOB_ALREADY_FINISHED),
+        422: error_response(INVALID_JOB_ID),
+        500: error_response(JOB_STATE_UNREADABLE),
+        503: error_response(DATABASE_UNAVAILABLE),
+    },
+)
+async def cancel_job(request: Request, job_id: str) -> JobStatusFullResponse:
+    """Cancel a job that is `queued`, `parsing`, `parsed` or `extracting`.
+
+    The job becomes `cancelled`, a final status, and the body is the job as
+    `?detail=full` returns it. The check and the write are one statement, so a job
+    that finishes at the same moment keeps its result and the cancel is `409`. Work
+    that is already running is not stopped: its result is not recorded. A parser
+    artifact stored before or after the cancel stays and can be reused.
+    """
+    parsed_job_id = _parse_job_id(job_id)
+    fields = {"job_id": str(parsed_job_id)}
+    try:
+        async with database.transaction() as connection:
+            outcome = await job_queries.cancel_unfinished(connection, parsed_job_id)
+    except DatabaseError as exc:
+        LOGGER.warning("job cancel failed", extra=fields | error_fields(exc))
+        raise http_error(503, DATABASE_UNAVAILABLE) from exc
+    if outcome == "missing":
+        raise http_error(404, JOB_NOT_FOUND)
+    if outcome == "finished":
+        raise http_error(409, JOB_ALREADY_FINISHED)
+    LOGGER.info("job cancelled", extra=fields)
+    state, display_name = await _read_job(request, parsed_job_id)
+    return job_body_full(state, display_name)
 
 
 @app.get(

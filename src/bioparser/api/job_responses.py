@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from bioparser.ets.adapter import to_ets
 from bioparser.extract.models import ExtractionArtifact
 from bioparser.jobs import JobState, SafeError
-from bioparser.jobs.state import FailedStage
+from bioparser.jobs.state import CancelledStage, FailedStage
 from bioparser.logging_config import error_fields
 from bioparser.storage import (
     ArtifactNotFoundError,
@@ -25,11 +25,14 @@ from .errors import (
     http_error,
 )
 from .schema import (
+    CancelledJobFullResponse,
+    CancelledJobResponse,
     EtsRowsResponse,
     FailedJobFullResponse,
     FailedJobResponse,
     JobFullResponse,
     JobResponse,
+    JobStatusFullResponse,
     JobStatusResponse,
 )
 
@@ -83,6 +86,13 @@ def _failed_stage(state: JobState) -> FailedStage:
     return stage
 
 
+def _cancelled_stage(state: JobState) -> CancelledStage:
+    stage = state.cancelled_stage
+    if stage is None:
+        raise ValueError("Cancelled job is missing cancelled_stage")
+    return stage
+
+
 def job_body(state: JobState) -> JobStatusResponse:
     """The public status. No record fields, and no ETS rows."""
     if state.status == "failed":
@@ -92,16 +102,26 @@ def job_body(state: JobState) -> JobStatusResponse:
             error=_error(state),
             failed_stage=_failed_stage(state),
         )
+    if state.status == "cancelled":
+        return CancelledJobResponse(
+            job_id=state.job_id, status="cancelled", cancelled_stage=_cancelled_stage(state)
+        )
     return JobResponse(job_id=state.job_id, status=state.status, **_waiting(state))
 
 
-def job_body_full(state: JobState, display_name: str | None) -> JobStatusResponse:
+def job_body_full(state: JobState, display_name: str | None) -> JobStatusFullResponse:
     """The public status with the stored record. Still no ETS rows."""
     if state.status == "failed":
         return FailedJobFullResponse(
             status="failed",
             error=_error(state),
             failed_stage=_failed_stage(state),
+            **_record(state, display_name),
+        )
+    if state.status == "cancelled":
+        return CancelledJobFullResponse(
+            status="cancelled",
+            cancelled_stage=_cancelled_stage(state),
             **_record(state, display_name),
         )
     return JobFullResponse(status=state.status, **_waiting(state), **_record(state, display_name))

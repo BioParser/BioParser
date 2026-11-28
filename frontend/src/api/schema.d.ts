@@ -146,8 +146,10 @@ export interface paths {
          *     `waiting_for`, and `waiting_since`. `waiting_for` is `parser` or `extractor` while
          *     the stage's service does not answer, and `waiting_since` is when that wait began.
          *     Both are null otherwise. `failed` is `job_id`, `status`, `error`, and
-         *     `failed_stage`, the status the job had when it failed. The ETS rows are
-         *     `GET /api/jobs/{job_id}/ets`. This route does not read the extraction artifact.
+         *     `failed_stage`, the status the job had when it failed. `cancelled` is `job_id`,
+         *     `status`, and `cancelled_stage`, the status the job had when it was cancelled. The
+         *     ETS rows are `GET /api/jobs/{job_id}/ets`. This route does not read the extraction
+         *     artifact.
          *
          *     `?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,
          *     `extractor`, and `document_checksum`.
@@ -157,7 +159,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Job
-         * @description Delete a `done` or `failed` job.
+         * @description Delete a `done`, `failed` or `cancelled` job.
          *
          *     The job leaves the job lists and its reads are `404`. It is a soft delete: the
          *     row is marked deleted and stays in the database. The document, its PDF and the
@@ -165,6 +167,32 @@ export interface paths {
          *     share them. A job in any other status is still running and is `409`.
          */
         delete: operations["delete_job_api_jobs__job_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Job
+         * @description Cancel a job that is `queued`, `parsing`, `parsed` or `extracting`.
+         *
+         *     The job becomes `cancelled`, a final status, and the body is the job as
+         *     `?detail=full` returns it. The check and the write are one statement, so a job
+         *     that finishes at the same moment keeps its result and the cancel is `409`. Work
+         *     that is already running is not stopped: its result is not recorded. A parser
+         *     artifact stored before or after the cancel stays and can be reused.
+         */
+        post: operations["cancel_job_api_jobs__job_id__cancel_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -321,6 +349,61 @@ export interface components {
             y1: number;
         };
         /**
+         * CancelledJobFullResponse
+         * @description A cancelled job with the stored record.
+         */
+        CancelledJobFullResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Parser */
+            parser: string;
+            /** Extractor */
+            extractor: string;
+            /** Document Checksum */
+            document_checksum: string;
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "cancelled";
+            /**
+             * Cancelled Stage
+             * @enum {string}
+             */
+            cancelled_stage: "queued" | "parsing" | "parsed" | "extracting";
+        };
+        /**
+         * CancelledJobResponse
+         * @description A cancelled job. ``cancelled_stage`` is the status the job had when it was cancelled.
+         */
+        CancelledJobResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "cancelled";
+            /**
+             * Cancelled Stage
+             * @enum {string}
+             */
+            cancelled_stage: "queued" | "parsing" | "parsed" | "extracting";
+        };
+        /**
          * Citation
          * @description Printed text. On a citation-only column, this text is the ETS value.
          *
@@ -418,7 +501,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "missing_file" | "empty_file" | "invalid_pdf" | "unsupported_content_type" | "invalid_content_length" | "job_not_found" | "job_not_finished" | "invalid_job_id" | "content_too_large" | "storage_unavailable" | "artifact_invalid" | "job_state_unreadable" | "database_unavailable" | "queue_unavailable" | "artifact_not_available" | "unauthorized" | "document_not_found" | "invalid_checksum";
+            code: "missing_file" | "empty_file" | "invalid_pdf" | "unsupported_content_type" | "invalid_content_length" | "job_not_found" | "job_not_finished" | "job_already_finished" | "invalid_job_id" | "content_too_large" | "storage_unavailable" | "artifact_invalid" | "job_state_unreadable" | "database_unavailable" | "queue_unavailable" | "artifact_not_available" | "unauthorized" | "document_not_found" | "invalid_checksum";
             /** Message */
             message: string;
         };
@@ -1441,7 +1524,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": (components["schemas"]["JobResponse"] | components["schemas"]["JobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"])[];
+                    "application/json": (components["schemas"]["JobResponse"] | components["schemas"]["JobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"] | components["schemas"]["CancelledJobResponse"] | components["schemas"]["CancelledJobFullResponse"])[];
                 };
             };
             /** @description Unauthorized */
@@ -1565,7 +1648,7 @@ export interface operations {
     list_jobs_api_jobs_get: {
         parameters: {
             query?: {
-                status?: ("queued" | "parsing" | "parsed" | "extracting" | "done" | "failed") | null;
+                status?: ("queued" | "parsing" | "parsed" | "extracting" | "done" | "failed" | "cancelled") | null;
                 parser?: string | null;
                 detail?: "ets" | "full";
             };
@@ -1581,7 +1664,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": (components["schemas"]["JobResponse"] | components["schemas"]["JobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"])[];
+                    "application/json": (components["schemas"]["JobResponse"] | components["schemas"]["JobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"] | components["schemas"]["CancelledJobResponse"] | components["schemas"]["CancelledJobFullResponse"])[];
                 };
             };
             /** @description Unauthorized */
@@ -1641,7 +1724,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["JobResponse"] | components["schemas"]["JobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"];
+                    "application/json": components["schemas"]["JobResponse"] | components["schemas"]["JobFullResponse"] | components["schemas"]["FailedJobResponse"] | components["schemas"]["FailedJobFullResponse"] | components["schemas"]["CancelledJobResponse"] | components["schemas"]["CancelledJobFullResponse"];
                 };
             };
             /** @description Unauthorized */
@@ -1738,6 +1821,82 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    cancel_job_api_jobs__job_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobFullResponse"] | components["schemas"]["FailedJobFullResponse"] | components["schemas"]["CancelledJobFullResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

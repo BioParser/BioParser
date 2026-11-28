@@ -538,6 +538,7 @@ class StubJobs:
         self.doc_get_error: Exception | None = None
         self.delete_error: Exception | None = None
         self.waiting_error: Exception | None = None
+        self.cancel_error: Exception | None = None
         # The database's now() for a recorded wait.
         self.now = datetime(2026, 11, 21, 8, 49, tzinfo=UTC)
 
@@ -663,6 +664,20 @@ class StubJobs:
         )
         return "recorded"
 
+    async def cancel_unfinished(self, connection: object, job_id: object) -> str:
+        self.events.append("job_state.cancel")
+        if self.cancel_error is not None:
+            raise self.cancel_error
+        state = self.states.get(str(job_id))
+        if state is None:
+            return "missing"
+        if "cancelled" not in ALLOWED_TRANSITIONS[state.status]:
+            return "finished"
+        self.states[str(job_id)] = state.with_changes(
+            status="cancelled", cancelled_stage=state.status, **_NOT_WAITING
+        )
+        return "cancelled"
+
     async def delete_finished(self, connection: object, job_id: object) -> str:
         self.events.append("job_state.delete")
         if self.delete_error is not None:
@@ -670,7 +685,7 @@ class StubJobs:
         state = self.states.get(str(job_id))
         if state is None:
             return "missing"
-        if state.status not in ("done", "failed"):
+        if state.status not in ("done", "failed", "cancelled"):
             return "not_finished"
         del self.states[str(job_id)]
         return "deleted"
@@ -805,6 +820,9 @@ def bind_jobs(monkeypatch: Any) -> None:
     async def delete_finished(connection: object, job_id: object) -> str:
         return await tables[-1].delete_finished(connection, job_id)
 
+    async def cancel_unfinished(connection: object, job_id: object) -> str:
+        return await tables[-1].cancel_unfinished(connection, job_id)
+
     async def list_jobs(
         connection: object,
         *,
@@ -865,6 +883,7 @@ def bind_jobs(monkeypatch: Any) -> None:
     monkeypatch.setattr(job_queries, "record_done", record_done)
     monkeypatch.setattr(job_queries, "mark_failed", mark_failed)
     monkeypatch.setattr(job_queries, "delete_finished", delete_finished)
+    monkeypatch.setattr(job_queries, "cancel_unfinished", cancel_unfinished)
     monkeypatch.setattr(job_queries, "list_jobs", list_jobs)
     monkeypatch.setattr(job_queries, "list_jobs_for_document", list_jobs_for_document)
     monkeypatch.setattr(document_queries, "get", get_document)

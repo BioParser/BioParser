@@ -473,12 +473,13 @@ _STATUS_FIELDS: dict[str, dict[str, object]] = {
     "extracting": {"parse_result_ref": "parsed"},
     "done": {"parse_result_ref": "parsed", "extract_result_ref": "extracted"},
     "failed": {"error_code": "invalid_pdf", "failed_stage": "parsing"},
+    "cancelled": {"parse_result_ref": "parsed", "cancelled_stage": "parsed"},
 }
 
 
 @pytest.mark.integration
 @pytest.mark.anyio
-async def test_delete_finished_removes_only_a_done_or_failed_job(database: str) -> None:
+async def test_delete_finished_removes_only_a_finished_job(database: str) -> None:
     states = {
         status: _queued(uuid.uuid4(), status=status, **fields)
         for status, fields in _STATUS_FIELDS.items()
@@ -502,6 +503,7 @@ async def test_delete_finished_removes_only_a_done_or_failed_job(database: str) 
         "extracting": "not_finished",
         "done": "deleted",
         "failed": "deleted",
+        "cancelled": "deleted",
     }
     assert missing == "missing"
     assert document is not None
@@ -515,7 +517,176 @@ async def test_delete_finished_removes_only_a_done_or_failed_job(database: str) 
     # A soft delete: the rows stay, marked deleted, and the active jobs are not marked.
     for status, state in states.items():
         deleted_at = await _deleted_at(state.job_id)
-        assert (deleted_at is not None) == (status in ("done", "failed")), status
+        assert (deleted_at is not None) == (status in ("done", "failed", "cancelled")), status
+
+
+async def _cancel(job_id: uuid.UUID) -> str:
+    async with db_engine.transaction() as connection:
+        return await job_queries.cancel_unfinished(connection, job_id)
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_cancel_stops_every_unfinished_job_and_refuses_a_finished_one(
+    database: str,
+) -> None:
+    states = {
+        status: _queued(uuid.uuid4(), status=status, **fields)
+        for status, fields in _STATUS_FIELDS.items()
+    }
+    for state in states.values():
+        await _create(state)
+
+    outcomes = {status: await _cancel(state.job_id) for status, state in states.items()}
+
+    assert outcomes == {
+        "queued": "cancelled",
+        "parsing": "cancelled",
+        "parsed": "cancelled",
+        "extracting": "cancelled",
+        "done": "finished",
+        "failed": "finished",
+        "cancelled": "finished",
+    }
+    for status, state in states.items():
+        stored = await _get(state.job_id)
+        assert stored is not None
+        if status in ("done", "failed", "cancelled"):
+            assert stored.status == status
+            assert stored.cancelled_stage == state.cancelled_stage
+            continue
+        assert stored.status == "cancelled"
+        assert stored.cancelled_stage == status
+        # The parser artifact stays, so running the job again can reuse it.
+        assert stored.parse_result_ref == state.parse_result_ref
+        assert stored.claims("parsing") == state.parsing_claims
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_cancel_ends_the_wait(database: str) -> None:
+    state = _queued(uuid.uuid4())
+    await _create(state)
+    await _record_waiting(state.job_id)
+
+    assert await _cancel(state.job_id) == "cancelled"
+    stored = await _get(state.job_id)
+    assert stored is not None
+    assert stored.waiting_for is None
+    assert stored.waiting_since is None
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_cancel_of_a_missing_or_deleted_job_is_missing(database: str) -> None:
+    done = _queued(uuid.uuid4(), status="done", **_STATUS_FIELDS["done"])
+    await _create(done)
+    async with db_engine.transaction() as connection:
+        assert await job_queries.delete_finished(connection, done.job_id) == "deleted"
+
+    assert await _cancel(done.job_id) == "missing"
+    assert await _cancel(uuid.uuid4()) == "missing"
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_a_result_recorded_after_a_cancel_is_discarded(database: str) -> None:
+    parsing = _queued(uuid.uuid4(), status="parsing", parsing_claims=1)
+    extracting = _queued(
+        uuid.uuid4(), status="extracting", parse_result_ref="parsed", extracting_claims=1
+    )
+    await _create(parsing)
+    await _create(extracting)
+
+    assert await _cancel(parsing.job_id) == "cancelled"
+    assert await _cancel(extracting.job_id) == "cancelled"
+    async with db_engine.transaction() as connection:
+        assert await job_queries.record_parsed(connection, parsing.job_id, "parsed") is False
+        assert await job_queries.record_done(connection, extracting.job_id, "extracted") is False
+
+    stored_parse = await _get(parsing.job_id)
+    stored_extract = await _get(extracting.job_id)
+    assert stored_parse is not None
+    assert stored_extract is not None
+    assert (stored_parse.status, stored_parse.parse_result_ref) == ("cancelled", None)
+    assert (stored_extract.status, stored_extract.extract_result_ref) == ("cancelled", None)
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_a_cancel_after_done_is_refused_and_keeps_the_result(database: str) -> None:
+    state = _queued(uuid.uuid4(), status="extracting", parse_result_ref="parsed")
+    await _create(state)
+    async with db_engine.transaction() as connection:
+        assert await job_queries.record_done(connection, state.job_id, "extracted") is True
+
+    assert await _cancel(state.job_id) == "finished"
+    stored = await _get(state.job_id)
+    assert stored is not None
+    assert (stored.status, stored.extract_result_ref) == ("done", "extracted")
+
+
+async def _record_result(job_id: uuid.UUID, stage: str) -> bool:
+    async with db_engine.transaction() as connection:
+        if stage == "parsing":
+            return await job_queries.record_parsed(connection, job_id, "parsed")
+        return await job_queries.record_done(connection, job_id, "extracted")
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+@pytest.mark.parametrize("stage", ["parsing", "extracting"])
+async def test_a_cancel_racing_a_recorded_result_leaves_one_consistent_outcome(
+    database: str, stage: str
+) -> None:
+    import asyncio
+
+    fields: dict[str, object] = {"parse_result_ref": "parsed"} if stage == "extracting" else {}
+    for _ in range(20):
+        state = _queued(uuid.uuid4(), status=stage, **fields)
+        await _create(state)
+
+        cancelled, recorded = await asyncio.gather(
+            _cancel(state.job_id), _record_result(state.job_id, stage)
+        )
+        stored = await _get(state.job_id)
+        assert stored is not None
+        if stage == "parsing":
+            # parsed is not final, so a cancel that comes second still lands.
+            assert cancelled == "cancelled"
+            assert stored.status == "cancelled"
+            assert stored.cancelled_stage == ("parsed" if recorded else "parsing")
+            assert (stored.parse_result_ref is not None) is recorded
+        else:
+            # Exactly one of the two writes lands.
+            assert (cancelled == "cancelled") is not recorded
+            assert stored.status == ("done" if recorded else "cancelled")
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "assignment",
+    [
+        "status = 'cancelled'",
+        "status = 'cancelled', cancelled_stage = 'parsed'",
+        "cancelled_stage = 'queued'",
+        "status = 'cancelled', cancelled_stage = 'done'",
+    ],
+)
+async def test_the_database_refuses_a_cancel_that_does_not_fit_the_row(
+    database: str, assignment: str
+) -> None:
+    """jobs_cancelled_stage_check holds the rule even for a write that skips cancel_unfinished."""
+    state = _queued(uuid.uuid4())
+    await _create(state)
+
+    with pytest.raises(DatabaseError):
+        async with db_engine.transaction() as connection:
+            await connection.execute(
+                text(f"UPDATE jobs SET {assignment} WHERE job_id = :job_id"),
+                {"job_id": state.job_id},
+            )
 
 
 @pytest.mark.integration
@@ -1044,8 +1215,9 @@ async def test_migrated_status_check_accepts_exactly_the_job_statuses(database: 
         "VALUES (:checksum, NULL, 0) ON CONFLICT (checksum) DO NOTHING"
     )
     job_insert = text(
-        "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, document_checksum) "
-        "VALUES (:job_id, 2, :status, 'default', 'default', :checksum)"
+        "INSERT INTO jobs (job_id, schema_version, status, parser, extractor, document_checksum, "
+        "cancelled_stage) "
+        "VALUES (:job_id, 2, :status, 'default', 'default', :checksum, :cancelled_stage)"
     )
     engine = create_engine(sync_database_url(database))
     try:
@@ -1055,12 +1227,23 @@ async def test_migrated_status_check_accepts_exactly_the_job_statuses(database: 
             with engine.begin() as connection:
                 connection.execute(
                     job_insert,
-                    {"job_id": uuid.uuid4(), "status": status, "checksum": CHECKSUM},
+                    {
+                        "job_id": uuid.uuid4(),
+                        "status": status,
+                        "checksum": CHECKSUM,
+                        # A cancelled row must say where it stopped (jobs_cancelled_stage_check).
+                        "cancelled_stage": "queued" if status == "cancelled" else None,
+                    },
                 )
         with pytest.raises(IntegrityError), engine.begin() as connection:
             connection.execute(
                 job_insert,
-                {"job_id": uuid.uuid4(), "status": "not_a_status", "checksum": CHECKSUM},
+                {
+                    "job_id": uuid.uuid4(),
+                    "status": "not_a_status",
+                    "checksum": CHECKSUM,
+                    "cancelled_stage": None,
+                },
             )
     finally:
         engine.dispose()

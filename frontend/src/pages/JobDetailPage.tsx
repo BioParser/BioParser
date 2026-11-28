@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import {
   ApiError,
+  cancelJob,
   deleteJob,
   getJob,
   type JobList,
@@ -11,7 +12,7 @@ import {
 import { EvidenceView } from "../evidence/EvidenceView";
 import { artifactQueryKey } from "../evidence/useEvidenceArtifacts";
 import { jobQueryKey } from "../evidence/usePdfDocument";
-import { JOB_STATUS_LABELS, waitingFor } from "../jobStatus";
+import { isFinished, JOB_STATUS_LABELS, waitingFor } from "../jobStatus";
 import { JobResults } from "../results/JobResults";
 import { resultsQueryKey } from "../results/useJobResults";
 
@@ -101,7 +102,7 @@ export function JobDetailPage() {
     refetchInterval: (query) => {
       if (!visible || isPermanentError(query.state.error)) return false;
       const status = query.state.data?.status;
-      return status === "done" || status === "failed" ? false : 3000;
+      return status !== undefined && isFinished(status) ? false : 3000;
     },
   });
   const missing = job.error instanceof ApiError && [404, 422].includes(job.error.status);
@@ -147,9 +148,24 @@ function JobStatus({
   observationIndex: number | null;
   onSelectObservation: (index: number) => void;
 }) {
+  // A failed or cancelled job shows the stage it stopped at.
+  const stopped =
+    job.status === "failed"
+      ? job.failed_stage
+      : job.status === "cancelled"
+        ? job.cancelled_stage
+        : null;
   const stage =
-    job.status === "failed" ? STAGES.indexOf(job.failed_stage) : STAGES.indexOf(job.status);
+    job.status === "failed"
+      ? STAGES.indexOf(job.failed_stage)
+      : job.status === "cancelled"
+        ? STAGES.indexOf(job.cancelled_stage)
+        : STAGES.indexOf(job.status);
+  const ending = job.status === "failed" || job.status === "cancelled" ? job.status : null;
   const wait = waitingFor(job);
+  // The job a cancel came too late for: it had already finished. Kept by id, so the note
+  // does not follow the page to another job.
+  const [finishedFirst, setFinishedFirst] = useState<string | null>(null);
   return (
     <>
       <section className="job-summary" aria-labelledby="job-details-heading">
@@ -164,9 +180,11 @@ function JobStatus({
             <time dateTime={job.created_at}>{new Date(job.created_at).toLocaleString()}</time>
           </dd>
         </dl>
-        {(job.status === "done" || job.status === "failed") && (
+        {isFinished(job.status) ? (
           // key: another job's page starts with the question closed and no delete of its own.
           <DeleteJob key={job.job_id} jobId={job.job_id} displayName={job.display_name} />
+        ) : (
+          <CancelJob key={job.job_id} jobId={job.job_id} onFinishedFirst={setFinishedFirst} />
         )}
       </section>
       <section aria-labelledby="job-progress-heading" className="card job-section">
@@ -174,6 +192,14 @@ function JobStatus({
         <p role="status" className={`job-status-line status-badge status-${job.status}`}>
           Status: {job.status}
         </p>
+        {finishedFirst === job.job_id && isFinished(job.status) && job.status !== "cancelled" && (
+          <p className="job-cancel-late">
+            The job finished before it could be cancelled, so it keeps its {job.status} status.
+          </p>
+        )}
+        {job.status === "cancelled" && (
+          <p className="job-cancelled">The job was cancelled {STAGE_WHEN[job.cancelled_stage]}.</p>
+        )}
         {wait && (
           <p className="job-waiting">
             Waiting for {wait.service} since{" "}
@@ -187,17 +213,17 @@ function JobStatus({
               key={status}
               aria-current={index === stage ? "step" : undefined}
               className={
-                index === stage && job.status === "failed"
-                  ? "failed"
+                index === stage && ending !== null
+                  ? ending
                   : index === stage && job.status === "done"
                     ? "done"
                     : undefined
               }
             >
-              {status === "parsed" && job.status === "failed" && job.failed_stage === "parsed"
+              {status === "parsed" && stopped === "parsed"
                 ? "Waiting to extract"
                 : JOB_STATUS_LABELS[status]}
-              {index === stage && job.status === "failed" ? " — failed" : ""}
+              {index === stage && ending !== null ? ` — ${ending}` : ""}
               {/* The check mark shows it; screen readers hear it. */}
               {index < stage && <span className="visually-hidden"> — complete</span>}
             </li>
@@ -227,6 +253,96 @@ function JobStatus({
         </section>
       )}
     </>
+  );
+}
+
+// An unfinished job can be cancelled. Work that is already running is not stopped, but its
+// result is not recorded.
+function CancelJob({
+  jobId,
+  onFinishedFirst,
+}: {
+  jobId: string;
+  onFinishedFirst: (jobId: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  const keepButton = useRef<HTMLButtonElement>(null);
+  const opened = useRef(false);
+  useEffect(() => {
+    if (confirming) keepButton.current?.focus();
+    else if (opened.current) cancelButton.current?.focus();
+  }, [confirming]);
+
+  // As with a delete, the id is the mutation's variable and the callbacks use it, not this
+  // render's props: they also run after this component has gone.
+  const cancel = useMutation({
+    mutationFn: (id: string) => cancelJob(id),
+    onSuccess: (job, id) => {
+      // The response is the job as the page reads it, so the page shows it without a reload.
+      queryClient.setQueryData(jobQueryKey(id), job);
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
+    onError: (error, id) => {
+      if (error instanceof ApiError && error.code === "job_already_finished") {
+        onFinishedFirst(id);
+        void queryClient.invalidateQueries({ queryKey: jobQueryKey(id), exact: true });
+        void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      }
+    },
+  });
+
+  if (!confirming) {
+    return (
+      <p className="job-cancel">
+        <button
+          type="button"
+          ref={cancelButton}
+          onClick={() => {
+            opened.current = true;
+            setConfirming(true);
+          }}
+        >
+          Cancel job
+        </button>
+      </p>
+    );
+  }
+  return (
+    <div className="job-cancel-confirm">
+      <p id="job-cancel-question">
+        Cancel this job? It ends as cancelled. Work that is already running finishes in the
+        background, and its result is not used.
+      </p>
+      {cancel.isError &&
+        !(cancel.error instanceof ApiError && cancel.error.code === "job_already_finished") && (
+          <p role="alert">The job could not be cancelled. Try again.</p>
+        )}
+      <p className="job-cancel-actions">
+        <button
+          type="button"
+          className="button-danger"
+          aria-describedby="job-cancel-question"
+          disabled={cancel.isPending}
+          onClick={() => cancel.mutate(jobId)}
+        >
+          {cancel.isPending ? "Cancelling…" : "Cancel job"}
+        </button>
+        <button
+          type="button"
+          ref={keepButton}
+          aria-describedby="job-cancel-question"
+          disabled={cancel.isPending}
+          onClick={() => {
+            cancel.reset();
+            setConfirming(false);
+          }}
+        >
+          Keep the job
+        </button>
+      </p>
+    </div>
   );
 }
 

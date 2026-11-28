@@ -1013,3 +1013,58 @@ def test_a_malformed_extract_message_fails_a_parsed_job() -> None:
     assert jobs.state.error_code == "internal_error"
     assert jobs.state.failed_stage == "parsed"
     assert jobs.state.parse_result_ref == PARSE_REF
+
+
+# --- a cancelled job ---------------------------------------------------------
+
+
+def test_a_delivery_for_a_job_cancelled_while_parsed_is_skipped(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    jobs = StubJobs(_parsed().with_changes(status="cancelled", cancelled_stage="parsed"))
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        raise AssertionError("model was called")
+
+    handler = _handler(jobs, _storage(), extract)
+    with caplog.at_level(logging.INFO, logger="bioparser.worker.stage"):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "cancelled"
+    assert jobs.state.claims("extracting") == 0
+    assert "status is already 'cancelled'. Skipping this delivery" in caplog.text
+    assert all(record.levelno == logging.INFO for record in caplog.records)
+
+
+def test_an_extraction_that_ends_after_a_cancel_is_not_recorded() -> None:
+    jobs = StubJobs(_parsed())
+    storage = _storage()
+    real = _real_extract(_stub())
+
+    async def extract(artifact: ParserArtifact) -> ExtractionArtifact:
+        assert await jobs.cancel_unfinished(None, JOB_ID) == "cancelled"
+        return await real(artifact)
+
+    handler = _handler(jobs, storage, extract)
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "cancelled"
+    assert jobs.state.cancelled_stage == "extracting"
+    assert jobs.state.extract_result_ref is None
+    assert jobs.state.parse_result_ref == PARSE_REF
+    assert storage.stores == 1
+
+
+def test_giving_up_on_a_job_cancelled_while_parsed_does_not_mark_it_failed() -> None:
+    jobs = StubJobs(_parsed().with_changes(status="cancelled", cancelled_stage="parsed"))
+    handler = _handler(jobs, _storage(), _real_extract(_stub()))
+    asyncio.run(handler.on_failed(_message(), JobDeferralExpired()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "cancelled"
+    assert jobs.state.error_code is None
