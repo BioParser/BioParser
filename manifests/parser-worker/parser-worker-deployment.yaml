@@ -29,6 +29,13 @@ spec:
         - name: parser-worker
           image: parser-worker:latest
           imagePullPolicy: Always
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           envFrom:
             - configMapRef:
                 name: bioparser-config
