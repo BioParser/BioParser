@@ -210,6 +210,17 @@ export function startDocumentJob(
   });
 }
 
+export function updateDocumentTitle(
+  checksum: string,
+  title: Schemas["UpdateDocumentRequest"]["title"],
+): Promise<DocumentMetadataResponse> {
+  return apiFetch(`/api/documents/${encodeURIComponent(checksum)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+}
+
 // The parser artifact, from the job's `parsed` state on. 409 until then.
 export function getParserArtifact(jobId: string, signal?: AbortSignal): Promise<ParserArtifact> {
   return apiFetch(`/api/jobs/${encodeURIComponent(jobId)}/artifacts/parser`, { signal });

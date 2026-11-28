@@ -194,6 +194,16 @@ input {
   overflow-wrap: anywhere;
 }
 
+.document-title-editor {
+  margin: 0.75rem 0;
+}
+
+.document-title-editor form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 40rem;
+}
+
 .job-file-error {
   color: #d33;
 }

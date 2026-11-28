@@ -9,6 +9,7 @@ import {
   getParserArtifact,
   getReadiness,
   startDocumentJob,
+  updateDocumentTitle,
   uploadDocument,
 } from "./client";
 
@@ -247,6 +248,18 @@ describe("apiFetch and the API key", () => {
       expect((init.body as FormData).get("title")).toBe('Darwin\'s "paper"');
       expect(init.signal).toBe(controller.signal);
       expect(sentHeaders(fetchMock).has("Content-Type")).toBe(false);
+    });
+  });
+
+  describe("updateDocumentTitle", () => {
+    it.each(["Darwin's paper", null])("patches a document title (%s)", async (title) => {
+      const fetchMock = stubFetch(Response.json({ checksum: "a/b", title }));
+      await expect(updateDocumentTitle("a/b", title)).resolves.toEqual({ checksum: "a/b", title });
+      const { path, init } = sentRequest(fetchMock);
+      expect(path).toBe("/api/documents/a%2Fb");
+      expect(init.method).toBe("PATCH");
+      expect(sentHeaders(fetchMock).get("Content-Type")).toBe("application/json");
+      expect(JSON.parse(String(init.body))).toEqual({ title });
     });
   });
 
