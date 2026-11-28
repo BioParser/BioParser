@@ -1,7 +1,9 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: bioparser-artifact-pvc
+  name: postgres-data
+  labels:
+    app: postgres
 spec:
   accessModes:
     - ReadWriteOnce

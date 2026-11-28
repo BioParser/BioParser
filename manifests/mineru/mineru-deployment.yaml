@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    alpha.image.policy.openshift.io/resolve-names: "*"
+    image.openshift.io/triggers: >-
+      [{"from":{"kind":"ImageStreamTag","name":"mineru:cpu"},"fieldPath":"spec.template.spec.containers[?(@.name==\"mineru-cpu\")].image","pause":"false"}]
+  name: mineru
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mineru
+  template:
+    metadata:
+      labels:
+        app: mineru
+    spec:
+      containers:
+        - name: mineru-cpu
+          image: mineru:cpu
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          startupProbe:
+            httpGet:
+              path: /v1/health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8000
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8000
+            initialDelaySeconds: 0
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          env:
+            - name: MINERU_API_CONCURRENCY
+              valueFrom:
+                configMapKeyRef:
+                  name: bioparser-config
+                  key: MINERU_API_CONCURRENCY
+            - name: MINERU_INTRA_OP_NUM_THREADS
+              value: "4"
+            - name: MINERU_PDF_RENDER_THREADS
+              value: "2"
+          resources:
+            requests:
+              cpu: "2"
+              memory: "8Gi"
+            limits:
+              cpu: "4"
+              memory: "12Gi"
