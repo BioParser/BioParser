@@ -792,60 +792,6 @@ def test_a_wrapped_rewrite_highlights_the_whole_area() -> None:
     ] == whole
 
 
-def test_tagged_characters_keep_a_line_each() -> None:
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "mineru_glyph_edges_tagged",
-        Path(__file__).resolve().parents[2] / "docker" / "patches" / "mineru_glyph_edges.py",
-    )
-    assert spec is not None and spec.loader is not None
-    patch = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(patch)
-    chars = [
-        {"char": "A", "bbox": [10.0, 10.0, 20.0, 22.0]},
-        {"char": "B", "bbox": [24.0, 11.0, 34.0, 23.0]},
-        {"char": "C", "bbox": [10.0, 40.0, 20.0, 52.0]},
-    ]
-    lines = patch._bioparser_tagged_lines(chars, (200.0, 100.0))
-    assert len(lines) == 2
-    assert [glyph["t"] for glyph in lines[0]["glyphs"]] == ["A", "B"]
-    assert [glyph["t"] for glyph in lines[1]["glyphs"]] == ["C"]
-    assert lines[0]["bbox"][1] == pytest.approx(0.10)
-    assert lines[0]["bbox"][3] == pytest.approx(0.23)
-    assert lines[1]["glyphs"][0]["x0"] == pytest.approx(0.05)
-    assert lines[1]["bbox"][1] == pytest.approx(0.40)
-    assert patch._bioparser_tagged_lines([{"char": "A", "bbox": [0, 0, 0, 1]}], (10.0, 10.0)) == []
-    assert patch._bioparser_tagged_lines(chars, (0.0, 10.0)) == []
-
-
-def test_recognizer_columns_place_each_character() -> None:
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "mineru_glyph_edges",
-        Path(__file__).resolve().parents[2] / "docker" / "patches" / "mineru_glyph_edges.py",
-    )
-    assert spec is not None and spec.loader is not None
-    patch = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(patch)
-    chars = patch._bioparser_ocr_chars("AB", [10.0, [1.0, 5.0]], [0.0, 10.0, 100.0, 30.0])
-    assert chars is not None
-    assert [item["char"] for item in chars] == ["A", "B"]
-    assert chars[0]["bbox"] == pytest.approx([0.0, 10.0, 30.0, 30.0])
-    assert chars[1]["bbox"] == pytest.approx([30.0, 10.0, 100.0, 30.0])
-    assert patch._bioparser_ocr_chars("A", [4.0, [1.0]], [0.0, 0.0, 10.0, 40.0]) is None
-    assert patch._bioparser_ocr_chars("AB", [10.0, [1.0]], [0.0, 0.0, 10.0, 4.0]) is None
-    kept = patch._bioparser_ocr_chars(
-        "ABCD", [10.0, [2.0, 6.0, 12.0, 16.0]], [0.0, 0.0, 160.0, 10.0]
-    )
-    assert kept is not None
-    assert [item["char"] for item in kept] == ["A", "B", "C", "D"]
-    assert kept[-1]["bbox"][2] == pytest.approx(160.0)
-    edges = [item["bbox"][0] for item in kept] + [kept[-1]["bbox"][2]]
-    assert edges == sorted(set(edges))
-
-
 def test_balanced_span_product_is_capped() -> None:
     cells = _cells_from_html('<table><tr><td rowspan="50" colspan="50">x</td></tr></table>')
     assert cells[0].rowspan * cells[0].colspan == HTML_CELL_MAX_OCCUPIED

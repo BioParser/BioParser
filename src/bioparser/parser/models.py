@@ -67,8 +67,7 @@ class TextLine(BaseModel):
     inserted between words, a hyphen removed at a line join, or MinerU's ``^{}``
     and ``_{}`` markers. A rewritten span shares the box of the ink that did not
     match those characters. A glyph that covers several characters shares its box
-    in equal slices.
-    Coordinates are stored to four decimal places.
+    in equal slices. Coordinates are stored to four decimal places.
     """
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)

@@ -101,7 +101,7 @@ ignore = [
 [tool.mypy]
 python_version = "3.13"
 strict = true
-files = ["src", "tests"]
+files = ["src", "tests", "docker/patches"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

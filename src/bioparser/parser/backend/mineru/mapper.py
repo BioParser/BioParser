@@ -129,6 +129,27 @@ def _page_sizes(dump: MiddleDump) -> list[tuple[float, float]]:
         ) from None
 
 
+def _content_with_lines(
+    prepared: _PreparedBlock,
+    page_idx: int,
+    geometry: dict[tuple[int, int], list[dict[str, Any]]],
+) -> TextContent | TableContent:
+    """The block's content, with glyph lines when MinerU measured any.
+
+    A display equation has a block box but no character edges, so it gets one box.
+    """
+    content = prepared.content
+    if not isinstance(content, TextContent):
+        return content
+    lines: list[TextLine] = []
+    raw_lines = geometry.get((page_idx, prepared.index)) if prepared.index is not None else None
+    if raw_lines is not None:
+        lines = text_lines_for_block(content.text, raw_lines)
+    if not lines and prepared.leaf_type == "equation" and prepared.bbox is not None:
+        lines = line_for_block_box(content.text, prepared.bbox)
+    return content.model_copy(update={"lines": lines}) if lines else content
+
+
 def artifact_from_middle_json(
     middle: dict[str, Any],
     *,
@@ -167,17 +188,7 @@ def artifact_from_middle_json(
                 if prepared is None:
                     continue
                 links = continues and carrier in (None, prepared.leaf_type)
-                content = prepared.content
-                if isinstance(content, TextContent):
-                    lines: list[TextLine] = []
-                    if prepared.index is not None:
-                        raw_lines = geometry.get((page.page_idx, prepared.index))
-                        if raw_lines is not None:
-                            lines = text_lines_for_block(content.text, raw_lines)
-                    if not lines and prepared.leaf_type == "equation" and prepared.bbox is not None:
-                        lines = line_for_block_box(content.text, prepared.bbox)
-                    if lines:
-                        content = content.model_copy(update={"lines": lines})
+                content = _content_with_lines(prepared, page.page_idx, geometry)
                 ident = block_id(checksum, page_number, len(blocks))
                 blocks.append(
                     ContentBlock(
