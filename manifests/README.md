@@ -21,7 +21,7 @@ This folder includes files [bioparser-configmap-example.yaml](/manifests/biopars
 - POSTGRES_PASSWORD - generate using `openssl rand -hex 32`
 - POSTGRES_APP_PASSWORD - generate using `openssl rand -hex 32`
 - BIOPARSER_REDIS_URL - the URL of redis (redis://:${REDIS_PASSWORD}@redis:6379/0)
-- BIOPARSER_DATABASE_URL - the URL of the used Postgres database (postgresql://bioparser_app:${POSTGRES_APP_PASSWORD}@postgres:5432/bioparser)
+- BIOPARSER_DATABASE_URL - the URL of the used Postgres database (postgresql://bioparser:${POSTGRES_PASSWORD}@postgres:5432/bioparser)
 - HF_TOKEN - your huggingface **read** token for downloading the required models
 - BIOPARSER_API_KEY - generate with `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`
 
