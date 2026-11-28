@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearchParams } from "react-router";
 import { ApiError, getReadiness, type JobList, type JobStatus, listJobs } from "../api/client";
 import { shouldRetry } from "../api/queryClient";
-import { JOB_STATUS_LABELS } from "../jobStatus";
+import { JOB_STATUS_LABELS, jobStatusLabel } from "../jobStatus";
 import type { DeletedJobState } from "./JobDetailPage";
 
 const INTERVAL = 5000;
@@ -197,9 +197,10 @@ export function DashboardPage() {
                           </Link>
                         </td>
                         <td>
-                          {/* The error code is on the job's page, with what it means. */}
+                          {/* The error code is on the job's page, with what it means. A
+                              waiting job names the service it waits for instead. */}
                           <span className={`job-status status-badge status-${job.status}`}>
-                            {JOB_STATUS_LABELS[job.status]}
+                            {jobStatusLabel(job)}
                           </span>
                         </td>
                         <td>

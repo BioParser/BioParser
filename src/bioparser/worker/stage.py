@@ -26,6 +26,7 @@ from bioparser.jobs import (
     SafeErrorCode,
 )
 from bioparser.jobs.queue import JobDeferralExpired, JobDeferred, JobTimeLimitExceeded
+from bioparser.jobs.state import WAITING_STATUSES, WaitingFor
 from bioparser.logging_config import log_context
 
 LOGGER = logging.getLogger(__name__)
@@ -51,7 +52,9 @@ class StageJobHandler[T: JobMessage]:
     A status outside `owned` is left unchanged. A `PermanentJobFailure`
     from `run` is recorded as a safe error. Any other exception is retried.
     `before_claim` may raise `JobDeferred` before the claim. The queue sends the
-    message again later without using a retry, and gives up at a deadline.
+    message again later without using a retry, and gives up at a deadline. That
+    deferral records that the job is waiting for `waiting_for`, the stage's
+    service. A deferral because Postgres is not reachable records nothing.
     Any other result drops that outage's clock, so a retry of this message
     starts a new hour if it has to defer.
     `on_failed` then marks the job failed when its status allows it.
@@ -65,8 +68,12 @@ class StageJobHandler[T: JobMessage]:
         owned: frozenset[JobStatus],
         claim_status: JobStatus,
         max_claims: int,
+        waiting_for: WaitingFor,
         before_claim: Callable[[JobState], Awaitable[None]] | None = None,
     ) -> None:
+        if not owned <= WAITING_STATUSES[waiting_for]:
+            raise ValueError(f"a stage owning {sorted(owned)} cannot wait for the {waiting_for}")
+        self._waiting_for: WaitingFor = waiting_for
         self._database_url = database_url
         self._database_password = database_password
         self._owned = owned
@@ -139,7 +146,11 @@ class StageJobHandler[T: JobMessage]:
             LOGGER.warning("Postgres is not reachable: %s", exc)
             raise JobDeferred("Postgres is not reachable") from exc
         if self._before_claim is not None:
-            await self._before_claim(state)
+            try:
+                await self._before_claim(state)
+            except JobDeferred:
+                await self._record_waiting(state.job_id)
+                raise
         if not await self._mark_running(state):
             return
         try:
@@ -175,6 +186,19 @@ class StageJobHandler[T: JobMessage]:
             return False
         LOGGER.info(f"job moved on before this delivery could start {claim}. Skipping")
         return False
+
+    async def _record_waiting(self, job_id: UUID) -> None:
+        """Record the wait. The deferral goes ahead even if the write cannot be made."""
+        try:
+            async with database.transaction() as connection:
+                wrote = await job_queries.record_waiting(
+                    connection, job_id, self._waiting_for, from_statuses=self._owned
+                )
+        except DatabaseUnavailableError as exc:
+            LOGGER.warning("Postgres is not reachable. Not recording the wait: %s", exc)
+            return
+        if wrote:
+            LOGGER.info(f"recorded that the job is waiting for the {self._waiting_for}")
 
     async def _mark_failed(self, job_id: UUID, code: SafeErrorCode) -> bool:
         """Record `failed` when this stage still owns the job. True when the write lands."""

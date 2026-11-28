@@ -487,6 +487,8 @@ def test_vllm_down_leaves_the_job_parsed(caplog: pytest.LogCaptureFixture) -> No
     assert jobs.state is not None
     assert jobs.state.status == "parsed"
     assert jobs.state.claims("extracting") == 0
+    assert jobs.state.waiting_for == "extractor"
+    assert jobs.state.waiting_since == jobs.now
 
 
 def test_postgres_unreachable_defers_without_claiming() -> None:
@@ -526,7 +528,8 @@ def test_postgres_unreachable_on_claim_defers_without_claiming() -> None:
 
 
 def test_vllm_answering_still_extracts() -> None:
-    jobs = StubJobs(_parsed())
+    since = datetime(2026, 11, 21, 8, 49, tzinfo=UTC)
+    jobs = StubJobs(_parsed().with_changes(waiting_for="extractor", waiting_since=since))
     storage = _storage()
     vllm = _stub()
     handler = ExtractJobHandler(
@@ -542,6 +545,8 @@ def test_vllm_answering_still_extracts() -> None:
 
     assert jobs.state is not None
     assert jobs.state.status == "done"
+    assert jobs.state.waiting_for is None
+    assert jobs.state.waiting_since is None
     assert vllm.prompts
 
 
@@ -653,7 +658,8 @@ def test_deferral_expiry_marks_an_extracting_job_failed() -> None:
 
 
 def test_deferral_expiry_while_still_parsed_keeps_the_parser_artifact() -> None:
-    jobs = StubJobs(_parsed())
+    since = datetime(2026, 11, 21, 8, 49, tzinfo=UTC)
+    jobs = StubJobs(_parsed().with_changes(waiting_for="extractor", waiting_since=since))
     handler = _handler(jobs, _storage(), _real_extract(_stub()))
     asyncio.run(handler.on_failed(_message(), JobDeferralExpired()))
     asyncio.run(handler.aclose())
@@ -663,6 +669,8 @@ def test_deferral_expiry_while_still_parsed_keeps_the_parser_artifact() -> None:
     assert jobs.state.error_code == "deferral_expired"
     assert jobs.state.failed_stage == "parsed"
     assert jobs.state.parse_result_ref == PARSE_REF
+    assert jobs.state.waiting_for is None
+    assert jobs.state.waiting_since is None
 
 
 def test_on_failed_records_timeout_and_keeps_the_parser_artifact() -> None:

@@ -11,7 +11,7 @@ import {
 import { EvidenceView } from "../evidence/EvidenceView";
 import { artifactQueryKey } from "../evidence/useEvidenceArtifacts";
 import { jobQueryKey } from "../evidence/usePdfDocument";
-import { JOB_STATUS_LABELS } from "../jobStatus";
+import { JOB_STATUS_LABELS, waitingFor } from "../jobStatus";
 import { JobResults } from "../results/JobResults";
 import { resultsQueryKey } from "../results/useJobResults";
 
@@ -45,6 +45,11 @@ function failureMessage(stage: FailedStage, code: FailureCode): string {
   if (code === "invalid_pdf") return "The file could not be read as a valid PDF.";
   if (code === "parse_failed") return "The PDF could not be parsed.";
   return "Traits could not be extracted from the parsed document.";
+}
+
+// Hours and minutes: a job fails after about an hour of waiting.
+function waitTime(since: string): string {
+  return new Date(since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function isPermanentError(error: Error | null): boolean {
@@ -144,6 +149,7 @@ function JobStatus({
 }) {
   const stage =
     job.status === "failed" ? STAGES.indexOf(job.failed_stage) : STAGES.indexOf(job.status);
+  const wait = waitingFor(job);
   return (
     <>
       <section className="job-summary" aria-labelledby="job-details-heading">
@@ -168,6 +174,13 @@ function JobStatus({
         <p role="status" className={`job-status-line status-badge status-${job.status}`}>
           Status: {job.status}
         </p>
+        {wait && (
+          <p className="job-waiting">
+            Waiting for {wait.service} since{" "}
+            <time dateTime={wait.since}>{waitTime(wait.since)}</time>. The job fails if{" "}
+            {wait.service} does not answer within an hour.
+          </p>
+        )}
         <ol className="job-detail-progress" aria-label="Job progress">
           {STAGES.map((status, index) => (
             <li

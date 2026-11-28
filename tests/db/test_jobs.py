@@ -617,6 +617,141 @@ async def test_the_database_refuses_to_delete_an_active_job(database: str) -> No
     assert await _deleted_at(state.job_id) is None
 
 
+_PARSE_STAGE = ("queued", "parsing")
+
+
+async def _record_waiting(job_id: uuid.UUID, from_statuses: tuple[str, ...] = _PARSE_STAGE) -> bool:
+    async with db_engine.transaction() as connection:
+        return await job_queries.record_waiting(
+            connection, job_id, "parser", from_statuses=from_statuses
+        )
+
+
+async def _claim_parse(job_id: uuid.UUID, max_claims: int = 2) -> str:
+    async with db_engine.transaction() as connection:
+        return await job_queries.claim(
+            connection,
+            job_id,
+            status="parsing",
+            from_statuses=_PARSE_STAGE,
+            max_claims=max_claims,
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_record_waiting_sets_the_wait_once_and_keeps_its_start(database: str) -> None:
+    state = _queued(uuid.uuid4())
+    await _create(state)
+
+    assert await _record_waiting(state.job_id) is True
+    first = await _get(state.job_id)
+    assert first is not None
+    assert first.status == "queued"
+    assert first.waiting_for == "parser"
+    assert first.waiting_since is not None
+    assert first.parsing_claims == 0
+
+    # The same wait again changes nothing, not even updated_at.
+    assert await _record_waiting(state.job_id) is False
+    assert await _get(state.job_id) == first
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_record_waiting_leaves_a_job_that_moved_on(database: str) -> None:
+    state = _queued(uuid.uuid4(), status="parsed", parse_result_ref=str(uuid.uuid4()))
+    await _create(state)
+
+    assert await _record_waiting(state.job_id) is False
+    stored = await _get(state.job_id)
+    assert stored is not None
+    assert stored.waiting_for is None
+    assert stored.waiting_since is None
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_a_claim_ends_the_wait(database: str) -> None:
+    state = _queued(uuid.uuid4())
+    await _create(state)
+    await _record_waiting(state.job_id)
+
+    assert await _claim_parse(state.job_id) == "claimed"
+    stored = await _get(state.job_id)
+    assert stored is not None
+    assert stored.status == "parsing"
+    assert stored.waiting_for is None
+    assert stored.waiting_since is None
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_a_claim_at_the_cap_ends_the_wait(database: str) -> None:
+    state = _queued(uuid.uuid4())
+    await _create(state)
+    assert await _claim_parse(state.job_id, max_claims=1) == "claimed"
+    await _record_waiting(state.job_id)
+
+    assert await _claim_parse(state.job_id, max_claims=1) == "exhausted"
+    stored = await _get(state.job_id)
+    assert stored is not None
+    assert stored.status == "failed"
+    assert stored.waiting_for is None
+    assert stored.waiting_since is None
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_mark_failed_ends_the_wait(database: str) -> None:
+    state = _queued(uuid.uuid4())
+    await _create(state)
+    await _record_waiting(state.job_id)
+
+    async with db_engine.transaction() as connection:
+        outcome = await job_queries.mark_failed(
+            connection, state.job_id, "deferral_expired", from_statuses=_PARSE_STAGE
+        )
+
+    assert outcome == "recorded"
+    stored = await _get(state.job_id)
+    assert stored is not None
+    assert stored.status == "failed"
+    assert stored.failed_stage == "queued"
+    assert stored.waiting_for is None
+    assert stored.waiting_since is None
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status", "assignment"),
+    [
+        ("queued", "waiting_for = 'extractor', waiting_since = now()"),
+        ("parsed", "waiting_for = 'parser', waiting_since = now()"),
+        ("queued", "waiting_for = 'parser'"),
+        ("queued", "waiting_since = now()"),
+        ("queued", "waiting_for = 'vllm', waiting_since = now()"),
+    ],
+)
+async def test_the_database_refuses_a_wait_that_does_not_fit_the_status(
+    database: str, status: str, assignment: str
+) -> None:
+    """jobs_waiting_check holds the rule even for a write that skips record_waiting."""
+    fields: dict[str, object] = {"status": status}
+    if status == "parsed":
+        fields["parse_result_ref"] = str(uuid.uuid4())
+    state = _queued(uuid.uuid4(), **fields)
+    await _create(state)
+
+    with pytest.raises(DatabaseError):
+        async with db_engine.transaction() as connection:
+            await connection.execute(
+                text(f"UPDATE jobs SET {assignment} WHERE job_id = :job_id"),
+                {"job_id": state.job_id},
+            )
+
+
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_a_write_does_not_require_a_valid_job_state(database: str) -> None:

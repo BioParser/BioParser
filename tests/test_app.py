@@ -85,8 +85,14 @@ def _job(status: JobStatus, **fields: Any) -> JobState:
 
 
 def _job_json(state: JobState, **extra: Any) -> dict[str, Any]:
-    """The default public body: the id and the status, plus anything that status adds."""
-    return {"job_id": str(state.job_id), "status": state.status} | extra
+    """The default public body: the id and the status, plus anything that status adds.
+
+    A job that has not failed also carries its wait, which is empty here.
+    """
+    body: dict[str, Any] = {"job_id": str(state.job_id), "status": state.status}
+    if state.status != "failed":
+        body |= {"waiting_for": None, "waiting_since": None}
+    return body | extra
 
 
 def test_submit_and_retrieve_job(
@@ -119,7 +125,7 @@ def test_submit_and_retrieve_job(
 
     assert response.status_code == 200
     JOB_STATUS_ADAPTER.validate_python(response.json())
-    assert response.json() == record
+    assert response.json() == record | {"waiting_for": None, "waiting_since": None}
 
     full = client.get(f"/api/jobs/{record['job_id']}?detail=full")
     assert full.status_code == 200
@@ -436,6 +442,32 @@ def test_running_job_status(
     assert response.status_code == 200
     JOB_STATUS_ADAPTER.validate_python(response.json())
     assert response.json() == _job_json(state)
+
+
+@pytest.mark.parametrize(("status", "waiting_for"), [("queued", "parser"), ("parsed", "extractor")])
+def test_a_waiting_job_says_what_it_waits_for_and_since_when(
+    client: TestClient,
+    stub_api_adapters: tuple[StubArtifactStorage, StubJobs, StubParseQueue, list[str]],
+    status: JobStatus,
+    waiting_for: str,
+) -> None:
+    jobs = stub_api_adapters[1]
+    since = datetime(2026, 11, 21, 8, 49, tzinfo=UTC)
+    state = _job(status, waiting_for=waiting_for, waiting_since=since)
+    jobs.states[str(state.job_id)] = state
+
+    plain = client.get(f"/api/jobs/{state.job_id}")
+    full = client.get(f"/api/jobs/{state.job_id}?detail=full")
+    listed = client.get("/api/jobs?detail=full")
+
+    expected = {"waiting_for": waiting_for, "waiting_since": "2026-11-21T08:49:00Z"}
+    assert plain.status_code == 200
+    JOB_STATUS_ADAPTER.validate_python(plain.json())
+    assert plain.json() == _job_json(state, **expected)
+    assert full.status_code == 200
+    assert JobFullResponse.model_validate(full.json()).waiting_since == since
+    assert {key: full.json()[key] for key in expected} == expected
+    assert {key: listed.json()[0][key] for key in expected} == expected
 
 
 def test_succeeded_job_status(

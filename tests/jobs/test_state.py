@@ -170,6 +170,77 @@ def test_failed_stage_must_match_the_parser_artifact() -> None:
         _queued(status="queued", failed_stage="queued")
 
 
+WAITING_SINCE = datetime(2026, 11, 21, 8, 49, tzinfo=UTC)
+_FIELDS_FOR: dict[str, dict[str, object]] = {
+    "queued": {},
+    "parsing": {},
+    "parsed": {"parse_result_ref": RESULT_REF},
+    "extracting": {"parse_result_ref": RESULT_REF},
+}
+
+
+@pytest.mark.parametrize(
+    ("status", "waiting_for"),
+    [
+        ("queued", "parser"),
+        ("parsing", "parser"),
+        ("parsed", "extractor"),
+        ("extracting", "extractor"),
+    ],
+)
+def test_a_stage_status_can_wait_for_its_own_service(status: str, waiting_for: str) -> None:
+    state = _queued(
+        status=status,
+        waiting_for=waiting_for,
+        waiting_since=WAITING_SINCE,
+        **_FIELDS_FOR[status],
+    )
+    assert JobState.model_validate_json(state.model_dump_json()) == state
+
+
+def test_a_job_waits_for_nothing_by_default() -> None:
+    state = _queued()
+    assert state.waiting_for is None
+    assert state.waiting_since is None
+
+
+@pytest.mark.parametrize(
+    ("status", "waiting_for"),
+    [("queued", "extractor"), ("parsed", "parser"), ("extracting", "parser")],
+)
+def test_a_job_cannot_wait_for_the_other_stage(status: str, waiting_for: str) -> None:
+    with pytest.raises(ValidationError, match="cannot be waiting"):
+        _queued(
+            status=status,
+            waiting_for=waiting_for,
+            waiting_since=WAITING_SINCE,
+            **_FIELDS_FOR[status],
+        )
+
+
+def test_a_finished_job_cannot_be_waiting() -> None:
+    with pytest.raises(ValidationError, match="cannot be waiting"):
+        _queued(
+            status="failed",
+            error_code="deferral_expired",
+            failed_stage="queued",
+            waiting_for="parser",
+            waiting_since=WAITING_SINCE,
+        )
+
+
+def test_the_wait_and_its_start_are_set_together() -> None:
+    with pytest.raises(ValidationError, match="set together"):
+        _queued(waiting_for="parser")
+    with pytest.raises(ValidationError, match="set together"):
+        _queued(waiting_since=WAITING_SINCE)
+
+
+def test_waiting_since_must_carry_a_time_zone() -> None:
+    with pytest.raises(ValidationError, match="timezone"):
+        _queued(waiting_for="parser", waiting_since=datetime(2026, 11, 21, 8, 49))
+
+
 @pytest.mark.parametrize("status", ["queued", "parsing"])
 def test_non_terminal_job_rejects_parse_result(status: str) -> None:
     with pytest.raises(ValidationError):

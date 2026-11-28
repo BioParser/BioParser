@@ -66,6 +66,10 @@ def _record(state: JobState, display_name: str | None) -> dict[str, Any]:
     }
 
 
+def _waiting(state: JobState) -> dict[str, Any]:
+    return {"waiting_for": state.waiting_for, "waiting_since": state.waiting_since}
+
+
 def _error(state: JobState) -> SafeError:
     if state.error_code is None:
         raise ValueError("Failed job is missing error_code")
@@ -88,7 +92,7 @@ def job_body(state: JobState) -> JobStatusResponse:
             error=_error(state),
             failed_stage=_failed_stage(state),
         )
-    return JobResponse(job_id=state.job_id, status=state.status)
+    return JobResponse(job_id=state.job_id, status=state.status, **_waiting(state))
 
 
 def job_body_full(state: JobState, display_name: str | None) -> JobStatusResponse:
@@ -100,7 +104,7 @@ def job_body_full(state: JobState, display_name: str | None) -> JobStatusRespons
             failed_stage=_failed_stage(state),
             **_record(state, display_name),
         )
-    return JobFullResponse(status=state.status, **_record(state, display_name))
+    return JobFullResponse(status=state.status, **_waiting(state), **_record(state, display_name))
 
 
 def _ets_rows(payload: bytes, references: str, job_id: object) -> EtsRowsResponse:

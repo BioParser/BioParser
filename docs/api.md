@@ -263,7 +263,7 @@ If omitted or `{}` is sent, parameters default to `parser: "default"` and `extra
 
 ### `GET /api/documents/{checksum}/jobs`
 
-List all jobs for `{checksum}`. The default row is `job_id` and `status`. `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and `document_checksum`. `display_name` is null when the document has no name. A done job does not include its ETS rows here. Those are `GET /api/jobs/{job_id}/ets`.
+List all jobs for `{checksum}`. The default row is the body of [`GET /api/jobs/{job_id}`](#get-apijobsjob_id). `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and `document_checksum`. `display_name` is null when the document has no name. A done job does not include its ETS rows here. Those are `GET /api/jobs/{job_id}/ets`.
 
 **Success — `200 OK`:**
 
@@ -271,7 +271,9 @@ List all jobs for `{checksum}`. The default row is `job_id` and `status`. `?deta
 [
   {
     "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
-    "status": "queued"
+    "status": "queued",
+    "waiting_for": null,
+    "waiting_since": null
   }
 ]
 ```
@@ -281,7 +283,7 @@ List all jobs for `{checksum}`. The default row is `job_id` and `status`. `?deta
 
 ### `GET /api/jobs`
 
-List jobs across all documents, with optional query filters. The default row is `job_id` and `status`. `?detail=full` adds the stored record from the job joined to its document, and still omits ETS rows. `display_name` is null when the document has no name.
+List jobs across all documents, with optional query filters. The default row is the body of [`GET /api/jobs/{job_id}`](#get-apijobsjob_id). `?detail=full` adds the stored record from the job joined to its document, and still omits ETS rows. `display_name` is null when the document has no name.
 
 - **Query parameters:**
   - `status` (optional): Filter by job status (`queued`, `parsing`, `parsed`, `extracting`, `done`, `failed`).
@@ -293,7 +295,9 @@ List jobs across all documents, with optional query filters. The default row is 
 [
   {
     "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
-    "status": "queued"
+    "status": "queued",
+    "waiting_for": null,
+    "waiting_since": null
   }
 ]
 ```
@@ -317,16 +321,26 @@ Poll a job.
 ```json
 {
   "job_id": "b3f1c2a4-8d7e-4a65-9e31-123456789abc",
-  "status": "queued"
+  "status": "queued",
+  "waiting_for": "parser",
+  "waiting_since": "2026-11-21T08:49:00Z"
 }
 ```
 
-- `queued`, `parsing`, `parsed`, and `extracting` return `job_id` and `status`.
-- `failed` adds `error` and `failed_stage`. `failed_stage` is the status the job
-  had when it failed: `queued`, `parsing`, `parsed`, or `extracting`. The parser
-  artifact is kept exactly when that stage is `parsed` or `extracting`.
-- `done` is `job_id` and `status`. The ETS rows are `GET /api/jobs/{job_id}/ets`, in
-  observation order. `references` on each row is the document checksum.
+- `queued`, `parsing`, `parsed`, `extracting`, and `done` return `job_id`, `status`,
+  `waiting_for`, and `waiting_since`.
+- `waiting_for` is set while the job cannot start because its stage's service does not
+  answer: `parser` for MinerU, `extractor` for the vLLM server. `waiting_since` is when
+  that wait began. Later deferrals keep it. Both are null otherwise, and both clear when
+  a worker claims the job or marks it failed. A wait for Postgres is not recorded. The
+  job fails with `deferral_expired` once the queue has deferred it for an hour. That
+  hour is counted per queue message and starts again after a retry, so `waiting_since`
+  plus an hour is only an estimate of when it fails.
+- `failed` is `job_id`, `status`, `error`, and `failed_stage`. `failed_stage` is the
+  status the job had when it failed: `queued`, `parsing`, `parsed`, or `extracting`.
+  The parser artifact is kept exactly when that stage is `parsed` or `extracting`.
+- The ETS rows of a `done` job are `GET /api/jobs/{job_id}/ets`, in observation
+  order. `references` on each row is the document checksum.
 - `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and
   `document_checksum`. That read is one query, the job joined to its document.
   `display_name` is null when the document has no name. The full body has no rows.
@@ -606,9 +620,9 @@ Pydantic models shared by the routes above, used both for response validation an
 for the OpenAPI docs' `responses=` examples:
 
 - `JobStatusResponse` — the shapes for one job, on `GET /api/jobs/{job_id}` and in a
-  list. `JobResponse` is `job_id` and `status`. `JobFullResponse` adds the stored
-  record for `?detail=full`. `FailedJobResponse` carries `error` and `failed_stage`, and
-  `FailedJobFullResponse` adds the record. None of these include ETS rows.
+  list. `JobResponse` is `job_id`, `status`, `waiting_for`, and `waiting_since`.
+  `JobFullResponse` adds the stored record for `?detail=full`. `FailedJobResponse`
+  carries `error` and `failed_stage`, and `FailedJobFullResponse` adds the record. None of these include ETS rows.
   `EtsRowsResponse` is `GET /api/jobs/{job_id}/ets`.
   `POST /api/extractions` and `POST /api/documents/{checksum}/jobs` return
   `AcceptedJobResponse`, which is `job_id` and `status`.

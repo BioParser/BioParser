@@ -507,6 +507,10 @@
   margin-bottom: var(--space-4);
 }
 
+.job-waiting {
+  margin: 0 0 var(--space-4);
+}
+
 .job-failure {
   margin-top: var(--space-4);
 }

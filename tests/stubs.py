@@ -517,6 +517,10 @@ class StubArtifactStorage:
 _jobs: list["StubJobs"] = []
 
 
+# A claim and a failure end a recorded wait, as in bioparser.db.jobs.
+_NOT_WAITING: dict[str, object] = {"waiting_for": None, "waiting_since": None}
+
+
 class StubJobs:
     """One in-memory jobs and documents table for the API tests and both worker handler tests."""
 
@@ -533,6 +537,9 @@ class StubJobs:
         self.doc_create_error: Exception | None = None
         self.doc_get_error: Exception | None = None
         self.delete_error: Exception | None = None
+        self.waiting_error: Exception | None = None
+        # The database's now() for a recorded wait.
+        self.now = datetime(2026, 11, 21, 8, 49, tzinfo=UTC)
 
     @property
     def state(self) -> JobState | None:
@@ -579,17 +586,43 @@ class StubJobs:
             if "failed" not in ALLOWED_TRANSITIONS[state.status]:
                 return "skipped"
             self.states[str(job_id)] = state.with_changes(
-                status="failed", error_code="retries_exhausted", failed_stage=state.status
+                status="failed",
+                error_code="retries_exhausted",
+                failed_stage=state.status,
+                **_NOT_WAITING,
             )
             return "exhausted"
         if status == "parsing":
-            claimed = state.with_changes(status=status, parsing_claims=state.parsing_claims + 1)
+            claimed = state.with_changes(
+                status=status, parsing_claims=state.parsing_claims + 1, **_NOT_WAITING
+            )
         else:
             claimed = state.with_changes(
-                status=status, extracting_claims=state.extracting_claims + 1
+                status=status, extracting_claims=state.extracting_claims + 1, **_NOT_WAITING
             )
         self.states[str(job_id)] = claimed
         return "claimed"
+
+    async def record_waiting(
+        self,
+        connection: object,
+        job_id: object,
+        waiting_for: str,
+        *,
+        from_statuses: Collection[str],
+    ) -> bool:
+        self.events.append("job_state.record_waiting")
+        if self.waiting_error is not None:
+            raise self.waiting_error
+        state = self.states.get(str(job_id))
+        if state is None or state.status not in from_statuses:
+            return False
+        if state.waiting_for == waiting_for and state.waiting_since is not None:
+            return False
+        self.states[str(job_id)] = state.with_changes(
+            waiting_for=waiting_for, waiting_since=state.waiting_since or self.now
+        )
+        return True
 
     async def record_parsed(self, connection: object, job_id: object, artifact_path: str) -> bool:
         state = self.states.get(str(job_id))
@@ -626,7 +659,7 @@ class StubJobs:
         if "failed" not in ALLOWED_TRANSITIONS[state.status]:
             return "not_allowed"
         self.states[str(job_id)] = state.with_changes(
-            status="failed", error_code=code, failed_stage=state.status
+            status="failed", error_code=code, failed_stage=state.status, **_NOT_WAITING
         )
         return "recorded"
 
@@ -743,6 +776,17 @@ def bind_jobs(monkeypatch: Any) -> None:
             max_claims=max_claims,
         )
 
+    async def record_waiting(
+        connection: object,
+        job_id: object,
+        waiting_for: str,
+        *,
+        from_statuses: Collection[str],
+    ) -> bool:
+        return await tables[-1].record_waiting(
+            connection, job_id, waiting_for, from_statuses=from_statuses
+        )
+
     async def record_parsed(connection: object, job_id: object, artifact_path: str) -> bool:
         return await tables[-1].record_parsed(connection, job_id, artifact_path)
 
@@ -816,6 +860,7 @@ def bind_jobs(monkeypatch: Any) -> None:
     monkeypatch.setattr(job_queries, "get", get)
     monkeypatch.setattr(job_queries, "create", create)
     monkeypatch.setattr(job_queries, "claim", claim)
+    monkeypatch.setattr(job_queries, "record_waiting", record_waiting)
     monkeypatch.setattr(job_queries, "record_parsed", record_parsed)
     monkeypatch.setattr(job_queries, "record_done", record_done)
     monkeypatch.setattr(job_queries, "mark_failed", mark_failed)

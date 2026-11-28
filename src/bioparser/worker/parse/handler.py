@@ -56,6 +56,7 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
             owned=_PARSE_STAGE,
             claim_status="parsing",
             max_claims=max_claims,
+            waiting_for="parser",
             before_claim=before_claim,
         )
         self._storage = storage

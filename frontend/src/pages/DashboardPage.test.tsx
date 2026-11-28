@@ -23,7 +23,7 @@ function job(id: string, status: JobStatus = "done"): JobList[number] {
   };
   return status === "failed"
     ? { ...metadata, status, error: { code: "extraction_failed" }, failed_stage: "extracting" }
-    : { ...metadata, status };
+    : { ...metadata, status, waiting_for: null, waiting_since: null };
 }
 
 function mount(path = "/") {
@@ -148,6 +148,31 @@ describe("Dashboard", () => {
     expect(rows[2].textContent).toContain("Unnamed file");
     expect(rows[1].textContent).toContain("mineru");
     expect(rows[1].querySelector("time")?.dateTime).toBe("2026-11-06T12:00:00Z");
+  });
+
+  it.each([
+    ["queued", "parser", "Waiting for MinerU"],
+    ["parsed", "extractor", "Waiting for the extraction model"],
+  ] as const)("shows a waiting %s job by what it waits for", async (status, waiting, label) => {
+    const waitingJob: JobList[number] = {
+      job_id: "one",
+      display_name: "one.pdf",
+      created_at: "2026-11-06T12:00:00Z",
+      parser: "mineru",
+      extractor: "default",
+      document_checksum: "abc",
+      status,
+      waiting_for: waiting,
+      waiting_since: "2026-11-21T08:49:00Z",
+    };
+    jobs = [waitingJob, job("two", status)];
+    mount();
+    await screen.findByRole("link", { name: "one.pdf" });
+    const rows = screen.getAllByRole("row");
+    expect(rows[1].querySelector(".job-status")?.textContent).toBe(label);
+    expect(rows[2].querySelector(".job-status")?.textContent).toBe(
+      status === "queued" ? "Queued" : "Parsed",
+    );
   });
 
   it.each(["queued", "parsing", "parsed", "extracting", "done", "failed"] as const)(

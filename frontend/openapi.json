@@ -1290,7 +1290,7 @@
     "/api/jobs/{job_id}": {
       "get": {
         "summary": "Job Status",
-        "description": "The job.\n\n`queued`, `parsing`, `parsed`, and `extracting` are `job_id` and `status`. `failed`\nadds `error` and `failed_stage`, the status the job had when it failed. `done` is\n`job_id` and `status`. The ETS rows are `GET /api/jobs/{job_id}/ets`. This route\ndoes not read the extraction artifact.\n\n`?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,\n`extractor`, and `document_checksum`.",
+        "description": "The job.\n\n`queued`, `parsing`, `parsed`, `extracting`, and `done` are `job_id`, `status`,\n`waiting_for`, and `waiting_since`. `waiting_for` is `parser` or `extractor` while\nthe stage's service does not answer, and `waiting_since` is when that wait began.\nBoth are null otherwise. `failed` is `job_id`, `status`, `error`, and\n`failed_stage`, the status the job had when it failed. The ETS rows are\n`GET /api/jobs/{job_id}/ets`. This route does not read the extraction artifact.\n\n`?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,\n`extractor`, and `document_checksum`.",
         "operationId": "job_status_api_jobs__job_id__get",
         "security": [
           {
@@ -3414,6 +3414,33 @@
               "done"
             ],
             "title": "Status"
+          },
+          "waiting_for": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "parser",
+                  "extractor"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting For"
+          },
+          "waiting_since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting Since"
           }
         },
         "additionalProperties": false,
@@ -3425,7 +3452,9 @@
           "extractor",
           "document_checksum",
           "job_id",
-          "status"
+          "status",
+          "waiting_for",
+          "waiting_since"
         ],
         "title": "JobFullResponse",
         "description": "One job with the stored record."
@@ -3447,16 +3476,45 @@
               "done"
             ],
             "title": "Status"
+          },
+          "waiting_for": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "parser",
+                  "extractor"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting For"
+          },
+          "waiting_since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting Since"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "job_id",
-          "status"
+          "status",
+          "waiting_for",
+          "waiting_since"
         ],
         "title": "JobResponse",
-        "description": "One job. Its ETS rows are on ``GET /api/jobs/{job_id}/ets``."
+        "description": "One job. Its ETS rows are on ``GET /api/jobs/{job_id}/ets``.\n\n``waiting_for`` names the service the job is waiting for, and ``waiting_since``\nis when that wait began. Both are null unless the stage deferred the job."
       },
       "Observation": {
         "properties": {

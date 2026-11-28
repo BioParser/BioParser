@@ -50,6 +50,7 @@ class ExtractJobHandler(StageJobHandler[ExtractJobMessage]):
             owned=_EXTRACT_STAGE,
             claim_status="extracting",
             max_claims=max_claims,
+            waiting_for="extractor",
             before_claim=before_claim,
         )
         self._storage = storage
