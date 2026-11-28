@@ -547,6 +547,70 @@ def test_a_removed_line_end_hyphen_does_not_take_a_later_hyphen() -> None:
     assert kept[0].y0 == pytest.approx(0.14)
 
 
+def test_a_missing_space_does_not_drop_the_following_words() -> None:
+    stored = (
+        "(mm or g; parenthetical n) for P. c. cepapi were: 191. "
+        "Mean measurements (mm or g; parenthetical n) for P. c. maunensis"
+    )
+    middle = _with_lines(
+        _middle([_block("text", 0, stored)]),
+        [
+            {
+                "y0": 0.64,
+                "y1": 0.66,
+                "glyphs": [
+                    {
+                        "t": "(mm or g; parenthetical n) forP. c. cepapi were: 191. ",
+                        "x0": 0.50,
+                        "x1": 0.90,
+                    }
+                ],
+            },
+            {
+                "y0": 0.72,
+                "y1": 0.74,
+                "glyphs": [
+                    {"t": "or g; parenthetical n) for P. c. ", "x0": 0.51, "x1": 0.88},
+                    {"t": "maunensis", "x0": 0.52, "x1": 0.70},
+                ],
+            },
+        ],
+    )
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    measure = content.text.index("191")
+    box = boxes_for_range(content.lines, measure, measure + 3)
+    assert len(box) == 1
+    assert box[0].y0 == pytest.approx(0.64)
+    repeated = content.text.rindex("or g;")
+    later = boxes_for_range(content.lines, repeated, repeated + 4)
+    assert len(later) == 1
+    assert later[0].y0 == pytest.approx(0.72)
+
+
+def test_latex_markers_do_not_swallow_the_following_words() -> None:
+    stored = (
+        "areas (5.9 individuals/ km^{2}). During the dry season, differences among "
+        "areas were less pronounced: national parks 2.6 individuals/km^{2}, wildlife "
+        "management areas 4.4 individuals/km^{2}"
+    )
+    seen = (
+        "areas (5.9 individuals/km2). During the dry season, differences among "
+        "areas were lesspronounced: national parks 2.6 individuals/km2, wildlife "
+        "management areas 4.4 individuals/km2"
+    )
+    middle = _with_lines(
+        _middle([_block("text", 0, stored)]),
+        [{"y0": 0.45, "y1": 0.47, "glyphs": [{"t": seen, "x0": 0.10, "x1": 0.90}]}],
+    )
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    digit = content.text.index("4.4")
+    box = boxes_for_range(content.lines, digit, digit + 1)
+    assert len(box) == 1
+    assert box[0].x1 - box[0].x0 < 0.05
+    brace = content.text.index("^{2}")
+    assert boxes_for_range(content.lines, brace, brace + 2) == []
+
+
 def _with_lines(middle: dict[str, Any], lines: list[dict[str, Any]]) -> dict[str, Any]:
     middle["extensions"]["bioparser_lines"] = {
         "version": 1,

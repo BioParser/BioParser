@@ -200,29 +200,71 @@ def text_lines_for_block(text: str, raw_lines: object) -> list[TextLine]:
     by_anchor: dict[int, list[_Region]] = {}
     for region in regions:
         by_anchor.setdefault(region.anchor, []).append(region)
+    # Spaces are left out of the comparison. A missing space must not drop the
+    # words after it, and it must not count as a character the matcher can slide on.
     # autojunk would ignore the letters that show up most often.
-    matcher = SequenceMatcher(None, "".join(glyph.char for glyph in glyphs), text, autojunk=False)
+    glyph_at = [index for index, glyph in enumerate(glyphs) if glyph.char != " "]
+    text_at = [index for index, char in enumerate(text) if char != " "]
+    matcher = SequenceMatcher(
+        None,
+        "".join(glyphs[index].char for index in glyph_at),
+        "".join(text[index] for index in text_at),
+        autojunk=False,
+    )
     placed: dict[int, tuple[int, float, float, float, float]] = {}
     for tag, glyph_start, glyph_end, text_start, text_end in matcher.get_opcodes():
         if tag == "equal":
             for offset in range(glyph_end - glyph_start):
-                glyph = glyphs[glyph_start + offset]
-                placed[text_start + offset] = (
-                    glyph.line_index,
-                    glyph.y0,
-                    glyph.y1,
-                    glyph.x0,
-                    glyph.x1,
-                )
-        elif tag == "replace":
-            _cover_gap(glyphs[glyph_start:glyph_end], text_start, text_end, placed)
+                glyph_pos = glyph_at[glyph_start + offset]
+                text_pos = text_at[text_start + offset]
+                glyph = glyphs[glyph_pos]
+                placed[text_pos] = (glyph.line_index, glyph.y0, glyph.y1, glyph.x0, glyph.x1)
+                if offset + 1 == glyph_end - glyph_start:
+                    continue
+                # A space both sides still have keeps its own box. An extra space stays empty.
+                glyph_spaces = [
+                    glyphs[index]
+                    for index in range(glyph_pos + 1, glyph_at[glyph_start + offset + 1])
+                    if glyphs[index].char == " "
+                ]
+                text_spaces = [
+                    index
+                    for index in range(text_pos + 1, text_at[text_start + offset + 1])
+                    if text[index] == " "
+                ]
+                for space_at, space in zip(text_spaces, glyph_spaces, strict=False):
+                    placed[space_at] = (space.line_index, space.y0, space.y1, space.x0, space.x1)
+        elif tag == "replace" and text_start < text_end:
+            _cover_gap(
+                [glyphs[glyph_at[index]] for index in range(glyph_start, glyph_end)],
+                text_at[text_start],
+                text_at[text_end - 1] + 1,
+                placed,
+            )
         elif tag == "insert":
-            anchored = by_anchor.get(glyph_start, [])
+            anchored = _regions_before(by_anchor, glyph_at, len(glyphs), glyph_start)
+            start = text_at[text_start] if text_start < len(text_at) else len(text)
+            end = text_at[text_end - 1] + 1 if text_end else start
             if any(region.latex for region in anchored):
-                _cover_spans(anchored, text, text_start, text_end, placed)
+                _cover_spans(anchored, text, start, end, placed)
             else:
-                _cover_gap([region.glyph for region in anchored], text_start, text_end, placed)
+                _cover_gap([region.glyph for region in anchored], start, end, placed)
     return _lines_from_placed(placed)
+
+
+def _regions_before(
+    by_anchor: dict[int, list[_Region]],
+    glyph_at: list[int],
+    glyph_count: int,
+    compact_pos: int,
+) -> list[_Region]:
+    """Formula boxes that sit before the next letter, including ones between spaces."""
+    begin = glyph_at[compact_pos - 1] + 1 if compact_pos else 0
+    end = glyph_at[compact_pos] if compact_pos < len(glyph_at) else glyph_count
+    found: list[_Region] = []
+    for anchor in range(begin, end + 1):
+        found.extend(by_anchor.get(anchor, []))
+    return found
 
 
 def _lines_from_placed(
