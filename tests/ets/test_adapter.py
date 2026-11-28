@@ -630,3 +630,125 @@ def test_date_warnings_distinguish_ambiguous_and_invalid_dates(
 
     assert getattr(row, field) == expected
     assert row.warnings == (f"{warning}:{field}" if warning else "")
+
+
+def test_parse_partial_dates() -> None:
+    assert parse_date("1971") == "1971"
+    assert parse_date("1906-06") == "1906-06"
+    assert parse_date("1906-06-15") == "1906-06-15"
+    assert parse_date("0000") is None
+    assert parse_date("1906-00") is None
+    assert parse_date("1906-13") is None
+
+
+@pytest.mark.parametrize("field", ["eventDate", "measurementDeterminedDate"])
+@pytest.mark.parametrize("interpreted", [False, True])
+@pytest.mark.parametrize(
+    ("date", "expected_parts"),
+    [
+        ("1971", ("1971", None, None)),
+        ("1906-06", ("1906", "06", None)),
+        ("15 June 1906", ("1906", "06", "15")),
+    ],
+)
+def test_dates_fill_only_event_parts_at_the_reported_precision(
+    field: str, interpreted: bool, date: str, expected_parts: tuple[str | None, ...]
+) -> None:
+    value = _read(date, "date reported in the paper", start=80) if interpreted else _cited(date)
+    observation = _observation(**{field: value})
+    artifact = _artifact(observation)
+    before = artifact.model_dump()
+
+    row = to_ets(artifact, references=_DOCUMENT_ID).rows[0]
+
+    assert getattr(row, field) == ("1906-06-15" if date == "15 June 1906" else date)
+    assert (row.year, row.month, row.day) == (
+        expected_parts if field == "eventDate" else (None, None, None)
+    )
+    assert row.warnings == ""
+    assert artifact.model_dump() == before
+
+
+@pytest.mark.parametrize(
+    ("date", "stored", "warnings"),
+    [
+        ("1971", ("1972", "6", "15"), "date_mismatch:year"),
+        ("1971", ("1971", "6", "15"), ""),
+        ("1906-06", ("1907", "7", "15"), "date_mismatch:year | date_mismatch:month"),
+        ("1906-06", ("1906", "6", "15"), ""),
+        (
+            "1906-06-15",
+            ("1907", "7", "16"),
+            "date_mismatch:year | date_mismatch:month | date_mismatch:day",
+        ),
+        ("1906-06-15", ("1906", "6", "015"), ""),
+    ],
+)
+def test_event_date_keeps_stored_parts_and_warns_only_at_its_precision(
+    date: str, stored: tuple[str, str, str], warnings: str
+) -> None:
+    observation = _observation(
+        eventDate=_cited(date),
+        **{
+            field: _cited(value)
+            for field, value in zip(("year", "month", "day"), stored, strict=True)
+        },
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+
+    assert (row.year, row.month, row.day) == stored
+    assert row.eventDate == date
+    assert row.warnings == warnings
+
+
+@pytest.mark.parametrize("date", ["0000", "1906-00", "1906-13", "08/03/1963"])
+def test_invalid_or_ambiguous_event_date_does_not_fill_parts(date: str) -> None:
+    observation = _observation(eventDate=_cited(date))
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+
+    assert row.eventDate == date
+    assert (row.year, row.month, row.day) == (None, None, None)
+    kind = "ambiguous_date" if date == "08/03/1963" else "not_a_date"
+    assert row.warnings == f"{kind}:eventDate"
+
+
+@pytest.mark.parametrize(
+    ("date", "day", "warnings"),
+    [
+        ("2023-02", "31", "not_a_date:year,month,day"),
+        ("2023-02", "29", "not_a_date:year,month,day"),
+        ("2024-02", "29", ""),
+    ],
+)
+def test_completed_event_parts_are_checked_as_a_calendar_day(
+    date: str, day: str, warnings: str
+) -> None:
+    observation = _observation(eventDate=_cited(date), day=_cited(day))
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+
+    assert (row.year, row.month, row.day) == (date[:4], "02", day)
+    assert row.warnings == warnings
+
+
+def test_event_date_fills_missing_parts_beside_a_conflicting_stored_part() -> None:
+    observation = _observation(eventDate=_cited("1906-06-15"), month=_cited("07"))
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+
+    assert (row.year, row.month, row.day) == ("1906", "07", "15")
+    assert row.warnings == "date_mismatch:month"
+
+
+def test_measurement_date_does_not_conflict_with_event_parts() -> None:
+    observation = _observation(
+        eventDate=_cited("1906-06-15"), measurementDeterminedDate=_cited("1971-08")
+    )
+
+    row = to_ets(_artifact(observation), references=_DOCUMENT_ID).rows[0]
+
+    assert (row.year, row.month, row.day) == ("1906", "06", "15")
+    assert row.measurementDeterminedDate == "1971-08"
+    assert row.warnings == ""
