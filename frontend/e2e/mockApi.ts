@@ -22,6 +22,7 @@ function job(id: string, status: string, extra: Record<string, unknown> = {}) {
     extractor: "default",
     created_at: "2026-11-22T08:48:47Z",
     document_checksum: SUM,
+    ...(status === "failed" ? {} : { waiting_for: null, waiting_since: null }),
     ...extra,
   };
 }

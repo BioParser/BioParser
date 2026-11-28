@@ -362,6 +362,8 @@ def test_postgres_unreachable_defers_without_claiming() -> None:
     assert jobs.state is not None
     assert jobs.state.status == "queued"
     assert jobs.state.claims("parsing") == 0
+    assert jobs.state.waiting_for is None
+    assert "job_state.record_waiting" not in jobs.events
     assert parser.paths == []
 
 
@@ -404,6 +406,8 @@ def test_postgres_unreachable_on_claim_defers_without_claiming() -> None:
     assert jobs.state is not None
     assert jobs.state.status == "queued"
     assert jobs.state.claims("parsing") == 0
+    assert jobs.state.waiting_for is None
+    assert "job_state.record_waiting" not in jobs.events
     assert parser.paths == []
 
 
@@ -443,6 +447,109 @@ def test_mineru_down_defers_before_claim(monkeypatch: pytest.MonkeyPatch) -> Non
     assert jobs.state.status == "queued"
     assert jobs.state.claims("parsing") == 0
     assert parser.paths == []
+
+
+def _defer_with_mineru_down(jobs: StubJobs) -> None:
+    handler = _handler(jobs, _storage(), RecordingParser(_artifact()))
+    with pytest.raises(JobDeferred, match="mineru-api is not answering"):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+
+@pytest.mark.parametrize("status", ["queued", "parsing"])
+def test_a_mineru_deferral_records_the_wait(monkeypatch: pytest.MonkeyPatch, status: str) -> None:
+    jobs = StubJobs(_queued().with_changes(parser="mineru", status=status))
+    monkeypatch.setattr(MinerUClient, "ping", _mineru_down)
+    _defer_with_mineru_down(jobs)
+
+    assert jobs.state is not None
+    assert jobs.state.status == status
+    assert jobs.state.claims("parsing") == 0
+    assert jobs.state.waiting_for == "parser"
+    assert jobs.state.waiting_since == jobs.now
+
+
+def test_a_second_mineru_deferral_keeps_the_start_of_the_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
+    monkeypatch.setattr(MinerUClient, "ping", _mineru_down)
+    _defer_with_mineru_down(jobs)
+    first = jobs.now
+    jobs.now = first.replace(hour=9, minute=19)
+    _defer_with_mineru_down(jobs)
+
+    assert jobs.state is not None
+    assert jobs.state.waiting_for == "parser"
+    assert jobs.state.waiting_since == first
+
+
+def test_a_claim_ends_the_wait() -> None:
+    since = datetime(2026, 11, 21, 8, 49, tzinfo=UTC)
+    jobs = StubJobs(_queued().with_changes(waiting_for="parser", waiting_since=since))
+    handler = _handler(jobs, _storage(), RecordingParser(_artifact()))
+    asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "parsed"
+    assert jobs.state.waiting_for is None
+    assert jobs.state.waiting_since is None
+
+
+def test_an_expired_wait_fails_the_job_and_ends_the_wait() -> None:
+    since = datetime(2026, 11, 21, 8, 49, tzinfo=UTC)
+    jobs = StubJobs(
+        _queued().with_changes(parser="mineru", waiting_for="parser", waiting_since=since)
+    )
+    handler = _handler(jobs, _storage(), RecordingParser(_artifact()))
+    asyncio.run(handler.on_failed(_message(), JobDeferralExpired()))
+    asyncio.run(handler.aclose())
+
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.waiting_for is None
+    assert jobs.state.waiting_since is None
+
+
+def test_the_wait_is_not_recorded_on_a_job_that_moved_on() -> None:
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
+
+    async def moved_on_then_down(state: JobState) -> None:
+        # Another delivery parsed the job between the load and this check.
+        jobs.states[str(state.job_id)] = state.with_changes(
+            status="parsed", parse_result_ref=RESULT_PATH, parsing_claims=1
+        )
+        raise JobDeferred("mineru-api is not answering")
+
+    handler = ParseJobHandler(
+        database_url="postgresql://unused",
+        storage=_storage(),
+        parser_factory=lambda _name: RecordingParser(_artifact()),
+        max_claims=DEFAULT_PARSE_MAX_RETRIES + 1,
+        before_claim=moved_on_then_down,
+    )
+    with pytest.raises(JobDeferred):
+        asyncio.run(handler.handle(_message()))
+    asyncio.run(handler.aclose())
+
+    assert "job_state.record_waiting" in jobs.events
+    assert jobs.state is not None
+    assert jobs.state.status == "parsed"
+    assert jobs.state.waiting_for is None
+
+
+def test_the_deferral_stands_when_the_wait_cannot_be_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    jobs = StubJobs(_queued().with_changes(parser="mineru"))
+    jobs.waiting_error = DatabaseUnavailableError("Postgres query failed: OperationalError")
+    monkeypatch.setattr(MinerUClient, "ping", _mineru_down)
+    _defer_with_mineru_down(jobs)
+
+    assert jobs.state is not None
+    assert jobs.state.status == "queued"
+    assert jobs.state.waiting_for is None
 
 
 def test_unavailable_parser_fails_without_retry() -> None:

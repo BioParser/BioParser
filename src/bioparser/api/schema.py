@@ -8,7 +8,7 @@ from bioparser.ets.models import EtsRow
 from bioparser.extractor_names import DEFAULT_EXTRACTOR_NAME, ExtractorName
 from bioparser.hashing import Sha256Hex
 from bioparser.jobs import SafeError
-from bioparser.jobs.state import FailedStage
+from bioparser.jobs.state import FailedStage, WaitingFor
 from bioparser.parser_names import DEFAULT_PARSER_NAME, ParserName
 
 
@@ -72,12 +72,18 @@ class AcceptedJobResponse(BaseModel):
 
 
 class JobResponse(BaseModel):
-    """One job. Its ETS rows are on ``GET /api/jobs/{job_id}/ets``."""
+    """One job. Its ETS rows are on ``GET /api/jobs/{job_id}/ets``.
+
+    ``waiting_for`` names the service the job is waiting for, and ``waiting_since``
+    is when that wait began. Both are null unless the stage deferred the job.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     job_id: UUID
     status: Literal["queued", "parsing", "parsed", "extracting", "done"]
+    waiting_for: WaitingFor | None
+    waiting_since: AwareDatetime | None
 
 
 class JobFullResponse(JobResponse, JobRecord):

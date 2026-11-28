@@ -29,7 +29,10 @@ class JobDeferralExpired(Exception):
 
 
 class JobDeferred(Exception):
-    """The handler cannot run the job yet and has not changed it.
+    """The handler cannot run the job yet and has not changed its progress.
+
+    The status and the claim counts stay as they are. A deferral may record what
+    the job is waiting for (`waiting_for` and `waiting_since`) and nothing else.
 
     The queue acknowledges this delivery and sends a new message later. Each
     send waits longer, up to a cap, until a deadline. The wait does not use

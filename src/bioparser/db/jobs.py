@@ -17,7 +17,9 @@ from sqlalchemy import (
     Text,
     Uuid,
     and_,
+    func,
     insert,
+    or_,
     select,
     text,
 )
@@ -35,6 +37,7 @@ from bioparser.jobs.state import (
     JobState,
     JobStatus,
     SafeErrorCode,
+    WaitingFor,
 )
 
 # The same status list the column check uses. Schema version, parser names,
@@ -83,6 +86,14 @@ class Job(Base):
             ")",
             name="jobs_failed_stage_check",
         ),
+        CheckConstraint(
+            "(waiting_for IS NULL) = (waiting_since IS NULL) AND ("
+            "waiting_for IS NULL"
+            " OR (waiting_for = 'parser' AND status IN ('queued', 'parsing'))"
+            " OR (waiting_for = 'extractor' AND status IN ('parsed', 'extracting'))"
+            ")",
+            name="jobs_waiting_check",
+        ),
     )
 
     job_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
@@ -98,6 +109,8 @@ class Job(Base):
     extract_result_ref: Mapped[str | None] = mapped_column(String(ARTIFACT_PATH_MAX_LENGTH))
     error_code: Mapped[str | None] = mapped_column(Text)
     failed_stage: Mapped[str | None] = mapped_column(Text)
+    waiting_for: Mapped[str | None] = mapped_column(Text)
+    waiting_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     parsing_claims: Mapped[int] = mapped_column(server_default=text("0"))
     extracting_claims: Mapped[int] = mapped_column(server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(
@@ -242,6 +255,9 @@ async def delete_finished(connection: AsyncConnection, job_id: UUID) -> DeleteOu
     return "not_finished"
 
 
+# A claim and a failure end any wait. Both write these in the same statement.
+_NOT_WAITING: dict[str, object] = {"waiting_for": None, "waiting_since": None}
+
 ClaimOutcome = Literal["claimed", "exhausted", "skipped", "missing"]
 MarkOutcome = Literal["recorded", "not_allowed", "skipped", "missing"]
 
@@ -258,14 +274,15 @@ async def claim(
 
     The count increases in the same statement as the status change. At the
     limit the row is marked failed when that status may become `failed`, and
-    the count stays. `skipped` means the row is still there with another
-    status, or the status cannot become `failed`. `missing` means no row.
+    the count stays. Both writes clear `waiting_for` and `waiting_since`.
+    `skipped` means the row is still there with another status, or the status
+    cannot become `failed`. `missing` means no row.
     """
     count = _claim_count(status)
     claimed = await connection.execute(
         sql_update(Job)
         .where(Job.job_id == job_id, Job.status.in_(from_statuses), count < max_claims)
-        .values(status=status, **{count.key: count + 1})
+        .values(status=status, **{count.key: count + 1}, **_NOT_WAITING)
     )
     if claimed.rowcount == 1:
         return "claimed"
@@ -274,7 +291,12 @@ async def claim(
         exhausted = await connection.execute(
             sql_update(Job)
             .where(Job.job_id == job_id, Job.status.in_(failable), count >= max_claims)
-            .values(status="failed", error_code="retries_exhausted", failed_stage=Job.status)
+            .values(
+                status="failed",
+                error_code="retries_exhausted",
+                failed_stage=Job.status,
+                **_NOT_WAITING,
+            )
         )
         if exhausted.rowcount == 1:
             return "exhausted"
@@ -282,6 +304,34 @@ async def claim(
     if found is None:
         return "missing"
     return "skipped"
+
+
+async def record_waiting(
+    connection: AsyncConnection,
+    job_id: UUID,
+    waiting_for: WaitingFor,
+    *,
+    from_statuses: Collection[str],
+) -> bool:
+    """Record that the job waits for `waiting_for` while its status is in `from_statuses`.
+
+    `waiting_since` keeps the time of the first deferral of this wait. Only these two
+    columns change. A row that already records the same wait is not written, so
+    `updated_at` stays too. True when the row changed.
+    """
+    result = await connection.execute(
+        sql_update(Job)
+        .where(
+            Job.job_id == job_id,
+            Job.status.in_(from_statuses),
+            or_(Job.waiting_for.is_distinct_from(waiting_for), Job.waiting_since.is_(None)),
+        )
+        .values(
+            waiting_for=waiting_for,
+            waiting_since=func.coalesce(Job.waiting_since, func.now()),
+        )
+    )
+    return result.rowcount == 1
 
 
 async def record_parsed(connection: AsyncConnection, job_id: UUID, artifact_path: str) -> bool:
@@ -313,6 +363,7 @@ async def mark_failed(
 ) -> MarkOutcome:
     """Set `failed` when one of `from_statuses` may move there.
 
+    The same statement clears `waiting_for` and `waiting_since`.
     `recorded` means the row changed. `not_allowed` means the stored status is
     one of `from_statuses` but cannot become `failed`. `skipped` means the row
     has another status. `missing` means no row.
@@ -322,7 +373,7 @@ async def mark_failed(
         result = await connection.execute(
             sql_update(Job)
             .where(Job.job_id == job_id, Job.status.in_(failable))
-            .values(status="failed", error_code=code, failed_stage=Job.status)
+            .values(status="failed", error_code=code, failed_stage=Job.status, **_NOT_WAITING)
         )
         if result.rowcount == 1:
             return "recorded"

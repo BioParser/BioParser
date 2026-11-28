@@ -189,7 +189,12 @@ async def test_redis_backed_submission_and_polling(
 
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
-        assert poll.json() == {"job_id": job_id, "status": "queued"}
+        assert poll.json() == {
+            "job_id": job_id,
+            "status": "queued",
+            "waiting_for": None,
+            "waiting_since": None,
+        }
 
         # Drain the real Redis-backed Dramatiq queue to verify the serialized
         # message contract, rather than inspecting an in-memory fake.
@@ -216,7 +221,12 @@ async def test_redis_backed_submission_and_polling(
             )
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
-        assert poll.json() == {"job_id": job_id, "status": "parsing"}
+        assert poll.json() == {
+            "job_id": job_id,
+            "status": "parsing",
+            "waiting_for": None,
+            "waiting_since": None,
+        }
 
         output_artifact_ref = f"art-result-{job_id}"
 
@@ -239,7 +249,12 @@ async def test_redis_backed_submission_and_polling(
         poll = await client.get(f"/api/jobs/{job_id}")
         assert poll.status_code == 200
         # The status names no storage path
-        assert poll.json() == {"job_id": job_id, "status": "parsed"}
+        assert poll.json() == {
+            "job_id": job_id,
+            "status": "parsed",
+            "waiting_for": None,
+            "waiting_since": None,
+        }
 
         artifact = await client.get(f"/api/jobs/{job_id}/artifacts/parser")
         assert artifact.status_code == 200

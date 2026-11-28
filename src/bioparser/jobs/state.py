@@ -37,6 +37,15 @@ class CorruptJobStateError(JobStateError):
 # wake-up can still claim it.
 JobStatus = Literal["queued", "parsing", "parsed", "extracting", "done", "failed"]
 FailedStage = Literal["queued", "parsing", "parsed", "extracting"]
+# The service a job is waiting for while its stage cannot claim it: MinerU for the
+# parser, vLLM for the extractor. A stage sets it only for a status it owns.
+WaitingFor = Literal["parser", "extractor"]
+WAITING_STATUSES: Mapping[WaitingFor, frozenset[JobStatus]] = MappingProxyType(
+    {
+        "parser": frozenset({"queued", "parsing"}),
+        "extractor": frozenset({"parsed", "extracting"}),
+    }
+)
 
 # Every legal status change, keyed by the stored status. A store must refuse any write
 # whose status is not listed for the stored one, so a stale or duplicate writer cannot
@@ -92,6 +101,11 @@ class JobState(BaseModel):
     error_code: SafeErrorCode | None = None
     # The status this job had when it was marked failed. Empty for every other status.
     failed_stage: FailedStage | None = None
+    # Set when the stage's service did not answer and the job was deferred. Both are
+    # empty again once the job is claimed or failed. `waiting_since` is the first
+    # deferral of this wait.
+    waiting_for: WaitingFor | None = None
+    waiting_since: AwareDatetime | None = None
     parsing_claims: int = Field(default=0, ge=0)
     extracting_claims: int = Field(default=0, ge=0)
     created_at: AwareDatetime
@@ -125,6 +139,17 @@ class JobState(BaseModel):
         if value not in EXTRACTORS:
             raise ValueError(f"must be one of: {', '.join(EXTRACTORS)}")
         return value
+
+    @model_validator(mode="after")
+    def _waiting_matches_status(self) -> Self:
+        if (self.waiting_for is None) != (self.waiting_since is None):
+            raise ValueError(
+                "waiting_for and waiting_since must be set together, "
+                f"got waiting_for={self.waiting_for!r}, waiting_since={self.waiting_since!r}"
+            )
+        if self.waiting_for is not None and self.status not in WAITING_STATUSES[self.waiting_for]:
+            raise ValueError(f"status={self.status!r} cannot be waiting for the {self.waiting_for}")
+        return self
 
     @model_validator(mode="after")
     def _fields_match_status(self) -> Self:

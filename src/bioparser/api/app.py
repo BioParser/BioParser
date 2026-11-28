@@ -722,10 +722,12 @@ async def job_status(
 ) -> JobStatusResponse:
     """The job.
 
-    `queued`, `parsing`, `parsed`, and `extracting` are `job_id` and `status`. `failed`
-    adds `error` and `failed_stage`, the status the job had when it failed. `done` is
-    `job_id` and `status`. The ETS rows are `GET /api/jobs/{job_id}/ets`. This route
-    does not read the extraction artifact.
+    `queued`, `parsing`, `parsed`, `extracting`, and `done` are `job_id`, `status`,
+    `waiting_for`, and `waiting_since`. `waiting_for` is `parser` or `extractor` while
+    the stage's service does not answer, and `waiting_since` is when that wait began.
+    Both are null otherwise. `failed` is `job_id`, `status`, `error`, and
+    `failed_stage`, the status the job had when it failed. The ETS rows are
+    `GET /api/jobs/{job_id}/ets`. This route does not read the extraction artifact.
 
     `?detail=full` adds the stored record: `created_at`, `display_name`, `parser`,
     `extractor`, and `document_checksum`.

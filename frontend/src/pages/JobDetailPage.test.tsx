@@ -86,6 +86,39 @@ describe("JobDetailPage", () => {
     expect(document.querySelector("time")?.dateTime).toBe(metadata.created_at);
   });
 
+  it.each([
+    ["queued", "parser", "MinerU"],
+    ["parsing", "parser", "MinerU"],
+    ["parsed", "extractor", "the extraction model"],
+  ] as const)(
+    "shows that a %s job waits for the %s and since when",
+    async (status, waiting, service) => {
+      const since = "2026-11-21T08:49:00Z";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          Response.json({ ...metadata, status, waiting_for: waiting, waiting_since: since }),
+        ),
+      );
+      renderPage();
+      await screen.findByText(`Status: ${status}`);
+      const time = new Date(since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const line = document.querySelector(".job-waiting");
+      expect(line?.textContent).toBe(
+        `Waiting for ${service} since ${time}. The job fails if ${service} does not answer within an hour.`,
+      );
+      expect(line?.querySelector("time")?.dateTime).toBe(since);
+    },
+  );
+
+  it("says nothing about waiting when the job is not waiting", async () => {
+    stubJob("queued");
+    renderPage();
+    await screen.findByText("Status: queued");
+    expect(document.querySelector(".job-waiting")).toBeNull();
+    expect(screen.queryByText(/Waiting for/)).toBeNull();
+  });
+
   it("asks for the stored record with detail=full", async () => {
     // Without detail=full the API answers only the job ID and the status.
     const fetchMock = vi.fn<typeof fetch>(async (path) =>

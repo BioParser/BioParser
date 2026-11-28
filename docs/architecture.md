@@ -92,10 +92,16 @@ archive. PDFs and versioned outputs live behind an artifact storage interface:
 - **Table:** `jobs`, one row per `job_id`. The `Job` class in `bioparser.db.jobs`
   is that table. The API and both workers query it, and Alembic diffs the class
   when generating a revision.
-- **Writes:** a claim, a recorded result, and a failure are each one statement.
-  The statement changes its own columns and matches only a status that may make
-  that change. No matching row leaves the job as it is. `created_at` and
-  `updated_at` are set by the database. The update trigger sets `updated_at`.
+- **Writes:** a claim, a recorded result, a failure, and a recorded wait are each
+  one statement. The statement changes its own columns and matches only a status
+  that may make that change. No matching row leaves the job as it is. `created_at`
+  and `updated_at` are set by the database. The update trigger sets `updated_at`.
+- **Waits:** when MinerU or vLLM does not answer, the stage defers the job and
+  records `waiting_for` (`parser` or `extractor`). It sets `waiting_since` only if it
+  is empty, and writes nothing when the row already records that wait. The status and
+  the claim counts stay as they are. A claim or a failure clears both columns in the
+  same statement. A deferral because Postgres is not reachable writes nothing. The API
+  cannot reach MinerU or vLLM, so these columns are how it shows the wait.
 - **Retention:** a row stays until something deletes it.
 - **Timeouts:** a driver failure, including one raised by a statement inside
   the transaction, reports `DatabaseError`. The message names the driver error
@@ -272,6 +278,8 @@ Job state holds the document checksum and the artifact paths, typed `ArtifactPat
 | `document_checksum` | sha256 hex | Always. The document this job belongs to. The PDF is `pdf_path(document_checksum)`. |
 | `parse_result_ref` | `ArtifactPath \| None` | In `parsed`, `extracting` and `done`. Also on `failed` when `failed_stage` is `parsed` or `extracting`. `None` in `queued` and `parsing`, and on `failed` when `failed_stage` is `queued` or `parsing`. |
 | `failed_stage` | `queued`, `parsing`, `parsed`, or `extracting` | Set only when `status` is `failed`. It is the status the job had when it failed. |
+| `waiting_for` | `parser` or `extractor` | Set while the stage's service does not answer and the job is deferred. `parser` only in `queued` or `parsing`, `extractor` only in `parsed` or `extracting`. Cleared by a claim or a failure. |
+| `waiting_since` | timestamp | Set together with `waiting_for`: when that wait began. A later deferral keeps it. |
 
 Queue messages carry only `job_id`. Workers read the checksum and the result paths from job state.
 
