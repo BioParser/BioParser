@@ -23,11 +23,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from bioparser.parser.backend.mineru.glyphs import (
-    line_for_block_box,
-    lines_by_block,
-    text_lines_for_block,
-)
+from bioparser.parser.backend.mineru.glyph_wire import lines_by_block
+from bioparser.parser.backend.mineru.glyphs import line_for_block_box, text_lines_for_block
 from bioparser.parser.backend.mineru.schema import MINERU_VERSION, MiddleBlock, MiddleDump
 from bioparser.parser.backend.mineru.tables import table_from_html
 from bioparser.parser.backend.mineru.text import bbox_from_unit, role_and_heading, text_from_leaf
@@ -132,7 +129,7 @@ def _page_sizes(dump: MiddleDump) -> list[tuple[float, float]]:
 def _content_with_lines(
     prepared: _PreparedBlock,
     page_idx: int,
-    geometry: dict[tuple[int, int], list[dict[str, Any]]],
+    geometry: dict[tuple[int, int], list[Any]],
 ) -> TextContent | TableContent:
     """The block's content, with glyph lines when MinerU measured any.
 

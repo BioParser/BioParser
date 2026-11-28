@@ -1,352 +1,223 @@
 """Place MinerU's glyph edges onto a block's stored text.
 
-The glyph string and the stored text are aligned as a diff. Characters that still
-agree keep the measured box. A rewritten span shares one box, the union of the ink
-that did not match, whatever lines that ink was drawn on. An inline formula often
-has no characters left, only the box MinerU measured for it, and that box covers
-the formula text. Inserted text with no glyphs and no box stays empty. A glyph with no stored character is dropped.
-A glyph whose text is longer than one character shares that glyph's box evenly.
+MinerU measured a box for each character it drew. The stored text is not always what
+was drawn: a formula became LaTeX, a hyphen was removed, a ligature was split. So the
+two strings are aligned as a diff, and each stored character takes a box from the diff:
+
+* Characters that still agree keep the box that was measured for them.
+* A rewritten span has no box of its own. Every one of its characters shares one box,
+  the union of the ink that did not match, whatever lines that ink was drawn on.
+* An inline formula often has no characters left, only the box MinerU measured for it.
+  That box goes to the characters of its LaTeX.
+* Inserted text with no glyphs and no box stays empty.
+* A glyph with no stored character is dropped.
+
+The result is a ``TextLine`` per run of characters on one drawn line. ``glyph_wire.py``
+reads the measured geometry. This module only places it.
+
+Spaces are left out of the diff. A missing space must not drop the words after it, and
+a space must not be a character the matcher can slide on. A space that both sides still
+have keeps its own box afterwards.
 """
 
 from __future__ import annotations
 
 from difflib import SequenceMatcher
-from typing import Any, NamedTuple
+from itertools import pairwise
+from typing import NamedTuple
 
+from bioparser.parser.backend.mineru.glyph_wire import (
+    BlockGeometry,
+    Formula,
+    Glyph,
+    LineKey,
+    parse_block,
+)
 from bioparser.parser.models import BoundingBox, TextLine
 
 
-def _expand(glyphs: object) -> list[tuple[str, float, float]]:
-    """One edge pair per character. A run longer than one character shares its box evenly."""
-    if not isinstance(glyphs, list):
-        return []
-    edges: list[tuple[str, float, float]] = []
-    for glyph in glyphs:
-        if not isinstance(glyph, dict):
-            continue
-        text = glyph.get("t")
-        left = glyph.get("x0")
-        right = glyph.get("x1")
-        if (
-            not isinstance(text, str)
-            or not text
-            or isinstance(left, bool)
-            or isinstance(right, bool)
-            or not isinstance(left, (int, float))
-            or not isinstance(right, (int, float))
-        ):
-            continue
-        x0 = float(left)
-        x1 = float(right)
-        if x1 < x0:
-            continue
-        if len(text) == 1:
-            edges.append((text, x0, x1))
-            continue
-        step = (x1 - x0) / len(text)
-        edges.extend(
-            (char, x0 + step * index, x0 + step * (index + 1)) for index, char in enumerate(text)
-        )
-    return edges
-
-
-def _unit(value: float) -> float:
-    return min(1.0, max(0.0, value))
-
-
-class _Glyph(NamedTuple):
-    char: str
-    x0: float
-    x1: float
-    line_index: int
-    y0: float
-    y1: float
-
-
 class _Placed(NamedTuple):
-    """Where one stored character sits: a line key and its box."""
+    """The box one stored character takes, and the drawn line it belongs to."""
 
-    line_index: int
+    line: LineKey
     y0: float
     y1: float
     x0: float
     x1: float
 
     @classmethod
-    def of(cls, glyph: _Glyph) -> _Placed:
-        return cls(glyph.line_index, glyph.y0, glyph.y1, glyph.x0, glyph.x1)
+    def of(cls, glyph: Glyph) -> _Placed:
+        return cls(glyph.line, glyph.y0, glyph.y1, glyph.x0, glyph.x1)
 
 
+# Index into the stored text to the box that character takes. A missing key is a
+# character with no ink.
 _Placements = dict[int, _Placed]
 
 
-class _Region(NamedTuple):
-    """One formula span: its box, and the LaTeX it contributes to the stored text."""
-
-    anchor: int
-    glyph: _Glyph
-    latex: str
-
-
-def _number(value: object) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return _unit(float(value))
-
-
-def _line_span(raw: object) -> tuple[dict[str, Any], float, float] | None:
-    """A raw line with a usable vertical span, with that span clamped to the page."""
-    if not isinstance(raw, dict):
-        return None
-    y0 = raw.get("y0")
-    y1 = raw.get("y1")
-    if (
-        isinstance(y0, bool)
-        or isinstance(y1, bool)
-        or not isinstance(y0, (int, float))
-        or not isinstance(y1, (int, float))
-    ):
-        return None
-    top = _unit(float(y0))
-    bottom = _unit(float(y1))
-    if bottom < top or not isinstance(raw.get("glyphs"), list):
-        return None
-    return raw, top, bottom
-
-
-def _region_from(
-    item: dict[str, Any], anchor: int, serial: int, top: float, bottom: float
-) -> _Region | None:
-    """A formula span. It falls back to its line's vertical span for a missing y."""
-    left = _number(item.get("x0"))
-    right = _number(item.get("x1"))
-    if left is None or right is None or right < left:
-        return None
-    region_top = _number(item.get("y0"))
-    region_bottom = _number(item.get("y1"))
-    if region_top is None:
-        region_top = top
-    if region_bottom is None:
-        region_bottom = bottom
-    if region_bottom < region_top:
-        return None
-    latex = item.get("latex")
-    return _Region(
-        anchor,
-        _Glyph("", left, right, -serial, region_top, region_bottom),
-        latex if isinstance(latex, str) else "",
-    )
-
-
-def _collect(raw_lines: list[object]) -> tuple[list[_Glyph], list[_Region]]:
-    """Characters and formula spans of a block, in reading order.
-
-    A formula span is anchored to the number of characters that precede it.
-    """
-    glyphs: list[_Glyph] = []
-    regions: list[_Region] = []
-    serial = 0
-    for line_index, raw_line in enumerate(raw_lines):
-        span = _line_span(raw_line)
-        if span is None:
-            continue
-        raw, top, bottom = span
-        for item in raw["glyphs"]:
-            if not isinstance(item, dict):
-                continue
-            if item.get("t") == "":
-                region = _region_from(item, len(glyphs), serial + 1, top, bottom)
-                if region is not None:
-                    serial += 1
-                    regions.append(region)
-                continue
-            for char, edge_left, edge_right in _expand([item]):
-                if char in "\r\n":
-                    continue
-                left = _unit(edge_left)
-                right = _unit(edge_right)
-                if right >= left:
-                    glyphs.append(_Glyph(char, left, right, line_index, top, bottom))
-    return glyphs, regions
-
-
-def _cover_gap(
-    glyphs: list[_Glyph],
-    start: int,
-    end: int,
-    placed: _Placements,
-) -> None:
-    """Every character of a rewrite highlights the whole unmatched area."""
+def _spread(glyphs: list[Glyph], start: int, end: int, placed: _Placements) -> None:
+    """Give every character in ``text[start:end]`` the union box of ``glyphs``."""
     if end <= start or not glyphs:
         return
-    left = min(glyph.x0 for glyph in glyphs)
-    right = max(glyph.x1 for glyph in glyphs)
-    top = min(glyph.y0 for glyph in glyphs)
-    bottom = max(glyph.y1 for glyph in glyphs)
-    line_indexes = {glyph.line_index for glyph in glyphs}
-    # One drawn line stays on that line, so matched letters inside the span join it.
-    # Several lines become one area. A character can sit on only one line.
-    line_index = glyphs[0].line_index if len(line_indexes) == 1 else -(10**6 + start)
+    lines = {glyph.line for glyph in glyphs}
+    box = _Placed(
+        # Ink on one drawn line stays on that line, so matched letters inside the span
+        # join it. Ink on several lines becomes one area with a line of its own.
+        line=glyphs[0].line if len(lines) == 1 else ("area", start),
+        y0=min(glyph.y0 for glyph in glyphs),
+        y1=max(glyph.y1 for glyph in glyphs),
+        x0=min(glyph.x0 for glyph in glyphs),
+        x1=max(glyph.x1 for glyph in glyphs),
+    )
     for at in range(start, end):
-        placed[at] = _Placed(line_index, top, bottom, left, right)
+        placed[at] = box
 
 
-def _paint(
-    glyph: _Glyph,
-    start: int,
-    end: int,
-    placed: _Placements,
+def _paint_latex(
+    formulas: list[Formula], text: str, start: int, end: int, placed: _Placements
 ) -> None:
-    for at in range(start, end):
-        placed[at] = _Placed.of(glyph)
-
-
-def _cover_spans(
-    regions: list[_Region],
-    text: str,
-    start: int,
-    end: int,
-    placed: _Placements,
-) -> None:
-    """Each formula span paints its own box onto the characters of its LaTeX."""
+    """Find each formula's LaTeX in ``text[start:end]`` and give it that formula's box."""
     cursor = start
-    for region in regions:
-        latex = region.latex
-        if not latex:
+    for formula in formulas:
+        if not formula.latex:
             continue
-        found = text.find(latex, cursor, end)
-        if found < 0 or found + len(latex) > end:
+        found = text.find(formula.latex, cursor, end)
+        if found < 0 or found + len(formula.latex) > end:
             continue
-        _paint(region.glyph, found, found + len(latex), placed)
-        cursor = found + len(latex)
+        cursor = found + len(formula.latex)
+        box = _Placed.of(formula.box)
+        for at in range(found, cursor):
+            placed[at] = box
 
 
-def _place_equal(
-    glyphs: list[_Glyph],
-    text: str,
-    glyph_at: list[int],
-    text_at: list[int],
-    span: tuple[int, int, int],
-    placed: _Placements,
-) -> None:
-    """Matched letters keep their own box. A space both sides still have keeps its own box.
+class _Placer:
+    """Aligns one block's glyphs with its stored text and fills in ``placed``.
 
-    ``span`` is the start and end of the match among the glyphs without spaces, and its
-    start among the text without spaces. An extra space on either side stays empty.
+    The diff runs on the glyph and text strings with spaces removed. ``glyph_at`` and
+    ``text_at`` map a position in those compact strings back to an index in ``glyphs``
+    and ``text``. Every method below takes compact positions and converts as it goes.
     """
-    glyph_start, glyph_end, text_start = span
-    count = glyph_end - glyph_start
-    for offset in range(count):
-        glyph_pos = glyph_at[glyph_start + offset]
-        text_pos = text_at[text_start + offset]
-        placed[text_pos] = _Placed.of(glyphs[glyph_pos])
-        if offset + 1 == count:
-            continue
-        glyph_spaces = [
-            glyphs[index]
-            for index in range(glyph_pos + 1, glyph_at[glyph_start + offset + 1])
-            if glyphs[index].char == " "
+
+    def __init__(self, text: str, geometry: BlockGeometry) -> None:
+        self.text = text
+        self.glyphs = geometry.glyphs
+        self.formulas_at: dict[int, list[Formula]] = {}
+        for formula in geometry.formulas:
+            self.formulas_at.setdefault(formula.anchor, []).append(formula)
+        self.glyph_at = [i for i, glyph in enumerate(self.glyphs) if glyph.char != " "]
+        self.text_at = [i for i, char in enumerate(text) if char != " "]
+        self.placed: _Placements = {}
+
+    def run(self) -> _Placements:
+        matcher = SequenceMatcher(
+            None,
+            "".join(self.glyphs[i].char for i in self.glyph_at),
+            "".join(self.text[i] for i in self.text_at),
+            autojunk=False,  # it would ignore the letters that show up most often
+        )
+        for tag, glyph_start, glyph_end, text_start, text_end in matcher.get_opcodes():
+            if tag == "equal":
+                self._matched(glyph_start, glyph_end, text_start)
+            elif tag == "replace":
+                self._rewritten(glyph_start, glyph_end, text_start, text_end)
+            elif tag == "insert":
+                self._inserted(glyph_start, text_start, text_end)
+            # "delete" is ink with no stored character. It is dropped.
+        return self.placed
+
+    def _matched(self, glyph_start: int, glyph_end: int, text_start: int) -> None:
+        """Letters both sides agree on keep their box, and so do the spaces between them."""
+        pairs = [
+            (self.glyph_at[glyph_start + k], self.text_at[text_start + k])
+            for k in range(glyph_end - glyph_start)
         ]
-        text_spaces = [
-            index
-            for index in range(text_pos + 1, text_at[text_start + offset + 1])
-            if text[index] == " "
+        for glyph_pos, text_pos in pairs:
+            self.placed[text_pos] = _Placed.of(self.glyphs[glyph_pos])
+        for (glyph_before, text_before), (glyph_after, text_after) in pairwise(pairs):
+            glyph_spaces = [
+                self.glyphs[i]
+                for i in range(glyph_before + 1, glyph_after)
+                if self.glyphs[i].char == " "
+            ]
+            text_spaces = [i for i in range(text_before + 1, text_after) if self.text[i] == " "]
+            # Spaces pair up in order. An extra space on either side stays empty.
+            for text_pos, glyph in zip(text_spaces, glyph_spaces, strict=False):
+                self.placed[text_pos] = _Placed.of(glyph)
+
+    def _rewritten(self, glyph_start: int, glyph_end: int, text_start: int, text_end: int) -> None:
+        """Stored text replaced the drawn ink. All of it shares the ink's union box."""
+        _spread(
+            [self.glyphs[self.glyph_at[i]] for i in range(glyph_start, glyph_end)],
+            self.text_at[text_start],
+            self.text_at[text_end - 1] + 1,
+            self.placed,
+        )
+
+    def _inserted(self, glyph_start: int, text_start: int, text_end: int) -> None:
+        """Stored text with no ink. A formula that sits at this spot may account for it."""
+        start = self.text_at[text_start]
+        end = self.text_at[text_end - 1] + 1
+        formulas = self._formulas_before(glyph_start)
+        if any(formula.latex for formula in formulas):
+            _paint_latex(formulas, self.text, start, end, self.placed)
+        else:
+            _spread([formula.box for formula in formulas], start, end, self.placed)
+
+    def _formulas_before(self, glyph_pos: int) -> list[Formula]:
+        """Formulas that sit after the previous letter and before this one.
+
+        That includes formulas anchored among the spaces between the two.
+        """
+        first = self.glyph_at[glyph_pos - 1] + 1 if glyph_pos else 0
+        last = self.glyph_at[glyph_pos] if glyph_pos < len(self.glyph_at) else len(self.glyphs)
+        return [
+            formula
+            for anchor in range(first, last + 1)
+            for formula in self.formulas_at.get(anchor, [])
         ]
-        for space_at, space in zip(text_spaces, glyph_spaces, strict=False):
-            placed[space_at] = _Placed.of(space)
+
+
+def _runs(placed: _Placements) -> list[list[int]]:
+    """Group placed characters into runs: neighbors on the same drawn line.
+
+    A character with a different line between two others breaks the run, so a formula
+    box between two words stays its own run.
+    """
+    runs: list[list[int]] = []
+    for at in sorted(placed):
+        if runs:
+            previous = runs[-1][-1]
+            line = placed[at].line
+            interrupted = any(
+                index in placed and placed[index].line != line for index in range(previous + 1, at)
+            )
+            if placed[previous].line == line and not interrupted:
+                runs[-1].append(at)
+                continue
+        runs.append([at])
+    return runs
+
+
+def _line_for_run(run: list[int], placed: _Placements) -> TextLine:
+    start, end = run[0], run[-1] + 1
+    x0: list[float | None] = [None] * (end - start)
+    x1: list[float | None] = [None] * (end - start)
+    for at in run:
+        x0[at - start] = placed[at].x0
+        x1[at - start] = placed[at].x1
+    first = placed[start]
+    return TextLine(start=start, end=end, y0=first.y0, y1=first.y1, x0=x0, x1=x1)
 
 
 def text_lines_for_block(text: str, raw_lines: object) -> list[TextLine]:
     """Map one block's harvested lines onto ``text``. A line that cannot be placed is omitted."""
     if not isinstance(raw_lines, list) or not text:
         return []
-    glyphs, regions = _collect(raw_lines)
-    if not glyphs and not regions:
+    geometry = parse_block(raw_lines)
+    if not geometry.glyphs and not geometry.formulas:
         return []
-    by_anchor: dict[int, list[_Region]] = {}
-    for region in regions:
-        by_anchor.setdefault(region.anchor, []).append(region)
-    # Spaces are left out of the comparison. A missing space must not drop the
-    # words after it, and it must not count as a character the matcher can slide on.
-    # autojunk would ignore the letters that show up most often.
-    glyph_at = [index for index, glyph in enumerate(glyphs) if glyph.char != " "]
-    text_at = [index for index, char in enumerate(text) if char != " "]
-    matcher = SequenceMatcher(
-        None,
-        "".join(glyphs[index].char for index in glyph_at),
-        "".join(text[index] for index in text_at),
-        autojunk=False,
-    )
-    placed: _Placements = {}
-    for tag, glyph_start, glyph_end, text_start, text_end in matcher.get_opcodes():
-        if tag == "equal":
-            _place_equal(
-                glyphs, text, glyph_at, text_at, (glyph_start, glyph_end, text_start), placed
-            )
-        elif tag == "replace" and text_start < text_end:
-            _cover_gap(
-                [glyphs[glyph_at[index]] for index in range(glyph_start, glyph_end)],
-                text_at[text_start],
-                text_at[text_end - 1] + 1,
-                placed,
-            )
-        elif tag == "insert":
-            anchored = _regions_before(by_anchor, glyph_at, len(glyphs), glyph_start)
-            start = text_at[text_start] if text_start < len(text_at) else len(text)
-            end = text_at[text_end - 1] + 1 if text_end else start
-            if any(region.latex for region in anchored):
-                _cover_spans(anchored, text, start, end, placed)
-            else:
-                _cover_gap([region.glyph for region in anchored], start, end, placed)
-    return _lines_from_placed(placed)
-
-
-def _regions_before(
-    by_anchor: dict[int, list[_Region]],
-    glyph_at: list[int],
-    glyph_count: int,
-    compact_pos: int,
-) -> list[_Region]:
-    """Formula boxes that sit before the next letter, including ones between spaces."""
-    begin = glyph_at[compact_pos - 1] + 1 if compact_pos else 0
-    end = glyph_at[compact_pos] if compact_pos < len(glyph_at) else glyph_count
-    found: list[_Region] = []
-    for anchor in range(begin, end + 1):
-        found.extend(by_anchor.get(anchor, []))
-    return found
-
-
-def _lines_from_placed(placed: _Placements) -> list[TextLine]:
-    """One line per contiguous run. A formula box between two words stays its own run."""
-    if not placed:
-        return []
-    order = sorted(placed)
-    runs: list[list[int]] = []
-    for at in order:
-        line_index = placed[at].line_index
-        if runs:
-            previous = runs[-1]
-            same_line = placed[previous[-1]].line_index == line_index
-            interrupted = any(
-                index in placed and placed[index].line_index != line_index
-                for index in range(previous[-1] + 1, at)
-            )
-            if same_line and not interrupted:
-                previous.append(at)
-                continue
-        runs.append([at])
-    lines: list[TextLine] = []
-    for run in runs:
-        start = run[0]
-        end = run[-1] + 1
-        x0: list[float | None] = [None] * (end - start)
-        x1: list[float | None] = [None] * (end - start)
-        for at in run:
-            x0[at - start] = placed[at].x0
-            x1[at - start] = placed[at].x1
-        first = placed[start]
-        lines.append(TextLine(start=start, end=end, y0=first.y0, y1=first.y1, x0=x0, x1=x1))
-    return lines
+    placed = _Placer(text, geometry).run()
+    return [_line_for_run(run, placed) for run in _runs(placed)]
 
 
 def line_for_block_box(text: str, bbox: BoundingBox) -> list[TextLine]:
@@ -363,37 +234,3 @@ def line_for_block_box(text: str, bbox: BoundingBox) -> list[TextLine]:
             x1=[bbox.x1] * len(text),
         )
     ]
-
-
-def lines_by_block(extension: object) -> dict[tuple[int, int], list[dict[str, Any]]]:
-    """``(page_idx, block index)`` to the raw lines harvested from MinerU."""
-    if not isinstance(extension, dict) or extension.get("version") != 1:
-        return {}
-    pages = extension.get("pages")
-    if not isinstance(pages, list):
-        return {}
-    found: dict[tuple[int, int], list[dict[str, Any]]] = {}
-    for page in pages:
-        if not isinstance(page, dict):
-            continue
-        page_idx = page.get("page_idx")
-        blocks = page.get("blocks")
-        if (
-            isinstance(page_idx, bool)
-            or not isinstance(page_idx, int)
-            or not isinstance(blocks, list)
-        ):
-            continue
-        for block in blocks:
-            if not isinstance(block, dict):
-                continue
-            index = block.get("index")
-            raw_lines = block.get("lines")
-            if (
-                isinstance(index, bool)
-                or not isinstance(index, int)
-                or not isinstance(raw_lines, list)
-            ):
-                continue
-            found[(page_idx, index)] = raw_lines
-    return found
