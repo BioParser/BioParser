@@ -129,7 +129,8 @@ function JobStatus({
   return (
     <>
       <section className="job-summary" aria-labelledby="job-details-heading">
-        <h2 id="job-details-heading">{job.display_name ?? "Unnamed PDF"}</h2>
+        <h2 id="job-details-heading">{job.title || job.display_name || "Unnamed PDF"}</h2>
+        {job.title && job.display_name && <p className="document-filename">{job.display_name}</p>}
         <dl>
           <dt>Parser</dt>
           <dd>{job.parser}</dd>

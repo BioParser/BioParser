@@ -8,6 +8,7 @@ import { JobDetailPage } from "./JobDetailPage";
 const metadata = {
   job_id: "abc",
   display_name: "study.pdf",
+  title: null,
   parser: "mineru",
   extractor: "default",
   created_at: "2026-11-10T10:00:00Z",
@@ -58,6 +59,34 @@ async function tick(ms = 10) {
 }
 
 describe("JobDetailPage", () => {
+  it.each([
+    { title: "A paper title", display_name: "paper.pdf", expected: "A paper title" },
+    { title: "A paper title", display_name: null, expected: "A paper title" },
+    { title: null, display_name: "paper.pdf", expected: "paper.pdf" },
+    { title: "", display_name: "paper.pdf", expected: "paper.pdf" },
+    { title: null, display_name: null, expected: "Unnamed PDF" },
+    { title: null, display_name: "", expected: "Unnamed PDF" },
+  ])(
+    "shows $expected for title=$title and filename=$display_name",
+    async ({ title, display_name, expected }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          Response.json({
+            ...metadata,
+            title,
+            display_name,
+            status: "queued",
+          }),
+        ),
+      );
+      renderPage();
+      const heading = await screen.findByRole("heading", { name: expected });
+      const filename = heading.parentElement?.querySelector(".document-filename");
+      expect(filename?.textContent ?? null).toBe(title && display_name ? display_name : null);
+    },
+  );
+
   it.each(["queued", "parsing", "parsed", "extracting", "done"] as const)(
     "shows %s and all five stages",
     async (status) => {

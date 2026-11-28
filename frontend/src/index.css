@@ -134,6 +134,7 @@ input {
 .job-summary h2 {
   margin: 0;
   font-size: 1.125rem;
+  overflow-wrap: anywhere;
 }
 
 .job-summary dl {
@@ -168,7 +169,29 @@ input {
 }
 
 .job-file-name {
+  flex-basis: 100%;
   font-weight: 600;
+}
+
+.job-file-title {
+  display: flex;
+  flex-direction: column;
+  flex-basis: 100%;
+  gap: 0.25rem;
+}
+
+.job-file-title input {
+  min-width: 0;
+  padding: 0.5rem;
+  font: inherit;
+}
+
+.document-filename {
+  display: block;
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  opacity: 0.75;
+  overflow-wrap: anywhere;
 }
 
 .job-file-error {

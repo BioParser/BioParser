@@ -180,8 +180,11 @@ export function DashboardPage() {
                       <tr key={job.job_id}>
                         <td>
                           <Link to={`/jobs/${encodeURIComponent(job.job_id)}`}>
-                            {job.display_name ?? "Unnamed file"}
+                            {job.title || job.display_name || "Unnamed PDF"}
                           </Link>
+                          {job.title && job.display_name && (
+                            <small className="document-filename">{job.display_name}</small>
+                          )}
                         </td>
                         <td>
                           <span className={`job-status status-${job.status}`}>

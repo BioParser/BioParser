@@ -152,6 +152,51 @@ function statusOf(name: string): HTMLElement {
 }
 
 describe("StartJobPage", () => {
+  it("sends each file's own title and leaves untitled files without a title", async () => {
+    const fetchMock = stubApi();
+    renderPage();
+    chooseFiles(pdf("a.pdf"), pdf("b.pdf"), pdf("c.pdf"));
+    const titleA = screen.getByRole("textbox", { name: "Title for a.pdf" }) as HTMLInputElement;
+    expect(titleA.value).toBe("");
+    expect(titleA.maxLength).toBe(500);
+    expect(titleA.form).toBe(screen.getByRole("button", { name: "Start jobs" }).closest("form"));
+    fireEvent.change(titleA, { target: { value: 'Darwin\'s "paper"' } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Title for b.pdf" }), {
+      target: { value: "Another paper" },
+    });
+    await startJobs();
+    const uploads = fetchMock.mock.calls
+      .filter(([path]) => path === "/api/documents")
+      .map(([, init]) => [
+        uploadedFile(init).name,
+        init?.body instanceof FormData ? init.body.get("title") : undefined,
+      ]);
+    expect(uploads).toEqual([
+      ["a.pdf", 'Darwin\'s "paper"'],
+      ["b.pdf", "Another paper"],
+      ["c.pdf", null],
+    ]);
+  });
+
+  it("keeps a file's title when another row is removed and new files are added", async () => {
+    const fetchMock = stubApi();
+    renderPage();
+    chooseFiles(pdf("a.pdf"), pdf("b.pdf"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Title for b.pdf" }), {
+      target: { value: "Keep this title" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Remove a.pdf" }));
+    chooseFiles(pdf("c.pdf"));
+    expect(
+      (screen.getByRole("textbox", { name: "Title for c.pdf" }) as HTMLInputElement).value,
+    ).toBe("");
+    await startJobs();
+    const upload = fetchMock.mock.calls.find(([path]) => path === "/api/documents");
+    const body = upload?.[1]?.body;
+    expect(body instanceof FormData ? body.get("title") : undefined).toBe("Keep this title");
+    expect(uploadedNames(fetchMock)).toEqual(["b.pdf", "c.pdf"]);
+  });
+
   it("starts a job for each file and links to it", async () => {
     const fetchMock = stubApi();
     renderPage();
@@ -505,6 +550,9 @@ describe("StartJobPage", () => {
     await waitFor(() => expect(statusOf("a.pdf").textContent).toContain("Sending"));
     // The fieldset disables it, which the property does not show but :disabled does.
     expect(screen.getByLabelText("Add PDF files").matches(":disabled")).toBe(true);
+    for (const title of screen.getAllByRole("textbox")) {
+      expect(title.matches(":disabled")).toBe(true);
+    }
     expect((screen.getByRole("button", { name: "Clear list" }) as HTMLButtonElement).disabled).toBe(
       true,
     );
