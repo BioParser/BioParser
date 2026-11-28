@@ -65,6 +65,9 @@ def _assert_rewritten(site: Path) -> None:
     assert native.index("keep_span_glyphs(span)", first_delete) < second_delete
     assert "if native_contents is None else []" not in native
     assert _text(site, _PATCH._MERGING).count("merged.bioparser_glyphs") == 3
+    content = _text(site, _PATCH._CONTENT)
+    assert "BlockType.PAGE_FOOTNOTE}" in content
+    assert "not has_nonempty_content and block_type != BlockType.PAGE_FOOTNOTE" in content
 
 
 # Each search string must occur in the published file. The patch module is not the source.

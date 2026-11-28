@@ -1,6 +1,6 @@
 """Runtime half of the MinerU glyph-edge patch.
 
-``mineru_glyph_edges.py`` installs this file into site-packages and inserts one-line
+``apply_patches.py`` installs this file into site-packages and inserts one-line
 calls to it in MinerU and DocVortex. Everything with logic lives here, so it is plain
 typed Python that the normal tests import. The module uses only the standard library.
 
@@ -117,9 +117,9 @@ def line_glyphs(spans: Sequence[Any], to_unit: Normalizer, equation_type: object
 
 def output_lines(items: list[dict[str, Any]], members: object) -> list[dict[str, Any]]:
     """DocVortex's public line boxes, each with the glyphs frozen on its source line."""
-    if not isinstance(members, list):
-        return items
-    for item, member in zip(items, members, strict=False):
+    if not isinstance(members, list) or len(members) != len(items):
+        return items  # No safe pairing, so no line gets another line's glyphs.
+    for item, member in zip(items, members, strict=True):
         glyphs = getattr(member, "bioparser_glyphs", None)
         item["glyphs"] = glyphs if isinstance(glyphs, list) else []
     return items
@@ -323,7 +323,8 @@ def _glyph_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, object]]:
         if not isinstance(block, dict):
             continue
         index = block.get("index")
-        lines = block.get("lines")
+        # Tagged text keeps its measured lines apart from the public one-box line.
+        lines = block.get("_lines") or block.get("lines")
         if not isinstance(index, int) or isinstance(index, bool):
             continue
         if not isinstance(lines, list) or not lines:
@@ -393,6 +394,7 @@ def set_page_idx(page_idx: int) -> None:
 def attach_lines(middle_json: Any) -> Any:
     """Store the captured lines on the finished document and return it."""
     captured = _captured.get()
+    _captured.set(None)  # Nothing from this document may reach the next one.
     if isinstance(captured, dict) and captured.get("pages"):
         middle_json.extensions = {**middle_json.extensions, "bioparser_lines": captured}
     return middle_json

@@ -119,27 +119,19 @@ NATIVE_HOOKS = (
     ),
     Hook(
         _CONTENT,
-        """from ..constants import (
-    CODE_CONTENT_BLOCK_TYPES,
-    LINE_METADATA_BLOCK_TYPES,
-    TITLE_BLOCK_TYPES,
-)
-""",
-        """from ..constants import (
-    CODE_CONTENT_BLOCK_TYPES,
-    LINE_METADATA_BLOCK_TYPES,
-    NATURAL_LANGUAGE_CONTENT_BLOCK_TYPES,
-    TITLE_BLOCK_TYPES,
-)
-""",
-    ),
-    Hook(
-        _CONTENT,
         """    target_block_types = set(ocr_det_type) | TITLE_BLOCK_TYPES | {BlockType.TEXT}
 """,
-        """    target_block_types = (
-        set(ocr_det_type) | TITLE_BLOCK_TYPES | set(NATURAL_LANGUAGE_CONTENT_BLOCK_TYPES)
-    )
+        """    target_block_types = set(ocr_det_type) | TITLE_BLOCK_TYPES | {BlockType.TEXT, BlockType.PAGE_FOOTNOTE}
+""",
+    ),
+    # A page footnote is a target only for its measured lines. Its stored content stays.
+    Hook(
+        _CONTENT,
+        """        if not has_nonempty_content:
+            block_item["content"] = _lines_to_block_content(lines, block_type)
+""",
+        """        if not has_nonempty_content and block_type != BlockType.PAGE_FOOTNOTE:
+            block_item["content"] = _lines_to_block_content(lines, block_type)
 """,
     ),
 )
@@ -614,19 +606,15 @@ NATIVE_LINE_HOOKS = (
 """,
         "ordered_members",
     ),
-    # Tagged text keeps one measured line per visual run, not one box per block.
-    Hook(
-        _TAGGED,
-        """        if kind in {"text", "paragraph_title", "doc_title", "page_footnote", "ref_text"}:
-""",
-        """        if kind not in {"image", "table", "equation", "list", "index"}:
-""",
-    ),
+    # Tagged text keeps one box for the whole block as its public line, so paragraph
+    # merging sees what it always saw. The measured lines go in ``_lines``, a private
+    # field that DocVortex removes when the page is finished.
     Hook(
         _TAGGED,
         """            block["lines"] = [{"bbox": box}]
 """,
-        """            measured: list[dict[str, object]] = []
+        """            block["lines"] = [{"bbox": box}]
+            measured: list[dict[str, object]] = []
             if node.actual_text is None:
                 measured = [
                     char
@@ -634,7 +622,9 @@ NATIVE_LINE_HOOKS = (
                     for char in getattr(obj, "chars", ())
                     if isinstance(char, dict) and char.get("char_idx") not in self.suppressed_spaces
                 ]
-            block["lines"] = bioparser_glyphs.tagged_lines(measured, self.page.size) or [{"bbox": box}]
+            glyph_lines = bioparser_glyphs.tagged_lines(measured, self.page.size)
+            if glyph_lines:
+                block["_lines"] = glyph_lines
 """,
     ),
 )

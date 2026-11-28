@@ -667,6 +667,23 @@ def test_a_rewritten_formula_shares_the_unmatched_ink() -> None:
     assert [(box.x0, box.x1) for box in symbol_box] == [(0.42, 0.46)]
 
 
+def test_list_children_do_not_take_the_glyphs_of_a_top_level_block() -> None:
+    # A list renumbers its children from 0, so child 0 shares an index with block 0.
+    listing = {
+        "type": "list",
+        "index": 1,
+        "bbox": [0.1, 0.5, 0.9, 0.6],
+        "content": [_block("text", 0, "other")],
+    }
+    middle = _middle([_block("text", 0, "other"), listing])
+    middle = _with_lines(
+        middle, [{"y0": 0.1, "y1": 0.2, "glyphs": [{"t": "other", "x0": 0.1, "x1": 0.5}]}]
+    )
+    blocks = _from_middle(middle).pages[0].blocks
+    assert _text(blocks[0]).lines
+    assert not _text(blocks[1]).lines
+
+
 def test_a_display_equation_uses_its_block_box() -> None:
     equation = {
         "type": "equation",

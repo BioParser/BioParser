@@ -72,6 +72,12 @@ def test_output_lines_pairs_members_with_frozen_glyphs() -> None:
     assert glyphs.output_lines([{"bbox": 1}], None) == [{"bbox": 1}]
 
 
+def test_output_lines_attach_nothing_when_the_pairing_is_unsafe() -> None:
+    items = [{"bbox": [0, 0, 1, 1]}, {"bbox": [0, 1, 1, 2]}]
+    members = [SimpleNamespace(bioparser_glyphs=[{"t": "a"}])]
+    assert glyphs.output_lines(items, members) == [{"bbox": [0, 0, 1, 1]}, {"bbox": [0, 1, 1, 2]}]
+
+
 def test_column_centers_use_the_middle_of_each_repeated_run() -> None:
     ids = [0, 5, 5, 5, 0, 7, 7]
     assert glyphs.column_centers(ids, [1, 5]) == [2.0, 5.5]
@@ -154,6 +160,22 @@ def test_capture_follows_a_page_through_renumbering_and_naming() -> None:
     assert [page["page_idx"] for page in pages] == [3, None]
     assert [block["index"] for block in pages[0]["blocks"]] == [5, 7]
     assert pages[0]["blocks"][0]["lines"] == [{"y0": 0.1, "y1": 0.2, "glyphs": [{"t": "a"}]}]
+
+
+def test_attach_lines_ends_the_capture() -> None:
+    glyphs.start_capture()
+    glyphs.note_flat([_flat(0)])
+    glyphs.attach_lines(SimpleNamespace(extensions={}))
+    glyphs.note_flat([_flat(0)])
+    assert "bioparser_lines" not in glyphs.attach_lines(SimpleNamespace(extensions={})).extensions
+
+
+def test_tagged_blocks_give_their_measured_lines_from_the_private_field() -> None:
+    glyphs.start_capture()
+    block = {"index": 0, "lines": [{"bbox": [0, 0, 1, 1]}], "_lines": _flat(0)["lines"]}
+    glyphs.note_flat([block])
+    pages = glyphs.attach_lines(SimpleNamespace(extensions={})).extensions["bioparser_lines"]
+    assert pages["pages"][0]["blocks"][0]["lines"][0]["glyphs"] == [{"t": "a"}]
 
 
 def test_attach_lines_leaves_a_document_without_glyphs_alone() -> None:

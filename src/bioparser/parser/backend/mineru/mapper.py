@@ -105,7 +105,9 @@ def _prepare_leaf(leaf: MiddleBlock, *, in_list: bool) -> _PreparedBlock | None:
     role, heading_level = role_and_heading(leaf, in_list=in_list)
     return _PreparedBlock(
         leaf_type=leaf.type,
-        index=leaf.index,
+        # A list renumbers its children from 0, so their index would name a top-level
+        # block on the page. The patch records no glyph lines for them.
+        index=None if in_list else leaf.index,
         kind=BlockKind.TEXT,
         role=role,
         content=TextContent(text=text, heading_level=heading_level),
