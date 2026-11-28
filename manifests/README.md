@@ -30,21 +30,24 @@ The pods read their secrets from files in `/run/secrets`. No secret is in an env
 
 Each file has mode `0440`: only the owner (root) and the group of the file can read it. On OKD, the container user is in that group. The pods do not use the Kubernetes API. They do not mount the token of that API.
 
-Do these steps in the root directory of the repository. The local Compose stack uses the same files in `secrets/`. For other values on the cluster, run the script in a different directory: the script writes `secrets/` in the current directory.
+Do these steps in the root directory of the repository. The script writes to the directory in `BIOPARSER_SECRETS_DIR` (from the shell, else from `.env`), else to `./secrets`. The local Compose stack reads the same directory. For the cluster, use a different directory outside the checkout. Then the cluster does not use the passwords of your local stack, and Git and the image build do not see the files.
 
-1. Make a random value for each password and for the API key. The script writes the values to `secrets/`, which Git and the image build ignore.
+The commands below give `BIOPARSER_SECRETS_DIR` only to the script, and they do not export it. For this reason, the local Compose stack keeps its own directory. In a new shell, set `OKD_SECRETS_DIR` again.
+
+1. Set the directory of the cluster files. Then make a random value for each password and for the API key.
    ```sh
-   python3 src/bioparser/scripts/generate_secrets.py
+   OKD_SECRETS_DIR="$HOME/bioparser-okd-secrets"
+   BIOPARSER_SECRETS_DIR="$OKD_SECRETS_DIR" python3 src/bioparser/scripts/generate_secrets.py
    ```
-2. Write your Hugging Face **read** token to `secrets/hf_token`. If the file is empty, vLLM uses no token.
+2. Write your Hugging Face **read** token to `$OKD_SECRETS_DIR/hf_token`. If the file is empty, vLLM uses no token.
 3. Make the Secret. The command line holds the file names, not the values.
    ```sh
    oc create secret generic bioparser-secret \
-     --from-file=REDIS_PASSWORD=secrets/redis_password \
-     --from-file=POSTGRES_PASSWORD=secrets/postgres_password \
-     --from-file=POSTGRES_APP_PASSWORD=secrets/postgres_app_password \
-     --from-file=BIOPARSER_API_KEY=secrets/bioparser_api_key \
-     --from-file=HF_TOKEN=secrets/hf_token
+     --from-file=REDIS_PASSWORD="$OKD_SECRETS_DIR/redis_password" \
+     --from-file=POSTGRES_PASSWORD="$OKD_SECRETS_DIR/postgres_password" \
+     --from-file=POSTGRES_APP_PASSWORD="$OKD_SECRETS_DIR/postgres_app_password" \
+     --from-file=BIOPARSER_API_KEY="$OKD_SECRETS_DIR/bioparser_api_key" \
+     --from-file=HF_TOKEN="$OKD_SECRETS_DIR/hf_token"
    ```
 
 The script writes 64 hex digits. Your own Redis password must be printable ASCII without spaces, double quotes or backslashes. If it has other characters, Redis does not start, and the log of the pod shows the cause.
@@ -52,9 +55,10 @@ The script writes 64 hex digits. Your own Redis password must be printable ASCII
 **Rotate a secret.** Kubernetes changes the files in a pod after some time. Redis and the API read the files only at start. Restart the pods after the change:
 
 ```sh
-rm secrets/redis_password
-python3 src/bioparser/scripts/generate_secrets.py
-oc set data secret/bioparser-secret --from-file=REDIS_PASSWORD=secrets/redis_password
+OKD_SECRETS_DIR="$HOME/bioparser-okd-secrets"
+rm "$OKD_SECRETS_DIR/redis_password"
+BIOPARSER_SECRETS_DIR="$OKD_SECRETS_DIR" python3 src/bioparser/scripts/generate_secrets.py
+oc set data secret/bioparser-secret --from-file=REDIS_PASSWORD="$OKD_SECRETS_DIR/redis_password"
 oc rollout restart deployment/redis deployment/bioparser-api-dep
 ```
 
@@ -62,9 +66,11 @@ For a different key, change the key and the file name, and restart only the pods
 
 **A cluster with the old manifests.** The old manifests gave all secrets to the API as environment variables, and Redis had no password.
 
-1. Give Redis a password. Run the script, then add the key to the Secret:
+1. Give Redis a password. Make the files in the directory of the cluster, then add only the Redis key to the Secret. The Secret keeps its old values for the other keys.
    ```sh
-   oc set data secret/bioparser-secret --from-file=REDIS_PASSWORD=secrets/redis_password
+   OKD_SECRETS_DIR="$HOME/bioparser-okd-secrets"
+   BIOPARSER_SECRETS_DIR="$OKD_SECRETS_DIR" python3 src/bioparser/scripts/generate_secrets.py
+   oc set data secret/bioparser-secret --from-file=REDIS_PASSWORD="$OKD_SECRETS_DIR/redis_password"
    ```
 2. Remove the passwords from `BIOPARSER_REDIS_URL` and `BIOPARSER_DATABASE_URL` in your `bioparser-configmap.yaml`, then run `oc apply -f manifests/bioparser-configmap.yaml`. A password in a URL has priority over the file.
 3. Update the three Deployments. Kubernetes starts new pods with the files.
