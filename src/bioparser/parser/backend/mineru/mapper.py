@@ -23,6 +23,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from bioparser.parser.backend.mineru.glyph_wire import lines_by_block
+from bioparser.parser.backend.mineru.glyphs import line_for_block_box, text_lines_for_block
 from bioparser.parser.backend.mineru.schema import MINERU_VERSION, MiddleBlock, MiddleDump
 from bioparser.parser.backend.mineru.tables import table_from_html
 from bioparser.parser.backend.mineru.text import bbox_from_unit, role_and_heading, text_from_leaf
@@ -39,6 +41,7 @@ from bioparser.parser.models import (
     ParserInfo,
     TableContent,
     TextContent,
+    TextLine,
 )
 
 SKIPPED_BLOCK_TYPES = frozenset(
@@ -61,6 +64,7 @@ class MiddleJsonContractError(ValueError):
 @dataclass(frozen=True, slots=True)
 class _PreparedBlock:
     leaf_type: str
+    index: int | None
     kind: BlockKind
     role: BlockRole
     content: TextContent | TableContent
@@ -88,7 +92,12 @@ def _prepare_leaf(leaf: MiddleBlock, *, in_list: bool) -> _PreparedBlock | None:
         if table is None:
             return None
         return _PreparedBlock(
-            leaf_type=leaf.type, kind=BlockKind.TABLE, role=BlockRole.BODY, content=table, bbox=bbox
+            leaf_type=leaf.type,
+            index=leaf.index,
+            kind=BlockKind.TABLE,
+            role=BlockRole.BODY,
+            content=table,
+            bbox=bbox,
         )
     text = text_from_leaf(leaf)
     if not text.strip():
@@ -96,6 +105,9 @@ def _prepare_leaf(leaf: MiddleBlock, *, in_list: bool) -> _PreparedBlock | None:
     role, heading_level = role_and_heading(leaf, in_list=in_list)
     return _PreparedBlock(
         leaf_type=leaf.type,
+        # A list renumbers its children from 0, so their index would name a top-level
+        # block on the page. The patch records no glyph lines for them.
+        index=None if in_list else leaf.index,
         kind=BlockKind.TEXT,
         role=role,
         content=TextContent(text=text, heading_level=heading_level),
@@ -114,6 +126,27 @@ def _page_sizes(dump: MiddleDump) -> list[tuple[float, float]]:
         raise MiddleJsonContractError(
             f"middle.json has no size for page index {exc.args[0]}"
         ) from None
+
+
+def _content_with_lines(
+    prepared: _PreparedBlock,
+    page_idx: int,
+    geometry: dict[tuple[int, int], list[Any]],
+) -> TextContent | TableContent:
+    """The block's content, with glyph lines when MinerU measured any.
+
+    A display equation has a block box but no character edges, so it gets one box.
+    """
+    content = prepared.content
+    if not isinstance(content, TextContent):
+        return content
+    lines: list[TextLine] = []
+    raw_lines = geometry.get((page_idx, prepared.index)) if prepared.index is not None else None
+    if raw_lines is not None:
+        lines = text_lines_for_block(content.text, raw_lines)
+    if not lines and prepared.leaf_type == "equation" and prepared.bbox is not None:
+        lines = line_for_block_box(content.text, prepared.bbox)
+    return content.model_copy(update={"lines": lines}) if lines else content
 
 
 def artifact_from_middle_json(
@@ -139,6 +172,7 @@ def artifact_from_middle_json(
         )
 
     pages: list[Page] = []
+    geometry = lines_by_block(middle.get("extensions", {}).get("bioparser_lines"))
     # The block a later ``continues_prev`` block continues, by leaf type.
     last_of_type: dict[str, str] = {}
     for page, (width, height) in zip(dump.pages, _page_sizes(dump), strict=True):
@@ -153,6 +187,7 @@ def artifact_from_middle_json(
                 if prepared is None:
                     continue
                 links = continues and carrier in (None, prepared.leaf_type)
+                content = _content_with_lines(prepared, page.page_idx, geometry)
                 ident = block_id(checksum, page_number, len(blocks))
                 blocks.append(
                     ContentBlock(
@@ -160,7 +195,7 @@ def artifact_from_middle_json(
                         order=len(blocks),
                         kind=prepared.kind,
                         role=prepared.role,
-                        content=prepared.content,
+                        content=content,
                         bbox=prepared.bbox,
                         continuation_of=last_of_type.get(prepared.leaf_type) if links else None,
                     )

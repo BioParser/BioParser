@@ -55,6 +55,7 @@ class MiddleBlock(BaseModel):
     model_config = _CONFIG
 
     type: str
+    index: int | None = None
     bbox: BBox | None = None
     level: int | None = None
     continues_prev: bool = False

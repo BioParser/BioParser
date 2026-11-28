@@ -39,9 +39,12 @@ FROM build AS cpu-build
 # The mineru and docvortex pins are checked against MINERU_VERSION and DOCVORTEX_VERSION.
 # mineru takes any docvortex 0.6.x, the library that builds its middle.json: pinned so a new
 # build gives the output the fixtures were made with.
+COPY docker/patches/lib /tmp/patches/lib
+COPY docker/patches/mineru /tmp/patches/mineru
 RUN --mount=type=cache,id=uv-mineru,target=/root/.cache/uv,sharing=locked \
     uv venv /opt/mineru \
-    && uv pip install --python /opt/mineru/bin/python "mineru==4.2.3" "docvortex==0.6.24"
+    && uv pip install --python /opt/mineru/bin/python "mineru==4.2.3" "docvortex==0.6.24" \
+    && /opt/mineru/bin/python /tmp/patches/mineru/apply_patches.py /opt/mineru/lib/python3.13/site-packages
 
 # g=u gives OpenShift's random UID (group 0) the owner's access.
 RUN /opt/mineru/bin/mineru-models-download --tier basic --small-backend onnx -s huggingface \
@@ -52,9 +55,12 @@ FROM build AS gpu-build
 
 # full = torch and vLLM. vLLM pins its torch, so no torch index is chosen here: the PyPI
 # wheels (vLLM 0.30, torch 2.13) are CUDA 13 builds and need an NVIDIA driver for CUDA 13.
+COPY docker/patches/lib /tmp/patches/lib
+COPY docker/patches/mineru /tmp/patches/mineru
 RUN --mount=type=cache,id=uv-mineru,target=/root/.cache/uv,sharing=locked \
     uv venv /opt/mineru \
-    && uv pip install --python /opt/mineru/bin/python "mineru[full]==4.2.3" "docvortex==0.6.24"
+    && uv pip install --python /opt/mineru/bin/python "mineru[full]==4.2.3" "docvortex==0.6.24" \
+    && /opt/mineru/bin/python /tmp/patches/mineru/apply_patches.py /opt/mineru/lib/python3.13/site-packages
 
 # Fail the build if torch is not a CUDA build or vLLM does not import.
 RUN /opt/mineru/bin/python -c "import torch, vllm; assert torch.version.cuda, torch.__version__"

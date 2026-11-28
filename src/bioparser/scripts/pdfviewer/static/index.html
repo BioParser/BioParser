@@ -138,6 +138,18 @@
         border: 1px solid var(--selected-border);
         z-index: 1;
       }
+      #overlay .box.glyph {
+        background: transparent;
+        border: 1px solid rgba(255, 150, 40, 0.9);
+        pointer-events: none;
+        z-index: 2;
+      }
+      #overlay .box.cell {
+        background: rgba(80, 200, 255, 0.12);
+        border: 1px solid #3d9eff;
+        pointer-events: none;
+        z-index: 2;
+      }
       #hits .hit {
         position: absolute;
         background: var(--hit);
@@ -146,9 +158,6 @@
       #hits .hit.current {
         background: var(--hit-current);
         border: 1px solid var(--hit-current-border);
-      }
-      #overlay.hidden .box {
-        display: none;
       }
       aside {
         overflow: auto;
@@ -210,8 +219,16 @@
       <span id="page-label">Page —</span>
       <button id="next" type="button" disabled>Page next</button>
       <label class="toggle">
-        <input id="show-boxes" type="checkbox" checked />
-        Show boxes
+        <input id="show-blocks" type="checkbox" checked />
+        Blocks
+      </label>
+      <label class="toggle">
+        <input id="show-glyphs" type="checkbox" />
+        Glyphs
+      </label>
+      <label class="toggle">
+        <input id="show-tables" type="checkbox" />
+        Table cells
       </label>
       <input id="search" type="search" placeholder="Search substring" />
       <button id="search-go" type="button">Search</button>
@@ -248,7 +265,9 @@
       const nextBtn = document.getElementById("next");
       const pageLabel = document.getElementById("page-label");
       const statusEl = document.getElementById("status");
-      const showBoxes = document.getElementById("show-boxes");
+      const showBlocks = document.getElementById("show-blocks");
+      const showGlyphs = document.getElementById("show-glyphs");
+      const showTables = document.getElementById("show-tables");
       const searchInput = document.getElementById("search");
       const searchGoBtn = document.getElementById("search-go");
       const searchPrevBtn = document.getElementById("search-prev");
@@ -361,7 +380,20 @@
         const continuation = block.continuation_of
           ? `continuation_of ${block.continuation_of}`
           : "continuation_of none";
-        meta.textContent = `${block.block_id}\norder ${block.order} · ${block.kind} / ${block.role}\n${continuation}\n${bbox}`;
+        const lines = block.content?.type === "text" ? (block.content.lines ?? []) : [];
+        const edged = lines.reduce(
+          (count, line) => count + (line.x0 ?? []).filter((edge) => edge != null).length,
+          0,
+        );
+        const spanned = lines.reduce((count, line) => count + (line.end - line.start), 0);
+        const glyphNote = lines.length
+          ? `\n${edged} glyph edges across ${spanned} characters`
+          : "";
+        const cells = block.content?.type === "table" ? (block.content.cells ?? []) : null;
+        const cellNote = cells
+          ? `\n${cells.length} cells, ${cells.filter((cell) => cell.bbox).length} with a box`
+          : "";
+        meta.textContent = `${block.block_id}\norder ${block.order} · ${block.kind} / ${block.role}\n${continuation}\n${bbox}${glyphNote}${cellNote}`;
         const body = document.createElement("div");
         body.textContent = contentText(block);
         detail.append(meta, body);
@@ -372,28 +404,60 @@
         applySelection();
       }
 
+      function glyphBoxes(lines) {
+        const boxes = [];
+        for (const line of lines ?? []) {
+          const lefts = line.x0 ?? [];
+          const rights = line.x1 ?? [];
+          const count = Math.min(lefts.length, rights.length);
+          for (let index = 0; index < count; index += 1) {
+            const x0 = lefts[index];
+            const x1 = rights[index];
+            if (x0 == null || x1 == null || x1 < x0 || line.y1 < line.y0) continue;
+            boxes.push({ x0, y0: line.y0, x1, y1: line.y1 });
+          }
+        }
+        return boxes;
+      }
+
+      function placeBox(className, box, title) {
+        if (!box || box.x1 < box.x0 || box.y1 < box.y0) return null;
+        const el = document.createElement("div");
+        el.className = className;
+        el.style.left = `${box.x0 * 100}%`;
+        el.style.top = `${box.y0 * 100}%`;
+        el.style.width = `${(box.x1 - box.x0) * 100}%`;
+        el.style.height = `${(box.y1 - box.y0) * 100}%`;
+        if (title) el.title = title;
+        overlay.appendChild(el);
+        return el;
+      }
+
       function drawBoxes() {
         overlay.replaceChildren();
-        overlay.classList.toggle("hidden", !showBoxes.checked);
         const page = currentPageArtifact();
         if (page) {
           for (const block of page.blocks) {
-            if (!block.bbox) continue;
-            const el = document.createElement("div");
-            el.className = "box";
-            el.dataset.blockId = block.block_id;
-            el.dataset.kind = block.kind;
-            const { x0, y0, x1, y1 } = block.bbox;
-            el.style.left = `${x0 * 100}%`;
-            el.style.top = `${y0 * 100}%`;
-            el.style.width = `${(x1 - x0) * 100}%`;
-            el.style.height = `${(y1 - y0) * 100}%`;
-            el.title = contentText(block).slice(0, 120);
-            el.addEventListener("click", (event) => {
-              event.stopPropagation();
-              selectBlock(block.block_id);
-            });
-            overlay.appendChild(el);
+            if (showBlocks.checked && block.bbox) {
+              const el = placeBox("box", block.bbox, contentText(block).slice(0, 120));
+              if (el) {
+                el.dataset.blockId = block.block_id;
+                el.dataset.kind = block.kind;
+                el.addEventListener("click", (event) => {
+                  event.stopPropagation();
+                  selectBlock(block.block_id);
+                });
+              }
+            }
+            if (showGlyphs.checked && block.content?.type === "text") {
+              for (const box of glyphBoxes(block.content.lines)) placeBox("box glyph", box);
+            }
+            if (showTables.checked && block.content?.type === "table") {
+              for (const cell of block.content.cells ?? []) {
+                if (!cell.bbox) continue;
+                placeBox("box cell", cell.bbox, (cell.text ?? "").slice(0, 120));
+              }
+            }
           }
           fillList();
           applySelection();
@@ -665,7 +729,9 @@
           await renderPage();
         }
       });
-      showBoxes.addEventListener("change", drawBoxes);
+      for (const toggle of [showBlocks, showGlyphs, showTables]) {
+        toggle.addEventListener("change", drawBoxes);
+      }
       window.addEventListener("resize", () => {
         if (pdfDoc) renderPage();
       });

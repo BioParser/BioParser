@@ -153,8 +153,8 @@ Same commands as CI:
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy .
-uv run pytest -m "not integration and not image and not compose"
-uv run pytest -m image
+uv run pytest -m "not integration and not network and not compose"
+uv run pytest -m network
 uv run pytest -m compose  # the secrets in the Compose config, needs the Docker CLI
 BIOPARSER_TEST_COMPOSE_STACK=1 uv run pytest tests/test_compose_stack.py  # starts containers
 ```

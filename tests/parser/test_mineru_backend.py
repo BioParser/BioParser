@@ -21,6 +21,7 @@ from bioparser.parser.models import (
     ParserArtifact,
     TableContent,
     TextContent,
+    boxes_for_range,
 )
 from bioparser.parser_names import MINERU_PARSER_NAME, PARSER_VERSIONS
 
@@ -400,6 +401,412 @@ def test_oversized_span_product_is_capped(raw: str) -> None:
     assert cells[0].rowspan * cells[0].colspan == HTML_CELL_MAX_OCCUPIED
     assert cells[0].rowspan == 1
     assert cells[0].colspan == HTML_CELL_MAX_SPAN
+
+
+def test_glyph_edges_highlight_inside_a_superscript() -> None:
+    middle = _middle([_block("text", 0, "April 9"), _block("text", 1, "x")])
+    # The stored text wraps the superscript the way text.py does. The edges are the glyphs.
+    middle["pages"][0]["blocks"][0]["content"] = [
+        {"type": "text", "content": "April 9"},
+        {"type": "text", "content": "th", "styles": ["superscript"]},
+    ]
+    middle["extensions"]["bioparser_lines"] = {
+        "version": 1,
+        "pages": [
+            {
+                "page_idx": 0,
+                "blocks": [
+                    {
+                        "index": 0,
+                        "lines": [
+                            {
+                                "y0": 0.30,
+                                "y1": 0.32,
+                                "glyphs": [
+                                    {"t": "April 9", "x0": 0.10, "x1": 0.40},
+                                    {"t": "th", "x0": 0.40, "x1": 0.46},
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    assert content.text == "April 9^{th}"
+    boxes = boxes_for_range(content.lines, content.text.index("th"), content.text.index("th") + 2)
+    assert len(boxes) == 1
+    assert boxes[0].x0 == pytest.approx(0.40)
+    assert boxes[0].x1 == pytest.approx(0.46)
+    assert boxes[0].y0 == pytest.approx(0.30)
+
+
+def test_an_unmeasured_span_does_not_take_the_next_glyphs() -> None:
+    # A glyph longer than one character shares its own box. The measured letters keep theirs.
+    middle = _middle([_block("text", 0, "catapult catalog")])
+    middle["extensions"]["bioparser_lines"] = {
+        "version": 1,
+        "pages": [
+            {
+                "page_idx": 0,
+                "blocks": [
+                    {
+                        "index": 0,
+                        "lines": [
+                            {
+                                "y0": 0.20,
+                                "y1": 0.22,
+                                "glyphs": [
+                                    {"t": "catapult", "x0": 0.10, "x1": 0.45},
+                                    {"t": " ", "x0": 0.45, "x1": 0.48},
+                                    {"t": "c", "x0": 0.50, "x1": 0.54},
+                                    {"t": "a", "x0": 0.54, "x1": 0.58},
+                                    {"t": "t", "x0": 0.58, "x1": 0.62},
+                                    {"t": "a", "x0": 0.62, "x1": 0.66},
+                                    {"t": "l", "x0": 0.66, "x1": 0.70},
+                                    {"t": "o", "x0": 0.70, "x1": 0.74},
+                                    {"t": "g", "x0": 0.74, "x1": 0.78},
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    assert content.text == "catapult catalog"
+    gap = boxes_for_range(content.lines, 0, len("catapult"))
+    assert len(gap) == 1
+    assert gap[0].x0 == pytest.approx(0.10)
+    assert gap[0].x1 == pytest.approx(0.45)
+    word = content.text.index("catalog")
+    measured = boxes_for_range(content.lines, word, word + len("catalog"))
+    assert len(measured) == 1
+    assert measured[0].x0 == pytest.approx(0.50)
+    assert measured[0].x1 == pytest.approx(0.78)
+
+
+def test_a_removed_line_end_hyphen_does_not_take_a_later_hyphen() -> None:
+    middle = _middle([_block("text", 0, "computing X-ray")])
+    middle["extensions"]["bioparser_lines"] = {
+        "version": 1,
+        "pages": [
+            {
+                "page_idx": 0,
+                "blocks": [
+                    {
+                        "index": 0,
+                        "lines": [
+                            {
+                                "y0": 0.10,
+                                "y1": 0.12,
+                                "glyphs": [
+                                    {"t": "c", "x0": 0.10, "x1": 0.12},
+                                    {"t": "o", "x0": 0.12, "x1": 0.14},
+                                    {"t": "m", "x0": 0.14, "x1": 0.16},
+                                    {"t": "p", "x0": 0.16, "x1": 0.18},
+                                    {"t": "u", "x0": 0.18, "x1": 0.20},
+                                    {"t": "t", "x0": 0.20, "x1": 0.22},
+                                    {"t": "-", "x0": 0.22, "x1": 0.24},
+                                ],
+                            },
+                            {
+                                "y0": 0.14,
+                                "y1": 0.16,
+                                "glyphs": [
+                                    {"t": "i", "x0": 0.10, "x1": 0.12},
+                                    {"t": "n", "x0": 0.12, "x1": 0.14},
+                                    {"t": "g", "x0": 0.14, "x1": 0.16},
+                                    {"t": " ", "x0": 0.16, "x1": 0.18},
+                                    {"t": "X", "x0": 0.20, "x1": 0.24},
+                                    {"t": "-", "x0": 0.24, "x1": 0.26},
+                                    {"t": "r", "x0": 0.26, "x1": 0.28},
+                                    {"t": "a", "x0": 0.28, "x1": 0.30},
+                                    {"t": "y", "x0": 0.30, "x1": 0.32},
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    assert content.text == "computing X-ray"
+    joined = boxes_for_range(content.lines, 0, len("computing"))
+    assert [(box.x0, box.x1, box.y0) for box in joined] == [
+        (0.10, 0.22, 0.10),
+        (0.10, 0.16, 0.14),
+    ]
+    hyphen = content.text.index("-")
+    kept = boxes_for_range(content.lines, hyphen, hyphen + 1)
+    assert len(kept) == 1
+    assert kept[0].x0 == pytest.approx(0.24)
+    assert kept[0].y0 == pytest.approx(0.14)
+
+
+def test_a_missing_space_does_not_drop_the_following_words() -> None:
+    stored = (
+        "(mm or g; parenthetical n) for P. c. cepapi were: 191. "
+        "Mean measurements (mm or g; parenthetical n) for P. c. maunensis"
+    )
+    middle = _with_lines(
+        _middle([_block("text", 0, stored)]),
+        [
+            {
+                "y0": 0.64,
+                "y1": 0.66,
+                "glyphs": [
+                    {
+                        "t": "(mm or g; parenthetical n) forP. c. cepapi were: 191. ",
+                        "x0": 0.50,
+                        "x1": 0.90,
+                    }
+                ],
+            },
+            {
+                "y0": 0.72,
+                "y1": 0.74,
+                "glyphs": [
+                    {"t": "or g; parenthetical n) for P. c. ", "x0": 0.51, "x1": 0.88},
+                    {"t": "maunensis", "x0": 0.52, "x1": 0.70},
+                ],
+            },
+        ],
+    )
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    measure = content.text.index("191")
+    box = boxes_for_range(content.lines, measure, measure + 3)
+    assert len(box) == 1
+    assert box[0].y0 == pytest.approx(0.64)
+    repeated = content.text.rindex("or g;")
+    later = boxes_for_range(content.lines, repeated, repeated + 4)
+    assert len(later) == 1
+    assert later[0].y0 == pytest.approx(0.72)
+
+
+def test_latex_markers_do_not_swallow_the_following_words() -> None:
+    stored = (
+        "areas (5.9 individuals/ km^{2}). During the dry season, differences among "
+        "areas were less pronounced: national parks 2.6 individuals/km^{2}, wildlife "
+        "management areas 4.4 individuals/km^{2}"
+    )
+    seen = (
+        "areas (5.9 individuals/km2). During the dry season, differences among "
+        "areas were lesspronounced: national parks 2.6 individuals/km2, wildlife "
+        "management areas 4.4 individuals/km2"
+    )
+    middle = _with_lines(
+        _middle([_block("text", 0, stored)]),
+        [{"y0": 0.45, "y1": 0.47, "glyphs": [{"t": seen, "x0": 0.10, "x1": 0.90}]}],
+    )
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    digit = content.text.index("4.4")
+    box = boxes_for_range(content.lines, digit, digit + 1)
+    assert len(box) == 1
+    assert box[0].x1 - box[0].x0 < 0.05
+    brace = content.text.index("^{2}")
+    assert boxes_for_range(content.lines, brace, brace + 2) == []
+
+
+def _with_lines(middle: dict[str, Any], lines: list[dict[str, Any]]) -> dict[str, Any]:
+    middle["extensions"]["bioparser_lines"] = {
+        "version": 1,
+        "pages": [{"page_idx": 0, "blocks": [{"index": 0, "lines": lines}]}],
+    }
+    return middle
+
+
+def test_a_rewritten_formula_shares_the_unmatched_ink() -> None:
+    stored = "significant \\mathrm{R^2 \\leq 0.23} associations"
+    middle = _with_lines(
+        _middle([_block("text", 0, stored)]),
+        [
+            {
+                "y0": 0.10,
+                "y1": 0.12,
+                "glyphs": [
+                    {"t": "significant", "x0": 0.10, "x1": 0.26},
+                    {"t": " ", "x0": 0.26, "x1": 0.28},
+                ],
+            },
+            {
+                "y0": 0.12,
+                "y1": 0.14,
+                "glyphs": [
+                    {"t": "(", "x0": 0.30, "x1": 0.32},
+                    {"t": "R", "x0": 0.32, "x1": 0.36},
+                    {"t": "2 ", "x0": 0.36, "x1": 0.42},
+                    {"t": "#", "x0": 0.42, "x1": 0.46},
+                    {"t": "0.23", "x0": 0.46, "x1": 0.62},
+                    {"t": ")", "x0": 0.62, "x1": 0.64},
+                ],
+            },
+            {
+                "y0": 0.14,
+                "y1": 0.16,
+                "glyphs": [{"t": " associations", "x0": 0.10, "x1": 0.40}],
+            },
+        ],
+    )
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    assert content.text == stored
+    word = boxes_for_range(content.lines, 0, len("significant"))
+    assert [(box.x0, box.x1, box.y0) for box in word] == [(0.10, 0.26, 0.10)]
+    latex = stored.index("\\mathrm")
+    drawn = boxes_for_range(content.lines, latex, stored.index("} associations") + 1)
+    assert [(box.x0, box.x1, box.y0) for box in drawn] == [(0.30, 0.64, 0.12)]
+    are = stored.index("R^")
+    assert boxes_for_range(content.lines, are, are + 1)[0].x0 == pytest.approx(0.32)
+    digits = stored.index("0.23")
+    assert boxes_for_range(content.lines, digits, digits + 4)[0].x0 == pytest.approx(0.46)
+    symbol = stored.index("\\leq")
+    symbol_box = boxes_for_range(content.lines, symbol, symbol + len("\\leq"))
+    assert [(box.x0, box.x1) for box in symbol_box] == [(0.42, 0.46)]
+
+
+def test_list_children_do_not_take_the_glyphs_of_a_top_level_block() -> None:
+    # A list renumbers its children from 0, so child 0 shares an index with block 0.
+    listing = {
+        "type": "list",
+        "index": 1,
+        "bbox": [0.1, 0.5, 0.9, 0.6],
+        "content": [_block("text", 0, "other")],
+    }
+    middle = _middle([_block("text", 0, "other"), listing])
+    middle = _with_lines(
+        middle, [{"y0": 0.1, "y1": 0.2, "glyphs": [{"t": "other", "x0": 0.1, "x1": 0.5}]}]
+    )
+    blocks = _from_middle(middle).pages[0].blocks
+    assert _text(blocks[0]).lines
+    assert not _text(blocks[1]).lines
+
+
+def test_a_display_equation_uses_its_block_box() -> None:
+    equation = {
+        "type": "equation",
+        "index": 0,
+        "bbox": [0.2, 0.4, 0.8, 0.5],
+        "content": "E=mc^2",
+    }
+    content = _text(_from_middle(_middle([equation])).pages[0].blocks[0])
+    boxes = boxes_for_range(content.lines, 0, len(content.text))
+    assert [(box.x0, box.y0, box.x1, box.y1) for box in boxes] == [(0.2, 0.4, 0.8, 0.5)]
+
+
+def test_an_inline_formula_box_covers_the_rewritten_text() -> None:
+    stored = "significant \\mathrm{R^2} associations"
+    middle = _with_lines(
+        _middle([_block("text", 0, stored)]),
+        [
+            {
+                "y0": 0.12,
+                "y1": 0.14,
+                "glyphs": [
+                    {"t": "significant", "x0": 0.10, "x1": 0.40},
+                    {
+                        "t": "",
+                        "x0": 0.52,
+                        "x1": 0.80,
+                        "y0": 0.11,
+                        "y1": 0.16,
+                        "latex": "\\mathrm{R^2}",
+                    },
+                    {"t": "associations", "x0": 0.82, "x1": 0.96},
+                ],
+            }
+        ],
+    )
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    formula = stored.index("\\mathrm")
+    boxes = boxes_for_range(content.lines, formula, formula + len("\\mathrm{R^2}"))
+    assert [(box.x0, box.x1, box.y0, box.y1) for box in boxes] == [(0.52, 0.80, 0.11, 0.16)]
+    word = boxes_for_range(content.lines, 0, len("significant"))
+    assert [(box.x0, box.y0) for box in word] == [(0.10, 0.12)]
+
+
+def test_two_formula_spans_keep_their_own_boxes() -> None:
+    stored = "weight y = 1.09x next \\mathrm{R}^2 = 0.94 tail"
+    middle = _with_lines(
+        _middle([_block("text", 0, stored)]),
+        [
+            {
+                "y0": 0.20,
+                "y1": 0.22,
+                "glyphs": [
+                    {"t": "weight ", "x0": 0.10, "x1": 0.30},
+                    {
+                        "t": "",
+                        "x0": 0.40,
+                        "x1": 0.70,
+                        "y0": 0.20,
+                        "y1": 0.22,
+                        "latex": "y = 1.09x",
+                    },
+                ],
+            },
+            {
+                "y0": 0.24,
+                "y1": 0.26,
+                "glyphs": [
+                    {
+                        "t": "",
+                        "x0": 0.10,
+                        "x1": 0.55,
+                        "y0": 0.24,
+                        "y1": 0.26,
+                        "latex": "\\mathrm{R}^2 = 0.94",
+                    },
+                    {"t": " tail", "x0": 0.60, "x1": 0.80},
+                ],
+            },
+        ],
+    )
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    first = stored.index("y = 1.09x")
+    second = stored.index("\\mathrm{R}^2")
+    assert [
+        (box.x0, box.x1, box.y0, box.y1)
+        for box in boxes_for_range(content.lines, first, first + len("y = 1.09x"))
+    ] == [(0.40, 0.70, 0.20, 0.22)]
+    assert [
+        (box.x0, box.x1, box.y0, box.y1)
+        for box in boxes_for_range(content.lines, second, second + len("\\mathrm{R}^2 = 0.94"))
+    ] == [(0.10, 0.55, 0.24, 0.26)]
+    both = boxes_for_range(content.lines, first, second + len("\\mathrm{R}^2 = 0.94"))
+    assert [(box.y0, box.y1) for box in both] == [(0.20, 0.22), (0.24, 0.26)]
+
+
+def test_a_wrapped_rewrite_highlights_the_whole_area() -> None:
+    stored = "before QQQQQ after"
+    middle = _with_lines(
+        _middle([_block("text", 0, stored)]),
+        [
+            {"y0": 0.16, "y1": 0.18, "glyphs": [{"t": "before ", "x0": 0.10, "x1": 0.40}]},
+            {
+                "y0": 0.20,
+                "y1": 0.22,
+                "glyphs": [{"t": "A", "x0": 0.10, "x1": 0.20}, {"t": "B", "x0": 0.20, "x1": 0.30}],
+            },
+            {
+                "y0": 0.24,
+                "y1": 0.26,
+                "glyphs": [{"t": "C", "x0": 0.10, "x1": 0.18}, {"t": "D", "x0": 0.18, "x1": 0.28}],
+            },
+            {"y0": 0.28, "y1": 0.30, "glyphs": [{"t": " after", "x0": 0.10, "x1": 0.30}]},
+        ],
+    )
+    content = _text(_from_middle(middle).pages[0].blocks[0])
+    start = content.text.index("QQQQQ")
+    whole = [(0.10, 0.30, 0.20, 0.26)]
+    assert [
+        (box.x0, box.x1, box.y0, box.y1) for box in boxes_for_range(content.lines, start, start + 5)
+    ] == whole
+    assert [
+        (box.x0, box.x1, box.y0, box.y1) for box in boxes_for_range(content.lines, start, start + 3)
+    ] == whole
 
 
 def test_balanced_span_product_is_capped() -> None:
