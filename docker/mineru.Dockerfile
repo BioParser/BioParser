@@ -8,8 +8,8 @@
 # stage, so uv's cache never lands in an image layer, and bakes in the models its tier needs:
 # the service sits on an internal network and cannot fetch weights at runtime.
 
-# uv 0.13.7, the same pin as CI. Index digest so amd64 and arm64 both resolve.
-FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
+# uv 0.13.10, the same pin as CI. Index digest so amd64 and arm64 both resolve.
+FROM ghcr.io/astral-sh/uv:0.13.10@sha256:a3ea1357342c1a4bf9a0c53a3deb1b55379aefa037338d8113d5771efa01774f AS uv
 
 # python 3.13.16-slim-trixie; index digest so amd64 and arm64 both resolve.
 FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90 AS base
@@ -39,7 +39,7 @@ FROM build AS cpu-build
 # The mineru and docvortex pins are checked against MINERU_VERSION and DOCVORTEX_VERSION.
 # mineru takes any docvortex 0.6.x, the library that builds its middle.json: pinned so a new
 # build gives the output the fixtures were made with.
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,id=uv-mineru,target=/root/.cache/uv,sharing=locked \
     uv venv /opt/mineru \
     && uv pip install --python /opt/mineru/bin/python "mineru==4.2.3" "docvortex==0.6.24"
 
@@ -52,7 +52,7 @@ FROM build AS gpu-build
 
 # full = torch and vLLM. vLLM pins its torch, so no torch index is chosen here: the PyPI
 # wheels (vLLM 0.30, torch 2.13) are CUDA 13 builds and need an NVIDIA driver for CUDA 13.
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,id=uv-mineru,target=/root/.cache/uv,sharing=locked \
     uv venv /opt/mineru \
     && uv pip install --python /opt/mineru/bin/python "mineru[full]==4.2.3" "docvortex==0.6.24"
 

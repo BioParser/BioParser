@@ -287,8 +287,8 @@ STUB_TEXT = "Adult body mass averaged 12.5 g in the sampled population."
 LOCATABLE_TEXT = "Mus musculus: adult body mass 12.5 g."
 LOCATABLE_OBSERVATION: dict[str, Any] = {
     "taxon": "Mus musculus",
-    "trait_code": "body_mass",
-    "value": 12.5,
+    "trait_name": "body mass",
+    "value": "12.5",
     "unit": "g",
     "evidence_block_id": "stub-p1-b0000",
     "quotation": "Mus musculus: adult body mass 12.5 g",
@@ -338,8 +338,13 @@ class StubParser:
 class StubVLLMService:
     """HTTP hop to vLLM"""
 
-    def __init__(self, observations: list[dict[str, Any]] | None = None) -> None:
+    def __init__(
+        self,
+        observations: list[dict[str, Any]] | None = None,
+        reply: str | None = None,
+    ) -> None:
         self.observations = observations
+        self.reply = reply
         self.prompts: list[str] = []
         self.system_prompts: list[str] = []
         self.up = True
@@ -357,6 +362,28 @@ class StubVLLMService:
         enable_thinking: bool = False,
     ) -> int:
         return len(parts)
+
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        system_prompt: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+        enable_thinking: bool = False,
+        timeout: float | None = None,
+    ) -> str:
+        del temperature, max_tokens, enable_thinking, timeout
+        self.prompts.append(prompt)
+        self.system_prompts.append(system_prompt or "")
+        if self.reply is not None:
+            return self.reply
+        return (
+            "verbatimScientificName: Mus musculus\n"
+            "verbatimTraitName: adults\n"
+            "verbatimTraitValue: 12.5\n"
+            "verbatimTraitUnit: kg\n"
+        )
 
     async def generate_model(
         self,
@@ -378,8 +405,8 @@ class StubVLLMService:
                 "observations": [
                     {
                         "taxon": "Mus musculus",  # kotihiiri
-                        "trait_code": "body_mass",
-                        "value": 12.5,
+                        "trait_name": "body mass",
+                        "value": "12.5",
                         "unit": "g",
                         "evidence_block_id": ident,
                         "quotation": "12.5 g",
@@ -552,7 +579,7 @@ class StubJobs:
             if "failed" not in ALLOWED_TRANSITIONS[state.status]:
                 return "skipped"
             self.states[str(job_id)] = state.with_changes(
-                status="failed", error_code="internal_error"
+                status="failed", error_code="retries_exhausted", failed_stage=state.status
             )
             return "exhausted"
         if status == "parsing":
@@ -598,7 +625,9 @@ class StubJobs:
             return "skipped"
         if "failed" not in ALLOWED_TRANSITIONS[state.status]:
             return "not_allowed"
-        self.states[str(job_id)] = state.with_changes(status="failed", error_code=code)
+        self.states[str(job_id)] = state.with_changes(
+            status="failed", error_code=code, failed_stage=state.status
+        )
         return "recorded"
 
     async def delete_finished(self, connection: object, job_id: object) -> str:

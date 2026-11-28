@@ -173,31 +173,60 @@ describe("StartJobPage", () => {
     expect(router.state.location.pathname).toBe("/jobs/job-a.pdf");
   });
 
-  it("sends the chosen parser and the default extractor", async () => {
+  it("sends the chosen parser and extractor", async () => {
     const fetchMock = stubApi();
     renderPage();
-    fireEvent.click(screen.getByLabelText("MinerU"));
+    fireEvent.click(within(screen.getByRole("group", { name: "Parser" })).getByLabelText("MinerU"));
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Extractor" })).getByLabelText("Mendel"),
+    );
     chooseFiles(pdf("a.pdf"));
     await startJobs();
     const startCall = fetchMock.mock.calls.find(([path]) => String(path).endsWith("/jobs"));
     expect(JSON.parse(String(startCall?.[1]?.body))).toEqual({
       parser: "mineru",
-      extractor: "default",
+      extractor: "mendel",
     });
   });
 
-  it("uses the Default parser unless another is chosen", () => {
+  it("uses the Default parser and extractor unless another is chosen", () => {
     renderPage();
-    expect((screen.getByLabelText("Default") as HTMLInputElement).checked).toBe(true);
+    expect(
+      (
+        within(screen.getByRole("group", { name: "Parser" })).getByLabelText(
+          "Default",
+        ) as HTMLInputElement
+      ).checked,
+    ).toBe(true);
+    expect(
+      (
+        within(screen.getByRole("group", { name: "Extractor" })).getByLabelText(
+          "Default",
+        ) as HTMLInputElement
+      ).checked,
+    ).toBe(true);
   });
 
-  it("shows the extractor and the traits in the summary", () => {
+  it("says when to choose each parser", () => {
     renderPage();
-    const summary = screen.getByRole("region", { name: "Summary" });
-    expect(within(summary).getByText("Extractor").nextElementSibling?.textContent).toBe("Default");
-    expect(within(summary).getByText("Traits").nextElementSibling?.textContent).toBe(
-      "Body mass, Body length, Tail length",
+    const parsers = within(screen.getByRole("group", { name: "Parser" }));
+    expect(parsers.getByLabelText("Default").getAttribute("aria-describedby")).toBe(
+      "parser-hint-default",
     );
+    expect(document.getElementById("parser-hint-mineru")?.textContent).toContain("OCR");
+    expect(parsers.getAllByRole("radio").map((radio) => (radio as HTMLInputElement).value)).toEqual(
+      ["default", "mineru"],
+    );
+  });
+
+  it("shows each file's size in the list", () => {
+    stubApi();
+    renderPage();
+    chooseFiles(pdfOfSize("small.pdf", 300 * 1024), pdfOfSize("big.pdf", 5.5 * 1024 * 1024));
+    const sizes = within(screen.getByRole("list", { name: "Files" }))
+      .getAllByRole("listitem")
+      .map((li) => li.querySelector(".job-file-size")?.textContent);
+    expect(sizes).toEqual(["300 KiB", "5.5 MiB"]);
   });
 
   it("does not send files the browser refuses, and sends the others", async () => {

@@ -12,5 +12,11 @@ export default defineConfig({
   server: {
     proxy: { "/api": devApiOrigin, "/ready": devApiOrigin },
   },
-  test: { environment: "jsdom" },
+  test: {
+    environment: "jsdom",
+    // Unit tests only. The browser tests in e2e/ run under Playwright (npm run test:e2e).
+    include: ["src/**/*.test.{ts,tsx}"],
+    // Vitest stubs CSS files. contrast.test.ts reads the design tokens, so this one is real.
+    css: { include: [/tokens\.css/] },
+  },
 });

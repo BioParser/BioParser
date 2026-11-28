@@ -322,15 +322,19 @@ Poll a job.
 ```
 
 - `queued`, `parsing`, `parsed`, and `extracting` return `job_id` and `status`.
-- `failed` adds `error`, a safe error code.
+- `failed` adds `error` and `failed_stage`. `failed_stage` is the status the job
+  had when it failed: `queued`, `parsing`, `parsed`, or `extracting`. The parser
+  artifact is kept exactly when that stage is `parsed` or `extracting`.
 - `done` is `job_id` and `status`. The ETS rows are `GET /api/jobs/{job_id}/ets`, in
   observation order. `references` on each row is the document checksum.
-- `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`,
-  `document_checksum`, and `has_parse_result`. That read is one query, the job
-  joined to its document. `display_name` is null when the document has no name.
-  The flag is true when the parser artifact was stored. `timeout` and
-  `internal_error` do not say which stage ended, so a full read is what tells a
-  reader that parsing finished. The full body has no rows.
+- `?detail=full` adds `created_at`, `display_name`, `parser`, `extractor`, and
+  `document_checksum`. That read is one query, the job joined to its document.
+  `display_name` is null when the document has no name. The full body has no rows.
+- `error.code` is `invalid_pdf`, `parse_failed`, `extraction_failed`, `timeout`,
+  `deferral_expired`, `retries_exhausted`, or `internal_error`. `deferral_expired`
+  means the job waited an hour for a dependency that never answered. The code does
+  not name that dependency. `retries_exhausted` means the stage was tried until
+  its attempt limit.
 - The response holds no storage paths. The UI reads the internal artifacts from the
   [job artifact routes](#get-apijobsjob_idartifactsparser-and-artifactsextraction).
 
@@ -603,7 +607,7 @@ for the OpenAPI docs' `responses=` examples:
 
 - `JobStatusResponse` — the shapes for one job, on `GET /api/jobs/{job_id}` and in a
   list. `JobResponse` is `job_id` and `status`. `JobFullResponse` adds the stored
-  record for `?detail=full`. `FailedJobResponse` carries `error`, and
+  record for `?detail=full`. `FailedJobResponse` carries `error` and `failed_stage`, and
   `FailedJobFullResponse` adds the record. None of these include ETS rows.
   `EtsRowsResponse` is `GET /api/jobs/{job_id}/ets`.
   `POST /api/extractions` and `POST /api/documents/{checksum}/jobs` return

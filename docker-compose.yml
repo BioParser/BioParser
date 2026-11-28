@@ -42,7 +42,7 @@ services:
       HF_TOKEN_PATH: /run/secrets/hf_token
     secrets: [hf_token]
     volumes:
-      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ${HF_CACHE_DIR:-${USERPROFILE:-${HOME}}/.cache/huggingface}:/root/.cache/huggingface
     ports:
       - "127.0.0.1:${VLLM_PORT:-8000}:8000"
     ipc: host

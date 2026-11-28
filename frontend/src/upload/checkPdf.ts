@@ -14,6 +14,13 @@ export function formatMiB(bytes: number): string {
   return `${Number((bytes / (1024 * 1024)).toFixed(1))} MiB`;
 }
 
+// A file's size for the list: KiB below 1000 KiB, so a small PDF does not read as 0 MiB and
+// none reads as 1024 KiB.
+export function formatFileSize(bytes: number): string {
+  const kib = Math.max(1, Math.round(bytes / 1024));
+  return kib < 1000 ? `${kib} KiB` : formatMiB(bytes);
+}
+
 export function tooLarge(maxBytes: number): string {
   return `The file is over ${formatMiB(maxBytes)}.`;
 }

@@ -18,14 +18,34 @@ import { resultsQueryKey } from "../results/useJobResults";
 const OBSERVATION_PARAM = "observation";
 
 const STAGES = ["queued", "parsing", "parsed", "extracting", "done"] as const;
-type FailureCode = Extract<JobStatusFullResponse, { status: "failed" }>["error"]["code"];
-const FAILURE_MESSAGES: Record<FailureCode, string> = {
-  invalid_pdf: "The file could not be read as a valid PDF.",
-  parse_failed: "The PDF could not be parsed.",
-  extraction_failed: "Traits could not be extracted from the parsed document.",
-  timeout: "The job took too long to complete.",
-  internal_error: "An unexpected error stopped the job.",
+type FailedJob = Extract<JobStatusFullResponse, { status: "failed" }>;
+type FailureCode = FailedJob["error"]["code"];
+type FailedStage = FailedJob["failed_stage"];
+
+const STAGE_WHEN: Record<FailedStage, string> = {
+  queued: "while the job was queued",
+  parsing: "while the PDF was being parsed",
+  parsed: "while the job was waiting to be extracted",
+  extracting: "while traits were being extracted",
 };
+
+function failureMessage(stage: FailedStage, code: FailureCode): string {
+  if (code === "deferral_expired") {
+    return `A service the job needs did not answer for an hour ${STAGE_WHEN[stage]}.`;
+  }
+  if (code === "retries_exhausted") {
+    return `The job was tried until its attempt limit ${STAGE_WHEN[stage]}.`;
+  }
+  if (code === "timeout") {
+    return `The job took too long ${STAGE_WHEN[stage]}.`;
+  }
+  if (code === "internal_error") {
+    return `An unexpected error stopped the job ${STAGE_WHEN[stage]}.`;
+  }
+  if (code === "invalid_pdf") return "The file could not be read as a valid PDF.";
+  if (code === "parse_failed") return "The PDF could not be parsed.";
+  return "Traits could not be extracted from the parsed document.";
+}
 
 function isPermanentError(error: Error | null): boolean {
   return (
@@ -85,7 +105,7 @@ export function JobDetailPage() {
     <div className={showEvidence ? "job-detail job-detail-with-evidence" : "job-detail"}>
       <div>
         <h1>Job</h1>
-        <p>
+        <p className="job-id">
           Job ID: <code>{jobId}</code>
         </p>
         {job.isPending && <p role="status">Loading job…</p>}
@@ -123,9 +143,7 @@ function JobStatus({
   onSelectObservation: (index: number) => void;
 }) {
   const stage =
-    job.status === "failed"
-      ? STAGES.indexOf(job.has_parse_result ? "extracting" : "parsing")
-      : STAGES.indexOf(job.status);
+    job.status === "failed" ? STAGES.indexOf(job.failed_stage) : STAGES.indexOf(job.status);
   return (
     <>
       <section className="job-summary" aria-labelledby="job-details-heading">
@@ -145,15 +163,30 @@ function JobStatus({
           <DeleteJob key={job.job_id} jobId={job.job_id} displayName={job.display_name} />
         )}
       </section>
-      <section aria-labelledby="job-progress-heading">
+      <section aria-labelledby="job-progress-heading" className="card job-section">
         <h2 id="job-progress-heading">Progress</h2>
-        <p role="status">Status: {job.status}</p>
+        <p role="status" className={`job-status-line status-badge status-${job.status}`}>
+          Status: {job.status}
+        </p>
         <ol className="job-detail-progress" aria-label="Job progress">
           {STAGES.map((status, index) => (
-            <li key={status} aria-current={index === stage ? "step" : undefined}>
-              {JOB_STATUS_LABELS[status]}
+            <li
+              key={status}
+              aria-current={index === stage ? "step" : undefined}
+              className={
+                index === stage && job.status === "failed"
+                  ? "failed"
+                  : index === stage && job.status === "done"
+                    ? "done"
+                    : undefined
+              }
+            >
+              {status === "parsed" && job.status === "failed" && job.failed_stage === "parsed"
+                ? "Waiting to extract"
+                : JOB_STATUS_LABELS[status]}
               {index === stage && job.status === "failed" ? " — failed" : ""}
-              {index < stage ? " — complete" : ""}
+              {/* The check mark shows it; screen readers hear it. */}
+              {index < stage && <span className="visually-hidden"> — complete</span>}
             </li>
           ))}
         </ol>
@@ -163,12 +196,11 @@ function JobStatus({
           <p>
             Job failed: <code>{job.error.code}</code>
           </p>
-          <p>{FAILURE_MESSAGES[job.error.code]}</p>
-          {job.has_parse_result && <p>The parse result is kept.</p>}
+          <p>{failureMessage(job.failed_stage, job.error.code)}</p>
         </div>
       )}
       {job.status === "done" && (
-        <section aria-labelledby="job-results-heading">
+        <section aria-labelledby="job-results-heading" className="job-section">
           <h2 id="job-results-heading">Results</h2>
           {/* Keyed by job: the route keeps the page mounted when it moves to another job,
               and the expanded rows and the hide-flagged choice belong to one job. */}
@@ -250,10 +282,9 @@ function DeleteJob({ jobId, displayName }: { jobId: string; displayName: string 
     });
   }
 
-  // The buttons sit in paragraphs so they get the page's paragraph spacing.
   if (!confirming) {
     return (
-      <p>
+      <p className="job-delete">
         <button
           type="button"
           ref={deleteButton}
@@ -268,7 +299,7 @@ function DeleteJob({ jobId, displayName }: { jobId: string; displayName: string 
     );
   }
   return (
-    <div>
+    <div className="job-delete-confirm">
       <p id="job-delete-question">
         Delete this job? It leaves the job lists. The PDF and its stored results are kept.
       </p>
@@ -279,15 +310,16 @@ function DeleteJob({ jobId, displayName }: { jobId: string; displayName: string 
             : "The job could not be deleted. Try again."}
         </p>
       )}
-      <p>
+      <p className="job-delete-actions">
         <button
           type="button"
+          className="button-danger"
           aria-describedby="job-delete-question"
           disabled={removal.isPending}
           onClick={confirmDelete}
         >
           {removal.isPending ? "Deleting…" : "Delete job"}
-        </button>{" "}
+        </button>
         <button
           type="button"
           ref={cancelButton}

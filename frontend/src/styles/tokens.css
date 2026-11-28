@@ -1,0 +1,151 @@
+/* Design tokens (#323). Colors follow the design concept in #190; it has no dark mode, so
+   the dark values are ours. contrast.test.ts checks the text and control pairs against WCAG
+   AA in both schemes, because jsdom computes no styles. Keep each color in both blocks. */
+
+:root {
+  color-scheme: light dark;
+
+  /* Page, cards and lines. */
+  --color-bg: #f4f5f2;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8f9f6;
+  --color-surface-selected: #edf6f1;
+  --color-border: #dcdfd8;
+  --color-border-strong: #858e82;
+
+  /* Text. */
+  --color-text: #17201b;
+  --color-text-muted: #4a524d;
+
+  /* Links, the primary button and the selected parser. */
+  --color-accent: #1c6b4f;
+  --color-accent-strong: #134a37;
+  --color-accent-soft: #e3f0ea;
+  --color-on-accent: #ffffff;
+
+  /* The header bar. */
+  --color-header-bg: #134a37;
+  --color-header-text: #ffffff;
+  --color-header-muted: #d5e6dd;
+  --color-header-current-bg: #ffffff;
+  --color-header-current-text: #134a37;
+
+  /* Focus ring: on the page, and on the dark header. */
+  --color-focus: #2b66b0;
+  --color-focus-on-header: #ffffff;
+
+  /* Errors and warnings. */
+  --color-danger: #97380b;
+  --color-danger-soft: #fbe7da;
+  --color-warning: #7a4400;
+
+  /* Job status badges: background and text. */
+  --color-status-queued-bg: #eceeea;
+  --color-status-queued: #4a524d;
+  --color-status-running-bg: #e1ebf7;
+  --color-status-running: #1f4f8a;
+  --color-status-parsed-bg: #e8eaf6;
+  --color-status-parsed: #3a4785;
+  --color-status-done-bg: #dff0e5;
+  --color-status-done: #1c6b4f;
+  --color-status-failed-bg: #fbe7da;
+  --color-status-failed: #97380b;
+
+  /* Progress steps. */
+  --color-step-todo: #d6dad3;
+  --color-step-done: #1c6b4f;
+  --color-step-active: #2f6fbd;
+  --color-step-failed: #b9500f;
+
+  /* Evidence: the value and the unit, in the quotation and on the PDF page. */
+  --color-mark-value: #ffcc0044;
+  --color-mark-value-line: #a86a00;
+  --color-mark-unit: #44aaff33;
+  --color-mark-unit-line: #2a6fb0;
+  --color-outline-block: #dd770088;
+
+  /* Type. */
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.875rem;
+  --leading: 1.5;
+
+  /* Spacing. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+
+  /* Shapes and sizes. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  --control-height: 2.75rem;
+  --page-width: 80rem;
+  --shadow-card: 0 1px 2px #17201b0f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #0f1512;
+    --color-surface: #17201b;
+    --color-surface-muted: #1c2621;
+    --color-surface-selected: #1f3429;
+    --color-border: #2e3a33;
+    --color-border-strong: #75827a;
+
+    --color-text: #e7ece8;
+    --color-text-muted: #a9b4ad;
+
+    --color-accent: #7fd1a8;
+    --color-accent-strong: #a6e2c3;
+    --color-accent-soft: #1f3429;
+    --color-on-accent: #0c2a1e;
+
+    --color-header-bg: #0c2a1e;
+    --color-header-text: #ffffff;
+    --color-header-muted: #c3dccf;
+    --color-header-current-bg: #7fd1a8;
+    --color-header-current-text: #0c2a1e;
+
+    --color-focus: #8db8f0;
+    --color-focus-on-header: #ffffff;
+
+    --color-danger: #f3a77a;
+    --color-danger-soft: #3d2112;
+    --color-warning: #ffc680;
+
+    --color-status-queued-bg: #2a322d;
+    --color-status-queued: #c9d1cb;
+    --color-status-running-bg: #1c2f47;
+    --color-status-running: #a9c8f0;
+    --color-status-parsed-bg: #262b48;
+    --color-status-parsed: #b7bff0;
+    --color-status-done-bg: #173326;
+    --color-status-done: #8fd4b0;
+    --color-status-failed-bg: #3d2112;
+    --color-status-failed: #f3b48c;
+
+    --color-step-todo: #3a463f;
+    --color-step-done: #7fd1a8;
+    --color-step-active: #8db8f0;
+    --color-step-failed: #f08a52;
+
+    --color-mark-value: #ffcc0040;
+    --color-mark-value-line: #ffcc66;
+    --color-mark-unit: #44aaff40;
+    --color-mark-unit-line: #8db8f0;
+    --color-outline-block: #ffaa4499;
+
+    --shadow-card: none;
+  }
+}

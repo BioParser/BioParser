@@ -22,12 +22,8 @@ function job(id: string, status: JobStatus = "done"): JobList[number] {
     document_checksum: "abc",
   };
   return status === "failed"
-    ? { ...metadata, status, error: { code: "extraction_failed" }, has_parse_result: true }
-    : {
-        ...metadata,
-        status,
-        has_parse_result: status === "parsed" || status === "extracting" || status === "done",
-      };
+    ? { ...metadata, status, error: { code: "extraction_failed" }, failed_stage: "extracting" }
+    : { ...metadata, status };
 }
 
 function mount(path = "/") {
@@ -84,9 +80,22 @@ describe("Dashboard", () => {
     const steps = within(screen.getByRole("list", { name: "Progress: Failed" })).getAllByRole(
       "listitem",
     );
+    expect(steps).toHaveLength(2);
     expect(steps[0].className).toBe("complete");
     expect(steps[1].className).not.toBe("complete");
-    expect(steps[2].className).not.toBe("complete");
+  });
+
+  it("shows a done job with Parse and Extract complete, and no Done step", async () => {
+    jobs = [job("done")];
+    mount();
+    await screen.findByRole("link", { name: "done.pdf" });
+    const steps = within(screen.getByRole("list", { name: "Progress: Done" })).getAllByRole(
+      "listitem",
+    );
+    expect(steps.map((step) => [step.textContent, step.className])).toEqual([
+      ["✓ Parse", "complete"],
+      ["✓ Extract", "complete"],
+    ]);
   });
 
   it("keeps parsing complete when a later stage times out", async () => {
@@ -95,7 +104,7 @@ describe("Dashboard", () => {
         ...job("failed", "failed"),
         status: "failed",
         error: { code: "timeout" },
-        has_parse_result: true,
+        failed_stage: "extracting",
       },
     ];
     mount();
@@ -113,7 +122,7 @@ describe("Dashboard", () => {
         ...job("failed", "failed"),
         status: "failed",
         error: { code: "parse_failed" },
-        has_parse_result: false,
+        failed_stage: "parsing",
       },
     ];
     mount();
@@ -130,7 +139,9 @@ describe("Dashboard", () => {
     const link = await screen.findByRole("link", { name: "newer.pdf" });
     expect(link.getAttribute("href")).toBe("/jobs/newer");
     expect(screen.getByRole("link", { name: "Unnamed file" })).toBeDefined();
-    expect(screen.getByText("extraction_failed")).toBeDefined();
+    // The code is on the job's page; the dashboard shows the Failed badge only.
+    expect(screen.queryByText("extraction_failed")).toBeNull();
+    expect(screen.getAllByRole("row")[1].querySelector(".job-status")?.textContent).toBe("Failed");
     expect(screen.getByText("Jobs, newest first")).toBeDefined();
     const rows = screen.getAllByRole("row");
     expect(rows[1].textContent).toContain("newer.pdf");

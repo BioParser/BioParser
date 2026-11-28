@@ -1,0 +1,159 @@
+/* Pieces more than one page uses: the job status badge and the progress steps. */
+
+/* One badge per job status, on the dashboard and the job page. The word is always shown;
+   the dot and the color only repeat it. */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.125rem 0.625rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-status-queued-bg);
+  color: var(--color-status-queued);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.5;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.status-badge::before {
+  content: "";
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-badge.status-parsing,
+.status-badge.status-extracting {
+  background: var(--color-status-running-bg);
+  color: var(--color-status-running);
+}
+
+.status-badge.status-parsed {
+  background: var(--color-status-parsed-bg);
+  color: var(--color-status-parsed);
+}
+
+.status-badge.status-done {
+  background: var(--color-status-done-bg);
+  color: var(--color-status-done);
+}
+
+.status-badge.status-failed {
+  background: var(--color-status-failed-bg);
+  color: var(--color-status-failed);
+}
+
+/* The dashboard's two steps, Parse and Extract: a bar for each, with its name under it. Each
+   name starts with ✓, ● or ○, so the state is in the text as well as the color. */
+.job-progress {
+  display: flex;
+  gap: var(--space-1);
+  min-width: 11rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.job-progress li {
+  flex: 1;
+  padding-top: var(--space-2);
+  border-top: 0.375rem solid var(--color-step-todo);
+  border-radius: 3px 3px 0 0;
+}
+
+.job-progress .complete {
+  border-top-color: var(--color-step-done);
+}
+
+.job-progress .active {
+  border-top-color: var(--color-step-active);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.job-progress .failed {
+  border-top-color: var(--color-step-failed);
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+/* The job page's five steps, numbered in circles. The current one is marked by
+   aria-current and its name is bold; a failed or complete step says so in its text. */
+.job-detail-progress {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  font-size: var(--text-sm);
+}
+
+.job-detail-progress li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  counter-increment: step;
+  color: var(--color-text-muted);
+}
+
+.job-detail-progress li::before {
+  content: counter(step);
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 2px solid var(--color-step-todo);
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+/* Steps before the current one are complete. */
+.job-detail-progress li:has(~ [aria-current="step"]) {
+  color: var(--color-text);
+}
+
+.job-detail-progress li:has(~ [aria-current="step"])::before {
+  content: "✓";
+  border-color: var(--color-step-done);
+  background: var(--color-step-done);
+  color: var(--color-surface);
+}
+
+.job-detail-progress [aria-current="step"] {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.job-detail-progress [aria-current="step"]::before {
+  border-color: var(--color-step-active);
+  border-width: 3px;
+  color: var(--color-text);
+}
+
+.job-detail-progress .failed::before {
+  content: "!";
+  border-color: var(--color-step-failed);
+  background: var(--color-step-failed);
+  color: var(--color-surface);
+}
+
+/* A done job's last step is complete too. */
+.job-detail-progress .done::before {
+  content: "✓";
+  border-color: var(--color-step-done);
+  background: var(--color-step-done);
+  color: var(--color-surface);
+}

@@ -12,7 +12,6 @@ const metadata = {
   extractor: "default",
   created_at: "2026-11-10T10:00:00Z",
   document_checksum: "a".repeat(64),
-  has_parse_result: false,
 };
 const clients: QueryClient[] = [];
 afterEach(() => {
@@ -103,7 +102,7 @@ describe("JobDetailPage", () => {
     expect(screen.getByRole("heading", { name: "study.pdf" })).toBeDefined();
   });
 
-  it("handles an unnamed PDF and a retained parse result after a timeout", async () => {
+  it("handles an unnamed PDF that failed while extracting", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -111,14 +110,19 @@ describe("JobDetailPage", () => {
           ...metadata,
           display_name: null,
           status: "failed",
-          has_parse_result: true,
+          failed_stage: "extracting",
           error: { code: "timeout" },
         }),
       ),
     );
     renderPage();
     await screen.findByRole("heading", { name: "Unnamed PDF" });
-    expect(screen.getByRole("alert").textContent).toContain("The parse result is kept.");
+    const stages = within(screen.getByRole("list", { name: "Job progress" })).getAllByRole(
+      "listitem",
+    );
+    expect(stages.find((li) => li.getAttribute("aria-current") === "step")?.textContent).toBe(
+      "Extracting — failed",
+    );
   });
 
   it("loads the next job and cancels an outstanding request when navigating", async () => {
@@ -163,24 +167,65 @@ describe("JobDetailPage", () => {
     expect(screen.getByRole("status").textContent).toBe("Status: queued");
   });
 
-  it.each(
+  it.each([
+    ["invalid_pdf", "parsing", "The file could not be read as a valid PDF.", "Parsing — failed"],
+    ["parse_failed", "parsing", "The PDF could not be parsed.", "Parsing — failed"],
     [
-      ["invalid_pdf", "The file could not be read as a valid PDF."],
-      ["parse_failed", "The PDF could not be parsed."],
-      ["extraction_failed", "Traits could not be extracted from the parsed document."],
-      ["timeout", "The job took too long to complete."],
-      ["internal_error", "An unexpected error stopped the job."],
-    ].flatMap(([code, message]) =>
-      [false, true].map((hasParseResult) => ({ code, message, hasParseResult })),
-    ),
-  )("explains $code (parse result: $hasParseResult)", async ({ code, message, hasParseResult }) => {
+      "extraction_failed",
+      "extracting",
+      "Traits could not be extracted from the parsed document.",
+      "Extracting — failed",
+    ],
+    [
+      "timeout",
+      "parsing",
+      "The job took too long while the PDF was being parsed.",
+      "Parsing — failed",
+    ],
+    [
+      "internal_error",
+      "queued",
+      "An unexpected error stopped the job while the job was queued.",
+      "Queued — failed",
+    ],
+    [
+      "retries_exhausted",
+      "extracting",
+      "The job was tried until its attempt limit while traits were being extracted.",
+      "Extracting — failed",
+    ],
+    [
+      "deferral_expired",
+      "queued",
+      "A service the job needs did not answer for an hour while the job was queued.",
+      "Queued — failed",
+    ],
+    [
+      "deferral_expired",
+      "parsing",
+      "A service the job needs did not answer for an hour while the PDF was being parsed.",
+      "Parsing — failed",
+    ],
+    [
+      "deferral_expired",
+      "parsed",
+      "A service the job needs did not answer for an hour while the job was waiting to be extracted.",
+      "Waiting to extract — failed",
+    ],
+    [
+      "deferral_expired",
+      "extracting",
+      "A service the job needs did not answer for an hour while traits were being extracted.",
+      "Extracting — failed",
+    ],
+  ] as const)("explains $code at $stage", async (code, stage, message, step) => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
         Response.json({
           ...metadata,
           status: "failed",
-          has_parse_result: hasParseResult,
+          failed_stage: stage,
           error: { code },
         }),
       ),
@@ -189,17 +234,11 @@ describe("JobDetailPage", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(code);
     expect(alert.textContent).toContain(message);
-    expect(alert.textContent?.includes("The parse result is kept.")).toBe(hasParseResult);
     const stages = within(screen.getByRole("list", { name: "Job progress" })).getAllByRole(
       "listitem",
     );
-    const failedStage = stages.find((li) => li.getAttribute("aria-current") === "step");
-    expect(failedStage?.textContent).toBe(
-      hasParseResult ? "Extracting — failed" : "Parsing — failed",
-    );
-    expect(stages.filter((li) => li.textContent?.includes("— complete"))).toHaveLength(
-      hasParseResult ? 3 : 1,
-    );
+    const failedStep = stages.find((li) => li.getAttribute("aria-current") === "step");
+    expect(failedStep?.textContent).toBe(step);
   });
 
   it.each([404, 422])("stops polling and explains an unknown job on %s", async (status) => {
@@ -215,12 +254,19 @@ describe("JobDetailPage", () => {
 
   it.each(["done", "failed"])("polls until %s and then stops", async (status) => {
     vi.useFakeTimers();
-    let response = { ...metadata, status: "queued", error: { code: "parse_failed" } };
+    let response: Record<string, unknown> = {
+      ...metadata,
+      status: "queued",
+      error: { code: "parse_failed" },
+    };
     const fetchMock = vi.fn(async (path: RequestInfo | URL) => answer(path, response));
     vi.stubGlobal("fetch", fetchMock);
     renderPage();
     await tick();
-    response = { ...response, status };
+    response =
+      status === "failed"
+        ? { ...response, status, failed_stage: "parsing" }
+        : { ...response, status };
     await tick(3000);
     expect(screen.getByText(`Status: ${status}`).getAttribute("role")).toBe("status");
     const calls = fetchMock.mock.calls.length;
