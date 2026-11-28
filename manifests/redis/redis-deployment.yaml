@@ -59,11 +59,11 @@ spec:
           protocol: TCP
         resources:
           requests:
-            memory: "500Mi"
             cpu: "100m"
+            memory: "500Mi"
           limits:
-            memory: "1Gi"
             cpu: "500m"
+            memory: "1Gi"
         securityContext:
           allowPrivilegeEscalation: false
           runAsNonRoot: true

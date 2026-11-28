@@ -30,11 +30,11 @@ spec:
             - until nc -z postgres 5432; do echo "waiting for postgres..."; sleep 2; done
           resources:
             requests:
-              memory: "256Mi"
               cpu: "200m"
+              memory: "256Mi"
             limits:
-              memory: "1Gi"
               cpu: "1"
+              memory: "1Gi"
         - name: migrate
           image: migrate:latest
           imagePullPolicy: Always
@@ -52,11 +52,11 @@ spec:
                   key: POSTGRES_APP_PASSWORD
           resources:
             requests:
-              memory: "256Mi"
               cpu: "200m"
+              memory: "256Mi"
             limits:
-              memory: "1Gi"
               cpu: "1"
+              memory: "1Gi"
       containers:
         - name: bioparser-api
           image: bioparser-api:latest
@@ -87,11 +87,11 @@ spec:
               name: artifact-storage
           resources:
             requests:
-              memory: "256Mi"
               cpu: "200m"
+              memory: "256Mi"
             limits:
-              memory: "1Gi"
               cpu: "1"
+              memory: "1Gi"
           livenessProbe:
             httpGet:
               path: /health

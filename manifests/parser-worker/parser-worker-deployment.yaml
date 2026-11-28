@@ -27,11 +27,11 @@ spec:
             - until wget -q -O /dev/null http://bioparser:8080/ready; do echo "waiting for api..."; sleep 2; done
           resources:
             requests:
-              memory: "512Mi"
               cpu: "500m"
+              memory: "512Mi"
             limits:
-              memory: "2Gi"
               cpu: "1"
+              memory: "2Gi"
       containers:
         - name: parser-worker
           image: parser-worker:latest
@@ -62,11 +62,11 @@ spec:
               name: artifact-storage
           resources:
             requests:
-              memory: "512Mi"
               cpu: "500m"
+              memory: "512Mi"
             limits:
-              memory: "2Gi"
               cpu: "1"
+              memory: "2Gi"
       volumes:
         - name: artifact-storage
           persistentVolumeClaim:

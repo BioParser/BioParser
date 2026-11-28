@@ -68,11 +68,11 @@ spec:
               mountPath: /dev/shm
           resources:
             requests:
-              memory: "32Gi"
               cpu: "12"
+              memory: "32Gi"
             limits:
-              memory: "40Gi"
               cpu: "16"
+              memory: "40Gi"
       volumes:
         - name: qwen-storage
           persistentVolumeClaim:
