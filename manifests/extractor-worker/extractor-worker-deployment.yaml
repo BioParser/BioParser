@@ -25,6 +25,13 @@ spec:
             - sh
             - -c
             - until wget -q -O /dev/null http://bioparser:8080/ready; do echo "waiting for api..."; sleep 2; done
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
       containers:
         - name: extractor-worker
           image: extractor-worker:latest

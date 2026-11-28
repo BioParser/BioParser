@@ -28,6 +28,13 @@ spec:
             - sh
             - -c
             - until nc -z postgres 5432; do echo "waiting for postgres..."; sleep 2; done
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
         - name: migrate
           image: migrate:latest
           imagePullPolicy: Always
@@ -35,14 +42,21 @@ spec:
           env:
             - name: BIOPARSER_DATABASE_URL
               valueFrom:
-                  secretKeyRef:
-                    name: bioparser-secret
-                    key: BIOPARSER_DATABASE_URL
+                secretKeyRef:
+                  name: bioparser-secret
+                  key: BIOPARSER_DATABASE_URL
             - name: POSTGRES_APP_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: bioparser-secret
                   key: POSTGRES_APP_PASSWORD
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
       containers:
         - name: bioparser-api
           image: bioparser-api:latest
