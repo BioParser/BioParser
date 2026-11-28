@@ -150,8 +150,12 @@ class StageJobHandler[T: JobMessage]:
                 await self.run(state)
             except asyncio.CancelledError as exc:
                 # The queue's time limit cancelled this attempt. The same attempt
-                # would run out of time again, so it is not retried.
+                # would run out of time again, so it is not retried. Clear the
+                # request so a later await on this task is not still cancelled.
                 LOGGER.error("stage was cancelled at the time limit")
+                task = asyncio.current_task()
+                if task is not None:
+                    task.uncancel()
                 raise PermanentJobFailure("timeout") from exc
         except PermanentJobFailure as exc:
             LOGGER.error(f"stage failed. Marking the job failed ({exc.code})")

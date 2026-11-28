@@ -515,6 +515,37 @@ def test_parser_timeout_fails_with_timeout_without_retry(error: BaseException) -
     assert jobs.state.error_code == "timeout"
 
 
+def test_a_cancelled_stage_clears_the_request_before_recording_timeout() -> None:
+    """The failure write runs after the swallowed cancellation is cleared."""
+    started = asyncio.Event()
+
+    class _HangingParser:
+        async def parse(self, path: Path) -> ParserArtifact:
+            started.set()
+            await asyncio.Event().wait()
+            raise AssertionError("the cancellation never reached the parser")
+
+    jobs = StubJobs(_queued())
+    handler = _handler(
+        jobs, _storage(), RecordingParser(_artifact()), factory=lambda _name: _HangingParser()
+    )
+
+    async def run() -> asyncio.Task[None]:
+        task = asyncio.create_task(handler.handle(_message()))
+        await started.wait()
+        task.cancel()
+        await task
+        return task
+
+    task = asyncio.run(run())
+    asyncio.run(handler.aclose())
+
+    assert task.cancelling() == 0
+    assert jobs.state is not None
+    assert jobs.state.status == "failed"
+    assert jobs.state.error_code == "timeout"
+
+
 def test_invalid_existing_artifact_fails_the_job() -> None:
     jobs = StubJobs(_queued())
     storage = _storage()
