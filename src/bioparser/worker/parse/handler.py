@@ -165,13 +165,8 @@ class ParseJobHandler(StageJobHandler[ParseJobMessage]):
             LOGGER.error(f"parser backend {parser_name!r} cannot run: {exc}")
             raise PermanentJobFailure("parse_failed") from exc
         except ParserTimeoutError as exc:
-            # The same parse would run out of time again, so it is not retried.
+            # The parser's own limit. The queue's cancellation is handled by the stage.
             LOGGER.error(f"parser {parser_name!r} timed out: {type(exc).__name__}")
-            raise PermanentJobFailure("timeout") from exc
-        except asyncio.CancelledError as exc:
-            # The queue's time limit cancelled this attempt. Record timeout and do not
-            # retry the delivery (PermanentJobFailure).
-            LOGGER.error(f"parser {parser_name!r} was cancelled")
             raise PermanentJobFailure("timeout") from exc
         except UnsupportedDocumentError as exc:
             LOGGER.error(f"parser {parser_name!r} could not read the PDF: {type(exc).__name__}")
