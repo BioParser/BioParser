@@ -4954,7 +4954,7 @@
           "x1"
         ],
         "title": "TextLine",
-        "description": "One horizontal line, with a horizontal edge for each stored character.\n\n``x0[i]`` and ``x1[i]`` are the glyph edges of ``text[start + i]`` on the block\nthat owns this line. A null pair is a stored character with no ink: a space\ninserted between words, a hyphen removed at a line join, or MinerU's ``^{}``\nand ``_{}`` markers. A glyph that covers several characters shares its box in equal slices.\nCoordinates are stored to four decimal places."
+        "description": "One horizontal line, with a horizontal edge for each stored character.\n\n``x0[i]`` and ``x1[i]`` are the glyph edges of ``text[start + i]`` on the block\nthat owns this line. A null pair is a stored character with no ink: a space\ninserted between words, a hyphen removed at a line join, or MinerU's ``^{}``\nand ``_{}`` markers. A rewritten span shares the box of the ink that did not\nmatch those characters. A glyph that covers several characters shares its box\nin equal slices. Coordinates are stored to four decimal places."
       },
       "TextRange": {
         "properties": {
